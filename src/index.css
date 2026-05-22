@@ -124,6 +124,22 @@
     @apply text-xs font-semibold uppercase tracking-wider text-muted-foreground;
   }
 
+  .workbench-panel {
+    @apply dashboard-card rounded-[22px] border-border/80 bg-card/95 shadow-sm;
+  }
+
+  .workbench-filter-label {
+    @apply text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground/80;
+  }
+
+  .workbench-filter-trigger {
+    @apply flex h-10 w-full items-center justify-between gap-3 rounded-xl border border-border/80 bg-background px-3 text-left text-sm shadow-sm transition-colors hover:bg-muted/40;
+  }
+
+  .workbench-kpi-card {
+    @apply dashboard-card rounded-[20px] border-border/80 p-4 shadow-sm;
+  }
+
   .nav-item {
     @apply flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-150;
   }

@@ -15,6 +15,12 @@ import {
 } from "lucide-react";
 
 const navItems = [
+  {
+    id: "main-dashboard",
+    label: "Main Dashboard",
+    sublabel: "Full Picture 管理总览",
+    icon: LayoutDashboard,
+  },
   { id: "topissue", label: "Top Issue 分析", icon: TrendingUp },
   { id: "project", label: "项目分析", icon: LayoutDashboard },
   { id: "defect-high", label: "缺陷高频分析", icon: Bug },
@@ -68,7 +74,14 @@ const DashboardSidebar = ({ active, onNavigate }: DashboardSidebarProps) => {
               <Icon className="h-[18px] w-[18px] shrink-0" />
               {!collapsed && (
                 <>
-                  <span className="flex-1 truncate text-left">{item.label}</span>
+                  <div className="flex flex-1 flex-col overflow-hidden text-left">
+                    <span className="truncate">{item.label}</span>
+                    {"sublabel" in item && item.sublabel && (
+                      <span className="truncate text-[11px] text-[hsl(var(--sidebar-fg))]">
+                        {item.sublabel}
+                      </span>
+                    )}
+                  </div>
                   {"badge" in item && item.badge && (
                     <span className="rounded-md bg-primary/20 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-primary">
                       {item.badge}

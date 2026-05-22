@@ -14,8 +14,13 @@ import CoverageAnalysis from "@/components/dashboard/pages/CoverageAnalysis";
 import TestStatusAnalysis from "@/components/dashboard/pages/TestStatusAnalysis";
 import DefectStatusAnalysis from "@/components/dashboard/pages/DefectStatusAnalysis";
 import AIChat from "@/components/dashboard/pages/AIChat";
+import MainDashboard from "@/components/dashboard/pages/MainDashboard";
 
 const pageTitles: Record<string, { title: string; subtitle: string }> = {
+  "main-dashboard": {
+    title: "Main Dashboard",
+    subtitle: "将 Full Picture 数据和交互方式融合到当前数据看板",
+  },
   topissue: { title: "Top Issue 分析", subtitle: "关键问题追踪与趋势分析" },
   project: { title: "项目分析", subtitle: "多项目缺陷对比与进度总览" },
   "defect-high": { title: "缺陷高频分析", subtitle: "高频缺陷模块识别与根因定位" },
@@ -28,11 +33,13 @@ const pageTitles: Record<string, { title: string; subtitle: string }> = {
 };
 
 const Index = () => {
-  const [activeNav, setActiveNav] = useState("topissue");
-  const info = pageTitles[activeNav] || pageTitles.topissue;
+  const [activeNav, setActiveNav] = useState("main-dashboard");
+  const info = pageTitles[activeNav] || pageTitles["main-dashboard"];
 
   const renderContent = () => {
     switch (activeNav) {
+      case "main-dashboard":
+        return <MainDashboard />;
       case "project":
         return <ProjectAnalysis />;
       case "defect-high":
