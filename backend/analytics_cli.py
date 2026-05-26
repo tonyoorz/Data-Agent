@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sqlite3
 import sys
 from collections.abc import Sequence
 from datetime import datetime, timezone
@@ -10,8 +11,13 @@ from pathlib import Path
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from backend.analytics.config import get_analytics_db_path
+from backend.analytics.config import (
+    get_analytics_db_path,
+    get_full_picture_history_db_candidates,
+    get_full_picture_hot_db_path,
+)
 from backend.analytics.db import connect
+from backend.analytics.full_picture_outcomes import refresh_materialized_outcomes
 from backend.analytics.processor import backfill_defect_projects, sync_dimension_fields
 from backend.analytics.schema import ensure_schema
 
@@ -78,11 +84,54 @@ def seed_testing_rows() -> None:
         conn.close()
 
 
+def _require_history_source_path() -> Path:
+    for candidate in get_full_picture_history_db_candidates():
+        resolved = Path(candidate)
+        if _is_valid_history_source_path(resolved):
+            return resolved
+    raise SystemExit("No Full Picture history source database is available")
+
+
+def _require_valid_history_source_path(candidate: str | Path) -> Path:
+    resolved = Path(candidate)
+    if _is_valid_history_source_path(resolved):
+        return resolved
+    raise SystemExit(f"Provided Full Picture history source database is invalid: {resolved}")
+
+
+def _is_valid_history_source_path(candidate: Path) -> bool:
+    if not candidate.exists() or not candidate.is_file():
+        return False
+
+    try:
+        conn = sqlite3.connect(str(candidate))
+    except sqlite3.Error:
+        return False
+
+    try:
+        row = conn.execute(
+            """
+            SELECT 1
+            FROM sqlite_master
+            WHERE type = 'table' AND name = ?
+            LIMIT 1
+            """,
+            ("octane_defect_history_events",),
+        ).fetchone()
+    except sqlite3.Error:
+        return False
+    finally:
+        conn.close()
+
+    return row is not None
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("command", nargs="?", default="init-db")
     parser.add_argument("--db-path")
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--force", action="store_true")
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     db_path = args.db_path or str(get_analytics_db_path())
@@ -98,6 +147,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "backfill-projects":
         summary = backfill_defect_projects(db_path, apply=args.apply)
+        print(json.dumps(summary, ensure_ascii=False))
+        return 0
+    if args.command == "refresh-full-picture-outcomes":
+        source_db_path = (
+            _require_valid_history_source_path(args.db_path)
+            if args.db_path
+            else _require_history_source_path()
+        )
+        summary = refresh_materialized_outcomes(
+            source_db_path,
+            get_full_picture_hot_db_path(),
+            force=args.force,
+        )
         print(json.dumps(summary, ensure_ascii=False))
         return 0
 

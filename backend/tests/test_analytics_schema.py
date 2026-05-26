@@ -2,7 +2,11 @@ from pathlib import Path
 import subprocess
 import sqlite3
 import sys
+import json
 
+import pytest
+
+import backend.analytics_cli as analytics_cli
 from backend.analytics.config import get_analytics_db_path
 from backend.analytics_cli import main
 from backend.analytics.schema import ensure_schema
@@ -204,3 +208,133 @@ def test_cli_backfill_projects_command_updates_unknown_defect_projects(tmp_path)
         conn.close()
 
     assert row == ("IDC", "IDC")
+
+
+def test_cli_refresh_full_picture_outcomes_command_populates_hot_db(tmp_path, monkeypatch, capsys):
+    source_db = tmp_path / "qgate_data.db"
+    hot_db = tmp_path / "database" / "hot" / "vizion_serving.db"
+
+    conn = sqlite3.connect(source_db)
+    try:
+        conn.executescript(
+            """
+            CREATE TABLE octane_defect_history_events (
+                defect_id TEXT,
+                field_name TEXT,
+                event_timestamp TEXT,
+                entry_index INTEGER,
+                change_index INTEGER,
+                old_value TEXT,
+                new_value TEXT,
+                old_value_text TEXT,
+                new_value_text TEXT
+            );
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO octane_defect_history_events(
+                defect_id, field_name, event_timestamp, entry_index, change_index,
+                old_value, new_value, old_value_text, new_value_text
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "D-CLI-1",
+                "status_phase",
+                "2026-05-25T00:00:00Z",
+                1,
+                1,
+                "08",
+                "06",
+                "08-Resolved Forward",
+                "06-Ready for Test",
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    monkeypatch.setenv("VIZION_FULL_PICTURE_HISTORY_DB_PATH", str(source_db))
+    monkeypatch.setenv("VIZION_FULL_PICTURE_HOT_DB_PATH", str(hot_db))
+
+    exit_code = main(["refresh-full-picture-outcomes"])
+
+    assert exit_code == 0
+
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["row_count"] == 1
+    assert printed["skipped"] is False
+
+    conn = sqlite3.connect(hot_db)
+    try:
+        row = conn.execute(
+            "SELECT is_resolved_forward, is_rejected_directly FROM defect_outcomes WHERE defect_id='D-CLI-1'"
+        ).fetchone()
+    finally:
+        conn.close()
+
+    assert row == (1, 0)
+
+
+@pytest.mark.parametrize("create_candidate", [False, True])
+def test_cli_refresh_full_picture_outcomes_requires_valid_history_source(
+    tmp_path, monkeypatch, create_candidate
+):
+    candidate = tmp_path / "candidate.db"
+    if create_candidate:
+        sqlite3.connect(candidate).close()
+
+    monkeypatch.setattr(
+        analytics_cli,
+        "get_full_picture_history_db_candidates",
+        lambda: [candidate],
+    )
+
+    with pytest.raises(SystemExit, match="No Full Picture history source database is available"):
+        main(["refresh-full-picture-outcomes"])
+
+
+def test_cli_refresh_full_picture_outcomes_rejects_invalid_explicit_db_path(tmp_path):
+    invalid_db_path = tmp_path / "missing-history.db"
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(["refresh-full-picture-outcomes", "--db-path", str(invalid_db_path)])
+
+    assert str(exc_info.value) == (
+        f"Provided Full Picture history source database is invalid: {invalid_db_path}"
+    )
+
+
+def test_cli_refresh_full_picture_outcomes_passes_force_flag(tmp_path, monkeypatch, capsys):
+    source_db = tmp_path / "history.db"
+    hot_db = tmp_path / "database" / "hot" / "vizion_serving.db"
+    calls = {}
+
+    conn = sqlite3.connect(source_db)
+    try:
+        conn.execute(
+            "CREATE TABLE octane_defect_history_events (defect_id TEXT, field_name TEXT)"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    def fake_refresh(source_db_path, hot_db_path, force):
+        calls["source_db_path"] = source_db_path
+        calls["hot_db_path"] = hot_db_path
+        calls["force"] = force
+        return {"row_count": 0, "skipped": False}
+
+    monkeypatch.setattr(analytics_cli, "refresh_materialized_outcomes", fake_refresh)
+    monkeypatch.setenv("VIZION_FULL_PICTURE_HISTORY_DB_PATH", str(source_db))
+    monkeypatch.setenv("VIZION_FULL_PICTURE_HOT_DB_PATH", str(hot_db))
+
+    exit_code = main(["refresh-full-picture-outcomes", "--force"])
+
+    assert exit_code == 0
+    assert calls == {
+        "source_db_path": source_db,
+        "hot_db_path": hot_db,
+        "force": True,
+    }
+    assert json.loads(capsys.readouterr().out) == {"row_count": 0, "skipped": False}
