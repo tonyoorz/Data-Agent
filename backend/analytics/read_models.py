@@ -11,8 +11,10 @@ from urllib.parse import quote
 from backend.analytics.config import (
     get_analytics_db_path,
     get_full_picture_defect_db_candidates,
+    get_full_picture_hot_db_path,
     get_full_picture_history_db_candidates,
 )
+from backend.analytics.full_picture_outcomes import load_materialized_outcomes
 
 
 REQUIRED_DEFECT_COLUMNS = frozenset(
@@ -614,6 +616,20 @@ def _empty_outcome_state() -> dict[str, bool]:
     }
 
 
+def _load_hot_outcomes(defect_ids: tuple[str, ...]) -> dict[str, dict[str, Any]]:
+    hot_db_path = get_full_picture_hot_db_path()
+    try:
+        return load_materialized_outcomes(hot_db_path, defect_ids)
+    except FileNotFoundError as exc:
+        raise FullPictureDashboardDataError(
+            f"Full Picture hot outcomes are not available from {hot_db_path}"
+        ) from exc
+    except sqlite3.DatabaseError as exc:
+        raise FullPictureDashboardDataError(
+            f"Full Picture hot outcomes are not available from {hot_db_path}: {exc}"
+        ) from exc
+
+
 def _build_ticket_rows(
     defect_rows: list[dict[str, Any]],
     outcome_index: dict[str, dict[str, Any]],
@@ -768,14 +784,14 @@ def build_full_picture_payload(**kwargs: Any) -> dict[str, Any]:
         for row in defect_rows
         if str(row.get("ticket_id") or "").strip()
     )
-    history_rows = _load_history_events(defect_ids)
-    outcome_index = _build_outcome_index(history_rows)
+    outcome_index = _load_hot_outcomes(defect_ids)
     ticket_rows = _build_ticket_rows(defect_rows, outcome_index)
     ticket_rows = _apply_group_filter(ticket_rows, query.groups)
 
     return {
         "generated_from": {
             "defect_db_path": str(_resolve_defect_db_path() or ""),
+            "outcome_db_path": str(get_full_picture_hot_db_path()),
             "history_db_path": str(_resolve_history_db_path() or ""),
             "years": list(query.years),
             "projects": list(query.projects),
