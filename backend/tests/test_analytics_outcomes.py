@@ -4,8 +4,12 @@ import sqlite3
 import pytest
 
 from backend.analytics.config import (
+	DEFAULT_FULL_PICTURE_SOURCE_DB_PATH,
 	DEFAULT_FULL_PICTURE_HOT_DB_PATH,
+	get_full_picture_defect_db_candidates,
+	get_full_picture_history_db_candidates,
 	get_full_picture_hot_db_path,
+	get_full_picture_source_db_path,
 )
 from backend.analytics.full_picture_outcomes import (
 	ensure_outcome_store,
@@ -62,6 +66,38 @@ def test_full_picture_hot_db_path_defaults_to_repo_database_hot(monkeypatch):
 	custom_root = Path("/custom-root")
 	monkeypatch.setenv("VIZION_DATABASE_ROOT", str(custom_root))
 	assert get_full_picture_hot_db_path() == custom_root / "hot" / "vizion_serving.db"
+
+
+def test_full_picture_source_db_path_defaults_to_repo_database_source(monkeypatch):
+	monkeypatch.delenv("VIZION_FULL_PICTURE_SOURCE_DB_PATH", raising=False)
+
+	monkeypatch.delenv("VIZION_DATABASE_ROOT", raising=False)
+	assert get_full_picture_source_db_path() == DEFAULT_FULL_PICTURE_SOURCE_DB_PATH
+
+	monkeypatch.setenv("VIZION_FULL_PICTURE_SOURCE_DB_PATH", "   \t  ")
+	assert get_full_picture_source_db_path() == DEFAULT_FULL_PICTURE_SOURCE_DB_PATH
+
+	monkeypatch.setenv("VIZION_DATABASE_ROOT", "   \t  ")
+	monkeypatch.delenv("VIZION_FULL_PICTURE_SOURCE_DB_PATH", raising=False)
+	assert get_full_picture_source_db_path() == DEFAULT_FULL_PICTURE_SOURCE_DB_PATH
+
+	custom_root = Path("/custom-root")
+	monkeypatch.setenv("VIZION_DATABASE_ROOT", str(custom_root))
+	assert get_full_picture_source_db_path() == custom_root / "source" / "qgate_raw.db"
+
+
+def test_full_picture_candidates_prefer_local_source_copy(monkeypatch, tmp_path):
+	local_database_root = tmp_path / "database"
+	local_source = local_database_root / "source" / "qgate_raw.db"
+	analytics_db = tmp_path / "backend" / "database" / "octane_data.db"
+
+	monkeypatch.setenv("VIZION_DATABASE_ROOT", str(local_database_root))
+	monkeypatch.setenv("VIZION_ANALYTICS_DB_PATH", str(analytics_db))
+	monkeypatch.delenv("VIZION_FULL_PICTURE_DEFECT_DB_PATH", raising=False)
+	monkeypatch.delenv("VIZION_FULL_PICTURE_HISTORY_DB_PATH", raising=False)
+
+	assert get_full_picture_defect_db_candidates()[0] == local_source
+	assert get_full_picture_history_db_candidates()[0] == local_source
 
 
 def test_ensure_outcome_store_creates_parent_dirs_and_table(tmp_path):

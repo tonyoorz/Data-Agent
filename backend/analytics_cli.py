@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sqlite3
 import sys
 from collections.abc import Sequence
@@ -13,8 +14,10 @@ if __package__ in {None, ""}:
 
 from backend.analytics.config import (
     get_analytics_db_path,
+    get_full_picture_defect_db_candidates,
     get_full_picture_history_db_candidates,
     get_full_picture_hot_db_path,
+    get_full_picture_source_db_path,
 )
 from backend.analytics.db import connect
 from backend.analytics.full_picture_outcomes import refresh_materialized_outcomes
@@ -23,6 +26,7 @@ from backend.analytics.schema import ensure_schema
 
 
 HISTORY_SOURCE_REQUIRED_COLUMNS = frozenset({"defect_id", "field_name", "event_timestamp"})
+SOURCE_STAGE_REQUIRED_TABLES = frozenset({"octane_defects", "octane_defect_history_events"})
 
 
 def seed_testing_rows() -> None:
@@ -110,6 +114,79 @@ def _require_valid_history_source_path(candidate: str | Path) -> Path:
     raise SystemExit(f"Provided Full Picture history source database is invalid: {resolved}")
 
 
+def _require_source_stage_input_path() -> Path:
+    target_path = get_full_picture_source_db_path().resolve()
+    first_valid: Path | None = None
+    for candidate in get_full_picture_defect_db_candidates():
+        resolved = Path(candidate)
+        if resolved.resolve() == target_path:
+            continue
+        if not _is_valid_source_stage_path(resolved):
+            continue
+        if first_valid is None:
+            first_valid = resolved
+        if _get_defect_source_row_count(resolved) > 0:
+            return resolved
+    if first_valid is not None:
+        return first_valid
+    raise SystemExit("No Full Picture source database is available for local staging")
+
+
+def _require_valid_source_stage_input_path(candidate: str | Path) -> Path:
+    resolved = Path(candidate)
+    if _is_valid_source_stage_path(resolved):
+        return resolved
+    raise SystemExit(f"Provided Full Picture source database is invalid: {resolved}")
+
+
+def _is_valid_source_stage_path(candidate: Path) -> bool:
+    if not candidate.exists() or not candidate.is_file():
+        return False
+
+    try:
+        conn = sqlite3.connect(str(candidate))
+    except sqlite3.Error:
+        return False
+
+    try:
+        tables = {
+            str(row[0]).strip().lower()
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+    except sqlite3.Error:
+        return False
+    finally:
+        conn.close()
+
+    return SOURCE_STAGE_REQUIRED_TABLES.issubset(tables)
+
+
+def _get_defect_source_row_count(candidate: Path) -> int:
+    conn = sqlite3.connect(str(candidate))
+    try:
+        row = conn.execute("SELECT COUNT(*) FROM octane_defects").fetchone()
+    finally:
+        conn.close()
+    return int(row[0] or 0) if row else 0
+
+
+def _stage_full_picture_source(source_db_path: Path | str) -> dict[str, object]:
+    resolved_source_path = Path(source_db_path).resolve()
+    target_path = get_full_picture_source_db_path().resolve()
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if resolved_source_path != target_path:
+        shutil.copy2(resolved_source_path, target_path)
+
+    return {
+        "source_db_path": str(resolved_source_path),
+        "staged_db_path": str(target_path),
+        "copied": resolved_source_path != target_path,
+    }
+
+
 def _is_valid_history_source_path(candidate: Path) -> bool:
     return _get_history_source_row_count(candidate) is not None
 
@@ -177,6 +254,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "backfill-projects":
         summary = backfill_defect_projects(db_path, apply=args.apply)
+        print(json.dumps(summary, ensure_ascii=False))
+        return 0
+    if args.command == "stage-full-picture-source":
+        source_db_path = (
+            _require_valid_source_stage_input_path(args.db_path)
+            if args.db_path
+            else _require_source_stage_input_path()
+        )
+        summary = _stage_full_picture_source(source_db_path)
         print(json.dumps(summary, ensure_ascii=False))
         return 0
     if args.command == "refresh-full-picture-outcomes":

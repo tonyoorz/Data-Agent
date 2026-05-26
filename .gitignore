@@ -24,4 +24,9 @@ dist-ssr
 *.sw?
 backend/database/octane_data.db
 backend/database/*.sqlite
+database/**/*.db
+database/**/*.sqlite
+database/**/*.duckdb
+database/cold/parquet/**
+!database/**/.gitkeep
 .worktrees/

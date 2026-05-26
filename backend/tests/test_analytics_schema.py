@@ -276,6 +276,45 @@ def test_cli_refresh_full_picture_outcomes_command_populates_hot_db(tmp_path, mo
     assert row == (1, 0)
 
 
+def test_cli_stage_full_picture_source_copies_upstream_db_to_local_source(tmp_path, monkeypatch):
+    upstream_db = tmp_path / "upstream" / "qgate_data.db"
+    upstream_db.parent.mkdir(parents=True, exist_ok=True)
+
+    conn = sqlite3.connect(upstream_db)
+    try:
+        conn.execute("CREATE TABLE octane_defects (defect_id TEXT PRIMARY KEY, name TEXT)")
+        conn.execute(
+            "CREATE TABLE octane_defect_history_events (defect_id TEXT, field_name TEXT, event_timestamp TEXT)"
+        )
+        conn.execute(
+            "INSERT INTO octane_defects(defect_id, name) VALUES (?, ?)",
+            ("D-STAGE-1", "Staged source defect"),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    monkeypatch.setenv("VIZION_DATABASE_ROOT", str(tmp_path / "database"))
+
+    exit_code = main(["stage-full-picture-source", "--db-path", str(upstream_db)])
+
+    assert exit_code == 0
+
+    staged_db = tmp_path / "database" / "source" / "qgate_raw.db"
+    assert staged_db.exists()
+
+    conn = sqlite3.connect(staged_db)
+    try:
+        row = conn.execute(
+            "SELECT defect_id, name FROM octane_defects WHERE defect_id = ?",
+            ("D-STAGE-1",),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    assert row == ("D-STAGE-1", "Staged source defect")
+
+
 def test_cli_refresh_full_picture_outcomes_autodiscovery_prefers_non_empty_valid_history_source(
     tmp_path, monkeypatch, capsys
 ):

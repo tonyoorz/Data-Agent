@@ -62,6 +62,7 @@ $env:DUPSEARCH_DATA_DIR = "C:\path\to\defect"
 
 `Main Dashboard` 的本地 analytics API 会优先自动查找这些 SQLite：
 
+- `./database/source/qgate_raw.db`
 - `./qgate/qgate_data.db`
 - `./backend/database/octane_data.db`
 - `../TPMDashbaord/qgate/qgate_data.db`
@@ -70,9 +71,23 @@ $env:DUPSEARCH_DATA_DIR = "C:\path\to\defect"
 如果你的环境不同，可以手动指定：
 
 ```powershell
+$env:VIZION_FULL_PICTURE_SOURCE_DB_PATH = "C:\path\to\qgate_data.db"
 $env:VIZION_FULL_PICTURE_DEFECT_DB_PATH = "C:\path\to\qgate_data.db"
 $env:VIZION_FULL_PICTURE_HISTORY_DB_PATH = "C:\path\to\qgate_data.db"
 ```
+
+如果你想先把 sibling TPMDashboard 的 qgate SQLite stage 一份到当前仓库，再让 Full Picture 默认优先走本地 source copy：
+
+```powershell
+python -m backend.analytics_cli stage-full-picture-source --db-path ..\TPMDashbaord\qgate\qgate_data.db
+python -m backend.analytics_cli refresh-full-picture-outcomes
+```
+
+默认本地布局是：
+
+- `./database/source/qgate_raw.db`
+- `./database/hot/vizion_serving.db`
+- `./database/cold/`
 
 如果你要使用仓库内的本地 analytics SQLite，也可以先初始化 schema：
 

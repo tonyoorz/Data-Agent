@@ -175,6 +175,116 @@ def test_full_picture_dashboard_reads_original_sqlite_shape(tmp_path, monkeypatc
     assert payload["generated_from"]["outcome_db_path"] == str(hot_db_path)
 
 
+def test_full_picture_prefers_local_source_copy_when_present(tmp_path, monkeypatch):
+    database_root = tmp_path / "database"
+    source_db_path = database_root / "source" / "qgate_raw.db"
+    hot_db_path = database_root / "hot" / "vizion_serving.db"
+    analytics_db_path = tmp_path / "backend" / "database" / "octane_data.db"
+    source_db_path.parent.mkdir(parents=True, exist_ok=True)
+
+    conn = sqlite3.connect(source_db_path)
+    try:
+        conn.executescript(
+            """
+            CREATE TABLE octane_defects (
+                defect_id TEXT PRIMARY KEY,
+                name TEXT,
+                status_phase TEXT,
+                problem_finder_team TEXT,
+                year TEXT,
+                assigned_ecu TEXT,
+                top_aida TEXT,
+                aida_english TEXT,
+                aida_businesskey TEXT,
+                phase TEXT,
+                solution_cluster TEXT,
+                lead_model TEXT,
+                project TEXT,
+                pu TEXT,
+                market TEXT,
+                last_modified TEXT,
+                creation_time TEXT
+            );
+            CREATE TABLE octane_defect_history_events (
+                defect_id TEXT,
+                field_name TEXT,
+                event_timestamp TEXT,
+                entry_index INTEGER,
+                change_index INTEGER,
+                old_value TEXT,
+                new_value TEXT,
+                old_value_text TEXT,
+                new_value_text TEXT
+            );
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO octane_defects(
+                defect_id, name, status_phase, problem_finder_team, year,
+                assigned_ecu, top_aida, aida_english, aida_businesskey, phase,
+                solution_cluster, lead_model, project, pu, market, last_modified, creation_time
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "D-LOCAL-1",
+                "Local source issue",
+                "03-In Analysis",
+                "DTSV_China",
+                "2026",
+                "ECU-A",
+                "Speech",
+                "",
+                "",
+                "03-In Analysis",
+                "Integration",
+                "NA5",
+                "IDCEVO",
+                "PU1",
+                "CN",
+                "2026-05-25T00:00:00Z",
+                "2026-05-24T00:00:00Z",
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO octane_defect_history_events(
+                defect_id, field_name, event_timestamp, entry_index, change_index,
+                old_value, new_value, old_value_text, new_value_text
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "D-LOCAL-1",
+                "status_phase",
+                "2026-05-25T00:00:00Z",
+                1,
+                1,
+                "08",
+                "06",
+                "08-Resolved Forward",
+                "06-Ready for Test",
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    _refresh_full_picture_hot_outcomes(source_db_path, hot_db_path)
+    monkeypatch.setenv("VIZION_DATABASE_ROOT", str(database_root))
+    monkeypatch.setenv("VIZION_ANALYTICS_DB_PATH", str(analytics_db_path))
+    monkeypatch.delenv("VIZION_FULL_PICTURE_DEFECT_DB_PATH", raising=False)
+    monkeypatch.delenv("VIZION_FULL_PICTURE_HISTORY_DB_PATH", raising=False)
+    monkeypatch.delenv("VIZION_FULL_PICTURE_HOT_DB_PATH", raising=False)
+
+    payload = read_models.build_full_picture_payload(years="2026")
+
+    assert payload["overview"]["ticket_count"] == 1
+    assert payload["ticket_rows"][0]["ticket_id"] == "D-LOCAL-1"
+    assert payload["ticket_rows"][0]["is_resolved_forward"] is True
+    assert payload["generated_from"]["defect_db_path"] == str(source_db_path)
+    assert payload["generated_from"]["outcome_db_path"] == str(hot_db_path)
+
+
 def test_full_picture_reads_materialized_outcomes_without_history_db(tmp_path, monkeypatch):
     defect_db_path = tmp_path / "qgate_data.db"
     history_source_db_path = tmp_path / "history_source.db"
