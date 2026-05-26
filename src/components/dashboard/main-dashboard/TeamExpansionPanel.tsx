@@ -189,7 +189,7 @@ const TeamExpansionPanel = ({
   const chartWidth = Math.max(chartData.length * 132, 760);
 
   return (
-    <section className="workbench-panel p-5">
+    <section className="workbench-panel min-w-0 p-5">
       <div className="space-y-1">
         <h2 className="text-base font-semibold text-foreground">Team Expansion</h2>
       </div>

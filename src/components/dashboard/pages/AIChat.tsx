@@ -21,8 +21,18 @@ import { motion, AnimatePresence } from "framer-motion";
 import MessageRenderer from "../chat/MessageRenderer";
 import SlashMenu, { SLASH_COMMANDS, SlashCommand } from "../chat/SlashMenu";
 import { segmentsToPlainText, parseAgentStream } from "../chat/agentParser";
+import DuplicateSearchResults from "../chat/DuplicateSearchResults";
+import { createStreamTextAnimator, type StreamTextAnimator } from "../chat/streamTextAnimator";
+import {
+  COMPANY_CHAT_MODELS,
+  DEFAULT_COMPANY_CHAT_MODEL,
+  normalizeCompanyChatModel,
+} from "../chat/companyModels";
+import type { DuplicateSearchResult } from "../chat/duplicateSearchTypes";
+import { Switch } from "@/components/ui/switch";
 
 type Role = "user" | "assistant";
+type ChatMode = "chat" | "duplicate-search";
 interface Attachment {
   id: string;
   name: string;
@@ -34,6 +44,8 @@ interface Msg {
   id: string;
   role: Role;
   content: string;
+  mode?: ChatMode;
+  duplicateResult?: DuplicateSearchResult;
   attachments?: Attachment[];
 }
 interface Conversation {
@@ -43,13 +55,6 @@ interface Conversation {
   messages: Msg[];
   updatedAt: number;
 }
-
-const MODELS = [
-  { id: "google/gemini-3-flash-preview", label: "Gemini 3 · Flash", hint: "默认 · 快速" },
-  { id: "google/gemini-2.5-pro", label: "Gemini 2.5 · Pro", hint: "深度推理" },
-  { id: "openai/gpt-5-mini", label: "GPT-5 · Mini", hint: "平衡" },
-  { id: "openai/gpt-5", label: "GPT-5", hint: "最强" },
-];
 
 const STORAGE_KEY = "dtsv.chat.v2";
 
@@ -80,7 +85,9 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
   });
   const [activeId, setActiveId] = useState<string>(() => conversations[0].id);
   const [input, setInput] = useState("");
-  const [model, setModel] = useState(MODELS[0].id);
+  const [interactionMode, setInteractionMode] = useState<ChatMode>("chat");
+  const [chatContextEnabled, setChatContextEnabled] = useState(false);
+  const [model, setModel] = useState(DEFAULT_COMPANY_CHAT_MODEL);
   const [streaming, setStreaming] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [slashOpen, setSlashOpen] = useState(false);
@@ -92,6 +99,7 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
   const [editingMsgVal, setEditingMsgVal] = useState("");
 
   const abortRef = useRef<AbortController | null>(null);
+  const streamAnimatorRef = useRef<StreamTextAnimator | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -123,8 +131,34 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
   useEffect(() => {
     const close = () => setMenuId(null);
     document.addEventListener("click", close);
-    return () => document.removeEventListener("click", close);
+    return () => {
+      document.removeEventListener("click", close);
+      streamAnimatorRef.current?.stop();
+      streamAnimatorRef.current = null;
+    };
   }, []);
+
+  useEffect(() => {
+    if (interactionMode !== "duplicate-search") {
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    void fetch("/api/duplicate-search/warmup", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ reason: "duplicate-tab" }),
+      signal: controller.signal,
+    }).catch(() => {
+      // Warmup is best-effort; a real duplicate-search request still owns correctness.
+    });
+
+    return () => {
+      controller.abort();
+    };
+  }, [interactionMode]);
 
   const sortedConvos = useMemo(() => {
     return [...conversations].sort((a, b) => {
@@ -147,6 +181,8 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
   const stop = () => {
     abortRef.current?.abort();
     abortRef.current = null;
+    streamAnimatorRef.current?.stop();
+    streamAnimatorRef.current = null;
     setStreaming(false);
   };
 
@@ -215,26 +251,56 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
       return { role: m.role, content: m.content };
     });
 
+  const buildDuplicateFallbackSummary = (result: DuplicateSearchResult) => {
+    const head = [
+      `检索完成：返回 ${result.candidates.length} 条候选`,
+      `模型阶段：${result.modelPhase}`,
+      `反馈样本：${result.feedbackCount}`,
+    ];
+
+    if (!result.candidates.length) {
+      return `${head.join(" · ")}\n\n未找到足够相似的问题，请补充项目、PU、现象关键词后重试。`;
+    }
+
+    const top = result.candidates.slice(0, 3).map((item, index) => {
+      const title = item.name || "Untitled";
+      const ticket = item.ticketId || "N/A";
+      return `${index + 1}. [${ticket}] ${title} (评分 ${item.score1to10}/10)`;
+    });
+
+    return `${head.join(" · ")}\n\n${top.join("\n")}`;
+  };
+
   const runStream = async (history: Msg[], assistantMsgId: string) => {
     setStreaming(true);
     const controller = new AbortController();
     abortRef.current = controller;
+    streamAnimatorRef.current?.stop();
+    if (!chatContextEnabled) {
+      updateActive((c) => ({
+        ...c,
+        messages: c.messages.map((m) =>
+          m.id === assistantMsgId ? { ...m, content: "正在生成回答…" } : m,
+        ),
+        updatedAt: Date.now(),
+      }));
+    }
     const contextStr = moduleLabel
       ? `User is currently viewing the "${moduleLabel}" module (key: ${moduleKey}). Reference this module in <cite> when relevant.`
       : undefined;
 
     try {
-      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat`;
+      const url = "/api/ai/chat";
       const resp = await fetch(url, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
         },
         body: JSON.stringify({
           messages: buildGatewayMessages(history),
           model,
           context: contextStr,
+          useDefectContext: chatContextEnabled,
         }),
         signal: controller.signal,
       });
@@ -257,6 +323,19 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
       let buffer = "";
       let acc = "";
       let done = false;
+      const animator = createStreamTextAnimator({
+        onUpdate: (nextText) => {
+          acc = nextText;
+          updateActive((c) => ({
+            ...c,
+            messages: c.messages.map((m) =>
+              m.id === assistantMsgId ? { ...m, content: nextText } : m,
+            ),
+            updatedAt: Date.now(),
+          }));
+        },
+      });
+      streamAnimatorRef.current = animator;
 
       while (!done) {
         const { done: d, value } = await reader.read();
@@ -275,16 +354,48 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
           }
           try {
             const parsed = JSON.parse(json);
-            const chunk = parsed.choices?.[0]?.delta?.content as string | undefined;
-            if (chunk) {
-              acc += chunk;
+            if (parsed?.type === "status" && typeof parsed?.message === "string") {
               updateActive((c) => ({
                 ...c,
                 messages: c.messages.map((m) =>
-                  m.id === assistantMsgId ? { ...m, content: acc } : m,
+                  m.id === assistantMsgId
+                    ? { ...m, content: parsed.message }
+                    : m,
                 ),
                 updatedAt: Date.now(),
               }));
+              continue;
+            }
+
+            if (parsed?.type === "context" && parsed?.result) {
+              updateActive((c) => ({
+                ...c,
+                messages: c.messages.map((m) =>
+                  m.id === assistantMsgId
+                    ? { ...m, duplicateResult: parsed.result as DuplicateSearchResult }
+                    : m,
+                ),
+                updatedAt: Date.now(),
+              }));
+              continue;
+            }
+
+            if (parsed?.type === "error" && typeof parsed?.message === "string") {
+              updateActive((c) => ({
+                ...c,
+                messages: c.messages.map((m) =>
+                  m.id === assistantMsgId
+                    ? { ...m, content: `⚠️ ${parsed.message}` }
+                    : m,
+                ),
+                updatedAt: Date.now(),
+              }));
+              continue;
+            }
+
+            const chunk = parsed.choices?.[0]?.delta?.content as string | undefined;
+            if (chunk) {
+              animator.push(chunk);
             }
           } catch {
             buffer = line + "\n" + buffer;
@@ -292,6 +403,8 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
           }
         }
       }
+
+      await animator.finish();
     } catch (e: any) {
       if (e.name !== "AbortError") {
         updateActive((c) => ({
@@ -302,8 +415,69 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
         }));
       }
     } finally {
+      streamAnimatorRef.current = null;
       setStreaming(false);
       abortRef.current = null;
+    }
+  };
+
+  const runDuplicateSearch = async (queryText: string, assistantMsgId: string) => {
+    setStreaming(true);
+
+    try {
+      const response = await fetch("/api/duplicate-search", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          query: queryText,
+          top_k: 8,
+          model,
+        }),
+      });
+
+      const payload = (await response.json().catch(() => ({}))) as {
+        success?: boolean;
+        error?: string;
+        result?: DuplicateSearchResult;
+      };
+
+      if (!response.ok || !payload.success || !payload.result) {
+        throw new Error(payload.error || "重复问题检索失败");
+      }
+
+      const summaryText = payload.result.summaryText || buildDuplicateFallbackSummary(payload.result);
+      updateActive((c) => ({
+        ...c,
+        messages: c.messages.map((message) =>
+          message.id === assistantMsgId
+            ? {
+                ...message,
+                content: summaryText,
+                mode: "duplicate-search",
+                duplicateResult: payload.result,
+              }
+            : message,
+        ),
+        updatedAt: Date.now(),
+      }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "重复问题检索失败";
+      updateActive((c) => ({
+        ...c,
+        messages: c.messages.map((item) =>
+          item.id === assistantMsgId
+            ? {
+                ...item,
+                content: `⚠️ ${message}`,
+                mode: "duplicate-search",
+              }
+            : item,
+        ),
+      }));
+    } finally {
+      setStreaming(false);
     }
   };
 
@@ -315,9 +489,16 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
       id: newId(),
       role: "user",
       content,
-      attachments: attachments.length ? attachments : undefined,
+      mode: interactionMode,
+      attachments:
+        interactionMode === "chat" && attachments.length ? attachments : undefined,
     };
-    const assistantMsg: Msg = { id: newId(), role: "assistant", content: "" };
+    const assistantMsg: Msg = {
+      id: newId(),
+      role: "assistant",
+      content: "",
+      mode: interactionMode,
+    };
     const history = [...active.messages, userMsg];
     updateActive((c) => ({
       ...c,
@@ -328,6 +509,11 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
     setInput("");
     setAttachments([]);
     setSlashOpen(false);
+    if (interactionMode === "duplicate-search") {
+      await runDuplicateSearch(content, assistantMsg.id);
+      return;
+    }
+
     await runStream(history, assistantMsg.id);
   };
 
@@ -339,8 +525,15 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
     for (let i = msgs.length - 1; i >= 0; i--) if (msgs[i].role === "assistant") { lastAsst = i; break; }
     if (lastAsst < 0) return;
     const trimmed = msgs.slice(0, lastAsst);
-    const assistantMsg: Msg = { id: newId(), role: "assistant", content: "" };
+    const lastUserMessage = [...trimmed].reverse().find((message) => message.role === "user");
+    const retryMode = lastUserMessage?.mode || "chat";
+    const assistantMsg: Msg = { id: newId(), role: "assistant", content: "", mode: retryMode };
     updateActive((c) => ({ ...c, messages: [...trimmed, assistantMsg], updatedAt: Date.now() }));
+    if (retryMode === "duplicate-search" && lastUserMessage) {
+      await runDuplicateSearch(lastUserMessage.content, assistantMsg.id);
+      return;
+    }
+
     await runStream(trimmed, assistantMsg.id);
   };
 
@@ -349,11 +542,17 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
     if (idx < 0) return;
     const trimmed = active.messages.slice(0, idx);
     const newUser: Msg = { ...active.messages[idx], content: editingMsgVal };
-    const assistantMsg: Msg = { id: newId(), role: "assistant", content: "" };
+    const retryMode = newUser.mode || "chat";
+    const assistantMsg: Msg = { id: newId(), role: "assistant", content: "", mode: retryMode };
     const history = [...trimmed, newUser];
     updateActive((c) => ({ ...c, messages: [...history, assistantMsg], updatedAt: Date.now() }));
     setEditingMsgId(null);
     setEditingMsgVal("");
+    if (retryMode === "duplicate-search") {
+      await runDuplicateSearch(newUser.content, assistantMsg.id);
+      return;
+    }
+
     await runStream(history, assistantMsg.id);
   };
 
@@ -491,9 +690,9 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
               <Sparkles className="h-3.5 w-3.5" />
             </div>
             <span className="leading-tight">
-              由 Lovable AI 提供
+              本地智能检索与聊天
               <br />
-              <span className="text-[10px]">本地保存 · 实时流式</span>
+              <span className="text-[10px]">qgate 缺陷上下文 · 实时流式</span>
             </span>
           </div>
         </div>
@@ -504,6 +703,32 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
         {/* Top bar */}
         <div className="flex items-center justify-between border-b border-border px-6 py-3">
           <div className="flex items-center gap-2">
+            <div className="inline-flex items-center rounded-lg border border-border bg-muted/40 p-1">
+              <button
+                type="button"
+                onClick={() => setInteractionMode("chat")}
+                aria-pressed={interactionMode === "chat"}
+                className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                  interactionMode === "chat"
+                    ? "bg-card text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                AI Chat
+              </button>
+              <button
+                type="button"
+                onClick={() => setInteractionMode("duplicate-search")}
+                aria-pressed={interactionMode === "duplicate-search"}
+                className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                  interactionMode === "duplicate-search"
+                    ? "bg-card text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Duplicate Search
+              </button>
+            </div>
             <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/10">
               <Sparkles className="h-3.5 w-3.5 text-primary" />
             </div>
@@ -515,15 +740,25 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
                 数据分析智能体 · 可视化推理与工具调用
               </p>
             </div>
+            {interactionMode === "chat" ? (
+              <label className="ml-3 inline-flex items-center gap-2 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">缺陷上下文</span>
+                <Switch
+                  aria-label="缺陷上下文"
+                  checked={chatContextEnabled}
+                  onCheckedChange={setChatContextEnabled}
+                />
+              </label>
+            ) : null}
           </div>
           <select
             value={model}
-            onChange={(e) => setModel(e.target.value)}
+            onChange={(e) => setModel(normalizeCompanyChatModel(e.target.value))}
             className="rounded-md border border-border bg-card px-2.5 py-1.5 text-xs font-medium text-foreground outline-none transition-colors hover:bg-secondary focus:border-primary"
           >
-            {MODELS.map((m) => (
+            {COMPANY_CHAT_MODELS.map((m) => (
               <option key={m.id} value={m.id}>
-                {m.label} · {m.hint}
+                {m.label}
               </option>
             ))}
           </select>
@@ -542,10 +777,14 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
                   <Sparkles className="h-5 w-5 text-primary-foreground" />
                 </div>
                 <h2 className="text-2xl font-bold tracking-tight text-foreground">
-                  你好，今天要分析什么？
+                  {interactionMode === "duplicate-search"
+                    ? "输入现象，检索历史重复问题"
+                    : "你好，今天要分析什么？"}
                 </h2>
                 <p className="mt-1.5 text-sm text-muted-foreground">
-                  输入 <kbd className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px]">/</kbd> 调用预设命令，或直接提问。
+                  {interactionMode === "duplicate-search"
+                    ? "切到 Duplicate Search 后，输入现象、项目、PU 或关键日志，系统会优先检索历史缺陷。"
+                    : "输入 <kbd className=\"rounded bg-muted px-1.5 py-0.5 font-mono text-[11px]\">/</kbd> 调用预设命令，或直接提问。"}
                 </p>
               </motion.div>
               <div className="grid w-full gap-2 sm:grid-cols-2">
@@ -593,7 +832,11 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
                       </div>
                       <div className="min-w-0 flex-1 pt-0.5">
                         <p className="mb-1 text-xs font-medium text-muted-foreground">
-                          {m.role === "user" ? "你" : "DTSV Intelligence"}
+                          {m.role === "user"
+                            ? "你"
+                            : m.mode === "duplicate-search"
+                              ? "Duplicate Search"
+                              : "DTSV Intelligence"}
                         </p>
 
                         {/* attachments */}
@@ -645,9 +888,30 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
                             </div>
                           </div>
                         ) : m.role === "assistant" && m.content === "" && streaming && isLastAsst ? (
-                          <TypingDots />
+                          m.duplicateResult ? (
+                            <div className="space-y-3">
+                              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                <TypingDots />
+                                <span>已获取 qgate 相关缺陷，正在生成回答…</span>
+                              </div>
+                              <DuplicateSearchResults
+                                result={m.duplicateResult}
+                                allowFeedback={m.mode === "duplicate-search"}
+                              />
+                            </div>
+                          ) : (
+                            <TypingDots />
+                          )
                         ) : m.role === "assistant" ? (
-                          <MessageRenderer content={m.content} streaming={streaming && isLastAsst} />
+                          <div className="space-y-3">
+                            <MessageRenderer content={m.content} streaming={streaming && isLastAsst} />
+                            {m.duplicateResult ? (
+                              <DuplicateSearchResults
+                                result={m.duplicateResult}
+                                allowFeedback={m.mode === "duplicate-search"}
+                              />
+                            ) : null}
+                          </div>
                         ) : (
                           <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
                             {m.content}
@@ -750,8 +1014,9 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
               <button
                 type="button"
                 onClick={() => fileRef.current?.click()}
+                disabled={interactionMode === "duplicate-search"}
                 className="mb-1 flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                title="附件 (图片 / 文件)"
+                title={interactionMode === "duplicate-search" ? "Duplicate Search 暂不支持附件" : "附件 (图片 / 文件)"}
               >
                 <Paperclip className="h-4 w-4" />
               </button>
@@ -768,12 +1033,15 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
                   if (e.key === "Escape") setSlashOpen(false);
                 }}
                 rows={1}
-                placeholder="提问数据、要求总结，或输入 / 调用命令…  (Shift + Enter 换行)"
+                placeholder={interactionMode === "duplicate-search"
+                  ? "输入现象、项目、PU 或关键日志，检索是否已有重复缺陷…"
+                  : "提问数据、要求总结，或输入 / 调用命令…  (Shift + Enter 换行)"}
                 className="max-h-[200px] min-h-[28px] flex-1 resize-none bg-transparent py-1.5 text-sm leading-relaxed text-foreground outline-none placeholder:text-muted-foreground"
               />
               {streaming ? (
                 <button
                   onClick={stop}
+                  aria-label="停止生成"
                   className="mb-1 flex h-8 w-8 items-center justify-center rounded-lg bg-foreground text-background transition-opacity hover:opacity-90"
                   title="停止生成"
                 >
@@ -783,6 +1051,7 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
                 <button
                   onClick={() => send()}
                   disabled={!input.trim() && attachments.length === 0}
+                  aria-label="发送"
                   className="mb-1 flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-all hover:bg-primary/90 disabled:opacity-40"
                 >
                   <ArrowUp className="h-4 w-4" />
@@ -790,7 +1059,11 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
               )}
             </div>
             <p className="mt-2 text-center text-[11px] text-muted-foreground">
-              DTSV Intelligence 可能出错，请核对关键数据。
+              {interactionMode === "duplicate-search"
+                ? "Duplicate Search 会独立返回重复缺陷候选与摘要。"
+                : chatContextEnabled
+                  ? "当前 AI Chat 已开启缺陷上下文，会先检索 qgate 相关缺陷再生成回答。"
+                  : "当前 AI Chat 为纯聊天模式，不自动引入 duplicate search 或 qgate 缺陷上下文。"}
             </p>
           </div>
         </div>

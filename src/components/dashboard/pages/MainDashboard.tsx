@@ -16,20 +16,25 @@ import {
   applyMainDashboardFilters,
   selectTicketRowsForDrilldown,
 } from "@/components/dashboard/main-dashboard/mainDashboardFiltering";
+import {
+  getLatestTicketDateLabel,
+  getLatestTicketMonthValue,
+} from "@/components/dashboard/main-dashboard/mainDashboardDateUtils";
 import type { MainDashboardDrilldownSelection } from "@/components/dashboard/main-dashboard/mainDashboardFiltering";
 import type {
   MainDashboardFilters as MainDashboardFiltersType,
   MainDashboardOutcomeKey,
+  MainDashboardTicketRow,
   MainDashboardViewModel,
 } from "@/components/dashboard/main-dashboard/mainDashboardTypes";
 import {
-  mainDashboardFilterFieldMappings,
+  mainDashboardFilterKeys,
 } from "@/components/dashboard/main-dashboard/mainDashboardTypes";
 import { useMainDashboardData } from "@/components/dashboard/main-dashboard/useMainDashboardData";
 
 function createEmptyFilters(): MainDashboardFiltersType {
   return Object.fromEntries(
-    mainDashboardFilterFieldMappings.map(({ viewKey }) => [viewKey, []]),
+    mainDashboardFilterKeys.map((viewKey) => [viewKey, []]),
   ) as MainDashboardFiltersType;
 }
 
@@ -52,6 +57,23 @@ const emptyViewModel: MainDashboardViewModel = {
   ticketRows: [],
 };
 
+function shouldHideProblemFinderTeamByDefault(team: string) {
+  return team.trim().toLocaleLowerCase().includes("coc");
+}
+
+function getDefaultProblemFinderTeams(viewModel: MainDashboardViewModel) {
+  const availableTeams = viewModel.filters.problemFinderTeams;
+  const visibleTeams = availableTeams.filter(
+    (team) => !shouldHideProblemFinderTeamByDefault(team),
+  );
+
+  if (visibleTeams.length === 0 || visibleTeams.length === availableTeams.length) {
+    return [];
+  }
+
+  return visibleTeams;
+}
+
 function createDefaultFilters(
   viewModel: MainDashboardViewModel | null | undefined,
 ): MainDashboardFiltersType {
@@ -61,9 +83,15 @@ function createDefaultFilters(
     return emptyFilters;
   }
 
+  const latestMonth = getLatestTicketMonthValue(viewModel.ticketRows);
+  const defaultPhases = viewModel.filters.phases.filter((phase) => /^(03|04)\b/.test(phase.trim()));
+
   return {
     ...emptyFilters,
     years: viewModel.generatedFrom.years,
+    months: latestMonth ? [latestMonth] : [],
+    problemFinderTeams: getDefaultProblemFinderTeams(viewModel),
+    phases: defaultPhases,
   };
 }
 
@@ -79,7 +107,11 @@ function getOutcomeLabel(outcomeKey?: MainDashboardOutcomeKey | null) {
   return null;
 }
 
-const MainDashboard = () => {
+type MainDashboardProps = {
+  onSyncDateChange?: (value: string | null) => void;
+};
+
+const MainDashboard = ({ onSyncDateChange }: MainDashboardProps) => {
   const { data, error, isLoading } = useMainDashboardData();
   const viewModel = data ?? emptyViewModel;
   const [searchText, setSearchText] = useState("");
@@ -93,6 +125,10 @@ const MainDashboard = () => {
     setSelectedFilters(createDefaultFilters(data));
     setSelection({});
   }, [data]);
+
+  useEffect(() => {
+    onSyncDateChange?.(getLatestTicketDateLabel(viewModel.ticketRows));
+  }, [onSyncDateChange, viewModel.ticketRows]);
 
   if (isLoading && !data) {
     return (
@@ -210,7 +246,16 @@ const MainDashboard = () => {
         overview={filtered.overview}
         teamCount={filtered.teamOutcomeRows.length}
       />
-      <div data-testid="outcome-analysis-panels" className="space-y-4">
+      <TicketDetailTable
+        rows={drilldownRows}
+        selection={selection}
+        selectedOutcomeLabel={selectedOutcomeLabel}
+        onClearSelection={() => setSelection({})}
+      />
+      <div
+        data-testid="outcome-analysis-panels"
+        className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)] lg:items-start"
+      >
         <OutcomePanel
           outcomeSummary={filtered.outcomeSummary}
           selectedOutcomeKey={selection.outcomeKey}
@@ -223,12 +268,6 @@ const MainDashboard = () => {
           onSelectTeamOutcome={handleSelectTeamOutcome}
         />
       </div>
-      <TicketDetailTable
-        rows={drilldownRows}
-        selection={selection}
-        selectedOutcomeLabel={selectedOutcomeLabel}
-        onClearSelection={() => setSelection({})}
-      />
     </section>
   );
 };

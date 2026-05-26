@@ -1,5 +1,5 @@
 import {
-  mainDashboardFilterFieldMappings,
+  mainDashboardUiFilterFieldMappings,
   type MainDashboardFilters as MainDashboardFiltersType,
 } from "./mainDashboardTypes";
 
@@ -21,7 +21,7 @@ const MainDashboardFilters = ({
 }: MainDashboardFiltersProps) => {
   return (
     <div className="grid gap-3 px-4 py-4 md:grid-cols-2 md:px-5 xl:grid-cols-4">
-      {mainDashboardFilterFieldMappings.map(({ viewKey, label }) => (
+      {mainDashboardUiFilterFieldMappings.map(({ viewKey, label }) => (
         <MultiSelectFilterField
           key={viewKey}
           label={label}

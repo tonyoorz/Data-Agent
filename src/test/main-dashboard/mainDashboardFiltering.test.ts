@@ -12,6 +12,8 @@ import {
 function createEmptyFilters(): MainDashboardFilters {
   return {
     years: [],
+    months: [],
+    chinaScopes: [],
     projects: [],
     assignedEcus: [],
     problemFinderTeams: [],
@@ -58,6 +60,7 @@ const viewModel: MainDashboardViewModel = {
       ticketId: "1001",
       ticketName: "Alpha power reset",
       status: "03-In Analysis",
+      ticketDate: "2026-03-18",
       problemFinderTeam: "DTSV_China",
       group: "Integration",
       phase: "Validation",
@@ -76,6 +79,7 @@ const viewModel: MainDashboardViewModel = {
       ticketId: "1002",
       ticketName: "Beta thermal flicker",
       status: "04-In Progress",
+      ticketDate: "2026-03-21T08:30:00Z",
       problemFinderTeam: "[AT]W72-FIT",
       group: "Q-Gate",
       phase: "Analysis",
@@ -94,6 +98,7 @@ const viewModel: MainDashboardViewModel = {
       ticketId: "1003",
       ticketName: "Gamma Search Match",
       status: "05-Open",
+      ticketDate: "2025-11-02",
       problemFinderTeam: "DTSV_China",
       group: "Integration",
       phase: "Validation",
@@ -112,6 +117,7 @@ const viewModel: MainDashboardViewModel = {
       ticketId: "1004",
       ticketName: "Delta gateway timeout",
       status: "06-Delivered",
+      ticketDate: "2026-04-01",
       problemFinderTeam: "DTSV_China",
       group: "Integration",
       phase: "Validation",
@@ -130,6 +136,7 @@ const viewModel: MainDashboardViewModel = {
       ticketId: "2005",
       ticketName: "Omega lane assist fault",
       status: "07-Queued",
+      ticketDate: "2026-04-05T14:45:00Z",
       problemFinderTeam: "[AT]W72-FIT",
       group: "Q-Gate",
       phase: "Analysis",
@@ -236,6 +243,111 @@ describe("applyMainDashboardFilters", () => {
         rejectedDirectlyTeamPercent: 50,
         teamDenominator: 2,
       },
+    ]);
+  });
+
+  it("supports derived month filters using ticket dates", () => {
+    const filtered = applyMainDashboardFilters(viewModel, {
+      searchText: "",
+      filters: {
+        ...createEmptyFilters(),
+        years: ["2026"],
+        months: ["2026-04"],
+      },
+    });
+
+    expect(filtered.ticketRows.map((row) => row.ticketId)).toEqual([
+      "1004",
+      "2005",
+    ]);
+    expect(filtered.overview).toEqual({
+      ticketCount: 2,
+      resolvedForwardCount: 1,
+      rejectedDirectlyCount: 1,
+      resolvedForwardPercent: 50,
+      rejectedDirectlyPercent: 50,
+    });
+  });
+
+  it("supports China/Global filtering from solution cluster with defect category fallback", () => {
+    const chinaViewModel: MainDashboardViewModel = {
+      ...viewModel,
+      ticketRows: [
+        ...viewModel.ticketRows,
+        {
+          ticketId: "3001",
+          ticketName: "China by solution cluster",
+          status: "03-In Analysis",
+          ticketDate: "2026-03-20",
+          problemFinderTeam: "DTSV_China",
+          group: "Integration",
+          phase: "03-In Analysis",
+          isResolvedForward: false,
+          isRejectedDirectly: false,
+          year: "2026",
+          project: "G68",
+          assignedEcu: "ECU-A",
+          aida: "Digital",
+          solutionCluster: "Speech CN",
+          defectCategory: "",
+          pu: "PU1",
+          market: "CN",
+          leadModel: "LM1",
+        },
+        {
+          ticketId: "3002",
+          ticketName: "China by defect category fallback",
+          status: "04-In Progress",
+          ticketDate: "2026-03-22",
+          problemFinderTeam: "DTSV_China",
+          group: "Integration",
+          phase: "04-In Progress",
+          isResolvedForward: false,
+          isRejectedDirectly: false,
+          year: "2026",
+          project: "G68",
+          assignedEcu: "ECU-A",
+          aida: "Digital",
+          solutionCluster: "",
+          defectCategory: "CN Speech",
+          pu: "PU1",
+          market: "CN",
+          leadModel: "LM1",
+        },
+        {
+          ticketId: "3003",
+          ticketName: "Global despite China defect category",
+          status: "04-In Progress",
+          ticketDate: "2026-03-23",
+          problemFinderTeam: "DTSV_China",
+          group: "Integration",
+          phase: "04-In Progress",
+          isResolvedForward: false,
+          isRejectedDirectly: false,
+          year: "2026",
+          project: "G68",
+          assignedEcu: "ECU-A",
+          aida: "Digital",
+          solutionCluster: "Integration",
+          defectCategory: "CN Speech",
+          pu: "PU1",
+          market: "CN",
+          leadModel: "LM1",
+        },
+      ],
+    };
+
+    const filtered = applyMainDashboardFilters(chinaViewModel, {
+      searchText: "",
+      filters: {
+        ...createEmptyFilters(),
+        chinaScopes: ["China"],
+      },
+    });
+
+    expect(filtered.ticketRows.map((row) => row.ticketId)).toEqual([
+      "3001",
+      "3002",
     ]);
   });
 

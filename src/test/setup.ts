@@ -27,3 +27,9 @@ Object.defineProperty(window, "matchMedia", {
     dispatchEvent: () => {},
   }),
 });
+
+Object.defineProperty(window.HTMLElement.prototype, "scrollTo", {
+  writable: true,
+  configurable: true,
+  value: () => {},
+});

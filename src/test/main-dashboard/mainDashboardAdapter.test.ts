@@ -77,6 +77,7 @@ describe("adaptMainDashboardPayload", () => {
           ticket_name:
             "Navigation app reset after route recalculation under mixed market scope.",
           status: "03-In Analysis",
+          updated_at: "2026-03-23T14:45:00Z",
           problem_finder_team: "DTSV_China",
           group: "Integration",
           phase: "Validation",
@@ -86,7 +87,8 @@ describe("adaptMainDashboardPayload", () => {
           project: "G68",
           assigned_ecu: "ECU-A",
           aida: "Digital",
-          solution_cluster: "Integration",
+          defect_category: "CN Speech",
+          solution_cluster: "",
           pu: "PU1",
           market: "CN",
           lead_model: "LM1",
@@ -98,6 +100,8 @@ describe("adaptMainDashboardPayload", () => {
       defectDbPath: "defect.db",
       historyDbPath: "history.db",
       years: ["2026"],
+      months: ["2026-03"],
+      chinaScopes: ["China"],
       projects: ["G68"],
       assignedEcus: ["ECU-A"],
       problemFinderTeams: ["DTSV_China"],
@@ -110,6 +114,8 @@ describe("adaptMainDashboardPayload", () => {
       groups: ["Integration"],
     });
     expect(viewModel.overview.ticketCount).toBe(9);
+    expect(viewModel.filters.chinaScopes).toEqual(["China"]);
+    expect(viewModel.filters.months).toEqual(["2026-03"]);
     expect(viewModel.filters.problemFinderTeams).toEqual(["DTSV_China"]);
     expect(viewModel.outcomeSummary[0].key).toBe("resolvedForward");
     expect(viewModel.outcomeSummary[1].key).toBe("rejectedDirectly");
@@ -125,6 +131,8 @@ describe("adaptMainDashboardPayload", () => {
       },
     ]);
     expect(viewModel.ticketRows[0].ticketId).toBe("2553006");
+    expect(viewModel.ticketRows[0].ticketDate).toBe("2026-03-23T14:45:00Z");
+    expect(viewModel.ticketRows[0].defectCategory).toBe("CN Speech");
     expect(viewModel.ticketRows[0].isResolvedForward).toBe(true);
   });
 

@@ -7,6 +7,8 @@ import type {
   MainDashboardTicketRow,
   MainDashboardViewModel,
 } from "./mainDashboardTypes";
+import { getTicketChinaScope } from "./mainDashboardChinaScope";
+import { getTicketMonthValue } from "./mainDashboardDateUtils";
 
 export type MainDashboardFilterState = {
   searchText: string;
@@ -82,6 +84,8 @@ function matchesFilters(
 ) {
   return (
     matchesListFilter(filters.years, row.year) &&
+    matchesListFilter(filters.months, getTicketMonthValue(row.ticketDate) ?? "") &&
+    matchesListFilter(filters.chinaScopes, getTicketChinaScope(row)) &&
     matchesListFilter(filters.projects, row.project) &&
     matchesListFilter(filters.assignedEcus, row.assignedEcu) &&
     matchesProblemFinderTeamFilter(

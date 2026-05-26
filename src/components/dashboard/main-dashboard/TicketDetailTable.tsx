@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   type ColumnDef,
@@ -6,7 +6,9 @@ import {
   flexRender,
   getCoreRowModel,
   getFilteredRowModel,
+  getPaginationRowModel,
   getSortedRowModel,
+  type PaginationState,
   type VisibilityState,
   useReactTable,
 } from "@tanstack/react-table";
@@ -56,6 +58,8 @@ const densityClassNames: Record<DensityMode, { cell: string; header: string }> =
   },
 };
 
+const pageSizeOptions = [20, 50, 100] as const;
+
 function getOutcomeLabel(row: MainDashboardTicketRow) {
   if (row.isResolvedForward) {
     return "Resolved Forward";
@@ -80,6 +84,7 @@ function createTicketDetailSearchIndex(row: MainDashboardTicketRow) {
     row.year,
     row.assignedEcu,
     row.aida,
+    row.defectCategory ?? "",
     row.solutionCluster,
     row.pu,
     row.market,
@@ -102,6 +107,7 @@ const TicketDetailTable = ({
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({
     assignedEcu: false,
     aida: false,
+    defectCategory: false,
     solutionCluster: false,
     pu: false,
     market: false,
@@ -109,6 +115,10 @@ const TicketDetailTable = ({
   });
   const [density, setDensity] = useState<DensityMode>("compact");
   const [columnsMenuOpen, setColumnsMenuOpen] = useState(false);
+  const [pagination, setPagination] = useState<PaginationState>({
+    pageIndex: 0,
+    pageSize: 50,
+  });
   const [columnSizing, setColumnSizing] = useState<Record<string, number>>({
     ticketId: 104,
     ticketName: 260,
@@ -239,6 +249,16 @@ const TicketDetailTable = ({
         } satisfies TicketDetailColumnMeta,
       },
       {
+        accessorKey: "defectCategory",
+        header: "Defect Category",
+        size: 160,
+        minSize: 132,
+        meta: {
+          label: "Defect Category",
+          filterPlaceholder: "Filter Defect Category column",
+        } satisfies TicketDetailColumnMeta,
+      },
+      {
         accessorKey: "solutionCluster",
         header: "Solution Cluster",
         size: 156,
@@ -290,6 +310,7 @@ const TicketDetailTable = ({
       columnFilters,
       columnVisibility,
       columnSizing,
+      pagination,
     },
     columnResizeMode: "onChange",
     enableColumnFilters: true,
@@ -297,6 +318,7 @@ const TicketDetailTable = ({
     onColumnFiltersChange: setColumnFilters,
     onColumnVisibilityChange: setColumnVisibility,
     onColumnSizingChange: setColumnSizing,
+    onPaginationChange: setPagination,
     globalFilterFn: (row, _columnId, filterValue) => {
       const searchValue = String(filterValue ?? "").trim().toLowerCase();
 
@@ -321,10 +343,21 @@ const TicketDetailTable = ({
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
+    getPaginationRowModel: getPaginationRowModel(),
   });
 
+  useEffect(() => {
+    setPagination((current) => ({
+      ...current,
+      pageIndex: 0,
+    }));
+  }, [rows]);
+
   const visibleColumns = table.getAllLeafColumns().filter((column) => column.getCanHide());
-  const filteredRowCount = table.getRowModel().rows.length;
+  const filteredRowCount = table.getFilteredRowModel().rows.length;
+  const paginatedRows = table.getRowModel().rows;
+  const paginatedRowCount = paginatedRows.length;
+  const totalPages = Math.max(table.getPageCount(), 1);
   const densityClassName = densityClassNames[density];
 
   return (
@@ -333,7 +366,7 @@ const TicketDetailTable = ({
         <div className="space-y-1">
           <h2 className="text-base font-semibold text-foreground">Ticket Detail</h2>
           <p className="text-sm text-muted-foreground">
-            {filteredRowCount} of {rows.length} tickets
+            {paginatedRowCount} of {filteredRowCount} tickets
           </p>
         </div>
 
@@ -379,7 +412,13 @@ const TicketDetailTable = ({
                 <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   value={globalFilter}
-                  onChange={(event) => setGlobalFilter(event.target.value)}
+                  onChange={(event) => {
+                    setGlobalFilter(event.target.value);
+                    setPagination((current) => ({
+                      ...current,
+                      pageIndex: 0,
+                    }));
+                  }}
                   placeholder="Search tickets, titles, teams, or status"
                   className="h-9 pl-8 text-sm"
                 />
@@ -391,6 +430,10 @@ const TicketDetailTable = ({
                 onClick={() => {
                   setGlobalFilter("");
                   setColumnFilters([]);
+                  setPagination((current) => ({
+                    ...current,
+                    pageIndex: 0,
+                  }));
                 }}
                 className="justify-start"
               >
@@ -400,6 +443,28 @@ const TicketDetailTable = ({
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
+              <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                <span>Rows per page</span>
+                <select
+                  aria-label="Rows per page"
+                  value={pagination.pageSize}
+                  onChange={(event) => {
+                    const nextPageSize = Number(event.target.value);
+                    setPagination({
+                      pageIndex: 0,
+                      pageSize: nextPageSize,
+                    });
+                  }}
+                  className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground"
+                >
+                  {pageSizeOptions.map((size) => (
+                    <option key={size} value={size}>
+                      {size}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
               <div className="inline-flex rounded-lg border border-border bg-background p-1">
                 {(["compact", "comfortable", "spacious"] as const).map((mode) => (
                   <Button
@@ -455,93 +520,125 @@ const TicketDetailTable = ({
             </div>
           </div>
 
+          <div className="flex flex-col gap-2 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+            <p>
+              Page {pagination.pageIndex + 1} of {totalPages}
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => table.previousPage()}
+                disabled={!table.getCanPreviousPage()}
+              >
+                Previous page
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => table.nextPage()}
+                disabled={!table.getCanNextPage()}
+              >
+                Next page
+              </Button>
+            </div>
+          </div>
+
           <div
             data-testid="ticket-detail-grid"
             data-density={density}
             className="rounded-2xl border border-border/70 bg-background"
           >
-          <Table
-            aria-label="Ticket detail table"
-            className="min-w-[1100px] table-fixed border-separate border-spacing-0"
-            style={{ width: table.getCenterTotalSize() }}
-          >
-            <TableHeader>
-              {table.getHeaderGroups().map((headerGroup) => (
-                <TableRow key={headerGroup.id} className="bg-muted/30 hover:bg-muted/30">
-                  {headerGroup.headers.map((header) => {
-                    const meta = header.column.columnDef.meta as TicketDetailColumnMeta | undefined;
+            <Table
+              aria-label="Ticket detail table"
+              className="min-w-[1100px] table-fixed border-separate border-spacing-0"
+              style={{ width: table.getCenterTotalSize() }}
+            >
+              <TableHeader>
+                {table.getHeaderGroups().map((headerGroup) => (
+                  <TableRow key={headerGroup.id} className="bg-muted/30 hover:bg-muted/30">
+                    {headerGroup.headers.map((header) => {
+                      const meta = header.column.columnDef.meta as TicketDetailColumnMeta | undefined;
+
+                      return (
+                        <TableHead
+                          key={header.id}
+                          className={`relative border-b border-border/70 bg-background/95 ${densityClassName.header}`}
+                          style={{ width: header.getSize() }}
+                        >
+                          <div className="truncate pr-3 font-semibold text-foreground/80">
+                            {header.isPlaceholder
+                              ? null
+                              : flexRender(header.column.columnDef.header, header.getContext())}
+                          </div>
+                          <button
+                            type="button"
+                            aria-label={`Resize ${meta?.label ?? header.column.id} column`}
+                            onMouseDown={header.getResizeHandler()}
+                            onTouchStart={header.getResizeHandler()}
+                            className="absolute right-0 top-0 h-full w-2 cursor-col-resize touch-none select-none bg-transparent transition-colors hover:bg-primary/20"
+                          />
+                        </TableHead>
+                      );
+                    })}
+                  </TableRow>
+                ))}
+                <TableRow className="bg-muted/20 hover:bg-muted/20">
+                  {table.getVisibleLeafColumns().map((column) => {
+                    const meta = column.columnDef.meta as TicketDetailColumnMeta | undefined;
 
                     return (
                       <TableHead
-                        key={header.id}
-                        className={`relative border-b border-border/70 bg-background/95 ${densityClassName.header}`}
-                        style={{ width: header.getSize() }}
+                        key={`${column.id}-filter`}
+                        className="border-b border-border/60 bg-muted/20 px-2 py-2"
+                        style={{ width: column.getSize() }}
                       >
-                        <div className="truncate pr-3 font-semibold text-foreground/80">
-                          {header.isPlaceholder
-                            ? null
-                            : flexRender(header.column.columnDef.header, header.getContext())}
-                        </div>
-                        <button
-                          type="button"
-                          aria-label={`Resize ${meta?.label ?? header.column.id} column`}
-                          onMouseDown={header.getResizeHandler()}
-                          onTouchStart={header.getResizeHandler()}
-                          className="absolute right-0 top-0 h-full w-2 cursor-col-resize touch-none select-none bg-transparent transition-colors hover:bg-primary/20"
+                        <Input
+                          value={String(column.getFilterValue() ?? "")}
+                          onChange={(event) => {
+                            column.setFilterValue(event.target.value);
+                            setPagination((current) => ({
+                              ...current,
+                              pageIndex: 0,
+                            }));
+                          }}
+                          aria-label={meta?.filterPlaceholder ?? `Filter ${column.id} column`}
+                          placeholder={meta?.filterPlaceholder ?? `Filter ${column.id}`}
+                          className="h-8 text-xs"
                         />
                       </TableHead>
                     );
                   })}
                 </TableRow>
-              ))}
-              <TableRow className="bg-muted/20 hover:bg-muted/20">
-                {table.getVisibleLeafColumns().map((column) => {
-                  const meta = column.columnDef.meta as TicketDetailColumnMeta | undefined;
-
-                  return (
-                    <TableHead
-                      key={`${column.id}-filter`}
-                      className="border-b border-border/60 bg-muted/20 px-2 py-2"
-                      style={{ width: column.getSize() }}
-                    >
-                      <Input
-                        value={String(column.getFilterValue() ?? "")}
-                        onChange={(event) => column.setFilterValue(event.target.value)}
-                        aria-label={meta?.filterPlaceholder ?? `Filter ${column.id} column`}
-                        placeholder={meta?.filterPlaceholder ?? `Filter ${column.id}`}
-                        className="h-8 text-xs"
-                      />
-                    </TableHead>
-                  );
-                })}
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {table.getRowModel().rows.length === 0 ? (
-                <TableRow className="hover:bg-transparent">
-                  <TableCell colSpan={table.getVisibleLeafColumns().length} className="px-4 py-10 text-center text-sm text-muted-foreground">
-                    No tickets match the current table filters.
-                  </TableCell>
-                </TableRow>
-              ) : (
-                table.getRowModel().rows.map((row) => (
-                  <TableRow key={row.id}>
-                    {row.getVisibleCells().map((cell) => (
-                      <TableCell
-                        key={cell.id}
-                        className={`${densityClassName.cell} border-b border-border/50 last:border-r-0`}
-                        style={{ width: cell.column.getSize() }}
-                      >
-                        <div className="truncate">
-                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                        </div>
-                      </TableCell>
-                    ))}
+              </TableHeader>
+              <TableBody>
+                {paginatedRows.length === 0 ? (
+                  <TableRow className="hover:bg-transparent">
+                    <TableCell colSpan={table.getVisibleLeafColumns().length} className="px-4 py-10 text-center text-sm text-muted-foreground">
+                      No tickets match the current table filters.
+                    </TableCell>
                   </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
+                ) : (
+                  paginatedRows.map((row) => (
+                    <TableRow key={row.id}>
+                      {row.getVisibleCells().map((cell) => (
+                        <TableCell
+                          key={cell.id}
+                          className={`${densityClassName.cell} border-b border-border/50 last:border-r-0`}
+                          style={{ width: cell.column.getSize() }}
+                        >
+                          <div className="truncate">
+                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                          </div>
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
           </div>
         </div>
       )}

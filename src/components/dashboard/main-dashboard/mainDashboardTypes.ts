@@ -6,6 +6,8 @@ export type MainDashboardOutcomeKey = "resolvedForward" | "rejectedDirectly";
 
 export type MainDashboardFilters = {
   years: string[];
+  months: string[];
+  chinaScopes: string[];
   projects: string[];
   assignedEcus: string[];
   problemFinderTeams: string[];
@@ -32,6 +34,22 @@ export type MainDashboardFiltersPayload = {
   groups: string[];
 };
 
+export const mainDashboardFilterKeys = [
+  "years",
+  "months",
+  "chinaScopes",
+  "projects",
+  "assignedEcus",
+  "problemFinderTeams",
+  "aidas",
+  "phases",
+  "solutionClusters",
+  "pus",
+  "markets",
+  "leadModels",
+  "groups",
+] as const satisfies ReadonlyArray<keyof MainDashboardFilters>;
+
 export const mainDashboardFilterFieldMappings = [
   { viewKey: "years", payloadKey: "years", label: "Year" },
   { viewKey: "projects", payloadKey: "projects", label: "Project" },
@@ -53,8 +71,27 @@ export const mainDashboardFilterFieldMappings = [
   { viewKey: "leadModels", payloadKey: "lead_models", label: "Lead Model" },
   { viewKey: "groups", payloadKey: "groups", label: "Group" },
 ] as const satisfies ReadonlyArray<{
-  viewKey: keyof MainDashboardFilters;
+  viewKey: Exclude<keyof MainDashboardFilters, "months" | "chinaScopes">;
   payloadKey: keyof MainDashboardFiltersPayload;
+  label: string;
+}>;
+
+export const mainDashboardUiFilterFieldMappings = [
+  { viewKey: "years", label: "Year" },
+  { viewKey: "months", label: "Month" },
+  { viewKey: "chinaScopes", label: "China/Global" },
+  { viewKey: "projects", label: "Project" },
+  { viewKey: "assignedEcus", label: "Assigned ECU" },
+  { viewKey: "problemFinderTeams", label: "Problem Finder Team" },
+  { viewKey: "aidas", label: "AIDA" },
+  { viewKey: "phases", label: "Phase" },
+  { viewKey: "solutionClusters", label: "Solution Cluster" },
+  { viewKey: "pus", label: "PU" },
+  { viewKey: "markets", label: "Market" },
+  { viewKey: "leadModels", label: "Lead Model" },
+  { viewKey: "groups", label: "Group" },
+] as const satisfies ReadonlyArray<{
+  viewKey: keyof MainDashboardFilters;
   label: string;
 }>;
 
@@ -101,6 +138,10 @@ export type MainDashboardTicketRowPayload = {
   ticket_id: string;
   ticket_name: string;
   status: string;
+  ticket_date?: string | null;
+  updated_at?: string | null;
+  created_at?: string | null;
+  latest_date?: string | null;
   problem_finder_team: string;
   group: string;
   phase: string;
@@ -110,6 +151,7 @@ export type MainDashboardTicketRowPayload = {
   project: string;
   assigned_ecu: string;
   aida: string;
+  defect_category?: string | null;
   solution_cluster: string;
   pu: string;
   market: string;
@@ -160,6 +202,7 @@ export type MainDashboardTicketRow = {
   ticketId: string;
   ticketName: string;
   status: string;
+  ticketDate?: string | null;
   problemFinderTeam: string;
   group: string;
   phase: string;
@@ -169,6 +212,7 @@ export type MainDashboardTicketRow = {
   project: string;
   assignedEcu: string;
   aida: string;
+  defectCategory?: string | null;
   solutionCluster: string;
   pu: string;
   market: string;

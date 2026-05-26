@@ -4,11 +4,15 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "node ./scripts/dev.mjs",
+    "dev:analytics": "python -m uvicorn backend.analytics.api:app --host 127.0.0.1 --port 3003",
+    "dev:client": "vite",
+    "dev:server": "node ./server/index.mjs",
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview",
+    "start": "node ./server/index.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },

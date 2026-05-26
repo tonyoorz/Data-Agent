@@ -21,7 +21,7 @@ const OutcomePanel = ({
   onToggleOutcome,
 }: OutcomePanelProps) => {
   return (
-    <section className="workbench-panel p-5">
+    <section data-testid="outcome-panel" className="workbench-panel h-full p-5">
       <div className="flex items-start justify-between gap-3">
         <h2 className="text-base font-semibold text-foreground">Solution Outcome</h2>
       </div>
@@ -31,7 +31,7 @@ const OutcomePanel = ({
           No outcome data is available in the current filtered scope.
         </div>
       ) : (
-        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <div data-testid="outcome-card-stack" className="mt-4 grid gap-4">
           {outcomeSummary.map((row) => {
             const isActive = selectedOutcomeKey === row.key;
 
@@ -42,9 +42,9 @@ const OutcomePanel = ({
                 aria-label={row.label}
                 aria-pressed={isActive}
                 className={cn(
-                  "w-full border-b px-0 py-3 text-left transition-colors last:border-b-0",
+                  "w-full rounded-2xl border px-4 py-4 text-left transition-colors",
                   isActive
-                    ? "border-primary/60"
+                    ? "border-primary/60 bg-primary/5"
                     : "border-border/60 hover:border-primary/30",
                 )}
                 onClick={() => onToggleOutcome(row.key)}

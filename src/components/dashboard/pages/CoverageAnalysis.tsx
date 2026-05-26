@@ -1,121 +1,314 @@
-import { ShieldCheck, FileCheck, Layers, BarChart3 } from "lucide-react";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from "recharts";
+import { useMemo, useState } from "react";
 
-const coverageByModule = [
-  { module: "HMI", coverage: 87 },
-  { module: "动力总成", coverage: 92 },
-  { module: "底盘", coverage: 78 },
-  { module: "ADAS", coverage: 71 },
-  { module: "车身电子", coverage: 85 },
-  { module: "信息娱乐", coverage: 69 },
-  { module: "网络通信", coverage: 83 },
-];
+import { AlertTriangle, Loader2 } from "lucide-react";
 
-const trendData = [
-  { month: "10月", coverage: 72 },
-  { month: "11月", coverage: 75 },
-  { month: "12月", coverage: 74 },
-  { month: "1月", coverage: 78 },
-  { month: "2月", coverage: 81 },
-  { month: "3月", coverage: 82 },
-];
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
-const kpis = [
-  { label: "总覆盖率", value: "82%", icon: ShieldCheck, color: "bg-success/10 text-success" },
-  { label: "用例总数", value: "3,847", icon: FileCheck, color: "bg-primary/10 text-primary" },
-  { label: "覆盖模块", value: "24", icon: Layers, color: "bg-warning/10 text-warning" },
-  { label: "月增长", value: "+1.2%", icon: BarChart3, color: "bg-accent/10 text-accent" },
-];
+import CoverageAnalysisChartCard, {
+  type CoverageAnalysisChartDatum,
+} from "../coverage-analysis/CoverageAnalysisChartCard";
+import CoverageAnalysisEmptyState from "../coverage-analysis/CoverageAnalysisEmptyState";
+import CoverageAnalysisFilters from "../coverage-analysis/CoverageAnalysisFilters";
+import {
+  CoverageAnalysisApiError,
+} from "../coverage-analysis/coverageAnalysisApi";
+import {
+  applyAidaPointSelection,
+  applyFvPointSelection,
+} from "../coverage-analysis/coverageAnalysisSelection";
+import type {
+  CoverageAnalysisAidaStatusRow,
+  CoverageAnalysisFilters as CoverageAnalysisFiltersType,
+  CoverageAnalysisProjectStatusRow,
+  CoverageAnalysisTestcaseDetailRow,
+} from "../coverage-analysis/coverageAnalysisTypes";
+import { useCoverageAnalysisData } from "../coverage-analysis/useCoverageAnalysisData";
 
-const CoverageAnalysis = () => (
-  <div className="space-y-5">
-    <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-      {kpis.map((k) => {
-        const Icon = k.icon;
-        return (
-          <div key={k.label} className="dashboard-card p-5">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="kpi-label">{k.label}</p>
-                <p className="kpi-value mt-1">{k.value}</p>
-              </div>
-              <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${k.color}`}>
-                <Icon className="h-5 w-5" />
-              </div>
-            </div>
+function createEmptyFilters(): CoverageAnalysisFiltersType {
+  return {
+    years: [],
+    projects: [],
+    testWeeks: [],
+    pus: [],
+    aidas: [],
+    statuses: [],
+    featureRegions: [],
+    fvps: [],
+    fvs: [],
+  };
+}
+
+function buildProjectStatusChartRows(
+  rows: CoverageAnalysisProjectStatusRow[],
+): CoverageAnalysisChartDatum[] {
+  const grouped = new Map<string, CoverageAnalysisChartDatum & { sortOrder: number }>();
+
+  rows.forEach((row, index) => {
+    const key = `${row.test_week}::${row.fv}`;
+    const existing = grouped.get(key);
+
+    if (existing) {
+      existing[row.status] = Number(existing[row.status] ?? 0) + row.count;
+      existing.total += row.count;
+      return;
+    }
+
+    grouped.set(key, {
+      label: `${row.test_week} · ${row.fv}`,
+      selectionValue: row.fv,
+      total: row.count,
+      [row.status]: row.count,
+      sortOrder: index,
+    });
+  });
+
+  return Array.from(grouped.values())
+    .sort((left, right) => left.sortOrder - right.sortOrder)
+    .map(({ sortOrder: _sortOrder, ...datum }) => datum);
+}
+
+function buildAidaStatusChartRows(
+  rows: CoverageAnalysisAidaStatusRow[],
+): CoverageAnalysisChartDatum[] {
+  const grouped = new Map<string, CoverageAnalysisChartDatum & { sortOrder: number }>();
+
+  rows.forEach((row, index) => {
+    const key = `${row.test_week}::${row.top_aida}`;
+    const existing = grouped.get(key);
+
+    if (existing) {
+      existing[row.status] = Number(existing[row.status] ?? 0) + row.count;
+      existing.total += row.count;
+      return;
+    }
+
+    grouped.set(key, {
+      label: `${row.test_week} · ${row.top_aida}`,
+      selectionValue: row.top_aida,
+      total: row.count,
+      [row.status]: row.count,
+      sortOrder: index,
+    });
+  });
+
+  return Array.from(grouped.values())
+    .sort((left, right) => left.sortOrder - right.sortOrder)
+    .map(({ sortOrder: _sortOrder, ...datum }) => datum);
+}
+
+function collectStatuses(
+  preferredStatuses: string[],
+  groups: Array<CoverageAnalysisProjectStatusRow | CoverageAnalysisAidaStatusRow>,
+) {
+  const derivedStatuses = groups.reduce<string[]>((result, row) => {
+    if (result.includes(row.status)) {
+      return result;
+    }
+
+    return [...result, row.status];
+  }, []);
+
+  if (preferredStatuses.length === 0) {
+    return derivedStatuses;
+  }
+
+  const nextStatuses = preferredStatuses.filter((status) => derivedStatuses.includes(status));
+  return nextStatuses.length > 0 ? nextStatuses : derivedStatuses;
+}
+
+function toggleFilterValue(
+  current: CoverageAnalysisFiltersType,
+  field: keyof CoverageAnalysisFiltersType,
+  value: string,
+): CoverageAnalysisFiltersType {
+  const values = current[field];
+  const nextValues = values.includes(value)
+    ? values.filter((candidate) => candidate !== value)
+    : [...values, value];
+
+  return {
+    ...current,
+    [field]: nextValues,
+  };
+}
+
+function isNotReadyError(error: unknown): error is CoverageAnalysisApiError {
+  return error instanceof CoverageAnalysisApiError && error.status === 503;
+}
+
+const CoverageAnalysis = () => {
+  const [selectedFilters, setSelectedFilters] =
+    useState<CoverageAnalysisFiltersType>(createEmptyFilters);
+  const { data, error, isLoading, isFetching } = useCoverageAnalysisData(selectedFilters);
+
+  const projectChartRows = useMemo(
+    () => buildProjectStatusChartRows(data?.projectStatusRows ?? []),
+    [data?.projectStatusRows],
+  );
+  const aidaChartRows = useMemo(
+    () => buildAidaStatusChartRows(data?.aidaStatusRows ?? []),
+    [data?.aidaStatusRows],
+  );
+  const projectStatuses = useMemo(
+    () => collectStatuses(data?.filterOptions.statuses ?? [], data?.projectStatusRows ?? []),
+    [data?.filterOptions.statuses, data?.projectStatusRows],
+  );
+  const aidaStatuses = useMemo(
+    () => collectStatuses(data?.filterOptions.statuses ?? [], data?.aidaStatusRows ?? []),
+    [data?.filterOptions.statuses, data?.aidaStatusRows],
+  );
+
+  if (isLoading && !data) {
+    return (
+      <section className="workbench-panel p-6">
+        <div className="flex items-center gap-3 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          <span>Loading testing coverage analysis...</span>
+        </div>
+      </section>
+    );
+  }
+
+  if (error && !data && isNotReadyError(error)) {
+    return (
+      <CoverageAnalysisEmptyState
+        title="Testing coverage analysis is not ready yet."
+        description="The analytics service is missing required TAP coverage fields for this page."
+        missingFields={error.missingFields}
+      />
+    );
+  }
+
+  if (error && !data) {
+    return (
+      <section className="workbench-panel p-6">
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Unable to load testing coverage analysis.</AlertTitle>
+          <AlertDescription>
+            {error.message || "Check whether the analytics service is available."}
+          </AlertDescription>
+        </Alert>
+      </section>
+    );
+  }
+
+  const filterOptions = data?.filterOptions ?? createEmptyFilters();
+  const testcaseDetailRows = data?.testcaseDetailRows ?? [];
+  const hasRenderableData =
+    projectChartRows.length > 0 || aidaChartRows.length > 0 || testcaseDetailRows.length > 0;
+
+  return (
+    <div className="space-y-5">
+      {error && data ? (
+        <Alert>
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Unable to refresh testing coverage analysis.</AlertTitle>
+          <AlertDescription>
+            Showing the latest cached snapshot. {error.message}
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      <CoverageAnalysisFilters
+        filterOptions={filterOptions}
+        selectedFilters={selectedFilters}
+        onToggleValue={(field, value) => {
+          setSelectedFilters((current) => toggleFilterValue(current, field, value));
+        }}
+        onReset={() => setSelectedFilters(createEmptyFilters())}
+        isRefreshing={isFetching && !isLoading}
+      />
+
+      {!hasRenderableData ? (
+        <CoverageAnalysisEmptyState
+          title="No coverage rows match the current filters."
+          description="Adjust the current selections to bring project status, AIDA status, and testcase detail rows back into scope."
+        />
+      ) : null}
+
+      <CoverageAnalysisChartCard
+        title="按周和功能分类的测试状态"
+        description="Grouped execution counts by test week and FV. Click a row segment to narrow the FV selection."
+        rows={projectChartRows}
+        statuses={projectStatuses}
+        emptyMessage="No project-status rows match the current filters."
+        onSelectValue={(value) => {
+          setSelectedFilters((current) => ({
+            ...current,
+            fvs: applyFvPointSelection(current.fvs, value),
+          }));
+        }}
+      />
+
+      <CoverageAnalysisChartCard
+        title="按 Top AIDA 和测试周分类的状态"
+        description="Grouped execution counts by Top AIDA and test week. Click a row segment to narrow the Top AIDA selection."
+        rows={aidaChartRows}
+        statuses={aidaStatuses}
+        emptyMessage="No AIDA-status rows match the current filters."
+        onSelectValue={(value) => {
+          setSelectedFilters((current) => ({
+            ...current,
+            aidas: applyAidaPointSelection(current.aidas, value),
+          }));
+        }}
+      />
+
+      <section className="dashboard-card">
+        <div className="border-b border-border/70 px-5 py-4">
+          <div className="space-y-1">
+            <h2 className="text-sm font-semibold text-foreground">按测试用例和测试周分类的状态</h2>
+            <p className="text-sm text-muted-foreground">
+              Detailed testcase execution rows within the current TAP coverage scope.
+            </p>
           </div>
-        );
-      })}
-    </div>
-
-    <div className="grid gap-5 lg:grid-cols-2">
-      <div className="dashboard-card p-5">
-        <h3 className="mb-4 text-sm font-semibold text-foreground">各模块覆盖率</h3>
-        <div className="h-[320px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={coverageByModule} layout="vertical" barSize={16}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 16%, 90%)" horizontal={false} />
-              <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 11, fill: "hsl(220, 10%, 50%)" }} />
-              <YAxis dataKey="module" type="category" width={80} tick={{ fontSize: 11, fill: "hsl(220, 10%, 50%)" }} />
-              <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid hsl(220,16%,90%)", fontSize: 12 }} formatter={(v: number) => `${v}%`} />
-              <Bar dataKey="coverage" name="覆盖率" fill="hsl(152, 60%, 40%)" radius={[0, 4, 4, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
         </div>
-      </div>
 
-      <div className="dashboard-card p-5">
-        <h3 className="mb-4 text-sm font-semibold text-foreground">覆盖率趋势</h3>
-        <div className="h-[320px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={trendData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 16%, 90%)" />
-              <XAxis dataKey="month" tick={{ fontSize: 11, fill: "hsl(220, 10%, 50%)" }} />
-              <YAxis domain={[60, 100]} tick={{ fontSize: 11, fill: "hsl(220, 10%, 50%)" }} />
-              <Tooltip contentStyle={{ borderRadius: 8, border: "1px solid hsl(220,16%,90%)", fontSize: 12 }} formatter={(v: number) => `${v}%`} />
-              <Area type="monotone" dataKey="coverage" name="覆盖率" stroke="hsl(152, 60%, 40%)" fill="hsl(152, 60%, 40%)" fillOpacity={0.15} strokeWidth={2} />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
+        {testcaseDetailRows.length === 0 ? (
+          <div className="px-5 py-10 text-center text-sm text-muted-foreground">
+            No testcase-detail rows match the current filters.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[900px] text-sm">
+              <thead>
+                <tr className="border-b border-border text-left">
+                  <th className="px-5 py-3 font-medium text-muted-foreground">Test ID</th>
+                  <th className="px-5 py-3 font-medium text-muted-foreground">Test Name</th>
+                  <th className="px-5 py-3 font-medium text-muted-foreground">Test Week</th>
+                  <th className="px-5 py-3 font-medium text-muted-foreground">Status</th>
+                  <th className="px-5 py-3 font-medium text-muted-foreground">Top AIDA</th>
+                  <th className="px-5 py-3 font-medium text-muted-foreground">Project</th>
+                  <th className="px-5 py-3 font-medium text-muted-foreground">PU</th>
+                  <th className="px-5 py-3 font-medium text-muted-foreground">Tester</th>
+                  <th className="px-5 py-3 text-right font-medium text-muted-foreground">Count</th>
+                </tr>
+              </thead>
+              <tbody>
+                {testcaseDetailRows.map((row: CoverageAnalysisTestcaseDetailRow) => (
+                  <tr
+                    key={`${row.test_id}-${row.test_week}-${row.status}-${row.top_aida}`}
+                    className="border-b border-border/50 transition-colors last:border-0 hover:bg-muted/20"
+                  >
+                    <td className="px-5 py-3 font-medium text-foreground">{row.test_id}</td>
+                    <td className="px-5 py-3 text-foreground">{row.test_name}</td>
+                    <td className="px-5 py-3 text-muted-foreground">{row.test_week}</td>
+                    <td className="px-5 py-3 text-foreground">{row.status}</td>
+                    <td className="px-5 py-3 text-muted-foreground">{row.top_aida}</td>
+                    <td className="px-5 py-3 text-muted-foreground">{row.project}</td>
+                    <td className="px-5 py-3 text-muted-foreground">{row.pu}</td>
+                    <td className="px-5 py-3 text-muted-foreground">{row.tester}</td>
+                    <td className="px-5 py-3 text-right font-medium text-foreground">{row.count}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
     </div>
-
-    <div className="dashboard-card">
-      <div className="border-b border-border px-5 py-4">
-        <h3 className="text-sm font-semibold text-foreground">模块覆盖详情</h3>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border text-left">
-              <th className="px-5 py-3 font-medium text-muted-foreground">模块</th>
-              <th className="px-5 py-3 font-medium text-muted-foreground">覆盖率</th>
-              <th className="px-5 py-3 font-medium text-muted-foreground">进度</th>
-            </tr>
-          </thead>
-          <tbody>
-            {coverageByModule.map((m) => (
-              <tr key={m.module} className="border-b border-border/50 last:border-0 hover:bg-muted/30 transition-colors">
-                <td className="px-5 py-3 font-medium text-foreground">{m.module}</td>
-                <td className="px-5 py-3 font-mono text-foreground">{m.coverage}%</td>
-                <td className="px-5 py-3">
-                  <div className="flex items-center gap-2">
-                    <div className="h-1.5 w-24 rounded-full bg-muted">
-                      <div
-                        className={`h-full rounded-full ${m.coverage >= 80 ? "bg-success" : m.coverage >= 70 ? "bg-warning" : "bg-destructive"}`}
-                        style={{ width: `${m.coverage}%` }}
-                      />
-                    </div>
-                    <span className="text-xs text-muted-foreground">{m.coverage}%</span>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </div>
-);
+  );
+};
 
 export default CoverageAnalysis;

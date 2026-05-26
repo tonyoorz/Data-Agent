@@ -5,7 +5,6 @@ import KPICards from "@/components/dashboard/KPICards";
 import DefectTrendChart from "@/components/dashboard/DefectTrendChart";
 import StatusDistributionChart from "@/components/dashboard/StatusDistributionChart";
 import TopIssueTable from "@/components/dashboard/TopIssueTable";
-import AIAssistant from "@/components/dashboard/AIAssistant";
 import ProjectAnalysis from "@/components/dashboard/pages/ProjectAnalysis";
 import DefectHighFreq from "@/components/dashboard/pages/DefectHighFreq";
 import LongRunnerAnalysis from "@/components/dashboard/pages/LongRunnerAnalysis";
@@ -34,12 +33,13 @@ const pageTitles: Record<string, { title: string; subtitle: string }> = {
 
 const Index = () => {
   const [activeNav, setActiveNav] = useState("main-dashboard");
+  const [mainDashboardSyncDate, setMainDashboardSyncDate] = useState<string | null>(null);
   const info = pageTitles[activeNav] || pageTitles["main-dashboard"];
 
   const renderContent = () => {
     switch (activeNav) {
       case "main-dashboard":
-        return <MainDashboard />;
+        return <MainDashboard onSyncDateChange={setMainDashboardSyncDate} />;
       case "project":
         return <ProjectAnalysis />;
       case "defect-high":
@@ -79,7 +79,7 @@ const Index = () => {
     <div className="flex h-screen overflow-hidden bg-background">
       <DashboardSidebar active={activeNav} onNavigate={setActiveNav} />
 
-      <main className="flex-1 overflow-y-auto">
+      <main className="min-h-0 flex-1 overflow-y-auto">
         <header className="sticky top-0 z-30 flex items-center justify-between border-b border-border bg-background/80 backdrop-blur-md px-6 py-3.5">
           <div>
             <h1 className="text-lg font-bold text-foreground">{info.title}</h1>
@@ -87,7 +87,7 @@ const Index = () => {
           </div>
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <span className="flex h-2 w-2 rounded-full bg-success" />
-            数据已同步 · 2026-03-23
+            {`数据已同步 · ${mainDashboardSyncDate ?? "暂无日期"}`}
           </div>
         </header>
 
@@ -95,8 +95,6 @@ const Index = () => {
           {renderContent()}
         </div>
       </main>
-
-      <AIAssistant />
     </div>
   );
 };

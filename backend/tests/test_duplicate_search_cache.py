@@ -1,0 +1,115 @@
+import importlib.util
+from pathlib import Path
+
+import pandas as pd
+
+from backend import duplicate_issue_finder
+
+
+def _load_duplicate_search_bridge_module():
+    module_path = Path(__file__).resolve().parents[2] / "scripts" / "duplicate_search_bridge.py"
+    spec = importlib.util.spec_from_file_location("duplicate_search_bridge_test", module_path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec is not None
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_index_cache_hit_does_not_rebuild_when_filtered_row_count_changes():
+    duplicate_issue_finder._INDEX_CACHE.clear()
+
+    df = pd.DataFrame(
+        [
+            {
+                "id": "1",
+                "name": "kept row",
+                "description": "kept row description",
+                "project": "IDCEVO",
+                "pu": "27-07",
+                "status_phase": "03-In Analysis_Medium",
+            },
+            {
+                "id": "2",
+                "name": "filtered row",
+                "description": "filtered row description",
+                "project": "IDCEVO",
+                "pu": "27-07",
+                "status_phase": "09-Closed",
+            },
+        ]
+    )
+
+    first_index, first_metadata = duplicate_issue_finder.get_or_build_index_with_metadata(
+        cache_key="same-key",
+        df=df,
+    )
+    second_index, second_metadata = duplicate_issue_finder.get_or_build_index_with_metadata(
+        cache_key="same-key",
+        df=df,
+    )
+
+    assert first_metadata["index_rebuilt"] is True
+    assert first_index.ready is True
+    assert second_index is first_index
+    assert second_metadata["index_cache_hit"] is True
+    assert second_metadata["index_rebuilt"] is False
+
+
+def test_search_reuses_loaded_defect_df_when_source_is_unchanged(monkeypatch, tmp_path):
+    bridge = _load_duplicate_search_bridge_module()
+
+    load_calls = []
+    df = pd.DataFrame(
+        [
+            {
+                "id": "1",
+                "name": "carplay cannot connect",
+                "description": "carplay cannot connect after boot",
+                "project": "IDCEVO",
+                "pu": "27-07",
+                "status_phase": "03-In Analysis_Medium",
+            }
+        ]
+    )
+
+    class FakeIndex:
+        ready = True
+
+        def search_with_metadata(self, query, hints=None, top_k=10, reranker=None, feedback_db_path=None):
+            return [], {"model_phase": "baseline"}
+
+    class FakeFeedbackStore:
+        def __init__(self, db_path=None):
+            self.db_path = db_path
+
+        @staticmethod
+        def query_hash(value):
+            return value
+
+        def count_feedback(self):
+            return 0
+
+    def fake_build_defect_df(repo_root):
+        load_calls.append(str(repo_root))
+        return df.copy()
+
+    monkeypatch.setattr(bridge, "_build_defect_df", fake_build_defect_df)
+    monkeypatch.setattr(bridge, "_build_cache_key", lambda repo_root, loaded_df: "stable-key")
+    monkeypatch.setattr(
+        bridge,
+        "get_or_build_index_with_metadata",
+        lambda cache_key, df: (FakeIndex(), {"index_cache_hit": True, "index_rebuilt": False, "index_row_count": len(df)}),
+    )
+    monkeypatch.setattr(bridge, "extract_hints", lambda query: object())
+    monkeypatch.setattr(bridge, "get_progressive_reranker", lambda db_path=None: object())
+    monkeypatch.setattr(bridge, "FeedbackStore", FakeFeedbackStore)
+    monkeypatch.setattr(bridge, "BACKEND_ROOT", tmp_path)
+
+    first = bridge._search({"query": "carplay can not connect", "top_k": 5}, tmp_path)
+    second = bridge._search({"query": "carplay can not connect", "top_k": 5}, tmp_path)
+
+    assert first["success"] is True
+    assert second["success"] is True
+    assert load_calls == [str(tmp_path)]
+    assert second["result"]["timings"]["index_cache_hit"] is True

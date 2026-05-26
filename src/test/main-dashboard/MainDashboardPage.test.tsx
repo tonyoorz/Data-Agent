@@ -26,10 +26,6 @@ vi.mock("@/components/dashboard/TopIssueTable", () => ({
   default: () => <div>Top Issue Table</div>,
 }));
 
-vi.mock("@/components/dashboard/AIAssistant", () => ({
-  default: () => <div>AI Assistant</div>,
-}));
-
 vi.mock("@/components/dashboard/main-dashboard/useMainDashboardData", () => ({
   useMainDashboardData: vi.fn(),
 }));
@@ -72,12 +68,14 @@ function createSampleViewModel(): MainDashboardViewModel {
       defectDbPath: "defect.db",
       historyDbPath: "history.db",
       years: ["2026"],
+      months: ["2026-04", "2026-03", "2025-11"],
+      chinaScopes: ["China", "Global"],
       projects: ["G68", "U12"],
       assignedEcus: ["ECU-A", "ECU-B"],
       problemFinderTeams: ["DTSV_China", "[AT]W72-FIT"],
       aidas: ["Digital", "EE"],
-      phases: ["Validation", "Analysis"],
-      solutionClusters: ["Integration", "CoC"],
+      phases: ["01-New", "03-In Analysis", "04-In Progress", "05-Open"],
+      solutionClusters: ["CoC", "Integration", "Speech CN"],
       pus: ["PU1", "PU2"],
       markets: ["CN", "EU"],
       leadModels: ["LM1", "LM2"],
@@ -85,12 +83,14 @@ function createSampleViewModel(): MainDashboardViewModel {
     },
     filters: {
       years: ["2025", "2026"],
+      months: ["2026-04", "2026-03", "2025-11"],
+      chinaScopes: ["China", "Global"],
       projects: ["G68", "U12"],
       assignedEcus: ["ECU-A", "ECU-B"],
       problemFinderTeams: ["DTSV_China", "[AT]W72-FIT"],
       aidas: ["Digital", "EE"],
-      phases: ["Validation", "Analysis"],
-      solutionClusters: ["Integration", "CoC"],
+      phases: ["01-New", "03-In Analysis", "04-In Progress", "05-Open"],
+      solutionClusters: ["CoC", "Integration", "Speech CN"],
       pus: ["PU1", "PU2"],
       markets: ["CN", "EU"],
       leadModels: ["LM1", "LM2"],
@@ -144,9 +144,10 @@ function createSampleViewModel(): MainDashboardViewModel {
         ticketId: "1001",
         ticketName: "Alpha power reset",
         status: "03-In Analysis",
+        ticketDate: "2026-03-18",
         problemFinderTeam: "DTSV_China",
         group: "Integration",
-        phase: "Validation",
+        phase: "03-In Analysis",
         isResolvedForward: true,
         isRejectedDirectly: false,
         year: "2026",
@@ -154,6 +155,7 @@ function createSampleViewModel(): MainDashboardViewModel {
         assignedEcu: "ECU-A",
         aida: "Digital",
         solutionCluster: "Integration",
+        defectCategory: "",
         pu: "PU1",
         market: "CN",
         leadModel: "LM1",
@@ -162,9 +164,10 @@ function createSampleViewModel(): MainDashboardViewModel {
         ticketId: "1002",
         ticketName: "Beta thermal flicker",
         status: "04-In Progress",
+        ticketDate: "2026-03-21T08:30:00Z",
         problemFinderTeam: "[AT]W72-FIT",
         group: "Q-Gate",
-        phase: "Analysis",
+        phase: "04-In Progress",
         isResolvedForward: false,
         isRejectedDirectly: true,
         year: "2026",
@@ -172,6 +175,7 @@ function createSampleViewModel(): MainDashboardViewModel {
         assignedEcu: "ECU-B",
         aida: "EE",
         solutionCluster: "CoC",
+        defectCategory: "",
         pu: "PU2",
         market: "EU",
         leadModel: "LM2",
@@ -180,9 +184,10 @@ function createSampleViewModel(): MainDashboardViewModel {
         ticketId: "1003",
         ticketName: "Gamma search match",
         status: "06-Delivered",
+        ticketDate: "2025-11-02",
         problemFinderTeam: "DTSV_China",
         group: "Integration",
-        phase: "Validation",
+        phase: "05-Open",
         isResolvedForward: true,
         isRejectedDirectly: false,
         year: "2025",
@@ -190,6 +195,7 @@ function createSampleViewModel(): MainDashboardViewModel {
         assignedEcu: "ECU-A",
         aida: "Digital",
         solutionCluster: "Integration",
+        defectCategory: "",
         pu: "PU1",
         market: "CN",
         leadModel: "LM1",
@@ -198,9 +204,10 @@ function createSampleViewModel(): MainDashboardViewModel {
         ticketId: "1004",
         ticketName: "Delta gateway timeout",
         status: "01-New",
+        ticketDate: "2026-03-17",
         problemFinderTeam: "DTSV_China",
         group: "Integration",
-        phase: "Validation",
+        phase: "01-New",
         isResolvedForward: false,
         isRejectedDirectly: false,
         year: "2026",
@@ -208,6 +215,7 @@ function createSampleViewModel(): MainDashboardViewModel {
         assignedEcu: "ECU-A",
         aida: "Digital",
         solutionCluster: "Integration",
+        defectCategory: "",
         pu: "PU1",
         market: "CN",
         leadModel: "LM1",
@@ -215,10 +223,68 @@ function createSampleViewModel(): MainDashboardViewModel {
       {
         ticketId: "1005",
         ticketName: "Epsilon sensor desync",
-        status: "08-Resolved",
+        status: "04-In Progress",
+        ticketDate: "2026-04-05T14:45:00Z",
         problemFinderTeam: "[AT]W72-FIT",
         group: "Q-Gate",
-        phase: "Analysis",
+        phase: "04-In Progress",
+        isResolvedForward: true,
+        isRejectedDirectly: false,
+        year: "2026",
+        project: "U12",
+        assignedEcu: "ECU-B",
+        aida: "EE",
+        solutionCluster: "Speech CN",
+        defectCategory: "",
+        pu: "PU2",
+        market: "EU",
+        leadModel: "LM2",
+      },
+    ],
+  };
+}
+
+function createSampleViewModelWithCocTeam(): MainDashboardViewModel {
+  const viewModel = createSampleViewModel();
+
+  return {
+    ...viewModel,
+    generatedFrom: {
+      ...viewModel.generatedFrom,
+      problemFinderTeams: [
+        ...viewModel.generatedFrom.problemFinderTeams,
+        "[AT]CoC_EI_IuK",
+      ],
+    },
+    filters: {
+      ...viewModel.filters,
+      problemFinderTeams: [
+        ...viewModel.filters.problemFinderTeams,
+        "[AT]CoC_EI_IuK",
+      ],
+    },
+    teamOutcomeRows: [
+      ...viewModel.teamOutcomeRows,
+      {
+        problemFinderTeam: "[AT]CoC_EI_IuK",
+        totalTickets: 1,
+        resolvedForwardCount: 1,
+        rejectedDirectlyCount: 0,
+        resolvedForwardTeamPercent: 100,
+        rejectedDirectlyTeamPercent: 0,
+        teamDenominator: 1,
+      },
+    ],
+    ticketRows: [
+      ...viewModel.ticketRows,
+      {
+        ticketId: "1006",
+        ticketName: "Zeta dev-only sync issue",
+        status: "04-In Progress",
+        ticketDate: "2026-04-04T09:15:00Z",
+        problemFinderTeam: "[AT]CoC_EI_IuK",
+        group: "Q-Gate",
+        phase: "04-In Progress",
         isResolvedForward: true,
         isRejectedDirectly: false,
         year: "2026",
@@ -226,6 +292,7 @@ function createSampleViewModel(): MainDashboardViewModel {
         assignedEcu: "ECU-B",
         aida: "EE",
         solutionCluster: "CoC",
+        defectCategory: "Global",
         pu: "PU2",
         market: "EU",
         leadModel: "LM2",
@@ -300,6 +367,17 @@ function renderIndexWithMockedData(initialData = createSampleViewModel()) {
   };
 }
 
+function clearDefaultMonthFilter() {
+  fireEvent.click(screen.getByRole("button", { name: "Month filter" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Month 2026-04" }));
+}
+
+function clearDefaultPhaseFilter() {
+  fireEvent.click(screen.getByRole("button", { name: "Phase filter" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Phase 03-In Analysis" }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Phase 04-In Progress" }));
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
 });
@@ -345,34 +423,76 @@ describe("Index main dashboard integration", () => {
     expect(screen.getByRole("button", { name: "Filters" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reset" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Year filter" })).toHaveTextContent("2026");
+    expect(screen.getByRole("button", { name: "Month filter" })).toHaveTextContent("2026-04");
+    expect(screen.getByRole("button", { name: "Phase filter" })).toHaveTextContent("03-In Analysis +1");
+    expect(screen.getByRole("button", { name: "China/Global filter" })).toHaveTextContent("Any");
     expect(screen.getByText("Year", { selector: ".workbench-filter-label" })).toBeInTheDocument();
+    expect(screen.getByText("Month", { selector: ".workbench-filter-label" })).toBeInTheDocument();
+    expect(screen.getByText("China/Global", { selector: ".workbench-filter-label" })).toBeInTheDocument();
     expect(screen.getByText("Project", { selector: ".workbench-filter-label" })).toBeInTheDocument();
     expect(screen.getByRole("article", { name: "Tickets in scope" })).toBeInTheDocument();
     expect(screen.getByRole("article", { name: "Resolved Forward" })).toBeInTheDocument();
     expect(screen.getByRole("article", { name: "Rejected Directly" })).toBeInTheDocument();
     expect(screen.getByRole("article", { name: "Teams in scope" })).toBeInTheDocument();
+    expect(screen.getByText("数据已同步 · 2026-04-05")).toBeInTheDocument();
     expectKpiValues({
-      tickets: "4",
-      resolvedForward: "2",
-      rejectedDirectly: "1",
-      teams: "2",
+      tickets: "1",
+      resolvedForward: "1",
+      rejectedDirectly: "0",
+      teams: "1",
     });
+  });
+
+  it("does not render the floating AI assistant overlay", () => {
+    renderIndexWithMockedData();
+
+    expect(screen.queryByText("AI Assistant")).not.toBeInTheDocument();
   });
 
   it("uses generated-from year defaults to scope KPI output on first render", () => {
     renderIndexWithMockedData();
 
     expectKpiValues({
-      tickets: "4",
-      resolvedForward: "2",
-      rejectedDirectly: "1",
-      teams: "2",
+      tickets: "1",
+      resolvedForward: "1",
+      rejectedDirectly: "0",
+      teams: "1",
     });
     expect(screen.getByRole("button", { name: "Year filter" })).toHaveTextContent("2026");
+    expect(screen.getByRole("button", { name: "Month filter" })).toHaveTextContent("2026-04");
+    expect(screen.getByRole("button", { name: "Phase filter" })).toHaveTextContent("03-In Analysis +1");
+  });
+
+  it("defaults the team filter to exclude CoC teams from the first view", () => {
+    renderIndexWithMockedData(createSampleViewModelWithCocTeam());
+
+    expectKpiValues({
+      tickets: "1",
+      resolvedForward: "1",
+      rejectedDirectly: "0",
+      teams: "1",
+    });
+    expect(
+      screen.getByRole("button", { name: "Problem Finder Team filter" }),
+    ).not.toHaveTextContent("[AT]CoC_EI_IuK");
+
+    fireEvent.click(screen.getByRole("button", { name: "Problem Finder Team filter" }));
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: "Problem Finder Team [AT]CoC_EI_IuK" }),
+    );
+
+    expectKpiValues({
+      tickets: "2",
+      resolvedForward: "2",
+      rejectedDirectly: "0",
+      teams: "2",
+    });
   });
 
   it("updates KPI output when the search text changes", () => {
     renderIndexWithMockedData();
+    clearDefaultMonthFilter();
+    clearDefaultPhaseFilter();
 
     fireEvent.change(screen.getByPlaceholderText("Search ticket ID or title"), {
       target: { value: "delta" },
@@ -392,14 +512,19 @@ describe("Index main dashboard integration", () => {
     const filtersToggle = screen.getByRole("button", { name: "Filters" });
 
     expect(screen.getByText("Year", { selector: ".workbench-filter-label" })).toBeInTheDocument();
+    expect(screen.getByText("Month", { selector: ".workbench-filter-label" })).toBeInTheDocument();
     fireEvent.click(filtersToggle);
     expect(screen.queryByText("Year", { selector: ".workbench-filter-label" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Month", { selector: ".workbench-filter-label" })).not.toBeInTheDocument();
     fireEvent.click(filtersToggle);
     expect(screen.getByText("Year", { selector: ".workbench-filter-label" })).toBeInTheDocument();
+    expect(screen.getByText("Month", { selector: ".workbench-filter-label" })).toBeInTheDocument();
   });
 
   it("resets search and restores default scoped KPI output", () => {
     renderIndexWithMockedData();
+    clearDefaultMonthFilter();
+    clearDefaultPhaseFilter();
 
     fireEvent.change(screen.getByPlaceholderText("Search ticket ID or title"), {
       target: { value: "delta" },
@@ -415,12 +540,13 @@ describe("Index main dashboard integration", () => {
 
     expect(screen.getByPlaceholderText("Search ticket ID or title")).toHaveValue("");
     expectKpiValues({
-      tickets: "4",
-      resolvedForward: "2",
-      rejectedDirectly: "1",
-      teams: "2",
+      tickets: "1",
+      resolvedForward: "1",
+      rejectedDirectly: "0",
+      teams: "1",
     });
     expect(screen.getByRole("button", { name: "Year filter" })).toHaveTextContent("2026");
+    expect(screen.getByRole("button", { name: "Month filter" })).toHaveTextContent("2026-04");
   });
 
   it("resets search and selected filters on data refresh while preserving filtersOpen", () => {
@@ -439,15 +565,16 @@ describe("Index main dashboard integration", () => {
     expect(screen.getByRole("button", { name: "Filters" })).toHaveAttribute("aria-pressed", "false");
     expect(screen.queryByText("Year", { selector: ".workbench-filter-label" })).not.toBeInTheDocument();
     expectKpiValues({
-      tickets: "4",
-      resolvedForward: "2",
-      rejectedDirectly: "1",
-      teams: "2",
+      tickets: "1",
+      resolvedForward: "1",
+      rejectedDirectly: "0",
+      teams: "1",
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Filters" }));
     expect(screen.getByRole("button", { name: "Project filter" })).toHaveTextContent("Any");
     expect(screen.getByRole("button", { name: "Year filter" })).toHaveTextContent("2026");
+    expect(screen.getByRole("button", { name: "Month filter" })).toHaveTextContent("2026-04");
   });
 
   it("renders each filter option as a single checkbox control", () => {
@@ -462,11 +589,28 @@ describe("Index main dashboard integration", () => {
 
   it("narrows the ticket detail table from outcome and team drilldowns and can clear selection", () => {
     renderIndexWithMockedData();
+    clearDefaultMonthFilter();
+    clearDefaultPhaseFilter();
 
-    expect(screen.getByText("Solution Outcome")).toBeInTheDocument();
-    expect(screen.getByText("Team Expansion")).toBeInTheDocument();
-    expect(screen.getByText("Ticket Detail")).toBeInTheDocument();
-    expect(screen.getByTestId("outcome-analysis-panels")).toHaveClass("space-y-4");
+    const solutionOutcomeHeading = screen.getByText("Solution Outcome");
+    const teamExpansionHeading = screen.getByText("Team Expansion");
+    const ticketDetailHeading = screen.getByText("Ticket Detail");
+
+    expect(solutionOutcomeHeading).toBeInTheDocument();
+    expect(teamExpansionHeading).toBeInTheDocument();
+    expect(ticketDetailHeading).toBeInTheDocument();
+    expect(
+      ticketDetailHeading.compareDocumentPosition(teamExpansionHeading) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.getByTestId("outcome-analysis-panels")).toHaveClass(
+      "grid",
+      "lg:grid-cols-[360px_minmax(0,1fr)]",
+    );
+    expect(screen.getByTestId("outcome-card-stack")).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("outcome-card-stack")).getAllByRole("button"),
+    ).toHaveLength(2);
     expect(screen.getByTestId("team-expansion-chart")).toBeInTheDocument();
 
     expectTicketDetailRows({
@@ -531,6 +675,7 @@ describe("Index main dashboard integration", () => {
 
   it("clears drilldown without resetting the broader filter scope", () => {
     renderIndexWithMockedData();
+    clearDefaultMonthFilter();
 
     fireEvent.click(screen.getByRole("button", { name: "Project filter" }));
     fireEvent.click(screen.getByRole("checkbox", { name: "Project U12" }));
@@ -567,6 +712,7 @@ describe("Index main dashboard integration", () => {
 
   it("allows drilling into a team outcome directly from the team panel", () => {
     renderIndexWithMockedData();
+    clearDefaultMonthFilter();
 
     fireEvent.click(
       screen.getByRole("button", {

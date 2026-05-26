@@ -16,6 +16,22 @@ export default defineConfig(({ mode }) => ({
         target: "http://127.0.0.1:3003",
         changeOrigin: true,
       },
+      "/api/testing": {
+        target: "http://127.0.0.1:3003",
+        changeOrigin: true,
+      },
+      "/api/metadata": {
+        target: "http://127.0.0.1:3003",
+        changeOrigin: true,
+      },
+      "/api/correlation": {
+        target: "http://127.0.0.1:3003",
+        changeOrigin: true,
+      },
+      "/api": {
+        target: "http://127.0.0.1:3004",
+        changeOrigin: true,
+      },
     },
   },
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),

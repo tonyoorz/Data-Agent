@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+backend/database/octane_data.db
+backend/database/*.sqlite
+.worktrees/
