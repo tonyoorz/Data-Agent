@@ -18,7 +18,17 @@ CREATE TABLE IF NOT EXISTS defect_outcomes (
     source_signature TEXT NOT NULL,
     derived_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS outcome_refresh_state (
+	store_name TEXT NOT NULL PRIMARY KEY,
+	source_signature TEXT NOT NULL,
+	outcome_row_count INTEGER NOT NULL,
+	refreshed_at TEXT NOT NULL
+);
 """
+
+
+OUTCOME_STORE_NAME = "defect_outcomes"
 
 
 def ensure_outcome_store(db_path: Path | str) -> Path:
@@ -70,6 +80,21 @@ def _extract_preferred_phase_code(*values: object) -> str:
 		if code:
 			return code
 	return ""
+
+
+def _load_refresh_state(conn: sqlite3.Connection) -> sqlite3.Row | tuple[object, ...] | None:
+	try:
+		return conn.execute(
+			"""
+			SELECT store_name, source_signature, outcome_row_count, refreshed_at
+			FROM outcome_refresh_state
+			WHERE store_name = ?
+			LIMIT 1
+			""",
+			(OUTCOME_STORE_NAME,),
+		).fetchone()
+	except sqlite3.DatabaseError:
+		return None
 
 
 def _coerce_json_object(raw_value: object) -> dict[str, object]:
@@ -167,18 +192,18 @@ def refresh_materialized_outcomes(
 
 	hot_conn = sqlite3.connect(resolved_hot_path)
 	try:
-		existing_signatures = {
-			row[0]
-			for row in hot_conn.execute(
-				"SELECT DISTINCT source_signature FROM defect_outcomes"
-			).fetchall()
-			if row[0]
-		}
+		refresh_state_row = _load_refresh_state(hot_conn)
 		existing_row_count_row = hot_conn.execute(
 			"SELECT COUNT(*) FROM defect_outcomes"
 		).fetchone()
 		existing_row_count = int(existing_row_count_row[0] or 0) if existing_row_count_row else 0
-		if not force and existing_signatures == {source_signature}:
+		refresh_state_signature = str(refresh_state_row[1]).strip() if refresh_state_row else ""
+		refresh_state_row_count = int(refresh_state_row[2] or 0) if refresh_state_row else -1
+		if (
+			not force
+			and refresh_state_signature == source_signature
+			and refresh_state_row_count == existing_row_count
+		):
 			return {
 				"row_count": existing_row_count,
 				"skipped": True,
@@ -186,6 +211,7 @@ def refresh_materialized_outcomes(
 			}
 
 		derived_rows = _derive_outcome_rows(source_db_path, source_signature)
+		refreshed_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 		hot_conn.execute("DELETE FROM defect_outcomes")
 		hot_conn.executemany(
 			"""
@@ -201,6 +227,26 @@ def refresh_materialized_outcomes(
 			) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 			""",
 			derived_rows,
+		)
+		hot_conn.execute(
+			"""
+			INSERT INTO outcome_refresh_state(
+				store_name,
+				source_signature,
+				outcome_row_count,
+				refreshed_at
+			) VALUES (?, ?, ?, ?)
+			ON CONFLICT(store_name) DO UPDATE SET
+				source_signature = excluded.source_signature,
+				outcome_row_count = excluded.outcome_row_count,
+				refreshed_at = excluded.refreshed_at
+			""",
+			(
+				OUTCOME_STORE_NAME,
+				source_signature,
+				len(derived_rows),
+				refreshed_at,
+			),
 		)
 		hot_conn.commit()
 	finally:
@@ -230,12 +276,14 @@ def load_materialized_outcomes(
 		"source_history_event_count": 0,
 	}
 	loaded = {defect_id: dict(default_row) for defect_id in requested_ids}
-	if not requested_ids:
-		return loaded
 
 	conn = sqlite3.connect(resolved_hot_path)
 	conn.row_factory = sqlite3.Row
 	try:
+		if _load_refresh_state(conn) is None:
+			raise FileNotFoundError(resolved_hot_path)
+		if not requested_ids:
+			return loaded
 		placeholders = ", ".join("?" for _ in requested_ids)
 		rows = conn.execute(
 			f"""

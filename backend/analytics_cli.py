@@ -22,6 +22,9 @@ from backend.analytics.processor import backfill_defect_projects, sync_dimension
 from backend.analytics.schema import ensure_schema
 
 
+HISTORY_SOURCE_REQUIRED_COLUMNS = frozenset({"defect_id", "field_name", "event_timestamp"})
+
+
 def seed_testing_rows() -> None:
     db_path = get_analytics_db_path()
     ensure_schema(db_path)
@@ -85,10 +88,18 @@ def seed_testing_rows() -> None:
 
 
 def _require_history_source_path() -> Path:
+    first_valid: Path | None = None
     for candidate in get_full_picture_history_db_candidates():
         resolved = Path(candidate)
-        if _is_valid_history_source_path(resolved):
+        row_count = _get_history_source_row_count(resolved)
+        if row_count is None:
+            continue
+        if first_valid is None:
+            first_valid = resolved
+        if row_count > 0:
             return resolved
+    if first_valid is not None:
+        return first_valid
     raise SystemExit("No Full Picture history source database is available")
 
 
@@ -100,13 +111,17 @@ def _require_valid_history_source_path(candidate: str | Path) -> Path:
 
 
 def _is_valid_history_source_path(candidate: Path) -> bool:
+    return _get_history_source_row_count(candidate) is not None
+
+
+def _get_history_source_row_count(candidate: Path) -> int | None:
     if not candidate.exists() or not candidate.is_file():
-        return False
+        return None
 
     try:
         conn = sqlite3.connect(str(candidate))
     except sqlite3.Error:
-        return False
+        return None
 
     try:
         row = conn.execute(
@@ -118,12 +133,27 @@ def _is_valid_history_source_path(candidate: Path) -> bool:
             """,
             ("octane_defect_history_events",),
         ).fetchone()
+        if row is None:
+            return None
+
+        columns = {
+            str(column_name).lower()
+            for (_, column_name, *_) in conn.execute(
+                "PRAGMA table_info(octane_defect_history_events)"
+            ).fetchall()
+        }
+        if not HISTORY_SOURCE_REQUIRED_COLUMNS.issubset(columns):
+            return None
+
+        count_row = conn.execute(
+            "SELECT COUNT(*) FROM octane_defect_history_events"
+        ).fetchone()
     except sqlite3.Error:
-        return False
+        return None
     finally:
         conn.close()
 
-    return row is not None
+    return int(count_row[0] or 0) if count_row else 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:

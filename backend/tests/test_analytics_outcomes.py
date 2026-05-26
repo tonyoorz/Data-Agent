@@ -71,13 +71,24 @@ def test_ensure_outcome_store_creates_parent_dirs_and_table(tmp_path):
 
 	conn = sqlite3.connect(hot_db)
 	try:
+		tables = {
+			row[0]
+			for row in conn.execute(
+				"SELECT name FROM sqlite_master WHERE type='table'"
+			).fetchall()
+		}
 		columns = {
 			row[1]: {"notnull": bool(row[3]), "pk": row[5]}
 			for row in conn.execute("PRAGMA table_info(defect_outcomes)").fetchall()
 		}
+		refresh_state_columns = {
+			row[1]: {"notnull": bool(row[3]), "pk": row[5]}
+			for row in conn.execute("PRAGMA table_info(outcome_refresh_state)").fetchall()
+		}
 	finally:
 		conn.close()
 
+	assert {"defect_outcomes", "outcome_refresh_state"}.issubset(tables)
 	assert {
 		"defect_id",
 		"is_resolved_forward",
@@ -94,6 +105,16 @@ def test_ensure_outcome_store_creates_parent_dirs_and_table(tmp_path):
 	assert columns["source_history_event_count"]["notnull"] is True
 	assert columns["source_signature"]["notnull"] is True
 	assert columns["derived_at"]["notnull"] is True
+	assert {
+		"store_name",
+		"source_signature",
+		"outcome_row_count",
+		"refreshed_at",
+	}.issubset(refresh_state_columns)
+	assert refresh_state_columns["store_name"]["pk"] == 1
+	assert refresh_state_columns["source_signature"]["notnull"] is True
+	assert refresh_state_columns["outcome_row_count"]["notnull"] is True
+	assert refresh_state_columns["refreshed_at"]["notnull"] is True
 
 
 def test_ensure_outcome_store_rejects_null_defect_id(tmp_path):

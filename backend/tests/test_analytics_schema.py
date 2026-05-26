@@ -276,6 +276,78 @@ def test_cli_refresh_full_picture_outcomes_command_populates_hot_db(tmp_path, mo
     assert row == (1, 0)
 
 
+def test_cli_refresh_full_picture_outcomes_autodiscovery_prefers_non_empty_valid_history_source(
+    tmp_path, monkeypatch, capsys
+):
+    empty_source_db = tmp_path / "empty-history.db"
+    populated_source_db = tmp_path / "populated-history.db"
+    hot_db = tmp_path / "database" / "hot" / "vizion_serving.db"
+
+    for db_path, rows in (
+        (empty_source_db, []),
+        (
+            populated_source_db,
+            [
+                (
+                    "D-CLI-2",
+                    "status_phase",
+                    "2026-05-25T00:00:00Z",
+                    1,
+                    1,
+                    "08",
+                    "06",
+                    "08-Resolved Forward",
+                    "06-Ready for Test",
+                )
+            ],
+        ),
+    ):
+        conn = sqlite3.connect(db_path)
+        try:
+            conn.execute(
+                """
+                CREATE TABLE octane_defect_history_events (
+                    defect_id TEXT,
+                    field_name TEXT,
+                    event_timestamp TEXT,
+                    entry_index INTEGER,
+                    change_index INTEGER,
+                    old_value TEXT,
+                    new_value TEXT,
+                    old_value_text TEXT,
+                    new_value_text TEXT
+                )
+                """
+            )
+            if rows:
+                conn.executemany(
+                    """
+                    INSERT INTO octane_defect_history_events(
+                        defect_id, field_name, event_timestamp, entry_index, change_index,
+                        old_value, new_value, old_value_text, new_value_text
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    rows,
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+    monkeypatch.setattr(
+        analytics_cli,
+        "get_full_picture_history_db_candidates",
+        lambda: [empty_source_db, populated_source_db],
+    )
+    monkeypatch.setenv("VIZION_FULL_PICTURE_HOT_DB_PATH", str(hot_db))
+
+    exit_code = main(["refresh-full-picture-outcomes"])
+
+    assert exit_code == 0
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["row_count"] == 1
+    assert str(populated_source_db.resolve()) in printed["source_signature"]
+
+
 @pytest.mark.parametrize("create_candidate", [False, True])
 def test_cli_refresh_full_picture_outcomes_requires_valid_history_source(
     tmp_path, monkeypatch, create_candidate
@@ -305,6 +377,24 @@ def test_cli_refresh_full_picture_outcomes_rejects_invalid_explicit_db_path(tmp_
     )
 
 
+def test_cli_refresh_full_picture_outcomes_rejects_malformed_history_schema(tmp_path):
+    invalid_db_path = tmp_path / "malformed-history.db"
+
+    conn = sqlite3.connect(invalid_db_path)
+    try:
+        conn.execute("CREATE TABLE octane_defect_history_events (defect_id TEXT)")
+        conn.commit()
+    finally:
+        conn.close()
+
+    with pytest.raises(SystemExit) as exc_info:
+        main(["refresh-full-picture-outcomes", "--db-path", str(invalid_db_path)])
+
+    assert str(exc_info.value) == (
+        f"Provided Full Picture history source database is invalid: {invalid_db_path}"
+    )
+
+
 def test_cli_refresh_full_picture_outcomes_passes_force_flag(tmp_path, monkeypatch, capsys):
     source_db = tmp_path / "history.db"
     hot_db = tmp_path / "database" / "hot" / "vizion_serving.db"
@@ -313,7 +403,7 @@ def test_cli_refresh_full_picture_outcomes_passes_force_flag(tmp_path, monkeypat
     conn = sqlite3.connect(source_db)
     try:
         conn.execute(
-            "CREATE TABLE octane_defect_history_events (defect_id TEXT, field_name TEXT)"
+            "CREATE TABLE octane_defect_history_events (defect_id TEXT, field_name TEXT, event_timestamp TEXT)"
         )
         conn.commit()
     finally:

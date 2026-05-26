@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend.analytics.api import app
-from backend.analytics.full_picture_outcomes import refresh_materialized_outcomes
+from backend.analytics.full_picture_outcomes import ensure_outcome_store, refresh_materialized_outcomes
 from backend.analytics import read_models
 from backend.analytics.schema import ensure_schema
 
@@ -375,6 +375,190 @@ def test_full_picture_returns_503_when_hot_outcomes_are_missing(tmp_path, monkey
 
     assert response.status_code == 503
     assert response.json()["error"] == "analytics database not initialized"
+
+
+def test_full_picture_returns_503_when_hot_outcomes_were_never_refreshed(tmp_path, monkeypatch):
+    defect_db_path = tmp_path / "qgate_data.db"
+    hot_db_path = _default_hot_db_path(tmp_path)
+    missing_history_db_path = tmp_path / "missing_history.db"
+
+    conn = sqlite3.connect(defect_db_path)
+    try:
+        conn.executescript(
+            """
+            CREATE TABLE octane_defects (
+                defect_id TEXT PRIMARY KEY,
+                name TEXT,
+                status_phase TEXT,
+                problem_finder_team TEXT,
+                year TEXT,
+                assigned_ecu TEXT,
+                top_aida TEXT,
+                aida_english TEXT,
+                aida_businesskey TEXT,
+                phase TEXT,
+                solution_cluster TEXT,
+                lead_model TEXT,
+                project TEXT,
+                pu TEXT,
+                market TEXT,
+                last_modified TEXT,
+                creation_time TEXT
+            );
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO octane_defects(
+                defect_id, name, status_phase, problem_finder_team, year,
+                assigned_ecu, top_aida, aida_english, aida_businesskey, phase,
+                solution_cluster, lead_model, project, pu, market, last_modified, creation_time
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "D-NOT-READY",
+                "Never refreshed outcome issue",
+                "03-In Analysis",
+                "DTSV_China",
+                "2026",
+                "ECU-A",
+                "Speech",
+                "",
+                "",
+                "03-In Analysis",
+                "Integration",
+                "NA5",
+                "IDCEVO",
+                "PU1",
+                "CN",
+                "2026-05-25T00:00:00Z",
+                "2026-05-24T00:00:00Z",
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    ensure_outcome_store(hot_db_path)
+    _configure_full_picture_env(
+        monkeypatch,
+        defect_db_path=defect_db_path,
+        hot_db_path=hot_db_path,
+        history_db_path=missing_history_db_path,
+    )
+
+    with pytest.raises(read_models.FullPictureDashboardDataError, match="hot.+outcome.+not available"):
+        read_models.build_full_picture_payload(years="2026")
+
+    client = TestClient(app)
+    response = client.get("/api/full-picture/dashboard?years=2026")
+
+    assert response.status_code == 503
+    assert response.json()["error"] == "analytics database not initialized"
+
+
+def test_full_picture_allows_refreshed_empty_hot_outcomes(tmp_path, monkeypatch):
+    defect_db_path = tmp_path / "qgate_data.db"
+    history_source_db_path = tmp_path / "history_source.db"
+    hot_db_path = _default_hot_db_path(tmp_path)
+    missing_history_db_path = tmp_path / "missing_history.db"
+
+    defect_conn = sqlite3.connect(defect_db_path)
+    try:
+        defect_conn.executescript(
+            """
+            CREATE TABLE octane_defects (
+                defect_id TEXT PRIMARY KEY,
+                name TEXT,
+                status_phase TEXT,
+                problem_finder_team TEXT,
+                year TEXT,
+                assigned_ecu TEXT,
+                top_aida TEXT,
+                aida_english TEXT,
+                aida_businesskey TEXT,
+                phase TEXT,
+                solution_cluster TEXT,
+                lead_model TEXT,
+                project TEXT,
+                pu TEXT,
+                market TEXT,
+                last_modified TEXT,
+                creation_time TEXT
+            );
+            """
+        )
+        defect_conn.execute(
+            """
+            INSERT INTO octane_defects(
+                defect_id, name, status_phase, problem_finder_team, year,
+                assigned_ecu, top_aida, aida_english, aida_businesskey, phase,
+                solution_cluster, lead_model, project, pu, market, last_modified, creation_time
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "D-EMPTY-HOT",
+                "Refreshed empty outcome issue",
+                "03-In Analysis",
+                "DTSV_China",
+                "2026",
+                "ECU-A",
+                "Speech",
+                "",
+                "",
+                "03-In Analysis",
+                "Integration",
+                "NA5",
+                "IDCEVO",
+                "PU1",
+                "CN",
+                "2026-05-25T00:00:00Z",
+                "2026-05-24T00:00:00Z",
+            ),
+        )
+        defect_conn.commit()
+    finally:
+        defect_conn.close()
+
+    history_conn = sqlite3.connect(history_source_db_path)
+    try:
+        history_conn.execute(
+            """
+            CREATE TABLE octane_defect_history_events (
+                defect_id TEXT,
+                field_name TEXT,
+                event_timestamp TEXT,
+                entry_index INTEGER,
+                change_index INTEGER,
+                old_value TEXT,
+                new_value TEXT,
+                old_value_text TEXT,
+                new_value_text TEXT
+            )
+            """
+        )
+        history_conn.commit()
+    finally:
+        history_conn.close()
+
+    _refresh_full_picture_hot_outcomes(history_source_db_path, hot_db_path)
+    _configure_full_picture_env(
+        monkeypatch,
+        defect_db_path=defect_db_path,
+        hot_db_path=hot_db_path,
+        history_db_path=missing_history_db_path,
+    )
+
+    client = TestClient(app)
+    response = client.get("/api/full-picture/dashboard?years=2026")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["overview"]["ticket_count"] == 1
+    assert payload["ticket_rows"][0]["ticket_id"] == "D-EMPTY-HOT"
+    assert payload["ticket_rows"][0]["is_resolved_forward"] is False
+    assert payload["ticket_rows"][0]["is_rejected_directly"] is False
+    assert payload["generated_from"]["outcome_db_path"] == str(hot_db_path)
 
 
 def test_full_picture_prefers_local_octane_db_when_explicitly_configured(tmp_path, monkeypatch):
