@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import AIChat from "@/components/dashboard/pages/AIChat";
 
@@ -7,6 +7,10 @@ describe("AIChat duplicate search integration", () => {
   beforeEach(() => {
     window.localStorage.clear();
     vi.restoreAllMocks();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("shows duplicate search mode controls and defaults to deepseek v4 pro", () => {
@@ -91,6 +95,158 @@ describe("AIChat duplicate search integration", () => {
 
     expect(await screen.findByText("DTV-1024")).toBeInTheDocument();
     expect(screen.getByText("最可能的重复问题是 DTV-1024，请优先复核。")).toBeInTheDocument();
+  });
+
+  it("shows an immediate retrieval status for duplicate search before results arrive", async () => {
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      if (String(input) === "/api/duplicate-search/warmup") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ state: "warming" }),
+        });
+      }
+
+      return new Promise(() => {}) as Promise<Response>;
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<AIChat moduleKey="ai-chat" moduleLabel="AI Chat" />);
+
+    fireEvent.click(screen.getByRole("button", { name: /duplicate search/i }));
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "IDCEVO 26/07 导航黑屏" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    expect(await screen.findByText("正在检索历史重复问题…")).toBeInTheDocument();
+  });
+
+  it("reveals duplicate-search summary before rendering the candidate list", async () => {
+    vi.useFakeTimers();
+
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      if (String(input) === "/api/duplicate-search/warmup") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ state: "warm" }),
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          success: true,
+          result: {
+            searchId: "search-2",
+            queryText: "IDCEVO 26/07 导航黑屏",
+            modelPhase: "click_boost",
+            feedbackCount: 3,
+            summaryText: "最可能的重复问题是 DTV-1024，请优先复核。",
+            answerModel: "deepseek-v4-pro",
+            candidates: [
+              {
+                ticketId: "DTV-1024",
+                name: "IDCEVO 26/07 导航黑屏",
+                score1to10: 9,
+                similarity: 0.92,
+                project: "IDCEVO",
+                pu: "26-07",
+                statusPhase: "03-In Analysis",
+                snippet: "车辆冷启动后中控导航黑屏，需要重启恢复。",
+              },
+            ],
+          },
+        }),
+      });
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<AIChat moduleKey="ai-chat" moduleLabel="AI Chat" />);
+
+    fireEvent.click(screen.getByRole("button", { name: /duplicate search/i }));
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "IDCEVO 26/07 导航黑屏" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/duplicate-search",
+      expect.objectContaining({
+        method: "POST",
+      }),
+    );
+
+    expect(screen.queryByText("DTV-1024")).not.toBeInTheDocument();
+
+    await act(async () => {
+      vi.runAllTimers();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText("最可能的重复问题是 DTV-1024，请优先复核。")).toBeInTheDocument();
+    expect(screen.getByText("DTV-1024")).toBeInTheDocument();
+  });
+
+  it("keeps the replacement duplicate-search request active after stopping the previous one", async () => {
+    let releaseFirstAbort: (() => void) | null = null;
+
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === "/api/duplicate-search/warmup") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ state: "warm" }),
+        });
+      }
+
+      const requestBody = JSON.parse(String(init?.body ?? "{}")) as { query?: string };
+
+      if (requestBody.query === "first search") {
+        return new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => {
+            releaseFirstAbort = () => reject(new DOMException("Aborted", "AbortError"));
+          });
+        });
+      }
+
+      return new Promise(() => {}) as Promise<Response>;
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<AIChat moduleKey="ai-chat" moduleLabel="AI Chat" />);
+
+    fireEvent.click(screen.getByRole("button", { name: /duplicate search/i }));
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "first search" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    expect(await screen.findByRole("button", { name: "停止生成" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "停止生成" }));
+
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "second search" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    expect(screen.getByRole("button", { name: "停止生成" })).toBeInTheDocument();
+
+    releaseFirstAbort?.();
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(screen.getByRole("button", { name: "停止生成" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "发送" })).not.toBeInTheDocument();
   });
 
   it("submits standard AI chat requests to the dedicated AI endpoint", async () => {

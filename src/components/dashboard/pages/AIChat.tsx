@@ -99,6 +99,7 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
   const [editingMsgVal, setEditingMsgVal] = useState("");
 
   const abortRef = useRef<AbortController | null>(null);
+  const activeRequestRef = useRef<string | null>(null);
   const streamAnimatorRef = useRef<StreamTextAnimator | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -180,6 +181,7 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
 
   const stop = () => {
     abortRef.current?.abort();
+    activeRequestRef.current = null;
     abortRef.current = null;
     streamAnimatorRef.current?.stop();
     streamAnimatorRef.current = null;
@@ -274,6 +276,8 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
   const runStream = async (history: Msg[], assistantMsgId: string) => {
     setStreaming(true);
     const controller = new AbortController();
+    const requestId = newId();
+    activeRequestRef.current = requestId;
     abortRef.current = controller;
     streamAnimatorRef.current?.stop();
     if (!chatContextEnabled) {
@@ -415,14 +419,35 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
         }));
       }
     } finally {
-      streamAnimatorRef.current = null;
-      setStreaming(false);
-      abortRef.current = null;
+      if (activeRequestRef.current === requestId) {
+        activeRequestRef.current = null;
+        streamAnimatorRef.current = null;
+        setStreaming(false);
+        abortRef.current = null;
+      }
     }
   };
 
   const runDuplicateSearch = async (queryText: string, assistantMsgId: string) => {
     setStreaming(true);
+    const controller = new AbortController();
+    const requestId = newId();
+    activeRequestRef.current = requestId;
+    abortRef.current = controller;
+    streamAnimatorRef.current?.stop();
+    updateActive((c) => ({
+      ...c,
+      messages: c.messages.map((message) =>
+        message.id === assistantMsgId
+          ? {
+              ...message,
+              content: "正在检索历史重复问题…",
+              mode: "duplicate-search",
+            }
+          : message,
+      ),
+      updatedAt: Date.now(),
+    }));
 
     try {
       const response = await fetch("/api/duplicate-search", {
@@ -435,6 +460,7 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
           top_k: 8,
           model,
         }),
+        signal: controller.signal,
       });
 
       const payload = (await response.json().catch(() => ({}))) as {
@@ -448,6 +474,30 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
       }
 
       const summaryText = payload.result.summaryText || buildDuplicateFallbackSummary(payload.result);
+      const animator = createStreamTextAnimator({
+        onUpdate: (nextText) => {
+          updateActive((c) => ({
+            ...c,
+            messages: c.messages.map((message) =>
+              message.id === assistantMsgId
+                ? {
+                    ...message,
+                    content: nextText,
+                    mode: "duplicate-search",
+                  }
+                : message,
+            ),
+            updatedAt: Date.now(),
+          }));
+        },
+      });
+      streamAnimatorRef.current = animator;
+      animator.push(summaryText);
+      await animator.finish();
+      if (controller.signal.aborted) {
+        return;
+      }
+
       updateActive((c) => ({
         ...c,
         messages: c.messages.map((message) =>
@@ -463,6 +513,10 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
         updatedAt: Date.now(),
       }));
     } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        return;
+      }
+
       const message = error instanceof Error ? error.message : "重复问题检索失败";
       updateActive((c) => ({
         ...c,
@@ -477,7 +531,12 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
         ),
       }));
     } finally {
-      setStreaming(false);
+      if (activeRequestRef.current === requestId) {
+        activeRequestRef.current = null;
+        streamAnimatorRef.current = null;
+        setStreaming(false);
+        abortRef.current = null;
+      }
     }
   };
 
