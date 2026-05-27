@@ -14,11 +14,14 @@ if __package__ in {None, ""}:
 
 from backend.analytics.config import (
     get_analytics_db_path,
+    get_full_picture_cold_db_path,
+    get_full_picture_cold_parquet_dir,
     get_full_picture_defect_db_candidates,
     get_full_picture_history_db_candidates,
     get_full_picture_hot_db_path,
     get_full_picture_source_db_path,
 )
+from backend.analytics.cold_archive import archive_source_to_cold_storage
 from backend.analytics.db import connect
 from backend.analytics.full_picture_outcomes import refresh_materialized_outcomes
 from backend.analytics.processor import backfill_defect_projects, sync_dimension_fields
@@ -263,6 +266,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             else _require_source_stage_input_path()
         )
         summary = _stage_full_picture_source(source_db_path)
+        print(json.dumps(summary, ensure_ascii=False))
+        return 0
+    if args.command == "archive-full-picture-cold":
+        source_db_path = (
+            _require_valid_source_stage_input_path(args.db_path)
+            if args.db_path
+            else _require_source_stage_input_path()
+        )
+        summary = archive_source_to_cold_storage(
+            source_db_path,
+            get_full_picture_cold_db_path(),
+            get_full_picture_cold_parquet_dir(),
+        )
         print(json.dumps(summary, ensure_ascii=False))
         return 0
     if args.command == "refresh-full-picture-outcomes":

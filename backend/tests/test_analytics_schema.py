@@ -315,6 +315,50 @@ def test_cli_stage_full_picture_source_copies_upstream_db_to_local_source(tmp_pa
     assert row == ("D-STAGE-1", "Staged source defect")
 
 
+def test_cli_archive_full_picture_cold_exports_local_source_to_cold_storage(tmp_path, monkeypatch, capsys):
+    source_db = tmp_path / "source" / "qgate_raw.db"
+    source_db.parent.mkdir(parents=True, exist_ok=True)
+
+    conn = sqlite3.connect(source_db)
+    try:
+        conn.execute("CREATE TABLE octane_defects (defect_id TEXT PRIMARY KEY, name TEXT)")
+        conn.execute(
+            "CREATE TABLE octane_defect_history_events (defect_id TEXT, field_name TEXT, event_timestamp TEXT)"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    calls = {}
+
+    def fake_archive(source_db_path, cold_db_path, parquet_dir):
+        calls["source_db_path"] = source_db_path
+        calls["cold_db_path"] = cold_db_path
+        calls["parquet_dir"] = parquet_dir
+        return {
+            "table_count": 2,
+            "cold_db_path": str(cold_db_path),
+            "parquet_dir": str(parquet_dir),
+        }
+
+    monkeypatch.setattr(analytics_cli, "archive_source_to_cold_storage", fake_archive)
+    monkeypatch.setenv("VIZION_DATABASE_ROOT", str(tmp_path / "database"))
+
+    exit_code = main(["archive-full-picture-cold", "--db-path", str(source_db)])
+
+    assert exit_code == 0
+    assert calls == {
+        "source_db_path": source_db,
+        "cold_db_path": tmp_path / "database" / "cold" / "qgate_archive.duckdb",
+        "parquet_dir": tmp_path / "database" / "cold" / "parquet",
+    }
+    assert json.loads(capsys.readouterr().out) == {
+        "table_count": 2,
+        "cold_db_path": str(tmp_path / "database" / "cold" / "qgate_archive.duckdb"),
+        "parquet_dir": str(tmp_path / "database" / "cold" / "parquet"),
+    }
+
+
 def test_cli_refresh_full_picture_outcomes_autodiscovery_prefers_non_empty_valid_history_source(
     tmp_path, monkeypatch, capsys
 ):

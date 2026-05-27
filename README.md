@@ -37,9 +37,18 @@ $env:VIZION_ANALYTICS_PYTHON = "C:\path\to\python.exe"
 
 默认情况下，当前仓库会优先自动查找这些路径中的 SQLite：
 
+- `./database/source/qgate_raw.db`
+- 当前仓库下的 `qgate/qgate_data.db`
 - `../TPMDashbaord/qgate/qgate_data.db`
 - `../TPMDashboard/qgate/qgate_data.db`
-- 当前仓库下的 `qgate/qgate_data.db`
+
+如果你已经执行过本地 stage：
+
+```powershell
+python -m backend.analytics_cli stage-full-picture-source --db-path ..\TPMDashbaord\qgate\qgate_data.db
+```
+
+那么 duplicate search 和 AI context 也会默认优先走 `./database/source/qgate_raw.db`。
 
 如果你的环境和上面不同，再手动指定：
 
@@ -88,6 +97,19 @@ python -m backend.analytics_cli refresh-full-picture-outcomes
 - `./database/source/qgate_raw.db`
 - `./database/hot/vizion_serving.db`
 - `./database/cold/`
+
+如果你想把本地 source copy 再导出成 cold archive（DuckDB + Parquet），可以执行：
+
+```powershell
+python -m backend.analytics_cli archive-full-picture-cold
+```
+
+默认输出会写到：
+
+- `./database/cold/qgate_archive.duckdb`
+- `./database/cold/parquet/*.parquet`
+
+这一步是离线归档，不会改变当前 runtime API 的读路径。
 
 如果你要使用仓库内的本地 analytics SQLite，也可以先初始化 schema：
 
