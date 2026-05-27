@@ -126,6 +126,67 @@ def test_rows_from_octane_defects_flattens_comments_from_sqlite(tmp_path):
     assert "<p>" not in rows[0]["comments"]
 
 
+def test_rows_from_octane_defects_handles_legacy_schema_without_comments_column(tmp_path):
+    bridge = _load_duplicate_search_bridge_module()
+    db_path = tmp_path / "qgate_data.db"
+
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            """
+            CREATE TABLE octane_defects (
+                defect_id TEXT,
+                name TEXT,
+                description TEXT,
+                project TEXT,
+                pu TEXT,
+                software_version TEXT,
+                status_phase TEXT,
+                assigned_ecu TEXT,
+                lead_model TEXT,
+                detected_in_release TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO octane_defects (
+                defect_id,
+                name,
+                description,
+                project,
+                pu,
+                software_version,
+                status_phase,
+                assigned_ecu,
+                lead_model,
+                detected_in_release
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "legacy-1",
+                "Wake issue",
+                "Legacy schema row without comments column.",
+                "IDCEVO",
+                "27-07",
+                "27-07",
+                "03-In Analysis",
+                "HU-H5",
+                "G60",
+                "EES27",
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    rows = bridge._rows_from_octane_defects(db_path)
+
+    assert len(rows) == 1
+    assert rows[0]["id"] == "legacy-1"
+    assert rows[0]["comments"] == ""
+
+
 def test_keyword_fallback_search_uses_comments_text(monkeypatch):
     df = pd.DataFrame(
         [

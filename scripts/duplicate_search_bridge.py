@@ -171,12 +171,18 @@ def _rows_from_octane_defects(sqlite_path: Path) -> List[Dict[str, Any]]:
     if not sqlite_path.exists():
         raise FileNotFoundError(f'SQLite database not found: {sqlite_path}')
 
-    query = '''
+    with sqlite3.connect(str(sqlite_path)) as connection:
+        columns = {
+            str(row[1]).strip().lower()
+            for row in connection.execute("PRAGMA table_info(octane_defects)").fetchall()
+        }
+        comments_select = 'comments' if 'comments' in columns else "'' AS comments"
+        query = f'''
         SELECT
             defect_id,
             name,
             description,
-            comments,
+            {comments_select},
             project,
             pu,
             software_version,
@@ -186,8 +192,6 @@ def _rows_from_octane_defects(sqlite_path: Path) -> List[Dict[str, Any]]:
             detected_in_release
         FROM octane_defects
     '''
-
-    with sqlite3.connect(str(sqlite_path)) as connection:
         df = pd.read_sql_query(query, connection)
 
     rows: List[Dict[str, Any]] = []
