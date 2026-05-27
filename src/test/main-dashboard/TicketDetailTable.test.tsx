@@ -74,6 +74,51 @@ describe("TicketDetailTable", () => {
     expect(within(table).getByText("1099")).toBeInTheDocument();
     expect(within(table).queryByText("1100")).not.toBeInTheDocument();
   });
+
+  it("lets the user jump directly to a page and clamps invalid values", () => {
+    render(
+      <TicketDetailTable
+        rows={createRows(120)}
+        selection={{}}
+        selectedOutcomeLabel={null}
+        onClearSelection={vi.fn()}
+      />,
+    );
+
+    const section = screen.getByText("Ticket Detail").closest("section");
+    const table = screen.getByRole("table", { name: "Ticket detail table" });
+    const pageInput = within(section as HTMLElement).getByLabelText("Go to page");
+
+    fireEvent.change(pageInput, { target: { value: "3" } });
+    fireEvent.keyDown(pageInput, { key: "Enter", code: "Enter", charCode: 13 });
+
+    expect(within(section as HTMLElement).getByText("Page 3 of 3")).toBeInTheDocument();
+    expect(within(table).getByText("1100")).toBeInTheDocument();
+    expect(within(table).getByText("1119")).toBeInTheDocument();
+    expect(within(table).queryByText("1099")).not.toBeInTheDocument();
+
+    fireEvent.change(pageInput, { target: { value: "999" } });
+    fireEvent.keyDown(pageInput, { key: "Enter", code: "Enter", charCode: 13 });
+
+    expect(within(section as HTMLElement).getByText("Page 3 of 3")).toBeInTheDocument();
+
+    fireEvent.change(pageInput, { target: { value: "0" } });
+    fireEvent.keyDown(pageInput, { key: "Enter", code: "Enter", charCode: 13 });
+
+    expect(within(section as HTMLElement).getByText("Page 1 of 3")).toBeInTheDocument();
+    expect(within(table).getByText("1000")).toBeInTheDocument();
+
+    fireEvent.change(pageInput, { target: { value: "3" } });
+    fireEvent.keyDown(pageInput, { key: "Enter", code: "Enter", charCode: 13 });
+
+    expect(within(section as HTMLElement).getByText("Page 3 of 3")).toBeInTheDocument();
+
+    fireEvent.change(pageInput, { target: { value: "" } });
+    fireEvent.blur(pageInput);
+
+    expect(within(section as HTMLElement).getByText("Page 3 of 3")).toBeInTheDocument();
+    expect(pageInput).toHaveValue(3);
+  });
 });import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -178,17 +223,17 @@ describe("TicketDetailTable data grid", () => {
     expect(screen.queryByRole("columnheader", { name: "Status" })).not.toBeInTheDocument();
   });
 
-  it("allows defect category to be shown as an optional visible column", () => {
+  it("shows defect category as a default visible column and still allows it to be hidden", () => {
     renderTicketDetailTable();
-
-    expect(screen.queryByRole("columnheader", { name: "Defect Category" })).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Columns" }));
-    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Defect Category" }));
 
     const table = screen.getByRole("table", { name: "Ticket detail table" });
     expect(screen.getByRole("columnheader", { name: "Defect Category" })).toBeInTheDocument();
     expect(within(table).getByText("CN Speech")).toBeInTheDocument();
     expect(within(table).getByText("Global Core")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Columns" }));
+    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Defect Category" }));
+
+    expect(screen.queryByRole("columnheader", { name: "Defect Category" })).not.toBeInTheDocument();
   });
 });

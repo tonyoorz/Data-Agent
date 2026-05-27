@@ -107,7 +107,6 @@ const TicketDetailTable = ({
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({
     assignedEcu: false,
     aida: false,
-    defectCategory: false,
     solutionCluster: false,
     pu: false,
     market: false,
@@ -119,6 +118,7 @@ const TicketDetailTable = ({
     pageIndex: 0,
     pageSize: 50,
   });
+  const [pageJumpValue, setPageJumpValue] = useState("1");
   const [columnSizing, setColumnSizing] = useState<Record<string, number>>({
     ticketId: 104,
     ticketName: 260,
@@ -358,7 +358,32 @@ const TicketDetailTable = ({
   const paginatedRows = table.getRowModel().rows;
   const paginatedRowCount = paginatedRows.length;
   const totalPages = Math.max(table.getPageCount(), 1);
+  const currentPageNumber = pagination.pageIndex + 1;
   const densityClassName = densityClassNames[density];
+
+  useEffect(() => {
+    setPageJumpValue(String(Math.min(currentPageNumber, totalPages)));
+  }, [currentPageNumber, totalPages]);
+
+  const commitPageJump = () => {
+    const trimmedPage = pageJumpValue.trim();
+
+    if (!trimmedPage) {
+      setPageJumpValue(String(currentPageNumber));
+      return;
+    }
+
+    const parsedPage = Number(trimmedPage);
+
+    if (!Number.isFinite(parsedPage)) {
+      setPageJumpValue(String(currentPageNumber));
+      return;
+    }
+
+    const nextPage = Math.min(Math.max(Math.trunc(parsedPage), 1), totalPages);
+    table.setPageIndex(nextPage - 1);
+    setPageJumpValue(String(nextPage));
+  };
 
   return (
     <section className="workbench-panel p-5">
@@ -522,9 +547,28 @@ const TicketDetailTable = ({
 
           <div className="flex flex-col gap-2 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
             <p>
-              Page {pagination.pageIndex + 1} of {totalPages}
+              Page {currentPageNumber} of {totalPages}
             </p>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="flex items-center gap-2">
+                <span>Go to page</span>
+                <Input
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  max={totalPages}
+                  value={pageJumpValue}
+                  onChange={(event) => setPageJumpValue(event.target.value)}
+                  onBlur={commitPageJump}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      commitPageJump();
+                    }
+                  }}
+                  aria-label="Go to page"
+                  className="h-8 w-20"
+                />
+              </label>
               <Button
                 type="button"
                 variant="outline"
