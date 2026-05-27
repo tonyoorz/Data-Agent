@@ -117,7 +117,7 @@ class FeatureReRanker:
         pu = str(meta.get("pu") or "").lower()
         ecu = str(meta.get("ecu") or "").lower()
         lead_model = str(meta.get("lead_model") or "").lower()
-        overlap = _token_overlap(query_text, "\n".join(str(meta.get(key) or "") for key in ("name", "description", "project", "pu", "ecu", "lead_model")))
+        overlap = _token_overlap(query_text, "\n".join(str(meta.get(key) or "") for key in ("name", "description", "comments", "project", "pu", "ecu", "lead_model")))
         popularity = popularity_stats or {}
         normalized_rank = 0.0 if rank_pos is None else min(1.0, max(0.0, float(rank_pos) / 50.0))
         return [

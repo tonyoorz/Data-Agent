@@ -39,6 +39,37 @@ def _strip_html(text: str) -> str:
     return clean.strip()
 
 
+def _flatten_comments(value: Any) -> str:
+    if value is None:
+        return ''
+
+    parsed = value
+    if isinstance(parsed, str):
+        raw = parsed.strip()
+        if not raw:
+            return ''
+        try:
+            parsed = json.loads(raw)
+        except Exception:
+            return _strip_html(raw)
+
+    if isinstance(parsed, dict):
+        parsed = [parsed]
+
+    if isinstance(parsed, list):
+        parts: List[str] = []
+        for item in parsed:
+            if isinstance(item, dict):
+                text = _strip_html(str(item.get('text') or ''))
+            else:
+                text = _strip_html(str(item))
+            if text:
+                parts.append(text)
+        return '\n'.join(parts)
+
+    return _strip_html(str(parsed))
+
+
 def _pick_scalar(value: Any) -> Optional[str]:
     if value is None:
         return None
@@ -75,6 +106,7 @@ def _rows_from_defect_file(file_path: Path) -> List[Dict[str, Any]]:
             continue
         title = str(raw.get('name') or '').strip()
         description = _strip_html(str(raw.get('description') or ''))
+        comments = _flatten_comments(raw.get('comments'))
 
         hint_text = ' '.join(
             [
@@ -104,6 +136,7 @@ def _rows_from_defect_file(file_path: Path) -> List[Dict[str, Any]]:
                 'ecu': hints.ecu,
                 'lead_model': hints.lead_model,
                 'status_phase': phase,
+                'comments': comments,
             }
         )
     return rows
@@ -143,6 +176,7 @@ def _rows_from_octane_defects(sqlite_path: Path) -> List[Dict[str, Any]]:
             defect_id,
             name,
             description,
+            comments,
             project,
             pu,
             software_version,
@@ -160,6 +194,7 @@ def _rows_from_octane_defects(sqlite_path: Path) -> List[Dict[str, Any]]:
     for raw in df.to_dict(orient='records'):
         title = str(raw.get('name') or '').strip()
         description = _strip_html(str(raw.get('description') or ''))
+        comments = _flatten_comments(raw.get('comments'))
 
         hint_text = ' '.join(
             [
@@ -183,6 +218,7 @@ def _rows_from_octane_defects(sqlite_path: Path) -> List[Dict[str, Any]]:
                 'ecu': _pick_scalar(raw.get('ecu')) or hints.ecu,
                 'lead_model': _pick_scalar(raw.get('lead_model')) or hints.lead_model,
                 'status_phase': _pick_scalar(raw.get('status_phase')),
+                'comments': comments,
             }
         )
     return rows
@@ -201,7 +237,7 @@ def _build_defect_df(repo_root: Path) -> pd.DataFrame:
             rows.extend(_rows_from_defect_file(file_path))
 
     if not rows:
-        return pd.DataFrame(columns=['id', 'name', 'description', 'project', 'pu', 'status_phase'])
+        return pd.DataFrame(columns=['id', 'name', 'description', 'comments', 'project', 'pu', 'status_phase'])
 
     df = pd.DataFrame(rows)
     df = df[df['id'].astype(str).str.len() > 0]

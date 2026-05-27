@@ -207,7 +207,7 @@ def _get_embedding_cache() -> _EmbeddingCache:
 
 
 DEFAULT_EXCLUDED_PHASE_PREFIXES = ("00-", "06-", "09-")
-DEFAULT_TEXT_FIELDS = ("name", "description", "project", "pu", "ecu", "top_aida", "fv", "team", "fvp", "lead_model")
+DEFAULT_TEXT_FIELDS = ("name", "description", "comments", "project", "pu", "ecu", "top_aida", "fv", "team", "fvp", "lead_model")
 
 
 @dataclass(frozen=True)
@@ -433,6 +433,10 @@ def _safe_snippet(text: Any, max_len: int = 240) -> str:
     return s[: max_len - 1] + "…"
 
 
+def _candidate_snippet(meta: Dict[str, Any]) -> str:
+    return _safe_snippet(meta.get("description") or meta.get("comments") or "")
+
+
 class DuplicateIssueIndex:
     def __init__(
         self,
@@ -496,6 +500,7 @@ class DuplicateIssueIndex:
                     "lead_model": _normalize_text(row.get("lead_model")) or None,
                     "status_phase": _normalize_text(row.get("status_phase")) or None,
                     "description": _normalize_text(row.get("description")) or "",
+                    "comments": _normalize_text(row.get("comments")) or "",
                 }
             )
 
@@ -621,7 +626,7 @@ class DuplicateIssueIndex:
                     project=meta.get("project"),
                     pu=meta.get("pu"),
                     status_phase=meta.get("status_phase"),
-                    snippet=_safe_snippet(meta.get("description") or ""),
+                    snippet=_candidate_snippet(meta),
                 )
             )
             if len(candidates) >= top_k:
@@ -687,6 +692,7 @@ class DuplicateIssueIndex:
             hay = (
                 f"{meta.get('name','')}\n"
                 f"{meta.get('description','')}\n"
+                f"{meta.get('comments','')}\n"
                 f"{meta.get('project','')}\n"
                 f"{meta.get('pu','')}\n"
                 f"{meta.get('ecu','')}\n"
@@ -717,7 +723,7 @@ class DuplicateIssueIndex:
                     project=meta.get("project"),
                     pu=meta.get("pu"),
                     status_phase=meta.get("status_phase"),
-                    snippet=_safe_snippet(meta.get("description") or ""),
+                    snippet=_candidate_snippet(meta),
                 )
             )
         return candidates
