@@ -18,6 +18,7 @@ for candidate in (str(REPO_ROOT), str(BACKEND_ROOT)):
     if candidate not in sys.path:
         sys.path.insert(0, candidate)
 
+from backend.analytics.config import get_full_picture_source_db_path
 from duplicate_issue_finder import extract_hints, get_or_build_index_with_metadata
 from feedback_store import FeedbackStore
 from progressive_reranker import get_progressive_reranker
@@ -154,6 +155,7 @@ def _resolve_sqlite_path() -> Optional[Path]:
     if not configured:
         repo_root = REPO_ROOT
         candidates = [
+            get_full_picture_source_db_path(),
             repo_root / 'qgate' / 'qgate_data.db',
             repo_root.parent / 'TPMDashbaord' / 'qgate' / 'qgate_data.db',
             repo_root.parent / 'TPMDashboard' / 'qgate' / 'qgate_data.db',
