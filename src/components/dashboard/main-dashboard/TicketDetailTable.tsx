@@ -1,22 +1,26 @@
 import { useEffect, useMemo, useState } from "react";
 
 import {
+  type Column,
   type ColumnDef,
   type ColumnFiltersState,
+  type SortingState,
   flexRender,
+  getFacetedRowModel,
+  getFacetedUniqueValues,
   getCoreRowModel,
   getFilteredRowModel,
-  getPaginationRowModel,
   getSortedRowModel,
-  type PaginationState,
   type VisibilityState,
   useReactTable,
 } from "@tanstack/react-table";
-import { Columns3, Search, X } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Columns3, Filter, Search, X } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Table,
   TableBody,
@@ -27,13 +31,22 @@ import {
 } from "@/components/ui/table";
 
 import type { MainDashboardDrilldownSelection } from "./mainDashboardFiltering";
-import type { MainDashboardTicketRow } from "./mainDashboardTypes";
+import type { MainDashboardTicketRow, MainDashboardTicketSortOrder } from "./mainDashboardTypes";
 
 type TicketDetailTableProps = {
   rows: MainDashboardTicketRow[];
+  totalRows: number;
+  page: number;
+  pageSize: number;
+  sortBy: string;
+  sortOrder: MainDashboardTicketSortOrder;
   selection: MainDashboardDrilldownSelection;
   selectedOutcomeLabel?: string | null;
   onClearSelection: () => void;
+  onPageChange: (page: number) => void;
+  onPageSizeChange: (pageSize: number) => void;
+  onSearchChange: (search: string) => void;
+  onSortChange: (sortBy: string, sortOrder: MainDashboardTicketSortOrder) => void;
 };
 
 type DensityMode = "compact" | "comfortable" | "spacious";
@@ -41,7 +54,52 @@ type DensityMode = "compact" | "comfortable" | "spacious";
 type TicketDetailColumnMeta = {
   label: string;
   filterPlaceholder: string;
+  sortBy?: string;
+  supportsMenuFilter?: boolean;
 };
+
+type TicketDetailSetFilterValue = {
+  mode: "set";
+  values: string[];
+};
+
+const EMPTY_FILTER_TOKEN = "__ticket_detail_blank__";
+
+const ticketDetailColumnSortKeys = {
+  ticketId: "ticket_id",
+  creationTime: "creation_time",
+  ticketName: "ticket_name",
+  problemFinderTeam: "problem_finder_team",
+  classification: "classification",
+  problemSeverity: "problem_severity",
+  phase: "phase",
+  group: "group",
+  project: "project",
+  year: "year",
+  assignedEcu: "assigned_ecu",
+  aida: "aida",
+  defectCategory: "defect_category",
+  solutionCluster: "solution_cluster",
+  pu: "pu",
+  market: "market",
+  leadModel: "lead_model",
+} as const satisfies Record<string, string>;
+
+function createSortingState(
+  sortBy: string,
+  sortOrder: MainDashboardTicketSortOrder,
+): SortingState {
+  const matchingEntry = Object.entries(ticketDetailColumnSortKeys).find(
+    ([, sortKey]) => sortKey === sortBy,
+  );
+
+  if (!matchingEntry) {
+    return [];
+  }
+
+  const [columnId] = matchingEntry;
+  return [{ id: columnId, desc: sortOrder === "desc" }];
+}
 
 const densityClassNames: Record<DensityMode, { cell: string; header: string }> = {
   compact: {
@@ -75,8 +133,11 @@ function getOutcomeLabel(row: MainDashboardTicketRow) {
 function createTicketDetailSearchIndex(row: MainDashboardTicketRow) {
   return [
     row.ticketId,
+    row.creationTime ?? "",
     row.ticketName,
     row.problemFinderTeam,
+    row.classification ?? "",
+    row.problemSeverity ?? "",
     row.status,
     row.phase,
     row.group,
@@ -95,16 +156,59 @@ function createTicketDetailSearchIndex(row: MainDashboardTicketRow) {
     .toLowerCase();
 }
 
+function isSetFilterValue(value: unknown): value is TicketDetailSetFilterValue {
+  return typeof value === "object" && value !== null && "mode" in value && (value as { mode?: string }).mode === "set";
+}
+
+function normalizeMenuFilterValue(value: unknown) {
+  const normalizedValue = String(value ?? "").trim();
+  return normalizedValue.length ? normalizedValue : EMPTY_FILTER_TOKEN;
+}
+
+function formatMenuFilterValue(value: string) {
+  return value === EMPTY_FILTER_TOKEN ? "(Blank)" : value;
+}
+
+function getColumnMenuFilterOptions(column: Column<MainDashboardTicketRow, unknown>) {
+  return Array.from(column.getFacetedUniqueValues().keys())
+    .map((value) => normalizeMenuFilterValue(value))
+    .sort((left, right) => {
+      if (left === EMPTY_FILTER_TOKEN) {
+        return 1;
+      }
+
+      if (right === EMPTY_FILTER_TOKEN) {
+        return -1;
+      }
+
+      return left.localeCompare(right, undefined, { numeric: true, sensitivity: "base" });
+    });
+}
+
 const TicketDetailTable = ({
   rows,
+  totalRows,
+  page,
+  pageSize,
+  sortBy,
+  sortOrder,
   selection,
   selectedOutcomeLabel,
   onClearSelection,
+  onPageChange,
+  onPageSizeChange,
+  onSearchChange,
+  onSortChange,
 }: TicketDetailTableProps) => {
   const hasSelection = Boolean(selection.outcomeKey || selection.team);
   const [globalFilter, setGlobalFilter] = useState("");
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
+  const [sorting, setSorting] = useState<SortingState>(() => createSortingState(sortBy, sortOrder));
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({
+    group: false,
+    outcome: false,
+    project: false,
+    year: false,
     assignedEcu: false,
     aida: false,
     solutionCluster: false,
@@ -114,22 +218,48 @@ const TicketDetailTable = ({
   });
   const [density, setDensity] = useState<DensityMode>("compact");
   const [columnsMenuOpen, setColumnsMenuOpen] = useState(false);
-  const [pagination, setPagination] = useState<PaginationState>({
-    pageIndex: 0,
-    pageSize: 50,
-  });
   const [pageJumpValue, setPageJumpValue] = useState("1");
   const [columnSizing, setColumnSizing] = useState<Record<string, number>>({
     ticketId: 104,
+    creationTime: 172,
     ticketName: 260,
     problemFinderTeam: 184,
-    status: 172,
+    classification: 180,
+    problemSeverity: 164,
     phase: 132,
     group: 132,
     outcome: 164,
     project: 104,
     year: 88,
   });
+
+  useEffect(() => {
+    setSorting(createSortingState(sortBy, sortOrder));
+  }, [sortBy, sortOrder]);
+
+  const handleHeaderSort = (columnId: string, nextSortBy: string) => {
+    const currentSort = sorting[0];
+    const nextSortOrder: MainDashboardTicketSortOrder =
+      currentSort?.id === columnId && !currentSort.desc ? "desc" : "asc";
+
+    setSorting([{ id: columnId, desc: nextSortOrder === "desc" }]);
+    onSortChange(nextSortBy, nextSortOrder);
+  };
+
+  const applyColumnSetFilter = (
+    column: Column<MainDashboardTicketRow, unknown>,
+    nextValues: string[],
+    allValues: string[],
+  ) => {
+    const dedupedValues = Array.from(new Set(nextValues));
+
+    if (dedupedValues.length === allValues.length) {
+      column.setFilterValue("");
+      return;
+    }
+
+    column.setFilterValue({ mode: "set", values: dedupedValues } satisfies TicketDetailSetFilterValue);
+  };
 
   const columns = useMemo<ColumnDef<MainDashboardTicketRow>[]>(
     () => [
@@ -141,10 +271,25 @@ const TicketDetailTable = ({
         meta: {
           label: "Ticket ID",
           filterPlaceholder: "Filter Ticket ID column",
+          sortBy: "ticket_id",
         } satisfies TicketDetailColumnMeta,
+        enableSorting: true,
         cell: ({ row }) => (
           <span className="font-mono text-[11px] text-muted-foreground">{row.original.ticketId}</span>
         ),
+      },
+      {
+        accessorKey: "creationTime",
+        header: "Creation Time",
+        size: 172,
+        minSize: 144,
+        meta: {
+          label: "Creation Time",
+          filterPlaceholder: "Filter Creation Time column",
+          sortBy: "creation_time",
+        } satisfies TicketDetailColumnMeta,
+        enableSorting: true,
+        cell: ({ row }) => <span>{row.original.creationTime || "-"}</span>,
       },
       {
         accessorKey: "ticketName",
@@ -154,7 +299,9 @@ const TicketDetailTable = ({
         meta: {
           label: "Title",
           filterPlaceholder: "Filter Title column",
+          sortBy: "ticket_name",
         } satisfies TicketDetailColumnMeta,
+        enableSorting: true,
         cell: ({ row }) => <span className="font-medium text-foreground">{row.original.ticketName}</span>,
       },
       {
@@ -165,17 +312,38 @@ const TicketDetailTable = ({
         meta: {
           label: "Problem Finder Team",
           filterPlaceholder: "Filter Problem Finder Team column",
+          sortBy: "problem_finder_team",
+          supportsMenuFilter: true,
         } satisfies TicketDetailColumnMeta,
+        enableSorting: true,
       },
       {
-        accessorKey: "status",
-        header: "Status",
-        size: 172,
-        minSize: 140,
+        accessorKey: "classification",
+        header: "Classification",
+        size: 180,
+        minSize: 148,
         meta: {
-          label: "Status",
-          filterPlaceholder: "Filter Status column",
+          label: "Classification",
+          filterPlaceholder: "Filter Classification column",
+          sortBy: "classification",
+          supportsMenuFilter: true,
         } satisfies TicketDetailColumnMeta,
+        enableSorting: true,
+        cell: ({ row }) => <span>{row.original.classification || "-"}</span>,
+      },
+      {
+        accessorKey: "problemSeverity",
+        header: "Problem Severity",
+        size: 164,
+        minSize: 144,
+        meta: {
+          label: "Problem Severity",
+          filterPlaceholder: "Filter Problem Severity column",
+          sortBy: "problem_severity",
+          supportsMenuFilter: true,
+        } satisfies TicketDetailColumnMeta,
+        enableSorting: true,
+        cell: ({ row }) => <span>{row.original.problemSeverity || "-"}</span>,
       },
       {
         accessorKey: "phase",
@@ -185,7 +353,10 @@ const TicketDetailTable = ({
         meta: {
           label: "Phase",
           filterPlaceholder: "Filter Phase column",
+          sortBy: "phase",
+          supportsMenuFilter: true,
         } satisfies TicketDetailColumnMeta,
+        enableSorting: true,
       },
       {
         accessorKey: "group",
@@ -195,7 +366,10 @@ const TicketDetailTable = ({
         meta: {
           label: "Group",
           filterPlaceholder: "Filter Group column",
+          sortBy: "group",
+          supportsMenuFilter: true,
         } satisfies TicketDetailColumnMeta,
+        enableSorting: true,
       },
       {
         id: "outcome",
@@ -206,6 +380,7 @@ const TicketDetailTable = ({
         meta: {
           label: "Outcome",
           filterPlaceholder: "Filter Outcome column",
+          supportsMenuFilter: true,
         } satisfies TicketDetailColumnMeta,
       },
       {
@@ -216,7 +391,10 @@ const TicketDetailTable = ({
         meta: {
           label: "Project",
           filterPlaceholder: "Filter Project column",
+          sortBy: "project",
+          supportsMenuFilter: true,
         } satisfies TicketDetailColumnMeta,
+        enableSorting: true,
       },
       {
         accessorKey: "year",
@@ -226,7 +404,10 @@ const TicketDetailTable = ({
         meta: {
           label: "Year",
           filterPlaceholder: "Filter Year column",
+          sortBy: "year",
+          supportsMenuFilter: true,
         } satisfies TicketDetailColumnMeta,
+        enableSorting: true,
       },
       {
         accessorKey: "assignedEcu",
@@ -236,7 +417,10 @@ const TicketDetailTable = ({
         meta: {
           label: "Assigned ECU",
           filterPlaceholder: "Filter Assigned ECU column",
+          sortBy: "assigned_ecu",
+          supportsMenuFilter: true,
         } satisfies TicketDetailColumnMeta,
+        enableSorting: true,
       },
       {
         accessorKey: "aida",
@@ -246,7 +430,10 @@ const TicketDetailTable = ({
         meta: {
           label: "AIDA",
           filterPlaceholder: "Filter AIDA column",
+          sortBy: "aida",
+          supportsMenuFilter: true,
         } satisfies TicketDetailColumnMeta,
+        enableSorting: true,
       },
       {
         accessorKey: "defectCategory",
@@ -256,7 +443,10 @@ const TicketDetailTable = ({
         meta: {
           label: "Defect Category",
           filterPlaceholder: "Filter Defect Category column",
+          sortBy: "defect_category",
+          supportsMenuFilter: true,
         } satisfies TicketDetailColumnMeta,
+        enableSorting: true,
       },
       {
         accessorKey: "solutionCluster",
@@ -266,7 +456,10 @@ const TicketDetailTable = ({
         meta: {
           label: "Solution Cluster",
           filterPlaceholder: "Filter Solution Cluster column",
+          sortBy: "solution_cluster",
+          supportsMenuFilter: true,
         } satisfies TicketDetailColumnMeta,
+        enableSorting: true,
       },
       {
         accessorKey: "pu",
@@ -276,7 +469,10 @@ const TicketDetailTable = ({
         meta: {
           label: "PU",
           filterPlaceholder: "Filter PU column",
+          sortBy: "pu",
+          supportsMenuFilter: true,
         } satisfies TicketDetailColumnMeta,
+        enableSorting: true,
       },
       {
         accessorKey: "market",
@@ -286,7 +482,10 @@ const TicketDetailTable = ({
         meta: {
           label: "Market",
           filterPlaceholder: "Filter Market column",
+          sortBy: "market",
+          supportsMenuFilter: true,
         } satisfies TicketDetailColumnMeta,
+        enableSorting: true,
       },
       {
         accessorKey: "leadModel",
@@ -296,7 +495,10 @@ const TicketDetailTable = ({
         meta: {
           label: "Lead Model",
           filterPlaceholder: "Filter Lead Model column",
+          sortBy: "lead_model",
+          supportsMenuFilter: true,
         } satisfies TicketDetailColumnMeta,
+        enableSorting: true,
       },
     ],
     [],
@@ -310,7 +512,7 @@ const TicketDetailTable = ({
       columnFilters,
       columnVisibility,
       columnSizing,
-      pagination,
+      sorting,
     },
     columnResizeMode: "onChange",
     enableColumnFilters: true,
@@ -318,7 +520,7 @@ const TicketDetailTable = ({
     onColumnFiltersChange: setColumnFilters,
     onColumnVisibilityChange: setColumnVisibility,
     onColumnSizingChange: setColumnSizing,
-    onPaginationChange: setPagination,
+    onSortingChange: setSorting,
     globalFilterFn: (row, _columnId, filterValue) => {
       const searchValue = String(filterValue ?? "").trim().toLowerCase();
 
@@ -330,7 +532,17 @@ const TicketDetailTable = ({
     },
     filterFns: {
       textIncludes: (row, columnId, filterValue) => {
-        const cellValue = String(row.getValue(columnId) ?? "").toLowerCase();
+        const rawCellValue = row.getValue(columnId);
+
+        if (isSetFilterValue(filterValue)) {
+          if (!filterValue.values.length) {
+            return false;
+          }
+
+          return filterValue.values.includes(normalizeMenuFilterValue(rawCellValue));
+        }
+
+        const cellValue = String(rawCellValue ?? "").toLowerCase();
         return cellValue.includes(String(filterValue ?? "").trim().toLowerCase());
       },
     },
@@ -338,50 +550,42 @@ const TicketDetailTable = ({
       minSize: 80,
       size: 120,
       enableColumnFilter: true,
+      enableSorting: false,
       filterFn: "textIncludes",
     },
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
+    getFacetedRowModel: getFacetedRowModel(),
+    getFacetedUniqueValues: getFacetedUniqueValues(),
     getSortedRowModel: getSortedRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
   });
 
-  useEffect(() => {
-    setPagination((current) => ({
-      ...current,
-      pageIndex: 0,
-    }));
-  }, [rows]);
-
   const visibleColumns = table.getAllLeafColumns().filter((column) => column.getCanHide());
-  const filteredRowCount = table.getFilteredRowModel().rows.length;
-  const paginatedRows = table.getRowModel().rows;
-  const paginatedRowCount = paginatedRows.length;
-  const totalPages = Math.max(table.getPageCount(), 1);
-  const currentPageNumber = pagination.pageIndex + 1;
+  const visibleRows = table.getRowModel().rows;
+  const totalPages = Math.max(Math.ceil(totalRows / pageSize), 1);
   const densityClassName = densityClassNames[density];
 
   useEffect(() => {
-    setPageJumpValue(String(Math.min(currentPageNumber, totalPages)));
-  }, [currentPageNumber, totalPages]);
+    setPageJumpValue(String(Math.min(page, totalPages)));
+  }, [page, totalPages]);
 
   const commitPageJump = () => {
     const trimmedPage = pageJumpValue.trim();
 
     if (!trimmedPage) {
-      setPageJumpValue(String(currentPageNumber));
+      setPageJumpValue(String(page));
       return;
     }
 
     const parsedPage = Number(trimmedPage);
 
     if (!Number.isFinite(parsedPage)) {
-      setPageJumpValue(String(currentPageNumber));
+      setPageJumpValue(String(page));
       return;
     }
 
     const nextPage = Math.min(Math.max(Math.trunc(parsedPage), 1), totalPages);
-    table.setPageIndex(nextPage - 1);
+    onPageChange(nextPage);
     setPageJumpValue(String(nextPage));
   };
 
@@ -391,7 +595,7 @@ const TicketDetailTable = ({
         <div className="space-y-1">
           <h2 className="text-base font-semibold text-foreground">Ticket Detail</h2>
           <p className="text-sm text-muted-foreground">
-            {paginatedRowCount} of {filteredRowCount} tickets
+            {rows.length} of {totalRows} tickets
           </p>
         </div>
 
@@ -438,13 +642,11 @@ const TicketDetailTable = ({
                 <Input
                   value={globalFilter}
                   onChange={(event) => {
-                    setGlobalFilter(event.target.value);
-                    setPagination((current) => ({
-                      ...current,
-                      pageIndex: 0,
-                    }));
+                    const nextValue = event.target.value;
+                    setGlobalFilter(nextValue);
+                    onSearchChange(nextValue);
                   }}
-                  placeholder="Search tickets, titles, teams, or status"
+                  placeholder="Search tickets, titles, teams, or phase"
                   className="h-9 pl-8 text-sm"
                 />
               </div>
@@ -455,10 +657,7 @@ const TicketDetailTable = ({
                 onClick={() => {
                   setGlobalFilter("");
                   setColumnFilters([]);
-                  setPagination((current) => ({
-                    ...current,
-                    pageIndex: 0,
-                  }));
+                  onSearchChange("");
                 }}
                 className="justify-start"
               >
@@ -472,13 +671,10 @@ const TicketDetailTable = ({
                 <span>Rows per page</span>
                 <select
                   aria-label="Rows per page"
-                  value={pagination.pageSize}
+                  value={pageSize}
                   onChange={(event) => {
                     const nextPageSize = Number(event.target.value);
-                    setPagination({
-                      pageIndex: 0,
-                      pageSize: nextPageSize,
-                    });
+                    onPageSizeChange(nextPageSize);
                   }}
                   className="h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground"
                 >
@@ -547,7 +743,7 @@ const TicketDetailTable = ({
 
           <div className="flex flex-col gap-2 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
             <p>
-              Page {currentPageNumber} of {totalPages}
+              Page {page} of {totalPages}
             </p>
             <div className="flex flex-wrap items-center gap-2">
               <label className="flex items-center gap-2">
@@ -573,8 +769,8 @@ const TicketDetailTable = ({
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => table.previousPage()}
-                disabled={!table.getCanPreviousPage()}
+                onClick={() => onPageChange(Math.max(page - 1, 1))}
+                disabled={page <= 1}
               >
                 Previous page
               </Button>
@@ -582,8 +778,8 @@ const TicketDetailTable = ({
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => table.nextPage()}
-                disabled={!table.getCanNextPage()}
+                onClick={() => onPageChange(Math.min(page + 1, totalPages))}
+                disabled={page >= totalPages}
               >
                 Next page
               </Button>
@@ -605,18 +801,150 @@ const TicketDetailTable = ({
                   <TableRow key={headerGroup.id} className="bg-muted/30 hover:bg-muted/30">
                     {headerGroup.headers.map((header) => {
                       const meta = header.column.columnDef.meta as TicketDetailColumnMeta | undefined;
+                      const sortedState = header.column.getIsSorted();
+                      const ariaSort =
+                        sortedState === "asc"
+                          ? "ascending"
+                          : sortedState === "desc"
+                            ? "descending"
+                            : "none";
+                      const sortIcon =
+                        sortedState === "asc" ? (
+                          <ArrowUp className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        ) : sortedState === "desc" ? (
+                          <ArrowDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        ) : (
+                          <ArrowUpDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        );
+                      const menuFilterOptions = meta?.supportsMenuFilter
+                        ? getColumnMenuFilterOptions(header.column)
+                        : [];
+                      const activeSetFilter = isSetFilterValue(header.column.getFilterValue())
+                        ? header.column.getFilterValue()
+                        : null;
+                      const selectedMenuValues = activeSetFilter?.values ?? menuFilterOptions;
+                      const hasActiveMenuFilter = Boolean(
+                        meta?.supportsMenuFilter
+                        && activeSetFilter
+                        && selectedMenuValues.length !== menuFilterOptions.length,
+                      );
 
                       return (
                         <TableHead
                           key={header.id}
-                          className={`relative border-b border-border/70 bg-background/95 ${densityClassName.header}`}
+                          aria-sort={ariaSort}
+                          className={`relative border-b border-border/70 bg-background/95 ${densityClassNames[density].header}`}
                           style={{ width: header.getSize() }}
                         >
-                          <div className="truncate pr-3 font-semibold text-foreground/80">
-                            {header.isPlaceholder
-                              ? null
-                              : flexRender(header.column.columnDef.header, header.getContext())}
-                          </div>
+                          {meta?.sortBy && !header.isPlaceholder ? (
+                            <div className="flex items-start gap-1 pr-3">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                aria-label={`Sort by ${meta.label}`}
+                                onClick={() => handleHeaderSort(header.column.id, meta.sortBy as string)}
+                                className="h-auto min-w-0 flex-1 justify-between gap-2 px-0 py-0 text-left font-semibold text-foreground/80 hover:bg-transparent"
+                              >
+                                <span className="truncate">
+                                  {flexRender(header.column.columnDef.header, header.getContext())}
+                                </span>
+                                {sortIcon}
+                              </Button>
+                              {meta.supportsMenuFilter ? (
+                                <Popover>
+                                  <PopoverTrigger asChild>
+                                    <Button
+                                      type="button"
+                                      variant={hasActiveMenuFilter ? "secondary" : "ghost"}
+                                      size="icon"
+                                      aria-label={`Filter ${meta.label}`}
+                                      className="h-6 w-6 shrink-0 rounded-md"
+                                    >
+                                      <Filter className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </PopoverTrigger>
+                                  <PopoverContent align="start" className="w-64 p-3">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <div>
+                                        <p className="text-sm font-semibold text-foreground">{meta.label}</p>
+                                        <p className="text-xs text-muted-foreground">
+                                          {selectedMenuValues.length} of {menuFilterOptions.length} selected
+                                        </p>
+                                      </div>
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="sm"
+                                        className="h-7 px-2 text-xs"
+                                        onClick={() => header.column.setFilterValue("")}
+                                      >
+                                        Clear
+                                      </Button>
+                                    </div>
+                                    <div className="mt-3 flex items-center justify-between gap-2">
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-7 px-2 text-xs"
+                                        onClick={() => header.column.setFilterValue("")}
+                                      >
+                                        Select all
+                                      </Button>
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-7 px-2 text-xs"
+                                        onClick={() =>
+                                          header.column.setFilterValue({
+                                            mode: "set",
+                                            values: [],
+                                          } satisfies TicketDetailSetFilterValue)
+                                        }
+                                      >
+                                        Select none
+                                      </Button>
+                                    </div>
+                                    <div className="mt-3 max-h-56 space-y-2 overflow-y-auto pr-1">
+                                      {menuFilterOptions.map((optionValue) => {
+                                        const isChecked = selectedMenuValues.includes(optionValue);
+
+                                        return (
+                                          <label
+                                            key={optionValue}
+                                            className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-sm hover:bg-muted/40"
+                                          >
+                                            <Checkbox
+                                              checked={isChecked}
+                                              aria-label={formatMenuFilterValue(optionValue)}
+                                              onCheckedChange={() => {
+                                                const nextValues = isChecked
+                                                  ? selectedMenuValues.filter((value) => value !== optionValue)
+                                                  : [...selectedMenuValues, optionValue];
+
+                                                applyColumnSetFilter(header.column, nextValues, menuFilterOptions);
+                                              }}
+                                            />
+                                            <span className="truncate text-foreground">
+                                              {formatMenuFilterValue(optionValue)}
+                                            </span>
+                                          </label>
+                                        );
+                                      })}
+                                    </div>
+                                  </PopoverContent>
+                                </Popover>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <div className="truncate pr-3 font-semibold text-foreground/80">
+                              {header.isPlaceholder
+                                ? null
+                                : flexRender(header.column.columnDef.header, header.getContext())}
+                            </div>
+                          )}
                           <button
                             type="button"
                             aria-label={`Resize ${meta?.label ?? header.column.id} column`}
@@ -632,6 +960,10 @@ const TicketDetailTable = ({
                 <TableRow className="bg-muted/20 hover:bg-muted/20">
                   {table.getVisibleLeafColumns().map((column) => {
                     const meta = column.columnDef.meta as TicketDetailColumnMeta | undefined;
+                    const currentColumnFilter = column.getFilterValue();
+                    const selectedValueCount = isSetFilterValue(currentColumnFilter)
+                      ? currentColumnFilter.values.length
+                      : null;
 
                     return (
                       <TableHead
@@ -639,14 +971,13 @@ const TicketDetailTable = ({
                         className="border-b border-border/60 bg-muted/20 px-2 py-2"
                         style={{ width: column.getSize() }}
                       >
+                        {selectedValueCount !== null ? (
+                          <div className="mb-1 text-[11px] text-muted-foreground">{selectedValueCount} selected</div>
+                        ) : null}
                         <Input
-                          value={String(column.getFilterValue() ?? "")}
+                          value={isSetFilterValue(currentColumnFilter) ? "" : String(currentColumnFilter ?? "")}
                           onChange={(event) => {
                             column.setFilterValue(event.target.value);
-                            setPagination((current) => ({
-                              ...current,
-                              pageIndex: 0,
-                            }));
                           }}
                           aria-label={meta?.filterPlaceholder ?? `Filter ${column.id} column`}
                           placeholder={meta?.filterPlaceholder ?? `Filter ${column.id}`}
@@ -658,14 +989,14 @@ const TicketDetailTable = ({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {paginatedRows.length === 0 ? (
+                {visibleRows.length === 0 ? (
                   <TableRow className="hover:bg-transparent">
                     <TableCell colSpan={table.getVisibleLeafColumns().length} className="px-4 py-10 text-center text-sm text-muted-foreground">
                       No tickets match the current table filters.
                     </TableCell>
                   </TableRow>
                 ) : (
-                  paginatedRows.map((row) => (
+                  visibleRows.map((row) => (
                     <TableRow key={row.id}>
                       {row.getVisibleCells().map((cell) => (
                         <TableCell

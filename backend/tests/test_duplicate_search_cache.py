@@ -119,12 +119,9 @@ def test_resolve_sqlite_path_prefers_local_source_copy(monkeypatch, tmp_path):
     bridge = _load_duplicate_search_bridge_module()
     local_repo_root = tmp_path / "repo"
     local_source_db = local_repo_root / "database" / "source" / "qgate_raw.db"
-    sibling_source_db = tmp_path / "TPMDashbaord" / "qgate" / "qgate_data.db"
 
     local_source_db.parent.mkdir(parents=True, exist_ok=True)
-    sibling_source_db.parent.mkdir(parents=True, exist_ok=True)
     local_source_db.touch()
-    sibling_source_db.touch()
 
     monkeypatch.delenv("DUPSEARCH_SQLITE_PATH", raising=False)
     monkeypatch.delenv("VIZION_FULL_PICTURE_SOURCE_DB_PATH", raising=False)
@@ -134,6 +131,24 @@ def test_resolve_sqlite_path_prefers_local_source_copy(monkeypatch, tmp_path):
     resolved = bridge._resolve_sqlite_path()
 
     assert resolved == local_source_db
+
+
+def test_resolve_sqlite_path_does_not_fallback_to_sibling_repo(monkeypatch, tmp_path):
+    bridge = _load_duplicate_search_bridge_module()
+    local_repo_root = tmp_path / "repo"
+    sibling_source_db = tmp_path / "TPMDashbaord" / "qgate" / "qgate_data.db"
+
+    sibling_source_db.parent.mkdir(parents=True, exist_ok=True)
+    sibling_source_db.touch()
+
+    monkeypatch.delenv("DUPSEARCH_SQLITE_PATH", raising=False)
+    monkeypatch.delenv("VIZION_FULL_PICTURE_SOURCE_DB_PATH", raising=False)
+    monkeypatch.setenv("VIZION_DATABASE_ROOT", str(local_repo_root / "database"))
+    monkeypatch.setattr(bridge, "REPO_ROOT", local_repo_root)
+
+    resolved = bridge._resolve_sqlite_path()
+
+    assert resolved is None
 
 
 def test_resolve_sqlite_path_respects_explicit_dupsearch_override(monkeypatch, tmp_path):

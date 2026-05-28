@@ -153,18 +153,9 @@ def _resolve_data_dir(repo_root: Path) -> Path:
 def _resolve_sqlite_path() -> Optional[Path]:
     configured = str(os.getenv('DUPSEARCH_SQLITE_PATH') or '').strip()
     if not configured:
-        repo_root = REPO_ROOT
-        candidates = [
-            get_full_picture_source_db_path(),
-            repo_root / 'qgate' / 'qgate_data.db',
-            repo_root.parent / 'TPMDashbaord' / 'qgate' / 'qgate_data.db',
-            repo_root.parent / 'TPMDashboard' / 'qgate' / 'qgate_data.db',
-        ]
-
-        for candidate in candidates:
-            if candidate.exists():
-                return candidate
-
+        candidate = get_full_picture_source_db_path()
+        if candidate.exists():
+            return candidate
         return None
     return Path(configured)
 

@@ -95,7 +95,7 @@ describe("fetchCoverageAnalysisPageData", () => {
     );
     expect(fetch).toHaveBeenNthCalledWith(
       4,
-      "/api/testing/coverage-analysis/testcase-detail?years=2026&projects=IDCEVO&projects=Audio%2CPlatform&test_weeks=2026-CW21&test_weeks=2026-CW22&feature_regions=China+Specific&feature_regions=North%2CAmerica",
+      "/api/testing/coverage-analysis/testcase-detail?years=2026&projects=IDCEVO&projects=Audio%2CPlatform&test_weeks=2026-CW21&test_weeks=2026-CW22&feature_regions=China+Specific&feature_regions=North%2CAmerica&limit=500",
     );
 
     expect(data.filterOptions).toEqual({

@@ -24,12 +24,14 @@ from backend.analytics.config import (
 from backend.analytics.cold_archive import archive_source_to_cold_storage
 from backend.analytics.db import connect
 from backend.analytics.full_picture_outcomes import refresh_materialized_outcomes
+from backend.analytics.testing_coverage_hot import refresh_materialized_testing_coverage
 from backend.analytics.processor import backfill_defect_projects, sync_dimension_fields
 from backend.analytics.schema import ensure_schema
 
 
 HISTORY_SOURCE_REQUIRED_COLUMNS = frozenset({"defect_id", "field_name", "event_timestamp"})
 SOURCE_STAGE_REQUIRED_TABLES = frozenset({"octane_defects", "octane_defect_history_events"})
+TESTING_SOURCE_REQUIRED_TABLES = frozenset({"octane_manual_runs"})
 
 
 def seed_testing_rows() -> None:
@@ -135,11 +137,41 @@ def _require_source_stage_input_path() -> Path:
     raise SystemExit("No Full Picture source database is available for local staging")
 
 
+def _require_testing_source_input_path() -> Path:
+    repo_root = Path(__file__).resolve().parents[1]
+    candidates = [
+        Path(str(Path.cwd() / "database" / "local_data_rebuilt.db")),
+        repo_root.parent / "TPMDashbaord" / "database" / "local_data_rebuilt.db",
+    ]
+    for candidate in candidates:
+        if _is_valid_testing_source_path(candidate):
+            return candidate.resolve()
+    raise SystemExit("No testing source database is available for local staging")
+
+
+def _require_valid_testing_source_input_path(candidate: str | Path) -> Path:
+    resolved = Path(candidate)
+    if _is_valid_testing_source_path(resolved):
+        return resolved.resolve()
+    raise SystemExit(f"Provided testing source database is invalid: {resolved}")
+
+
 def _require_valid_source_stage_input_path(candidate: str | Path) -> Path:
     resolved = Path(candidate)
     if _is_valid_source_stage_path(resolved):
         return resolved
     raise SystemExit(f"Provided Full Picture source database is invalid: {resolved}")
+
+
+def _require_local_source_path() -> Path:
+	resolved = get_full_picture_source_db_path().resolve()
+	if _is_valid_source_stage_path(resolved):
+		return resolved
+	raise SystemExit("No staged Full Picture source database is available")
+
+
+def _table_columns(conn: sqlite3.Connection, table_name: str) -> list[str]:
+    return [str(row[1]).strip() for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()]
 
 
 def _is_valid_source_stage_path(candidate: Path) -> bool:
@@ -166,6 +198,32 @@ def _is_valid_source_stage_path(candidate: Path) -> bool:
     return SOURCE_STAGE_REQUIRED_TABLES.issubset(tables)
 
 
+def _is_valid_testing_source_path(candidate: Path) -> bool:
+    if not candidate.exists() or not candidate.is_file():
+        return False
+
+    try:
+        conn = sqlite3.connect(str(candidate))
+    except sqlite3.Error:
+        return False
+
+    try:
+        tables = {
+            str(row[0]).strip().lower()
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        if not TESTING_SOURCE_REQUIRED_TABLES.issubset(tables):
+            return False
+        row = conn.execute("SELECT COUNT(*) FROM octane_manual_runs").fetchone()
+        return bool(row and int(row[0] or 0) > 0)
+    except sqlite3.Error:
+        return False
+    finally:
+        conn.close()
+
+
 def _get_defect_source_row_count(candidate: Path) -> int:
     conn = sqlite3.connect(str(candidate))
     try:
@@ -188,6 +246,125 @@ def _stage_full_picture_source(source_db_path: Path | str) -> dict[str, object]:
         "staged_db_path": str(target_path),
         "copied": resolved_source_path != target_path,
     }
+
+
+def _stage_testing_source(source_db_path: Path | str) -> dict[str, object]:
+    resolved_source_path = Path(source_db_path).resolve()
+    target_path = get_full_picture_source_db_path().resolve()
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    ensure_schema(target_path)
+
+    source_conn = sqlite3.connect(str(resolved_source_path))
+    source_conn.row_factory = sqlite3.Row
+    target_conn = sqlite3.connect(str(target_path))
+    try:
+        source_columns = _table_columns(source_conn, "octane_manual_runs")
+        target_columns = _table_columns(target_conn, "octane_manual_runs")
+        insert_columns = [
+            column
+            for column in target_columns
+            if column in source_columns or column == "tester"
+        ]
+        if not insert_columns:
+            raise SystemExit("Testing source database has no compatible octane_manual_runs columns")
+
+        source_rows = source_conn.execute(
+            f"SELECT {', '.join(source_columns)} FROM octane_manual_runs"
+        ).fetchall()
+
+        target_conn.execute("DELETE FROM octane_manual_runs")
+        target_conn.execute("DELETE FROM octane_testcases")
+
+        if source_rows:
+            placeholders = ", ".join("?" for _ in insert_columns)
+            target_conn.executemany(
+                f"INSERT INTO octane_manual_runs({', '.join(insert_columns)}) VALUES ({placeholders})",
+                [
+                    tuple(
+                        (
+                            str(
+                                row["tester"]
+                                if "tester" in source_columns and row["tester"]
+                                else row["author_name"]
+                                if "author_name" in source_columns and row["author_name"]
+                                else row["run_by"]
+                                if "run_by" in source_columns and row["run_by"]
+                                else row["author"]
+                                if "author" in source_columns and row["author"]
+                                else ""
+                            ).strip()
+                            if column == "tester"
+                            else row[column]
+                        )
+                        for column in insert_columns
+                    )
+                    for row in source_rows
+                ],
+            )
+
+        testcase_rows_by_id: dict[str, dict[str, object]] = {}
+        for row in source_rows:
+            test_id = str(row["test_id"] or "").strip()
+            if not test_id:
+                continue
+            current = testcase_rows_by_id.setdefault(
+                test_id,
+                {
+                    "test_name": str(row["test_name"] or "").strip(),
+                    "run_count": 0,
+                    "defect_ids": [],
+                    "seen_defect_ids": set(),
+                },
+            )
+            if not current["test_name"]:
+                current["test_name"] = str(row["test_name"] or "").strip()
+            current["run_count"] = int(current["run_count"]) + 1
+            defect_id = str(row["defect_id"] or "").strip()
+            if defect_id and defect_id not in current["seen_defect_ids"]:
+                current["seen_defect_ids"].add(defect_id)
+                current["defect_ids"].append(defect_id)
+
+        fetched_at = datetime.now(timezone.utc).isoformat()
+        testcase_target_columns = _table_columns(target_conn, "octane_testcases")
+        testcase_column_values = []
+        for test_id, payload in testcase_rows_by_id.items():
+            synthesized_row = {
+                "test_id": test_id,
+                "scope_team": "ALL",
+                "scope_release": "ALL",
+                "source": "stage-testing-source",
+                "test_name": str(payload["test_name"] or "").strip(),
+                "test_subtype": "",
+                "run_count": int(payload["run_count"]),
+                "run_ids_json": json.dumps([]),
+                "run_status_distribution_json": json.dumps({}),
+                "defect_ids_json": json.dumps(payload["defect_ids"]),
+                "manual_test_ids_json": json.dumps([]),
+                "feature_ids_json": json.dumps([]),
+                "story_ids_json": json.dumps([]),
+                "raw_json": json.dumps({"staged_from": str(resolved_source_path), "synthesized": True}),
+                "fetched_at": fetched_at,
+            }
+            testcase_column_values.append(
+                tuple(synthesized_row[column] for column in testcase_target_columns)
+            )
+        if testcase_column_values:
+            placeholders = ", ".join("?" for _ in testcase_target_columns)
+            target_conn.executemany(
+                f"INSERT INTO octane_testcases({', '.join(testcase_target_columns)}) VALUES ({placeholders})",
+                testcase_column_values,
+            )
+
+        target_conn.commit()
+        return {
+            "source_db_path": str(resolved_source_path),
+            "staged_db_path": str(target_path),
+            "manual_run_row_count": len(source_rows),
+            "testcase_row_count": len(testcase_column_values),
+        }
+    finally:
+        source_conn.close()
+        target_conn.close()
 
 
 def _is_valid_history_source_path(candidate: Path) -> bool:
@@ -272,13 +449,22 @@ def main(argv: Sequence[str] | None = None) -> int:
         source_db_path = (
             _require_valid_source_stage_input_path(args.db_path)
             if args.db_path
-            else _require_source_stage_input_path()
+            else _require_local_source_path()
         )
         summary = archive_source_to_cold_storage(
             source_db_path,
             get_full_picture_cold_db_path(),
             get_full_picture_cold_parquet_dir(),
         )
+        print(json.dumps(summary, ensure_ascii=False))
+        return 0
+    if args.command == "stage-testing-source":
+        source_db_path = (
+            _require_valid_testing_source_input_path(args.db_path)
+            if args.db_path
+            else _require_testing_source_input_path()
+        )
+        summary = _stage_testing_source(source_db_path)
         print(json.dumps(summary, ensure_ascii=False))
         return 0
     if args.command == "refresh-full-picture-outcomes":
@@ -288,6 +474,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             else _require_history_source_path()
         )
         summary = refresh_materialized_outcomes(
+            source_db_path,
+            get_full_picture_hot_db_path(),
+            force=args.force,
+        )
+        print(json.dumps(summary, ensure_ascii=False))
+        return 0
+    if args.command == "refresh-testing-coverage-hot":
+        source_db_path = (
+            _require_valid_source_stage_input_path(args.db_path)
+            if args.db_path
+            else _require_local_source_path()
+        )
+        summary = refresh_materialized_testing_coverage(
             source_db_path,
             get_full_picture_hot_db_path(),
             force=args.force,

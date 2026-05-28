@@ -6,6 +6,9 @@ import sqlite3
 import pandas as pd
 
 
+SQLITE_EXPORT_CHUNK_SIZE = 1_000
+
+
 def _import_duckdb():
 	try:
 		import duckdb
@@ -40,6 +43,55 @@ def _list_sqlite_tables(source_db_path: Path) -> list[str]:
 	return [str(row[0]).strip() for row in rows if str(row[0]).strip()]
 
 
+def _sqlite_table_query(table_name: str) -> str:
+	return f"SELECT * FROM {_quote_identifier(table_name)}"
+
+
+def _copy_sqlite_table_to_duckdb(duck_conn, sqlite_conn: sqlite3.Connection, table_name: str, table_index: int) -> int:
+	row_count = 0
+	query = _sqlite_table_query(table_name)
+	for chunk_index, frame in enumerate(
+		pd.read_sql_query(query, sqlite_conn, chunksize=SQLITE_EXPORT_CHUNK_SIZE),
+		start=1,
+	):
+		relation_name = f"archive_frame_{table_index}_{chunk_index}"
+		duck_conn.register(relation_name, frame)
+		try:
+			if chunk_index == 1:
+				duck_conn.execute(
+					f"CREATE OR REPLACE TABLE {_quote_identifier(table_name)} AS SELECT * FROM {relation_name}"
+				)
+			else:
+				duck_conn.execute(
+					f"INSERT INTO {_quote_identifier(table_name)} SELECT * FROM {relation_name}"
+				)
+		finally:
+			if hasattr(duck_conn, "unregister"):
+				try:
+					duck_conn.unregister(relation_name)
+				except Exception:
+					pass
+		row_count += len(frame)
+
+	if row_count:
+		return row_count
+
+	empty_frame = pd.read_sql_query(f"{query} LIMIT 0", sqlite_conn)
+	relation_name = f"archive_frame_{table_index}_0"
+	duck_conn.register(relation_name, empty_frame)
+	try:
+		duck_conn.execute(
+			f"CREATE OR REPLACE TABLE {_quote_identifier(table_name)} AS SELECT * FROM {relation_name}"
+		)
+	finally:
+		if hasattr(duck_conn, "unregister"):
+			try:
+				duck_conn.unregister(relation_name)
+			except Exception:
+				pass
+	return 0
+
+
 def archive_source_to_cold_storage(
 	source_db_path: Path | str,
 	cold_db_path: Path | str,
@@ -53,7 +105,8 @@ def archive_source_to_cold_storage(
 	resolved_parquet_dir = Path(parquet_dir).resolve()
 	resolved_cold_db_path.parent.mkdir(parents=True, exist_ok=True)
 	resolved_parquet_dir.mkdir(parents=True, exist_ok=True)
-	resolved_cold_db_path.touch(exist_ok=True)
+	if resolved_cold_db_path.exists() and resolved_cold_db_path.stat().st_size == 0:
+		resolved_cold_db_path.unlink()
 
 	duckdb = _import_duckdb()
 	duck_conn = duckdb.connect(str(resolved_cold_db_path))
@@ -61,28 +114,15 @@ def archive_source_to_cold_storage(
 	try:
 		with sqlite3.connect(str(resolved_source_path)) as sqlite_conn:
 			for index, table_name in enumerate(_list_sqlite_tables(resolved_source_path), start=1):
-				frame = pd.read_sql_query(
-					f"SELECT * FROM {_quote_identifier(table_name)}",
-					sqlite_conn,
-				)
-				relation_name = f"archive_frame_{index}"
-				duck_conn.register(relation_name, frame)
-				duck_conn.execute(
-					f"CREATE OR REPLACE TABLE {_quote_identifier(table_name)} AS SELECT * FROM {relation_name}"
-				)
+				row_count = _copy_sqlite_table_to_duckdb(duck_conn, sqlite_conn, table_name, index)
 				parquet_path = (resolved_parquet_dir / f"{table_name}.parquet").resolve()
 				duck_conn.execute(
 					f"COPY {_quote_identifier(table_name)} TO {_quote_sql_string(parquet_path)} (FORMAT PARQUET)"
 				)
-				if hasattr(duck_conn, "unregister"):
-					try:
-						duck_conn.unregister(relation_name)
-					except Exception:
-						pass
 				table_summaries.append(
 					{
 						"table_name": table_name,
-						"row_count": len(frame),
+						"row_count": row_count,
 						"parquet_path": str(parquet_path),
 					}
 				)

@@ -89,15 +89,24 @@ def test_full_picture_source_db_path_defaults_to_repo_database_source(monkeypatc
 def test_full_picture_candidates_prefer_local_source_copy(monkeypatch, tmp_path):
 	local_database_root = tmp_path / "database"
 	local_source = local_database_root / "source" / "qgate_raw.db"
-	analytics_db = tmp_path / "backend" / "database" / "octane_data.db"
 
 	monkeypatch.setenv("VIZION_DATABASE_ROOT", str(local_database_root))
-	monkeypatch.setenv("VIZION_ANALYTICS_DB_PATH", str(analytics_db))
 	monkeypatch.delenv("VIZION_FULL_PICTURE_DEFECT_DB_PATH", raising=False)
 	monkeypatch.delenv("VIZION_FULL_PICTURE_HISTORY_DB_PATH", raising=False)
 
-	assert get_full_picture_defect_db_candidates()[0] == local_source
-	assert get_full_picture_history_db_candidates()[0] == local_source
+	assert get_full_picture_defect_db_candidates() == (local_source,)
+	assert get_full_picture_history_db_candidates() == (local_source,)
+
+
+def test_full_picture_candidates_respect_explicit_overrides(monkeypatch, tmp_path):
+	defect_db = tmp_path / "custom" / "defects.db"
+	history_db = tmp_path / "custom" / "history.db"
+
+	monkeypatch.setenv("VIZION_FULL_PICTURE_DEFECT_DB_PATH", str(defect_db))
+	monkeypatch.setenv("VIZION_FULL_PICTURE_HISTORY_DB_PATH", str(history_db))
+
+	assert get_full_picture_defect_db_candidates() == (defect_db,)
+	assert get_full_picture_history_db_candidates() == (history_db,)
 
 
 def test_ensure_outcome_store_creates_parent_dirs_and_table(tmp_path):
@@ -422,3 +431,37 @@ def test_refresh_materialized_outcomes_rebuilds_when_source_signature_changes(tm
 	assert second["source_signature"] != first["source_signature"]
 	assert loaded["D-1"]["is_resolved_forward"] is True
 	assert loaded["D-2"]["is_rejected_directly"] is True
+
+
+def test_load_materialized_outcomes_batches_large_defect_id_lists(tmp_path):
+	source_db = tmp_path / "qgate_data.db"
+	hot_db = tmp_path / "database" / "hot" / "vizion_serving.db"
+	_seed_history_events(
+		source_db,
+		[
+			(
+				"D-1",
+				"status_phase",
+				"2026-05-25T00:00:00Z",
+				1,
+				1,
+				"08",
+				"06",
+				"08-Resolved Forward",
+				"06-Ready for Test",
+			),
+		],
+	)
+
+	refresh_materialized_outcomes(source_db, hot_db, force=True)
+	requested_ids = tuple(["D-1", *[f"D-MISS-{index}" for index in range(1100)]])
+	loaded = load_materialized_outcomes(hot_db, requested_ids)
+
+	assert loaded["D-1"]["is_resolved_forward"] is True
+	assert loaded["D-MISS-1099"] == {
+		"is_resolved_forward": False,
+		"is_rejected_directly": False,
+		"resolved_forward_at": None,
+		"rejected_directly_at": None,
+		"source_history_event_count": 0,
+	}

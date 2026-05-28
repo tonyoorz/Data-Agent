@@ -13,6 +13,30 @@ describe("AIChat duplicate search integration", () => {
     vi.useRealTimers();
   });
 
+  it("renders even when crypto.randomUUID is unavailable", () => {
+    const originalCrypto = globalThis.crypto;
+
+    Object.defineProperty(globalThis, "crypto", {
+      configurable: true,
+      value: {
+        ...originalCrypto,
+        randomUUID: undefined,
+      },
+    });
+
+    try {
+      render(<AIChat moduleKey="ai-chat" moduleLabel="AI Chat" />);
+
+      expect(screen.getByRole("button", { name: /ai chat/i })).toBeInTheDocument();
+      expect(screen.getByRole("textbox")).toBeInTheDocument();
+    } finally {
+      Object.defineProperty(globalThis, "crypto", {
+        configurable: true,
+        value: originalCrypto,
+      });
+    }
+  });
+
   it("shows duplicate search mode controls and defaults to deepseek v4 pro", () => {
     render(<AIChat moduleKey="ai-chat" moduleLabel="AI Chat" />);
 

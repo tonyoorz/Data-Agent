@@ -35,12 +35,9 @@ $env:VIZION_ANALYTICS_PYTHON = "C:\path\to\python.exe"
 
 二选一：
 
-默认情况下，当前仓库会优先自动查找这些路径中的 SQLite：
+默认情况下，当前仓库只会读取已经 stage 到本仓库的 SQLite：
 
 - `./database/source/qgate_raw.db`
-- 当前仓库下的 `qgate/qgate_data.db`
-- `../TPMDashbaord/qgate/qgate_data.db`
-- `../TPMDashboard/qgate/qgate_data.db`
 
 如果你已经执行过本地 stage：
 
@@ -48,7 +45,7 @@ $env:VIZION_ANALYTICS_PYTHON = "C:\path\to\python.exe"
 python -m backend.analytics_cli stage-full-picture-source --db-path ..\TPMDashbaord\qgate\qgate_data.db
 ```
 
-那么 duplicate search 和 AI context 也会默认优先走 `./database/source/qgate_raw.db`。
+那么 duplicate search 和 AI context 会默认走 `./database/source/qgate_raw.db`。
 
 如果你的环境和上面不同，再手动指定：
 
@@ -69,13 +66,9 @@ $env:DUPSEARCH_DATA_DIR = "C:\path\to\defect"
 
 ### 2.1 Main Dashboard analytics data source
 
-`Main Dashboard` 的本地 analytics API 会优先自动查找这些 SQLite：
+`Main Dashboard` 的本地 analytics API 默认只读取 canonical source copy：
 
 - `./database/source/qgate_raw.db`
-- `./qgate/qgate_data.db`
-- `./backend/database/octane_data.db`
-- `../TPMDashbaord/qgate/qgate_data.db`
-- `../TPMDashboard/qgate/qgate_data.db`
 
 如果你的环境不同，可以手动指定：
 
@@ -85,7 +78,7 @@ $env:VIZION_FULL_PICTURE_DEFECT_DB_PATH = "C:\path\to\qgate_data.db"
 $env:VIZION_FULL_PICTURE_HISTORY_DB_PATH = "C:\path\to\qgate_data.db"
 ```
 
-如果你想先把 sibling TPMDashboard 的 qgate SQLite stage 一份到当前仓库，再让 Full Picture 默认优先走本地 source copy：
+如果你想先把 sibling TPMDashboard 的 qgate SQLite stage 一份到当前仓库，再让 Full Picture 和 duplicate search 都走本地 source copy：
 
 ```powershell
 python -m backend.analytics_cli stage-full-picture-source --db-path ..\TPMDashbaord\qgate\qgate_data.db
@@ -110,6 +103,43 @@ python -m backend.analytics_cli archive-full-picture-cold
 - `./database/cold/parquet/*.parquet`
 
 这一步是离线归档，不会改变当前 runtime API 的读路径。
+
+### 2.2 Testing coverage and testing APIs data source
+
+`测试覆盖率分析` 以及后端 `testing` 相关只读接口现在默认也读取 canonical source copy：
+
+- `./database/source/qgate_raw.db`
+
+默认覆盖的接口包括：
+
+- `/api/testing/coverage-analysis/*`
+- `/api/testing/summary`
+- `/api/testing/testcases`
+- `/api/testing/runs`
+- `/api/metadata/filters`
+- `/api/correlation/defect-test`
+
+如果你确实要显式切回 legacy analytics SQLite，再设置：
+
+```powershell
+$env:VIZION_ANALYTICS_DB_PATH = "C:\path\to\octane_data.db"
+```
+
+如果你想让 `测试覆盖率分析` 优先读取 hot serving table，而不是每次从 source join 聚合，可以先执行：
+
+```powershell
+python -m backend.analytics_cli refresh-testing-coverage-hot
+```
+
+执行后，`/api/testing/coverage-analysis/*` 会优先读取：
+
+- `./database/hot/vizion_serving.db`
+
+如果 hot store 不存在或还没刷新过，coverage-analysis 会自动回退到：
+
+- `./database/source/qgate_raw.db`
+
+当前测试覆盖率读路径会尽量复用 TPMDashboard 原来的关键业务语义：优先用 `octane_manual_runs.finished` 推导 `test_week`，并优先用 `octane_manual_runs.target_ecu_conf` / `name` 的旧规则推导 `project`；只有这些信号缺失时才回退到 defect 侧现成字段。
 
 如果你要使用仓库内的本地 analytics SQLite，也可以先初始化 schema：
 

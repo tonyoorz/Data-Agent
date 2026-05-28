@@ -7,6 +7,9 @@ export function useMainDashboardData() {
     queryKey: ["main-dashboard"],
     queryFn: () => fetchMainDashboardData(),
     staleTime: 60_000,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
+    refetchOnWindowFocus: false,
     retry: 0,
   });
 }

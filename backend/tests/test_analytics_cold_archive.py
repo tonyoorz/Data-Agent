@@ -76,6 +76,8 @@ def test_archive_source_to_cold_storage_exports_sqlite_tables_to_duckdb_and_parq
 	class FakeDuckModule:
 		def connect(self, path):
 			records["cold_db_path"] = path
+			Path(path).parent.mkdir(parents=True, exist_ok=True)
+			Path(path).touch()
 			return FakeDuckConnection()
 
 	from backend.analytics import cold_archive
@@ -95,3 +97,57 @@ def test_archive_source_to_cold_storage_exports_sqlite_tables_to_duckdb_and_parq
 		{"table_name": "octane_defects", "row_count": 1, "parquet_path": str((parquet_dir / "octane_defects.parquet").resolve())},
 		{"table_name": "octane_payloads", "row_count": 1, "parquet_path": str((parquet_dir / "octane_payloads.parquet").resolve())},
 	]
+
+
+def test_archive_source_to_cold_storage_removes_zero_byte_duckdb_target(tmp_path, monkeypatch):
+	source_db = tmp_path / "database" / "source" / "qgate_raw.db"
+	cold_db = tmp_path / "database" / "cold" / "qgate_archive.duckdb"
+	parquet_dir = tmp_path / "database" / "cold" / "parquet"
+	source_db.parent.mkdir(parents=True, exist_ok=True)
+	cold_db.parent.mkdir(parents=True, exist_ok=True)
+
+	conn = sqlite3.connect(source_db)
+	try:
+		conn.execute("CREATE TABLE octane_defects (defect_id TEXT PRIMARY KEY, name TEXT)")
+		conn.execute(
+			"INSERT INTO octane_defects(defect_id, name) VALUES (?, ?)",
+			("D-COLD-1", "Cold export defect"),
+		)
+		conn.commit()
+	finally:
+		conn.close()
+
+	cold_db.touch()
+	assert cold_db.stat().st_size == 0
+
+	class FakeDuckConnection:
+		def register(self, name, frame):
+			return None
+
+		def unregister(self, name):
+			return None
+
+		def execute(self, sql):
+			if " TO '" in sql:
+				parquet_path = sql.split(" TO '", 1)[1].split("'", 1)[0]
+				Path(parquet_path).parent.mkdir(parents=True, exist_ok=True)
+				Path(parquet_path).touch()
+			return self
+
+		def close(self):
+			return None
+
+	class FakeDuckModule:
+		def connect(self, path):
+			assert not Path(path).exists()
+			Path(path).touch()
+			return FakeDuckConnection()
+
+	from backend.analytics import cold_archive
+
+	monkeypatch.setattr(cold_archive, "_import_duckdb", lambda: FakeDuckModule())
+
+	summary = archive_source_to_cold_storage(source_db, cold_db, parquet_dir)
+
+	assert cold_db.exists()
+	assert summary["table_count"] == 1

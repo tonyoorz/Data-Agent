@@ -8,6 +8,10 @@ import {
   type CoverageAnalysisTestcaseDetailRow,
 } from "./coverageAnalysisTypes";
 
+export const DEFAULT_TESTCASE_DETAIL_LIMIT = 500;
+
+export type CoverageAnalysisOverviewData = Omit<CoverageAnalysisPageData, "testcaseDetailRows">;
+
 type CoverageAnalysisFilterOptionsResponse = {
   years: string[];
   projects: string[];
@@ -40,6 +44,7 @@ export class CoverageAnalysisApiError extends Error {
 function buildCoverageAnalysisUrl(
   basePath: string,
   filters: Partial<CoverageAnalysisFilters>,
+  extraParams: Record<string, string | number | undefined> = {},
 ) {
   const params = new URLSearchParams();
 
@@ -53,6 +58,14 @@ function buildCoverageAnalysisUrl(
       params.append(backendKey, value);
     });
   }
+
+  Object.entries(extraParams).forEach(([key, value]) => {
+    if (value === undefined || value === "") {
+      return;
+    }
+
+    params.append(key, String(value));
+  });
 
   const query = params.toString();
   return query ? `${basePath}?${query}` : basePath;
@@ -139,6 +152,18 @@ function adaptCoverageAnalysisFilterOptions(
 export async function fetchCoverageAnalysisPageData(
   filters: Partial<CoverageAnalysisFilters> = {},
 ): Promise<CoverageAnalysisPageData> {
+  const overviewData = await fetchCoverageAnalysisOverviewData(filters);
+  const testcaseDetailRows = await fetchCoverageAnalysisTestcaseDetailRows(filters);
+
+  return {
+    ...overviewData,
+    testcaseDetailRows,
+  };
+}
+
+export async function fetchCoverageAnalysisOverviewData(
+  filters: Partial<CoverageAnalysisFilters> = {},
+): Promise<CoverageAnalysisOverviewData> {
   const filtersUrl = buildCoverageAnalysisUrl(
     "/api/testing/coverage-analysis/filters",
     filters,
@@ -151,12 +176,8 @@ export async function fetchCoverageAnalysisPageData(
     "/api/testing/coverage-analysis/aida-status",
     filters,
   );
-  const testcaseDetailUrl = buildCoverageAnalysisUrl(
-    "/api/testing/coverage-analysis/testcase-detail",
-    filters,
-  );
 
-  const [filterOptions, projectStatusRows, aidaStatusRows, testcaseDetailRows] =
+  const [filterOptions, projectStatusRows, aidaStatusRows] =
     await Promise.all([
       fetchJson<CoverageAnalysisFilterOptionsResponse>(filtersUrl, "coverage filters"),
       fetchJson<CoverageAnalysisProjectStatusRow[]>(
@@ -167,18 +188,29 @@ export async function fetchCoverageAnalysisPageData(
         aidaStatusUrl,
         "coverage AIDA status",
       ),
-      fetchJson<CoverageAnalysisTestcaseDetailRow[]>(
-        testcaseDetailUrl,
-        "coverage testcase detail",
-      ),
     ]);
 
   return {
     filterOptions: adaptCoverageAnalysisFilterOptions(filterOptions),
     projectStatusRows,
     aidaStatusRows,
-    testcaseDetailRows,
   };
+}
+
+export async function fetchCoverageAnalysisTestcaseDetailRows(
+  filters: Partial<CoverageAnalysisFilters> = {},
+  limit = DEFAULT_TESTCASE_DETAIL_LIMIT,
+): Promise<CoverageAnalysisTestcaseDetailRow[]> {
+  const testcaseDetailUrl = buildCoverageAnalysisUrl(
+    "/api/testing/coverage-analysis/testcase-detail",
+    filters,
+    { limit },
+  );
+
+  return fetchJson<CoverageAnalysisTestcaseDetailRow[]>(
+    testcaseDetailUrl,
+    "coverage testcase detail",
+  );
 }
 
 export { buildCoverageAnalysisUrl };

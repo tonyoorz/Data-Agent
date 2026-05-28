@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { AlertTriangle, Loader2 } from "lucide-react";
 
@@ -11,6 +11,7 @@ import CoverageAnalysisEmptyState from "../coverage-analysis/CoverageAnalysisEmp
 import CoverageAnalysisFilters from "../coverage-analysis/CoverageAnalysisFilters";
 import {
   CoverageAnalysisApiError,
+  DEFAULT_TESTCASE_DETAIL_LIMIT,
 } from "../coverage-analysis/coverageAnalysisApi";
 import {
   applyAidaPointSelection,
@@ -22,7 +23,10 @@ import type {
   CoverageAnalysisProjectStatusRow,
   CoverageAnalysisTestcaseDetailRow,
 } from "../coverage-analysis/coverageAnalysisTypes";
-import { useCoverageAnalysisData } from "../coverage-analysis/useCoverageAnalysisData";
+import {
+  useCoverageAnalysisOverviewData,
+  useCoverageAnalysisTestcaseDetailData,
+} from "../coverage-analysis/useCoverageAnalysisData";
 
 function createEmptyFilters(): CoverageAnalysisFiltersType {
   return {
@@ -38,62 +42,121 @@ function createEmptyFilters(): CoverageAnalysisFiltersType {
   };
 }
 
-function buildProjectStatusChartRows(
-  rows: CoverageAnalysisProjectStatusRow[],
-): CoverageAnalysisChartDatum[] {
-  const grouped = new Map<string, CoverageAnalysisChartDatum & { sortOrder: number }>();
+function resolveDefaultYearSelection(years: string[]) {
+  const currentYear = String(new Date().getFullYear());
+  if (years.includes(currentYear)) {
+    return [currentYear];
+  }
 
-  rows.forEach((row, index) => {
-    const key = `${row.test_week}::${row.fv}`;
-    const existing = grouped.get(key);
+  return [];
+}
 
-    if (existing) {
-      existing[row.status] = Number(existing[row.status] ?? 0) + row.count;
-      existing.total += row.count;
-      return;
-    }
+const MAX_SCATTER_WEEKS = 16;
+const MAX_SCATTER_CATEGORIES = 12;
 
-    grouped.set(key, {
-      label: `${row.test_week} · ${row.fv}`,
-      selectionValue: row.fv,
-      total: row.count,
-      [row.status]: row.count,
-      sortOrder: index,
-    });
+function parseTestWeekSortKey(testWeek: string) {
+  const match = String(testWeek).trim().match(/^(\d{2,4})-CW(\d{2})$/i);
+  if (!match) {
+    return { year: Number.MAX_SAFE_INTEGER, week: Number.MAX_SAFE_INTEGER };
+  }
+
+  const rawYear = Number.parseInt(match[1], 10);
+  const normalizedYear = rawYear < 100 ? rawYear + 2000 : rawYear;
+  const week = Number.parseInt(match[2], 10);
+  return { year: normalizedYear, week };
+}
+
+function compareTestWeek(left: string, right: string) {
+  const leftKey = parseTestWeekSortKey(left);
+  const rightKey = parseTestWeekSortKey(right);
+
+  if (leftKey.year !== rightKey.year) {
+    return leftKey.year - rightKey.year;
+  }
+
+  if (leftKey.week !== rightKey.week) {
+    return leftKey.week - rightKey.week;
+  }
+
+  return left.localeCompare(right);
+}
+
+type ChartWindowResult<Row> = {
+  rows: Row[];
+  wasBounded: boolean;
+};
+
+function buildScatterWindow<Row extends { test_week: string; count: number }>(
+  rows: Row[],
+  categorySelector: (row: Row) => string,
+): ChartWindowResult<Row> {
+  const normalizedRows = rows.filter((row) => row.test_week.trim() && categorySelector(row).trim());
+  if (normalizedRows.length === 0) {
+    return { rows: [], wasBounded: false };
+  }
+
+  const orderedWeeks = Array.from(new Set(normalizedRows.map((row) => row.test_week))).sort(compareTestWeek);
+  const visibleWeeks = orderedWeeks.slice(-MAX_SCATTER_WEEKS);
+  const weekScopedRows = normalizedRows.filter((row) => visibleWeeks.includes(row.test_week));
+
+  const categoryTotals = new Map<string, number>();
+  weekScopedRows.forEach((row) => {
+    const category = categorySelector(row).trim();
+    categoryTotals.set(category, (categoryTotals.get(category) ?? 0) + row.count);
   });
 
-  return Array.from(grouped.values())
-    .sort((left, right) => left.sortOrder - right.sortOrder)
-    .map(({ sortOrder: _sortOrder, ...datum }) => datum);
+  const visibleCategories = Array.from(categoryTotals.entries())
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .slice(0, MAX_SCATTER_CATEGORIES)
+    .map(([category]) => category);
+
+  const windowedRows = weekScopedRows.filter((row) => visibleCategories.includes(categorySelector(row).trim()));
+
+  return {
+    rows: windowedRows,
+    wasBounded:
+      orderedWeeks.length > visibleWeeks.length || categoryTotals.size > visibleCategories.length,
+  };
+}
+
+function createDensityNote() {
+  return `图表最多展示最近 ${MAX_SCATTER_WEEKS} 个测试周与当前筛选下的高频项，避免图表过密。`;
+}
+
+function buildProjectStatusChartRows(
+  rows: CoverageAnalysisProjectStatusRow[],
+): ChartWindowResult<CoverageAnalysisChartDatum> {
+  const windowedRows = buildScatterWindow(rows, (row) => row.fv);
+
+  return {
+    rows: windowedRows.rows.map((row) => ({
+      xValue: row.test_week,
+      yValue: row.fv,
+      selectionValue: row.fv,
+      status: row.status,
+      count: row.count,
+      seriesLabel: row.fvp,
+    })),
+    wasBounded: windowedRows.wasBounded,
+  };
 }
 
 function buildAidaStatusChartRows(
   rows: CoverageAnalysisAidaStatusRow[],
-): CoverageAnalysisChartDatum[] {
-  const grouped = new Map<string, CoverageAnalysisChartDatum & { sortOrder: number }>();
+): ChartWindowResult<CoverageAnalysisChartDatum> {
+  const windowedRows = buildScatterWindow(rows, (row) => row.top_aida);
 
-  rows.forEach((row, index) => {
-    const key = `${row.test_week}::${row.top_aida}`;
-    const existing = grouped.get(key);
-
-    if (existing) {
-      existing[row.status] = Number(existing[row.status] ?? 0) + row.count;
-      existing.total += row.count;
-      return;
-    }
-
-    grouped.set(key, {
-      label: `${row.test_week} · ${row.top_aida}`,
+  return {
+    rows: windowedRows.rows.map((row) => ({
+      xValue: row.test_week,
+      yValue: row.top_aida,
       selectionValue: row.top_aida,
-      total: row.count,
-      [row.status]: row.count,
-      sortOrder: index,
-    });
-  });
-
-  return Array.from(grouped.values())
-    .sort((left, right) => left.sortOrder - right.sortOrder)
-    .map(({ sortOrder: _sortOrder, ...datum }) => datum);
+      status: row.status,
+      count: row.count,
+      seriesLabel: row.top_aida,
+    })),
+    wasBounded: windowedRows.wasBounded,
+  };
 }
 
 function collectStatuses(
@@ -139,26 +202,67 @@ function isNotReadyError(error: unknown): error is CoverageAnalysisApiError {
 const CoverageAnalysis = () => {
   const [selectedFilters, setSelectedFilters] =
     useState<CoverageAnalysisFiltersType>(createEmptyFilters);
-  const { data, error, isLoading, isFetching } = useCoverageAnalysisData(selectedFilters);
+  const {
+    data: overviewData,
+    error: overviewError,
+    isLoading: isOverviewLoading,
+    isFetching: isOverviewFetching,
+  } = useCoverageAnalysisOverviewData(selectedFilters);
+  const shouldLoadTestcaseDetail =
+    selectedFilters.years.length > 0 ||
+    (overviewData !== undefined && overviewData.filterOptions.years.length === 0);
+  const {
+    data: testcaseDetailRowsData,
+    error: testcaseDetailError,
+    isLoading: isTestcaseDetailLoading,
+    isFetching: isTestcaseDetailFetching,
+  } = useCoverageAnalysisTestcaseDetailData(selectedFilters, {
+    enabled: shouldLoadTestcaseDetail,
+    limit: DEFAULT_TESTCASE_DETAIL_LIMIT,
+  });
 
-  const projectChartRows = useMemo(
-    () => buildProjectStatusChartRows(data?.projectStatusRows ?? []),
-    [data?.projectStatusRows],
+  const projectChartWindow = useMemo(
+    () => buildProjectStatusChartRows(overviewData?.projectStatusRows ?? []),
+    [overviewData?.projectStatusRows],
   );
-  const aidaChartRows = useMemo(
-    () => buildAidaStatusChartRows(data?.aidaStatusRows ?? []),
-    [data?.aidaStatusRows],
+  const aidaChartWindow = useMemo(
+    () => buildAidaStatusChartRows(overviewData?.aidaStatusRows ?? []),
+    [overviewData?.aidaStatusRows],
   );
+
+  const projectChartRows = projectChartWindow.rows;
+  const aidaChartRows = aidaChartWindow.rows;
   const projectStatuses = useMemo(
-    () => collectStatuses(data?.filterOptions.statuses ?? [], data?.projectStatusRows ?? []),
-    [data?.filterOptions.statuses, data?.projectStatusRows],
+    () => collectStatuses(overviewData?.filterOptions.statuses ?? [], overviewData?.projectStatusRows ?? []),
+    [overviewData?.filterOptions.statuses, overviewData?.projectStatusRows],
   );
   const aidaStatuses = useMemo(
-    () => collectStatuses(data?.filterOptions.statuses ?? [], data?.aidaStatusRows ?? []),
-    [data?.filterOptions.statuses, data?.aidaStatusRows],
+    () => collectStatuses(overviewData?.filterOptions.statuses ?? [], overviewData?.aidaStatusRows ?? []),
+    [overviewData?.filterOptions.statuses, overviewData?.aidaStatusRows],
+  );
+  const defaultYears = useMemo(
+    () => resolveDefaultYearSelection(overviewData?.filterOptions.years ?? []),
+    [overviewData?.filterOptions.years],
   );
 
-  if (isLoading && !data) {
+  useEffect(() => {
+    if (defaultYears.length === 0) {
+      return;
+    }
+
+    setSelectedFilters((current) => {
+      if (current.years.length > 0) {
+        return current;
+      }
+
+      return {
+        ...current,
+        years: defaultYears,
+      };
+    });
+  }, [defaultYears]);
+
+  if (isOverviewLoading && !overviewData) {
     return (
       <section className="workbench-panel p-6">
         <div className="flex items-center gap-3 text-sm text-muted-foreground">
@@ -169,43 +273,43 @@ const CoverageAnalysis = () => {
     );
   }
 
-  if (error && !data && isNotReadyError(error)) {
+  if (overviewError && !overviewData && isNotReadyError(overviewError)) {
     return (
       <CoverageAnalysisEmptyState
         title="Testing coverage analysis is not ready yet."
         description="The analytics service is missing required TAP coverage fields for this page."
-        missingFields={error.missingFields}
+        missingFields={overviewError.missingFields}
       />
     );
   }
 
-  if (error && !data) {
+  if (overviewError && !overviewData) {
     return (
       <section className="workbench-panel p-6">
         <Alert variant="destructive">
           <AlertTriangle className="h-4 w-4" />
           <AlertTitle>Unable to load testing coverage analysis.</AlertTitle>
           <AlertDescription>
-            {error.message || "Check whether the analytics service is available."}
+            {overviewError.message || "Check whether the analytics service is available."}
           </AlertDescription>
         </Alert>
       </section>
     );
   }
 
-  const filterOptions = data?.filterOptions ?? createEmptyFilters();
-  const testcaseDetailRows = data?.testcaseDetailRows ?? [];
+  const filterOptions = overviewData?.filterOptions ?? createEmptyFilters();
+  const testcaseDetailRows = testcaseDetailRowsData ?? [];
   const hasRenderableData =
     projectChartRows.length > 0 || aidaChartRows.length > 0 || testcaseDetailRows.length > 0;
 
   return (
     <div className="space-y-5">
-      {error && data ? (
+      {overviewError && overviewData ? (
         <Alert>
           <AlertTriangle className="h-4 w-4" />
           <AlertTitle>Unable to refresh testing coverage analysis.</AlertTitle>
           <AlertDescription>
-            Showing the latest cached snapshot. {error.message}
+            Showing the latest cached snapshot. {overviewError.message}
           </AlertDescription>
         </Alert>
       ) : null}
@@ -217,7 +321,7 @@ const CoverageAnalysis = () => {
           setSelectedFilters((current) => toggleFilterValue(current, field, value));
         }}
         onReset={() => setSelectedFilters(createEmptyFilters())}
-        isRefreshing={isFetching && !isLoading}
+        isRefreshing={(isOverviewFetching && !isOverviewLoading) || isTestcaseDetailFetching}
       />
 
       {!hasRenderableData ? (
@@ -228,11 +332,12 @@ const CoverageAnalysis = () => {
       ) : null}
 
       <CoverageAnalysisChartCard
-        title="按周和功能分类的测试状态"
-        description="Grouped execution counts by test week and FV. Click a row segment to narrow the FV selection."
+        title="图表 1: 按周和功能分类的测试状态"
+        description="横轴为测试周，纵轴为 FV；气泡大小代表数量，颜色代表状态。点击气泡可快速缩小 FV 筛选范围。"
         rows={projectChartRows}
         statuses={projectStatuses}
-        emptyMessage="No project-status rows match the current filters."
+        densityNote={createDensityNote()}
+        emptyMessage="当前筛选条件下暂无项目状态数据。"
         onSelectValue={(value) => {
           setSelectedFilters((current) => ({
             ...current,
@@ -242,11 +347,12 @@ const CoverageAnalysis = () => {
       />
 
       <CoverageAnalysisChartCard
-        title="按 Top AIDA 和测试周分类的状态"
-        description="Grouped execution counts by Top AIDA and test week. Click a row segment to narrow the Top AIDA selection."
+        title="图表 2: 按 Top AIDA 和测试周分类的状态"
+        description="横轴为测试周，纵轴为 Top AIDA；气泡大小代表数量，颜色代表状态。点击气泡可快速缩小 Top AIDA 筛选范围。"
         rows={aidaChartRows}
         statuses={aidaStatuses}
-        emptyMessage="No AIDA-status rows match the current filters."
+        densityNote={createDensityNote()}
+        emptyMessage="当前筛选条件下暂无 AIDA 状态数据。"
         onSelectValue={(value) => {
           setSelectedFilters((current) => ({
             ...current,
@@ -258,19 +364,33 @@ const CoverageAnalysis = () => {
       <section className="dashboard-card">
         <div className="border-b border-border/70 px-5 py-4">
           <div className="space-y-1">
-            <h2 className="text-sm font-semibold text-foreground">按测试用例和测试周分类的状态</h2>
+            <h2 className="text-sm font-semibold text-foreground">图表 3: 按测试用例和测试周分类的状态</h2>
             <p className="text-sm text-muted-foreground">
-              Detailed testcase execution rows within the current TAP coverage scope.
+              当前筛选范围内的测试用例明细，用于补充查看测试周、状态、AIDA 与执行人。
             </p>
           </div>
         </div>
 
-        {testcaseDetailRows.length === 0 ? (
+        {isTestcaseDetailLoading && testcaseDetailRows.length === 0 ? (
+          <div className="flex items-center gap-3 px-5 py-10 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <span>Loading testcase detail rows...</span>
+          </div>
+        ) : testcaseDetailError ? (
           <div className="px-5 py-10 text-center text-sm text-muted-foreground">
-            No testcase-detail rows match the current filters.
+            Unable to load testcase detail rows. {testcaseDetailError.message}
+          </div>
+        ) : testcaseDetailRows.length === 0 ? (
+          <div className="px-5 py-10 text-center text-sm text-muted-foreground">
+            当前筛选条件下暂无测试用例明细数据。
           </div>
         ) : (
           <div className="overflow-x-auto">
+            {testcaseDetailRows.length >= DEFAULT_TESTCASE_DETAIL_LIMIT ? (
+              <div className="px-5 py-3 text-xs text-muted-foreground">
+                Showing the first {DEFAULT_TESTCASE_DETAIL_LIMIT} testcase detail rows. Narrow the filters to inspect a smaller slice.
+              </div>
+            ) : null}
             <table className="w-full min-w-[900px] text-sm">
               <thead>
                 <tr className="border-b border-border text-left">

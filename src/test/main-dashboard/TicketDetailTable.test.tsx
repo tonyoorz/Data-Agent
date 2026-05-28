@@ -10,7 +10,10 @@ function createRows(count: number): MainDashboardTicketRow[] {
     ticketName: `Ticket ${index + 1}`,
     status: index % 2 === 0 ? "03-In Analysis" : "04-In Progress",
     ticketDate: `2026-04-${String((index % 28) + 1).padStart(2, "0")}`,
+    creationTime: `2026-03-${String((index % 28) + 1).padStart(2, "0")}T08:00:00Z`,
     problemFinderTeam: index % 2 === 0 ? "DTSV_China" : "[AT]W72-FIT",
+    classification: index % 2 === 0 ? "Showstopper_Candidate" : "Field Observation",
+    problemSeverity: index % 2 === 0 ? "05-unsatisfactory" : "04-deficient",
     group: index % 2 === 0 ? "Integration" : "Q-Gate",
     phase: index % 2 === 0 ? "03-In Analysis" : "04-In Progress",
     isResolvedForward: index % 3 === 0,
@@ -19,6 +22,7 @@ function createRows(count: number): MainDashboardTicketRow[] {
     project: index % 2 === 0 ? "G68" : "U12",
     assignedEcu: index % 2 === 0 ? "ECU-A" : "ECU-B",
     aida: index % 2 === 0 ? "Digital" : "EE",
+    defectCategory: index % 2 === 0 ? "CN Speech" : "Global Core",
     solutionCluster: index % 2 === 0 ? "Integration" : "CoC",
     pu: index % 2 === 0 ? "PU1" : "PU2",
     market: index % 2 === 0 ? "CN" : "EU",
@@ -26,214 +30,126 @@ function createRows(count: number): MainDashboardTicketRow[] {
   }));
 }
 
+function renderTicketDetailTable(
+  rows = createRows(2),
+  overrides: Record<string, unknown> = {},
+) {
+  const onPageChange = vi.fn();
+  const onPageSizeChange = vi.fn();
+  const onSearchChange = vi.fn();
+  const onSortChange = vi.fn();
+
+  const props: any = {
+    rows,
+    totalRows: 120,
+    page: 1,
+    pageSize: 50,
+    selection: {},
+    selectedOutcomeLabel: null,
+    onClearSelection: vi.fn(),
+    onPageChange,
+    onPageSizeChange,
+    onSearchChange,
+    onSortChange,
+    sortBy: "ticket_id",
+    sortOrder: "asc",
+    ...overrides,
+  };
+
+  render(
+    <TicketDetailTable {...props} />,
+  );
+
+  return { onPageChange, onPageSizeChange, onSearchChange, onSortChange };
+}
+
 describe("TicketDetailTable", () => {
-  it("defaults to 50 rows per page and supports 20/50/100 page sizes with paging", () => {
-    render(
-      <TicketDetailTable
-        rows={createRows(120)}
-        selection={{}}
-        selectedOutcomeLabel={null}
-        onClearSelection={vi.fn()}
-      />,
-    );
+  it("delegates page changes and page-size changes to the parent", () => {
+    const { onPageChange, onPageSizeChange } = renderTicketDetailTable(createRows(50));
 
     const section = screen.getByText("Ticket Detail").closest("section");
-    const table = screen.getByRole("table", { name: "Ticket detail table" });
 
     expect(section).not.toBeNull();
     expect(within(section as HTMLElement).getByText("50 of 120 tickets")).toBeInTheDocument();
-    expect(within(section as HTMLElement).getByLabelText("Rows per page")).toHaveValue("50");
     expect(within(section as HTMLElement).getByText("Page 1 of 3")).toBeInTheDocument();
-    expect(within(table).getByText("1000")).toBeInTheDocument();
-    expect(within(table).getByText("1049")).toBeInTheDocument();
-    expect(within(table).queryByText("1050")).not.toBeInTheDocument();
 
     fireEvent.click(within(section as HTMLElement).getByRole("button", { name: "Next page" }));
-
-    expect(within(section as HTMLElement).getByText("50 of 120 tickets")).toBeInTheDocument();
-    expect(within(section as HTMLElement).getByText("Page 2 of 3")).toBeInTheDocument();
-    expect(within(table).getByText("1050")).toBeInTheDocument();
-    expect(within(table).queryByText("1000")).not.toBeInTheDocument();
-
     fireEvent.change(within(section as HTMLElement).getByLabelText("Rows per page"), {
       target: { value: "20" },
     });
 
-    expect(within(section as HTMLElement).getByText("20 of 120 tickets")).toBeInTheDocument();
-    expect(within(section as HTMLElement).getByText("Page 1 of 6")).toBeInTheDocument();
-    expect(within(table).getByText("1000")).toBeInTheDocument();
-    expect(within(table).getByText("1019")).toBeInTheDocument();
-    expect(within(table).queryByText("1020")).not.toBeInTheDocument();
-
-    fireEvent.change(within(section as HTMLElement).getByLabelText("Rows per page"), {
-      target: { value: "100" },
-    });
-
-    expect(within(section as HTMLElement).getByText("100 of 120 tickets")).toBeInTheDocument();
-    expect(within(section as HTMLElement).getByText("Page 1 of 2")).toBeInTheDocument();
-    expect(within(table).getByText("1099")).toBeInTheDocument();
-    expect(within(table).queryByText("1100")).not.toBeInTheDocument();
-  });
-
-  it("lets the user jump directly to a page and clamps invalid values", () => {
-    render(
-      <TicketDetailTable
-        rows={createRows(120)}
-        selection={{}}
-        selectedOutcomeLabel={null}
-        onClearSelection={vi.fn()}
-      />,
-    );
-
-    const section = screen.getByText("Ticket Detail").closest("section");
-    const table = screen.getByRole("table", { name: "Ticket detail table" });
     const pageInput = within(section as HTMLElement).getByLabelText("Go to page");
-
     fireEvent.change(pageInput, { target: { value: "3" } });
     fireEvent.keyDown(pageInput, { key: "Enter", code: "Enter", charCode: 13 });
 
-    expect(within(section as HTMLElement).getByText("Page 3 of 3")).toBeInTheDocument();
-    expect(within(table).getByText("1100")).toBeInTheDocument();
-    expect(within(table).getByText("1119")).toBeInTheDocument();
-    expect(within(table).queryByText("1099")).not.toBeInTheDocument();
-
-    fireEvent.change(pageInput, { target: { value: "999" } });
-    fireEvent.keyDown(pageInput, { key: "Enter", code: "Enter", charCode: 13 });
-
-    expect(within(section as HTMLElement).getByText("Page 3 of 3")).toBeInTheDocument();
-
-    fireEvent.change(pageInput, { target: { value: "0" } });
-    fireEvent.keyDown(pageInput, { key: "Enter", code: "Enter", charCode: 13 });
-
-    expect(within(section as HTMLElement).getByText("Page 1 of 3")).toBeInTheDocument();
-    expect(within(table).getByText("1000")).toBeInTheDocument();
-
-    fireEvent.change(pageInput, { target: { value: "3" } });
-    fireEvent.keyDown(pageInput, { key: "Enter", code: "Enter", charCode: 13 });
-
-    expect(within(section as HTMLElement).getByText("Page 3 of 3")).toBeInTheDocument();
-
-    fireEvent.change(pageInput, { target: { value: "" } });
-    fireEvent.blur(pageInput);
-
-    expect(within(section as HTMLElement).getByText("Page 3 of 3")).toBeInTheDocument();
-    expect(pageInput).toHaveValue(3);
+    expect(onPageChange).toHaveBeenNthCalledWith(1, 2);
+    expect(onPageSizeChange).toHaveBeenCalledWith(20);
+    expect(onPageChange).toHaveBeenNthCalledWith(2, 3);
   });
-});import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
 
-import TicketDetailTable from "@/components/dashboard/main-dashboard/TicketDetailTable";
-import type { MainDashboardTicketRow } from "@/components/dashboard/main-dashboard/mainDashboardTypes";
+  it("keeps dense grid controls, local search filtering, and column toggles", () => {
+    const { onSearchChange } = renderTicketDetailTable();
 
-const sampleRows: MainDashboardTicketRow[] = [
-  {
-    ticketId: "1001",
-    ticketName: "Alpha power reset",
-    status: "03-In Analysis",
-    problemFinderTeam: "DTSV_China",
-    group: "Integration",
-    phase: "Validation",
-    isResolvedForward: true,
-    isRejectedDirectly: false,
-    year: "2026",
-    project: "G68",
-    assignedEcu: "ECU-A",
-    aida: "Digital",
-    defectCategory: "CN Speech",
-    solutionCluster: "Integration",
-    pu: "PU1",
-    market: "CN",
-    leadModel: "LM1",
-  },
-  {
-    ticketId: "1002",
-    ticketName: "Beta thermal flicker",
-    status: "01-Rejected",
-    problemFinderTeam: "[AT]W72-FIT",
-    group: "Q-Gate",
-    phase: "Analysis",
-    isResolvedForward: false,
-    isRejectedDirectly: true,
-    year: "2026",
-    project: "U12",
-    assignedEcu: "ECU-B",
-    aida: "EE",
-    defectCategory: "Global Core",
-    solutionCluster: "CoC",
-    pu: "PU2",
-    market: "EU",
-    leadModel: "LM2",
-  },
-];
-
-function renderTicketDetailTable() {
-  return render(
-    <TicketDetailTable
-      rows={sampleRows}
-      selection={{}}
-      selectedOutcomeLabel={null}
-      onClearSelection={vi.fn()}
-    />,
-  );
-}
-
-describe("TicketDetailTable data grid", () => {
-  it("supports dense grid controls including search, column filters, and density switching", () => {
-    renderTicketDetailTable();
-
-    expect(screen.getByPlaceholderText("Search tickets, titles, teams, or status")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Search tickets, titles, teams, or phase")).toBeInTheDocument();
     expect(screen.getByLabelText("Filter Ticket ID column")).toBeInTheDocument();
     expect(screen.getByLabelText("Filter Title column")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Compact density" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Defect Category" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Creation Time" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Classification" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Problem Severity" })).toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Status" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Group" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Outcome" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Project" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Year" })).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText("Search tickets, titles, teams, or phase"), {
+      target: { value: "ticket 2" },
+    });
+
+    const table = screen.getByRole("table", { name: "Ticket detail table" });
+    expect(within(table).getByText("1001")).toBeInTheDocument();
+    expect(within(table).queryByText("1000")).not.toBeInTheDocument();
+    expect(onSearchChange).toHaveBeenCalledWith("ticket 2");
+
+    fireEvent.click(screen.getByRole("button", { name: "Columns" }));
+    expect(screen.queryByRole("menuitemcheckbox", { name: "Status" })).not.toBeInTheDocument();
+    expect(screen.getByRole("menuitemcheckbox", { name: "Group" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitemcheckbox", { name: "Outcome" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitemcheckbox", { name: "Project" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitemcheckbox", { name: "Year" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Compact density" }));
-
     expect(screen.getByTestId("ticket-detail-grid")).toHaveAttribute("data-density", "compact");
   });
 
-  it("filters rows through the global search and per-column filters", () => {
-    renderTicketDetailTable();
-
-    fireEvent.change(screen.getByPlaceholderText("Search tickets, titles, teams, or status"), {
-      target: { value: "beta" },
+  it("delegates header sorting to the parent in ascending and descending order", () => {
+    const { onSortChange } = renderTicketDetailTable(createRows(3), {
+      sortBy: "ticket_id",
+      sortOrder: "asc",
     });
 
-    let table = screen.getByRole("table", { name: "Ticket detail table" });
-    expect(within(table).getByText("1002")).toBeInTheDocument();
-    expect(within(table).queryByText("1001")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Sort by Ticket ID" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sort by Ticket ID" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sort by Phase" }));
 
-    fireEvent.change(screen.getByPlaceholderText("Search tickets, titles, teams, or status"), {
-      target: { value: "" },
-    });
-    fireEvent.change(screen.getByLabelText("Filter Status column"), {
-      target: { value: "Rejected" },
-    });
-
-    table = screen.getByRole("table", { name: "Ticket detail table" });
-    expect(within(table).getByText("1002")).toBeInTheDocument();
-    expect(within(table).queryByText("1001")).not.toBeInTheDocument();
+    expect(onSortChange).toHaveBeenNthCalledWith(1, "ticket_id", "desc");
+    expect(onSortChange).toHaveBeenNthCalledWith(2, "ticket_id", "asc");
+    expect(onSortChange).toHaveBeenNthCalledWith(3, "phase", "asc");
   });
 
-  it("allows columns to be hidden from the grid", () => {
-    renderTicketDetailTable();
+  it("filters visible rows from a column filter menu", () => {
+    renderTicketDetailTable(createRows(4));
 
-    fireEvent.click(screen.getByRole("button", { name: "Columns" }));
-    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Status" }));
-
-    expect(screen.queryByRole("columnheader", { name: "Status" })).not.toBeInTheDocument();
-  });
-
-  it("shows defect category as a default visible column and still allows it to be hidden", () => {
-    renderTicketDetailTable();
+    fireEvent.click(screen.getByRole("button", { name: "Filter Phase" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select none" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "04-In Progress" }));
 
     const table = screen.getByRole("table", { name: "Ticket detail table" });
-    expect(screen.getByRole("columnheader", { name: "Defect Category" })).toBeInTheDocument();
-    expect(within(table).getByText("CN Speech")).toBeInTheDocument();
-    expect(within(table).getByText("Global Core")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Columns" }));
-    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Defect Category" }));
-
-    expect(screen.queryByRole("columnheader", { name: "Defect Category" })).not.toBeInTheDocument();
+    expect(within(table).getByText("1001")).toBeInTheDocument();
+    expect(within(table).getByText("1003")).toBeInTheDocument();
+    expect(within(table).queryByText("1000")).not.toBeInTheDocument();
+    expect(within(table).queryByText("1002")).not.toBeInTheDocument();
   });
 });

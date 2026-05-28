@@ -22,6 +22,8 @@ export type MainDashboardFilters = {
 
 export type MainDashboardFiltersPayload = {
   years: string[];
+  months?: string[];
+  china_scopes?: string[];
   projects: string[];
   assigned_ecus: string[];
   problem_finder_teams: string[];
@@ -52,6 +54,8 @@ export const mainDashboardFilterKeys = [
 
 export const mainDashboardFilterFieldMappings = [
   { viewKey: "years", payloadKey: "years", label: "Year" },
+  { viewKey: "months", payloadKey: "months", label: "Month" },
+  { viewKey: "chinaScopes", payloadKey: "china_scopes", label: "China/Global" },
   { viewKey: "projects", payloadKey: "projects", label: "Project" },
   { viewKey: "assignedEcus", payloadKey: "assigned_ecus", label: "Assigned ECU" },
   {
@@ -71,7 +75,7 @@ export const mainDashboardFilterFieldMappings = [
   { viewKey: "leadModels", payloadKey: "lead_models", label: "Lead Model" },
   { viewKey: "groups", payloadKey: "groups", label: "Group" },
 ] as const satisfies ReadonlyArray<{
-  viewKey: Exclude<keyof MainDashboardFilters, "months" | "chinaScopes">;
+  viewKey: keyof MainDashboardFilters;
   payloadKey: keyof MainDashboardFiltersPayload;
   label: string;
 }>;
@@ -89,7 +93,6 @@ export const mainDashboardUiFilterFieldMappings = [
   { viewKey: "pus", label: "PU" },
   { viewKey: "markets", label: "Market" },
   { viewKey: "leadModels", label: "Lead Model" },
-  { viewKey: "groups", label: "Group" },
 ] as const satisfies ReadonlyArray<{
   viewKey: keyof MainDashboardFilters;
   label: string;
@@ -138,6 +141,7 @@ export type MainDashboardTicketRowPayload = {
   ticket_id: string;
   ticket_name: string;
   status: string;
+  creation_time?: string | null;
   ticket_date?: string | null;
   updated_at?: string | null;
   created_at?: string | null;
@@ -151,6 +155,8 @@ export type MainDashboardTicketRowPayload = {
   project: string;
   assigned_ecu: string;
   aida: string;
+  classification?: string | null;
+  problem_severity?: string | null;
   defect_category?: string | null;
   solution_cluster: string;
   pu: string;
@@ -165,6 +171,38 @@ export type MainDashboardPayload = {
   outcome_summary: MainDashboardOutcomeSummaryRowPayload[];
   team_outcome_rows: MainDashboardTeamOutcomeRowPayload[];
   ticket_rows: MainDashboardTicketRowPayload[];
+};
+
+export type MainDashboardRefreshMetadataPayload = {
+  active_snapshot_version: string;
+  refresh_status: string;
+  source_db_path?: string;
+  source_db_mtime?: string;
+  outcomes_refreshed_at?: string | null;
+  summary_cache_refreshed_at?: string | null;
+  last_success_at?: string | null;
+  last_error?: string | null;
+};
+
+export type MainDashboardSummaryPayload = {
+  snapshot_version: string;
+  generated_from: MainDashboardGeneratedFromPayload;
+  refresh_metadata: MainDashboardRefreshMetadataPayload;
+  filters: MainDashboardFiltersPayload;
+  overview: MainDashboardOverviewPayload;
+  outcome_summary: MainDashboardOutcomeSummaryRowPayload[];
+  team_outcome_rows: MainDashboardTeamOutcomeRowPayload[];
+};
+
+export type MainDashboardTicketsPagePayload = {
+  snapshot_version: string;
+  generated_from: MainDashboardGeneratedFromPayload;
+  refresh_metadata: MainDashboardRefreshMetadataPayload;
+  page: number;
+  page_size: number;
+  total_rows: number;
+  total_pages: number;
+  rows: MainDashboardTicketRowPayload[];
 };
 
 export type MainDashboardGeneratedFrom = MainDashboardFilters & {
@@ -202,8 +240,11 @@ export type MainDashboardTicketRow = {
   ticketId: string;
   ticketName: string;
   status: string;
+  creationTime?: string | null;
   ticketDate?: string | null;
   problemFinderTeam: string;
+  classification?: string | null;
+  problemSeverity?: string | null;
   group: string;
   phase: string;
   isResolvedForward: boolean;
@@ -226,4 +267,41 @@ export type MainDashboardViewModel = {
   outcomeSummary: MainDashboardOutcomeSummaryRow[];
   teamOutcomeRows: MainDashboardTeamOutcomeRow[];
   ticketRows: MainDashboardTicketRow[];
+};
+
+export type MainDashboardRefreshMetadata = {
+  activeSnapshotVersion: string;
+  refreshStatus: string;
+  sourceDbPath?: string;
+  sourceDbMtime?: string;
+  outcomesRefreshedAt?: string | null;
+  summaryCacheRefreshedAt?: string | null;
+  lastSuccessAt?: string | null;
+  lastError?: string | null;
+};
+
+export type MainDashboardSummaryViewModel = Omit<MainDashboardViewModel, "ticketRows"> & {
+  snapshotVersion: string;
+  refreshMetadata: MainDashboardRefreshMetadata;
+};
+
+export type MainDashboardTicketSortOrder = "asc" | "desc";
+
+export type MainDashboardTicketsPageRequest = {
+  page: number;
+  pageSize: number;
+  search: string;
+  sortBy: string;
+  sortOrder: MainDashboardTicketSortOrder;
+  snapshotVersion: string;
+};
+
+export type MainDashboardTicketsPage = {
+  snapshotVersion: string;
+  refreshMetadata: MainDashboardRefreshMetadata;
+  page: number;
+  pageSize: number;
+  totalRows: number;
+  totalPages: number;
+  rows: MainDashboardTicketRow[];
 };

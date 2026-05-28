@@ -45,6 +45,7 @@ describe("DuplicateSearchResults", () => {
 
     expect(screen.getByRole("list", { name: "候选缺陷列表" })).toBeInTheDocument();
     expect(screen.getAllByRole("listitem")).toHaveLength(2);
+    expect(screen.getByText("Phase 03-In Analysis")).toBeInTheDocument();
     expect(container.querySelectorAll("article")).toHaveLength(0);
   });
 

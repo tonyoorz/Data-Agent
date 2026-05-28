@@ -6,6 +6,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import CoverageAnalysis from "@/components/dashboard/pages/CoverageAnalysis";
 
+function createDeferredResponse() {
+  let resolve!: (value: Response) => void;
+  const promise = new Promise<Response>((nextResolve) => {
+    resolve = nextResolve;
+  });
+
+  return { promise, resolve };
+}
+
 vi.mock("recharts", async () => {
   const React = await vi.importActual<typeof import("react")>("react");
   const ChartDataContext = React.createContext<Array<Record<string, unknown>>>([]);
@@ -25,11 +34,17 @@ vi.mock("recharts", async () => {
         <div data-testid="recharts-bar-chart">{children}</div>
       </ChartDataContext.Provider>
     ),
+    ScatterChart: ({
+      children,
+    }: {
+      children: ReactNode;
+    }) => <div data-testid="recharts-scatter-chart">{children}</div>,
     CartesianGrid: () => null,
     Legend: () => null,
     Tooltip: () => null,
     XAxis: () => null,
     YAxis: () => null,
+    ZAxis: () => null,
     Bar: ({
       dataKey,
       onClick,
@@ -50,6 +65,30 @@ vi.mock("recharts", async () => {
           onClick={() => onClick?.({ payload: { selectionValue: firstRow.selectionValue } })}
         >
           {`Select ${firstRow.selectionValue} for ${dataKey}`}
+        </button>
+      );
+    },
+    Scatter: ({
+      name,
+      data,
+      onClick,
+    }: {
+      name?: string;
+      data?: Array<{ selectionValue?: string }>;
+      onClick?: (value: { payload?: { selectionValue?: string } }) => void;
+    }) => {
+      const firstRow = data?.[0];
+
+      if (!firstRow?.selectionValue) {
+        return null;
+      }
+
+      return (
+        <button
+          type="button"
+          onClick={() => onClick?.({ payload: { selectionValue: firstRow.selectionValue } })}
+        >
+          {`Select ${firstRow.selectionValue} for ${name ?? "scatter"}`}
         </button>
       );
     },
@@ -159,65 +198,46 @@ describe("CoverageAnalysis page", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders the filter bar and three live TAP section titles", async () => {
-    vi.mocked(fetch)
-      .mockResolvedValueOnce(
-        createJsonResponse({
-          years: ["2026"],
-          projects: ["IDCEVO"],
-          test_weeks: ["2026-CW21"],
-          pus: ["PU1"],
-          aidas: ["Use Speech operation [01.04.02.01.01.05]"],
-          statuses: ["Passed"],
-          feature_regions: ["China Specific"],
-          fvps: ["Voice Experience"],
-          fvs: ["Speech"],
-        }),
-      )
-      .mockResolvedValueOnce(
-        createJsonResponse([
-          {
-            test_week: "2026-CW21",
-            fv: "Speech",
-            fvp: "Voice Experience",
-            status: "Passed",
-            count: 12,
-          },
-        ]),
-      )
-      .mockResolvedValueOnce(
-        createJsonResponse([
-          {
-            test_week: "2026-CW21",
-            top_aida: "Use Speech operation [01.04.02.01.01.05]",
-            status: "Passed",
-            count: 8,
-          },
-        ]),
-      )
-      .mockResolvedValueOnce(
-        createJsonResponse([
-          {
-            test_id: "T-1",
-            test_name: "Wake word test",
-            test_week: "2026-CW21",
-            status: "Passed",
-            top_aida: "Use Speech operation [01.04.02.01.01.05]",
-            project: "IDCEVO",
-            pu: "PU1",
-            tester: "Tester-A",
-            count: 1,
-          },
-        ]),
-      );
+  it("renders the TPMDashboard-style filter copy and chart titles", async () => {
+    vi.stubGlobal("fetch", createCoverageAnalysisFetchMock());
 
     renderCoverageAnalysis();
 
-    expect(await screen.findByLabelText("Year filter")).toBeInTheDocument();
-    expect(screen.getByLabelText("Project filter")).toBeInTheDocument();
-    expect(screen.getByText("按周和功能分类的测试状态")).toBeInTheDocument();
-    expect(screen.getByText("按 Top AIDA 和测试周分类的状态")).toBeInTheDocument();
-    expect(screen.getByText("按测试用例和测试周分类的状态")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByLabelText("Year filter")).toHaveTextContent("2026");
+    });
+
+    expect(screen.getByText("筛选条件")).toBeInTheDocument();
+    expect(screen.getByLabelText("Year filter")).toBeInTheDocument();
+    expect(screen.getByText("图表 1: 按周和功能分类的测试状态")).toBeInTheDocument();
+    expect(screen.getByText("图表 2: 按 Top AIDA 和测试周分类的状态")).toBeInTheDocument();
+    expect(screen.getByText("图表 3: 按测试用例和测试周分类的状态")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reset coverage filters" })).toHaveTextContent("清空筛选");
+    expect(screen.getAllByTestId("recharts-scatter-chart")).toHaveLength(2);
+  });
+
+  it("defaults the Year filter to the current TPMDashboard year when available", async () => {
+    const fetchMock = createCoverageAnalysisFetchMock();
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderCoverageAnalysis();
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Year filter")).toHaveTextContent("2026");
+      expect(fetchMock).toHaveBeenCalledTimes(7);
+    });
+
+    const refetchUrls = fetchMock.mock.calls.slice(-4).map(([url]) => String(url));
+    refetchUrls.forEach((url) => {
+      expect(url).toContain("years=2026");
+    });
+
+    const testcaseDetailUrls = fetchMock.mock.calls
+      .map(([url]) => String(url))
+      .filter((url) => url.includes("/api/testing/coverage-analysis/testcase-detail"));
+    testcaseDetailUrls.forEach((url) => {
+      expect(url).toContain("limit=500");
+    });
   });
 
   it("shows a non-ready message with missing field detail", async () => {
@@ -249,19 +269,168 @@ describe("CoverageAnalysis page", () => {
 
     renderCoverageAnalysis();
 
-    expect(await screen.findByLabelText("FV filter")).toHaveTextContent("Any");
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    await waitFor(() => {
+      expect(screen.getByLabelText("FV filter")).toHaveTextContent("全部");
+      expect(fetchMock).toHaveBeenCalledTimes(7);
+    });
 
-    fireEvent.click(screen.getByRole("button", { name: "Select Speech for Passed" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Select Speech for Passed" }));
 
     await waitFor(() => {
       expect(screen.getByLabelText("FV filter")).toHaveTextContent("Speech");
-      expect(fetchMock).toHaveBeenCalledTimes(8);
+      expect(fetchMock).toHaveBeenCalledTimes(11);
     });
 
     const refetchUrls = fetchMock.mock.calls.slice(-4).map(([url]) => String(url));
     refetchUrls.forEach((url) => {
       expect(url).toContain("fvs=Speech");
     });
+  });
+
+  it("shows a density note for the bounded scatter window", async () => {
+    const manyProjectRows = Array.from({ length: 18 }, (_, index) => ({
+      test_week: `2026-CW${String(index + 1).padStart(2, "0")}`,
+      fv: `FV-${index + 1}`,
+      fvp: "Voice Experience",
+      status: "Passed",
+      count: index + 1,
+    }));
+
+    const manyAidaRows = Array.from({ length: 18 }, (_, index) => ({
+      test_week: `2026-CW${String(index + 1).padStart(2, "0")}`,
+      top_aida: `AIDA-${index + 1}`,
+      status: "Passed",
+      count: index + 1,
+    }));
+
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+
+      if (url.includes("/api/testing/coverage-analysis/filters")) {
+        return createJsonResponse({
+          years: ["2026"],
+          projects: ["IDCEVO"],
+          test_weeks: manyProjectRows.map((row) => row.test_week),
+          pus: ["PU1"],
+          aidas: manyAidaRows.map((row) => row.top_aida),
+          statuses: ["Passed"],
+          feature_regions: ["China Specific"],
+          fvps: ["Voice Experience"],
+          fvs: manyProjectRows.map((row) => row.fv),
+        });
+      }
+
+      if (url.includes("/api/testing/coverage-analysis/project-status")) {
+        return createJsonResponse(manyProjectRows);
+      }
+
+      if (url.includes("/api/testing/coverage-analysis/aida-status")) {
+        return createJsonResponse(manyAidaRows);
+      }
+
+      if (url.includes("/api/testing/coverage-analysis/testcase-detail")) {
+        return createJsonResponse([
+          {
+            test_id: "T-1",
+            test_name: "Wake word test",
+            test_week: "2026-CW18",
+            status: "Passed",
+            top_aida: "AIDA-18",
+            project: "IDCEVO",
+            pu: "PU1",
+            tester: "Tester-A",
+            count: 1,
+          },
+        ]);
+      }
+
+      throw new Error(`Unhandled fetch URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderCoverageAnalysis();
+
+    expect(
+      await screen.findAllByText(/图表最多展示最近 .*测试周与当前筛选下的高频项/i),
+    ).toHaveLength(2);
+  });
+
+  it("renders chart data before testcase detail finishes loading", async () => {
+    const deferredDetail = createDeferredResponse();
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+
+      if (url.includes("/api/testing/coverage-analysis/filters")) {
+        return createJsonResponse({
+          years: ["2026"],
+          projects: ["IDCEVO"],
+          test_weeks: ["2026-CW21"],
+          pus: ["PU1"],
+          aidas: ["Use Speech operation [01.04.02.01.01.05]"],
+          statuses: ["Passed"],
+          feature_regions: ["China Specific"],
+          fvps: ["Voice Experience"],
+          fvs: ["Speech"],
+        });
+      }
+
+      if (url.includes("/api/testing/coverage-analysis/project-status")) {
+        return createJsonResponse([
+          {
+            test_week: "2026-CW21",
+            fv: "Speech",
+            fvp: "Voice Experience",
+            status: "Passed",
+            count: 12,
+          },
+        ]);
+      }
+
+      if (url.includes("/api/testing/coverage-analysis/aida-status")) {
+        return createJsonResponse([
+          {
+            test_week: "2026-CW21",
+            top_aida: "Use Speech operation [01.04.02.01.01.05]",
+            status: "Passed",
+            count: 8,
+          },
+        ]);
+      }
+
+      if (url.includes("/api/testing/coverage-analysis/testcase-detail")) {
+        return deferredDetail.promise;
+      }
+
+      throw new Error(`Unhandled fetch URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderCoverageAnalysis();
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Year filter")).toHaveTextContent("2026");
+      expect(fetchMock).toHaveBeenCalledTimes(7);
+    });
+
+    expect(screen.getByRole("button", { name: "Select Speech for Passed" })).toBeInTheDocument();
+    expect(screen.getByText("Loading testcase detail rows...")).toBeInTheDocument();
+
+    deferredDetail.resolve(
+      createJsonResponse([
+        {
+          test_id: "T-1",
+          test_name: "Wake word test",
+          test_week: "2026-CW21",
+          status: "Passed",
+          top_aida: "Use Speech operation [01.04.02.01.01.05]",
+          project: "IDCEVO",
+          pu: "PU1",
+          tester: "Tester-A",
+          count: 1,
+        },
+      ]),
+    );
+
+    expect(await screen.findByText("Wake word test")).toBeInTheDocument();
   });
 });

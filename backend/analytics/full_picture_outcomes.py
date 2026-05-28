@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS outcome_refresh_state (
 
 
 OUTCOME_STORE_NAME = "defect_outcomes"
+SQLITE_MAX_VARIABLES = 900
 
 
 def ensure_outcome_store(db_path: Path | str) -> Path:
@@ -284,16 +285,21 @@ def load_materialized_outcomes(
 			raise FileNotFoundError(resolved_hot_path)
 		if not requested_ids:
 			return loaded
-		placeholders = ", ".join("?" for _ in requested_ids)
-		rows = conn.execute(
-			f"""
-			SELECT defect_id, is_resolved_forward, is_rejected_directly,
-			       resolved_forward_at, rejected_directly_at, source_history_event_count
-			FROM defect_outcomes
-			WHERE defect_id IN ({placeholders})
-			""",
-			requested_ids,
-		).fetchall()
+		rows: list[sqlite3.Row] = []
+		for start_index in range(0, len(requested_ids), SQLITE_MAX_VARIABLES):
+			batch_ids = requested_ids[start_index : start_index + SQLITE_MAX_VARIABLES]
+			placeholders = ", ".join("?" for _ in batch_ids)
+			rows.extend(
+				conn.execute(
+					f"""
+					SELECT defect_id, is_resolved_forward, is_rejected_directly,
+					       resolved_forward_at, rejected_directly_at, source_history_event_count
+					FROM defect_outcomes
+					WHERE defect_id IN ({placeholders})
+					""",
+					batch_ids,
+				).fetchall()
+			)
 	finally:
 		conn.close()
 

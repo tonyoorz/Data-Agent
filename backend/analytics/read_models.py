@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import datetime, timezone
+import hashlib
+import os
 from pathlib import Path
 from typing import Any, Iterable
 import json
@@ -13,7 +16,14 @@ from backend.analytics.config import (
     get_full_picture_defect_db_candidates,
     get_full_picture_hot_db_path,
     get_full_picture_history_db_candidates,
+    get_full_picture_source_db_path,
 )
+from backend.analytics.dashboard_snapshot import (
+    get_summary_cache,
+    normalize_summary_cache_key,
+    read_active_snapshot_state,
+)
+from backend.analytics.db import connect
 from backend.analytics.full_picture_outcomes import load_materialized_outcomes
 
 
@@ -76,15 +86,81 @@ OUTCOME_SERIES = (
     ("resolved_forward", "Resolved Forward (08 -> 06)", "is_resolved_forward"),
     ("rejected_directly", "Rejected Directly (01 -> 09)", "is_rejected_directly"),
 )
+CHINA_SCOPE_LABEL = "China"
+GLOBAL_SCOPE_LABEL = "Global"
+CHINA_SOLUTION_CLUSTERS = frozenset(
+    {
+        "solution cluster:china product",
+        "ipa cn",
+        "speech cn",
+        "navigation cn",
+        "ent_and_con cn",
+        "navigation twn",
+        "etc jp",
+    }
+)
+CHINA_DEFECT_CATEGORIES = frozenset(
+    {
+        "ent/connected_music_china",
+        "application navigation china hk",
+        "cn dkr",
+        "cn backend_service",
+        "cn etc",
+        "cn for asia contact book",
+        "cn for asiatextsupportlib",
+        "cn for global festive app",
+        "cn for asia speller",
+        "cn for usb media service",
+        "cn intelligent reminder",
+        "cn ipa_visualization",
+        "cn launcher",
+        "cn ipa_intelligence",
+        "cn llm",
+        "cn media",
+        "cn mls",
+        "cn nav",
+        "cn mpp",
+        "cn social login via wechat",
+        "cn store",
+        "cn speech",
+        "cn vod",
+        "cn wechat",
+        "cn_core_ui",
+        "cn_experience_mode",
+        "cn_huawei_hicar",
+        "cn_karaoke",
+        "cn_gaming",
+        "cn_ui_lib",
+        "cn_platform",
+        "cn_subscription",
+        "oap/weather/cn",
+        "offboard eroute",
+        "road map taiwan",
+        "application navigation taiwan",
+        "international keyboard",
+        "apps_festivalmode",
+        "cn_video_conference",
+        "cn adas setting",
+        "cn_demo_mode",
+        "cn ad view",
+        "cn video casting",
+    }
+)
 
 
 class FullPictureDashboardDataError(ValueError):
     pass
 
 
+class FullPictureDashboardRequestError(ValueError):
+    pass
+
+
 @dataclass(frozen=True)
 class FullPictureDashboardQuery:
     years: tuple[str, ...] = DEFAULT_YEARS
+    months: tuple[str, ...] = ()
+    china_scopes: tuple[str, ...] = ()
     projects: tuple[str, ...] = ()
     assigned_ecus: tuple[str, ...] = ()
     problem_finder_teams: tuple[str, ...] = ()
@@ -123,6 +199,8 @@ def normalize_query(**kwargs: Any) -> FullPictureDashboardQuery:
     years = _normalize_multi_value(kwargs.get("years")) or DEFAULT_YEARS
     return FullPictureDashboardQuery(
         years=years,
+        months=_normalize_multi_value(kwargs.get("months")),
+        china_scopes=_normalize_multi_value(kwargs.get("china_scopes")),
         projects=_normalize_multi_value(kwargs.get("projects")),
         assigned_ecus=_normalize_multi_value(kwargs.get("assigned_ecus")),
         problem_finder_teams=_normalize_multi_value(kwargs.get("problem_finder_teams")),
@@ -166,6 +244,37 @@ def _extract_phase_code(raw_value: Any) -> str | None:
     if text.isdigit() and len(text) == 2:
         return text
     return None
+
+
+def _normalize_china_value(value: Any) -> str:
+    return str(value or "").strip().casefold()
+
+
+def _get_ticket_month_value(ticket_date: Any) -> str:
+    text = str(ticket_date or "").strip()
+    if not text:
+        return ""
+
+    match = re.search(r"(\d{4}-\d{2})-\d{2}", text)
+    if match:
+        return match.group(1)
+
+    try:
+        parsed_timestamp = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return ""
+    return parsed_timestamp.date().isoformat()[:7]
+
+
+def _get_ticket_china_scope(*, solution_cluster: Any, defect_category: Any) -> str:
+    normalized_solution_cluster = _normalize_china_value(solution_cluster)
+    if normalized_solution_cluster and normalized_solution_cluster in CHINA_SOLUTION_CLUSTERS:
+        return CHINA_SCOPE_LABEL
+
+    if not normalized_solution_cluster and _normalize_china_value(defect_category) in CHINA_DEFECT_CATEGORIES:
+        return CHINA_SCOPE_LABEL
+
+    return GLOBAL_SCOPE_LABEL
 
 
 def _open_sqlite_readonly(db_path: Path) -> sqlite3.Connection:
@@ -320,6 +429,20 @@ def _extract_reference_name(value: Any) -> str:
     return _first_non_empty(value)
 
 
+def _extract_problem_classification(raw_payload: dict[str, Any]) -> str:
+    return _first_non_empty(
+        _extract_reference_name(raw_payload.get("reporting_class_udf")),
+        _extract_reference_name(raw_payload.get("classification")),
+    )
+
+
+def _extract_problem_severity(raw_payload: dict[str, Any]) -> str:
+    return _first_non_empty(
+        _extract_reference_name(raw_payload.get("problem_severity_udf")),
+        _extract_reference_name(raw_payload.get("severity")),
+    )
+
+
 def _matches_query_filters(row: dict[str, Any], query: FullPictureDashboardQuery) -> bool:
     comparisons = (
         (query.years, row.get("year")),
@@ -358,6 +481,7 @@ def _load_local_analytics_defect_rows(
             "ticket_id": _first_non_empty(row["defect_id"]),
             "ticket_name": _first_non_empty(row["name"], raw_payload.get("name")),
             "status": _first_non_empty(raw_payload.get("status_phase"), raw_payload.get("phase")),
+            "creation_time": _first_non_empty(raw_payload.get("creation_time")),
             "problem_finder_team": _first_non_empty(raw_payload.get("problem_finder_team"), row["team"]),
             "ticket_date": _first_non_empty(
                 raw_payload.get("last_modified"),
@@ -374,6 +498,8 @@ def _load_local_analytics_defect_rows(
                 row["fv"],
             ),
             "phase": _first_non_empty(raw_payload.get("phase"), raw_payload.get("status_phase")),
+            "classification": _extract_problem_classification(raw_payload),
+            "problem_severity": _extract_problem_severity(raw_payload),
             "defect_category": _first_non_empty(
                 raw_payload.get("defect_category"),
                 raw_payload.get("defectCategory"),
@@ -462,13 +588,17 @@ def _load_defect_rows(query: FullPictureDashboardQuery) -> list[dict[str, Any]]:
         where_clauses.append(f"{expression} IN ({placeholders})")
         params.extend(values)
 
-    raw_json_expr = optional_text_expr("raw_json") if "raw_json" in available_columns else "''"
+    has_defect_category_column = "defect_category" in available_columns
+    has_raw_json_column = "raw_json" in available_columns
+    include_raw_json_in_primary_query = has_raw_json_column
+    raw_json_expr = optional_text_expr("raw_json") if include_raw_json_in_primary_query else "''"
 
     sql = f"""
         SELECT
             CAST(defect_id AS TEXT) AS ticket_id,
             {optional_text_expr('name')} AS ticket_name,
             {optional_text_expr('status_phase')} AS status,
+            {optional_text_expr('creation_time')} AS creation_time,
             {optional_text_expr('problem_finder_team')} AS problem_finder_team,
             {ticket_date_expr} AS ticket_date,
             {optional_text_expr('year', cast_text=True)} AS year,
@@ -494,17 +624,84 @@ def _load_defect_rows(query: FullPictureDashboardQuery) -> list[dict[str, Any]]:
         _raise_database_error("loading defect rows", db_path, exc)
 
     normalized_rows: list[dict[str, Any]] = []
+    missing_defect_category_ids: list[str] = []
     for row in rows:
         normalized = dict(row)
-        raw_payload = _safe_json_object(normalized.get("raw_json"))
-        normalized["defect_category"] = _first_non_empty(
-            normalized.get("defect_category"),
-            raw_payload.get("defect_category"),
-            raw_payload.get("defectCategory"),
-            _extract_reference_name(raw_payload.get("problem_category_udf")),
-        )
+        ticket_id = str(normalized.get("ticket_id") or "").strip()
+        if include_raw_json_in_primary_query:
+            raw_payload = _safe_json_object(normalized.get("raw_json"))
+            normalized["defect_category"] = _first_non_empty(
+                normalized.get("defect_category"),
+                raw_payload.get("defect_category"),
+                raw_payload.get("defectCategory"),
+                _extract_reference_name(raw_payload.get("problem_category_udf")),
+            )
+            normalized["creation_time"] = _first_non_empty(
+                normalized.get("creation_time"),
+                raw_payload.get("creation_time"),
+            )
+            normalized["classification"] = _first_non_empty(
+                normalized.get("classification"),
+                _extract_problem_classification(raw_payload),
+            )
+            normalized["problem_severity"] = _first_non_empty(
+                normalized.get("problem_severity"),
+                _extract_problem_severity(raw_payload),
+            )
+        else:
+            normalized["defect_category"] = _first_non_empty(normalized.get("defect_category"))
+            if has_raw_json_column and ticket_id and not normalized["defect_category"]:
+                missing_defect_category_ids.append(ticket_id)
+        normalized.pop("raw_json", None)
         normalized_rows.append(normalized)
+
+    if has_raw_json_column and missing_defect_category_ids:
+        fallback_defect_categories = _load_problem_categories_from_raw_json(
+            db_path,
+            tuple(missing_defect_category_ids),
+        )
+        for normalized in normalized_rows:
+            ticket_id = str(normalized.get("ticket_id") or "").strip()
+            if ticket_id and not normalized.get("defect_category"):
+                normalized["defect_category"] = fallback_defect_categories.get(ticket_id, "")
+
     return normalized_rows
+
+
+def _load_problem_categories_from_raw_json(
+    db_path: Path,
+    defect_ids: tuple[str, ...],
+) -> dict[str, str]:
+    if not defect_ids:
+        return {}
+
+    categories: dict[str, str] = {}
+    try:
+        with _open_sqlite_readonly(db_path) as conn:
+            for start in range(0, len(defect_ids), 500):
+                chunk = defect_ids[start : start + 500]
+                placeholders = ", ".join("?" for _ in chunk)
+                sql = f"""
+                    SELECT
+                        CAST(defect_id AS TEXT) AS ticket_id,
+                        COALESCE(raw_json, '') AS raw_json
+                    FROM octane_defects
+                    WHERE CAST(defect_id AS TEXT) IN ({placeholders})
+                """
+                for row in conn.execute(sql, list(chunk)).fetchall():
+                    raw_payload = _safe_json_object(row["raw_json"])
+                    category = _first_non_empty(
+                        raw_payload.get("defect_category"),
+                        raw_payload.get("defectCategory"),
+                        _extract_reference_name(raw_payload.get("problem_category_udf")),
+                    )
+                    ticket_id = str(row["ticket_id"] or "").strip()
+                    if ticket_id and category:
+                        categories[ticket_id] = category
+    except sqlite3.DatabaseError as exc:
+        _raise_database_error("loading defect-category raw_json fallbacks", db_path, exc)
+
+    return categories
 
 
 def _load_history_events(defect_ids: tuple[str, ...]) -> list[dict[str, Any]]:
@@ -642,11 +839,19 @@ def _build_ticket_rows(
         phase = str(row.get("phase") or "").strip()
         group = classify_phase_group(phase)
         outcome_state = outcome_index.get(ticket_id, _empty_outcome_state())
+        ticket_date = str(row.get("ticket_date") or "").strip()
+        defect_category = str(row.get("defect_category") or "").strip()
+        solution_cluster = str(row.get("solution_cluster") or "").strip()
         ticket_row = {
             "ticket_id": ticket_id,
             "ticket_name": str(row.get("ticket_name") or "").strip(),
             "status": str(row.get("status") or row.get("phase") or "").strip(),
+            "creation_time": str(row.get("creation_time") or "").strip(),
+            "ticket_date": ticket_date,
+            "month": _get_ticket_month_value(ticket_date),
             "problem_finder_team": str(row.get("problem_finder_team") or "").strip(),
+            "classification": str(row.get("classification") or "").strip(),
+            "problem_severity": str(row.get("problem_severity") or "").strip(),
             "group": group,
             "phase": phase,
             "is_resolved_forward": bool(outcome_state["is_resolved_forward"]),
@@ -655,13 +860,16 @@ def _build_ticket_rows(
             "project": str(row.get("project") or "").strip(),
             "assigned_ecu": str(row.get("assigned_ecu") or "").strip(),
             "aida": str(row.get("aida") or "").strip(),
-            "defect_category": str(row.get("defect_category") or "").strip(),
-            "solution_cluster": str(row.get("solution_cluster") or "").strip(),
+            "defect_category": defect_category,
+            "china_scope": _get_ticket_china_scope(
+                solution_cluster=solution_cluster,
+                defect_category=defect_category,
+            ),
+            "solution_cluster": solution_cluster,
             "pu": str(row.get("pu") or "").strip(),
             "market": str(row.get("market") or "").strip(),
             "lead_model": str(row.get("lead_model") or "").strip(),
         }
-        ticket_date = str(row.get("ticket_date") or "").strip()
         if ticket_date:
             ticket_row["ticket_date"] = ticket_date
         ticket_rows.append(ticket_row)
@@ -679,6 +887,8 @@ def _apply_group_filter(ticket_rows: list[dict[str, Any]], groups: tuple[str, ..
 def _build_filters(ticket_rows: list[dict[str, Any]]) -> dict[str, list[str]]:
     return {
         "years": _unique_sorted(row.get("year") for row in ticket_rows),
+        "months": _unique_sorted(row.get("month") for row in ticket_rows),
+        "china_scopes": _unique_sorted(row.get("china_scope") for row in ticket_rows),
         "projects": _unique_sorted(row.get("project") for row in ticket_rows),
         "assigned_ecus": _unique_sorted(row.get("assigned_ecu") for row in ticket_rows),
         "problem_finder_teams": _unique_sorted(row.get("problem_finder_team") for row in ticket_rows),
@@ -690,6 +900,50 @@ def _build_filters(ticket_rows: list[dict[str, Any]]) -> dict[str, list[str]]:
         "lead_models": _unique_sorted(row.get("lead_model") for row in ticket_rows),
         "groups": _unique_sorted((row.get("group") for row in ticket_rows), group_values=True),
     }
+
+
+FILTER_QUERY_FIELD_NAMES = (
+    "years",
+    "months",
+    "china_scopes",
+    "projects",
+    "assigned_ecus",
+    "problem_finder_teams",
+    "aidas",
+    "phases",
+    "solution_clusters",
+    "pus",
+    "markets",
+    "lead_models",
+    "groups",
+)
+
+MATERIALIZED_FILTER_COLUMNS = {
+    "years": "year",
+    "months": "ticket_month",
+    "china_scopes": "china_scope",
+    "projects": "project",
+    "assigned_ecus": "assigned_ecu",
+    "problem_finder_teams": "problem_finder_team",
+    "aidas": "aida",
+    "phases": "phase",
+    "solution_clusters": "solution_cluster",
+    "pus": "pu",
+    "markets": "market",
+    "lead_models": "lead_model",
+    "groups": "group_name",
+}
+
+
+def _query_without_filter(
+    query: FullPictureDashboardQuery,
+    field_name: str,
+) -> FullPictureDashboardQuery:
+    return replace(query, **{field_name: ()})
+
+
+def _sort_filter_values(field_name: str, values: Iterable[Any]) -> list[str]:
+    return _unique_sorted(values, group_values=field_name == "groups")
 
 
 def _build_overview(ticket_rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -776,8 +1030,543 @@ def _to_percent(numerator: int, denominator: int) -> float:
     return round((numerator / denominator) * 100.0, 2)
 
 
-def build_full_picture_payload(**kwargs: Any) -> dict[str, Any]:
-    query = normalize_query(**kwargs)
+def _serialize_query_filters(query: FullPictureDashboardQuery) -> dict[str, list[str]]:
+    return {
+        "years": list(query.years),
+        "months": list(query.months),
+        "china_scopes": list(query.china_scopes),
+        "projects": list(query.projects),
+        "assigned_ecus": list(query.assigned_ecus),
+        "problem_finder_teams": list(query.problem_finder_teams),
+        "aidas": list(query.aidas),
+        "phases": list(query.phases),
+        "solution_clusters": list(query.solution_clusters),
+        "pus": list(query.pus),
+        "markets": list(query.markets),
+        "lead_models": list(query.lead_models),
+        "groups": list(query.groups),
+    }
+
+
+def _read_snapshot_metadata() -> dict[str, object]:
+    return read_active_snapshot_state(get_full_picture_hot_db_path())
+
+
+def _build_db_source_signature(db_path: Path | str | None) -> str:
+    resolved_path = Path(db_path or "")
+    if not str(resolved_path).strip() or not resolved_path.exists():
+        return ""
+    stat_result = resolved_path.stat()
+    return f"{resolved_path.resolve()}|{stat_result.st_size}|{stat_result.st_mtime_ns}"
+
+
+def _read_outcome_refresh_signature(hot_db_path: Path | str) -> str:
+    try:
+        with connect(hot_db_path) as conn:
+            row = conn.execute(
+                """
+                SELECT source_signature, refreshed_at
+                FROM outcome_refresh_state
+                WHERE store_name = ?
+                LIMIT 1
+                """,
+                ("defect_outcomes",),
+            ).fetchone()
+    except sqlite3.DatabaseError:
+        return ""
+
+    if row is None:
+        return ""
+
+    source_signature = str(row["source_signature"] or "").strip()
+    refreshed_at = str(row["refreshed_at"] or "").strip()
+    return "|".join(part for part in (source_signature, refreshed_at) if part)
+
+
+def _build_fallback_snapshot_version() -> str:
+    source_signature = _build_db_source_signature(_resolve_defect_db_path() or get_full_picture_source_db_path())
+    outcome_signature = _read_outcome_refresh_signature(get_full_picture_hot_db_path())
+    combined_signature = "||".join(part for part in (source_signature, outcome_signature) if part)
+    if not combined_signature:
+        return ""
+    digest = hashlib.sha1(combined_signature.encode("utf-8")).hexdigest()[:16]
+    return f"live-{digest}"
+
+
+def _resolve_effective_snapshot_version(snapshot_metadata: dict[str, object]) -> str:
+    active_snapshot_version = _resolve_snapshot_version(snapshot_metadata)
+    if active_snapshot_version:
+        return active_snapshot_version
+    return _build_fallback_snapshot_version()
+
+
+DASHBOARD_TICKET_STORE_SCHEMA_SQL = """
+CREATE TABLE IF NOT EXISTS dashboard_ticket_snapshot_rows (
+    snapshot_version TEXT NOT NULL,
+    ticket_id TEXT NOT NULL,
+    ticket_name TEXT NOT NULL,
+    status TEXT NOT NULL,
+    creation_time TEXT NOT NULL,
+    ticket_date TEXT NOT NULL,
+    ticket_month TEXT NOT NULL,
+    china_scope TEXT NOT NULL,
+    problem_finder_team TEXT NOT NULL,
+    classification TEXT NOT NULL,
+    problem_severity TEXT NOT NULL,
+    group_name TEXT NOT NULL,
+    phase TEXT NOT NULL,
+    is_resolved_forward INTEGER NOT NULL,
+    is_rejected_directly INTEGER NOT NULL,
+    year TEXT NOT NULL,
+    project TEXT NOT NULL,
+    assigned_ecu TEXT NOT NULL,
+    aida TEXT NOT NULL,
+    defect_category TEXT NOT NULL,
+    solution_cluster TEXT NOT NULL,
+    pu TEXT NOT NULL,
+    market TEXT NOT NULL,
+    lead_model TEXT NOT NULL,
+    PRIMARY KEY (snapshot_version, ticket_id)
+);
+CREATE TABLE IF NOT EXISTS dashboard_ticket_snapshot_state (
+    snapshot_version TEXT NOT NULL PRIMARY KEY,
+    row_count INTEGER NOT NULL,
+    refreshed_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_dashboard_ticket_snapshot_filters
+    ON dashboard_ticket_snapshot_rows(snapshot_version, year, ticket_month, china_scope, phase, problem_finder_team, group_name);
+CREATE INDEX IF NOT EXISTS idx_dashboard_ticket_snapshot_project
+    ON dashboard_ticket_snapshot_rows(snapshot_version, project, assigned_ecu, aida, solution_cluster, pu, market, lead_model);
+"""
+
+MATERIALIZED_TICKET_SORT_COLUMNS = {
+    "ticket_id": "ticket_id",
+    "ticket_name": "ticket_name",
+    "status": "status",
+    "creation_time": "creation_time",
+    "ticket_date": "ticket_date",
+    "problem_finder_team": "problem_finder_team",
+    "classification": "classification",
+    "problem_severity": "problem_severity",
+    "group": "group_name",
+    "phase": "phase",
+    "year": "year",
+    "project": "project",
+    "assigned_ecu": "assigned_ecu",
+    "aida": "aida",
+    "defect_category": "defect_category",
+    "solution_cluster": "solution_cluster",
+    "pu": "pu",
+    "market": "market",
+    "lead_model": "lead_model",
+}
+
+
+def _ensure_dashboard_ticket_store(conn: sqlite3.Connection) -> bool:
+    conn.executescript(DASHBOARD_TICKET_STORE_SCHEMA_SQL)
+    schema_updated = False
+    existing_columns = {
+        str(row["name"]).strip()
+        for row in conn.execute("PRAGMA table_info('dashboard_ticket_snapshot_rows')").fetchall()
+    }
+    for column_name, definition in (
+        ("creation_time", "TEXT NOT NULL DEFAULT ''"),
+        ("classification", "TEXT NOT NULL DEFAULT ''"),
+        ("problem_severity", "TEXT NOT NULL DEFAULT ''"),
+    ):
+        if column_name not in existing_columns:
+            conn.execute(
+                f"ALTER TABLE dashboard_ticket_snapshot_rows ADD COLUMN {column_name} {definition}"
+            )
+            schema_updated = True
+    return schema_updated
+
+
+def _build_generated_from_payload(query: FullPictureDashboardQuery) -> dict[str, Any]:
+    return {
+        "defect_db_path": str(_resolve_defect_db_path() or ""),
+        "outcome_db_path": str(get_full_picture_hot_db_path()),
+        "history_db_path": str(_resolve_history_db_path() or ""),
+        **_serialize_query_filters(query),
+    }
+
+
+def _materialize_snapshot_ticket_rows(snapshot_version: str) -> None:
+    normalized_snapshot_version = str(snapshot_version or "").strip()
+    if not normalized_snapshot_version:
+        return
+
+    hot_db_path = get_full_picture_hot_db_path()
+    hot_db_path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(hot_db_path)
+    conn.row_factory = sqlite3.Row
+    try:
+        schema_updated = _ensure_dashboard_ticket_store(conn)
+        state_row = conn.execute(
+            "SELECT row_count FROM dashboard_ticket_snapshot_state WHERE snapshot_version = ?",
+            (normalized_snapshot_version,),
+        ).fetchone()
+        if state_row is not None and not schema_updated:
+            return
+
+        if schema_updated:
+            conn.execute(
+                "DELETE FROM dashboard_ticket_snapshot_state WHERE snapshot_version = ?",
+                (normalized_snapshot_version,),
+            )
+
+        all_snapshot_query = FullPictureDashboardQuery(years=())
+        _generated_from, ticket_rows = _build_full_picture_dataset(all_snapshot_query)
+        refreshed_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+        conn.execute(
+            "DELETE FROM dashboard_ticket_snapshot_rows WHERE snapshot_version = ?",
+            (normalized_snapshot_version,),
+        )
+        conn.executemany(
+            """
+            INSERT INTO dashboard_ticket_snapshot_rows(
+                snapshot_version,
+                ticket_id,
+                ticket_name,
+                status,
+                creation_time,
+                ticket_date,
+                ticket_month,
+                china_scope,
+                problem_finder_team,
+                classification,
+                problem_severity,
+                group_name,
+                phase,
+                is_resolved_forward,
+                is_rejected_directly,
+                year,
+                project,
+                assigned_ecu,
+                aida,
+                defect_category,
+                solution_cluster,
+                pu,
+                market,
+                lead_model
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    normalized_snapshot_version,
+                    str(row.get("ticket_id") or ""),
+                    str(row.get("ticket_name") or ""),
+                    str(row.get("status") or ""),
+                    str(row.get("creation_time") or ""),
+                    str(row.get("ticket_date") or ""),
+                    str(row.get("month") or ""),
+                    str(row.get("china_scope") or ""),
+                    str(row.get("problem_finder_team") or ""),
+                    str(row.get("classification") or ""),
+                    str(row.get("problem_severity") or ""),
+                    str(row.get("group") or ""),
+                    str(row.get("phase") or ""),
+                    1 if row.get("is_resolved_forward") else 0,
+                    1 if row.get("is_rejected_directly") else 0,
+                    str(row.get("year") or ""),
+                    str(row.get("project") or ""),
+                    str(row.get("assigned_ecu") or ""),
+                    str(row.get("aida") or ""),
+                    str(row.get("defect_category") or ""),
+                    str(row.get("solution_cluster") or ""),
+                    str(row.get("pu") or ""),
+                    str(row.get("market") or ""),
+                    str(row.get("lead_model") or ""),
+                )
+                for row in ticket_rows
+            ],
+        )
+        conn.execute(
+            """
+            INSERT INTO dashboard_ticket_snapshot_state(snapshot_version, row_count, refreshed_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(snapshot_version) DO UPDATE SET
+                row_count = excluded.row_count,
+                refreshed_at = excluded.refreshed_at
+            """,
+            (normalized_snapshot_version, len(ticket_rows), refreshed_at),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _build_materialized_ticket_where_clause(
+    query: FullPictureDashboardQuery,
+    *,
+    snapshot_version: str,
+    search: str = "",
+) -> tuple[str, list[Any]]:
+    where_clauses = ["snapshot_version = ?"]
+    params: list[Any] = [snapshot_version]
+
+    for column_name, values in (
+        ("year", query.years),
+        ("ticket_month", query.months),
+        ("china_scope", query.china_scopes),
+        ("project", query.projects),
+        ("assigned_ecu", query.assigned_ecus),
+        ("problem_finder_team", query.problem_finder_teams),
+        ("aida", query.aidas),
+        ("phase", query.phases),
+        ("solution_cluster", query.solution_clusters),
+        ("pu", query.pus),
+        ("market", query.markets),
+        ("lead_model", query.lead_models),
+        ("group_name", query.groups),
+    ):
+        if not values:
+            continue
+        placeholders = ", ".join("?" for _ in values)
+        where_clauses.append(f"{column_name} IN ({placeholders})")
+        params.extend(values)
+
+    normalized_search = str(search or "").strip().casefold()
+    if normalized_search:
+        search_columns = (
+            "ticket_id",
+            "ticket_name",
+            "creation_time",
+            "problem_finder_team",
+            "classification",
+            "problem_severity",
+            "status",
+            "phase",
+            "group_name",
+            "project",
+        )
+        where_clauses.append(
+            "(" + " OR ".join(f"LOWER(COALESCE({column}, '')) LIKE ?" for column in search_columns) + ")"
+        )
+        params.extend([f"%{normalized_search}%"] * len(search_columns))
+
+    return " AND ".join(where_clauses), params
+
+
+def _load_materialized_ticket_rows(
+    *,
+    snapshot_version: str,
+    query: FullPictureDashboardQuery,
+) -> list[dict[str, Any]]:
+    hot_db_path = get_full_picture_hot_db_path()
+    with connect(hot_db_path) as conn:
+        _ensure_dashboard_ticket_store(conn)
+        where_sql, params = _build_materialized_ticket_where_clause(
+            query,
+            snapshot_version=snapshot_version,
+        )
+        rows = conn.execute(
+            f"""
+            SELECT
+                ticket_id,
+                ticket_name,
+                status,
+                creation_time,
+                ticket_date,
+                ticket_month AS month,
+                china_scope,
+                problem_finder_team,
+                classification,
+                problem_severity,
+                group_name AS "group",
+                phase,
+                is_resolved_forward,
+                is_rejected_directly,
+                year,
+                project,
+                assigned_ecu,
+                aida,
+                defect_category,
+                solution_cluster,
+                pu,
+                market,
+                lead_model
+            FROM dashboard_ticket_snapshot_rows
+            WHERE {where_sql}
+            ORDER BY ticket_id
+            """,
+            params,
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def _load_materialized_filter_values(
+    *,
+    snapshot_version: str,
+    query: FullPictureDashboardQuery,
+    field_name: str,
+) -> list[str]:
+    hot_db_path = get_full_picture_hot_db_path()
+    column_name = MATERIALIZED_FILTER_COLUMNS[field_name]
+    with connect(hot_db_path) as conn:
+        _ensure_dashboard_ticket_store(conn)
+        where_sql, params = _build_materialized_ticket_where_clause(
+            query,
+            snapshot_version=snapshot_version,
+        )
+        rows = conn.execute(
+            f"""
+            SELECT DISTINCT {column_name} AS value
+            FROM dashboard_ticket_snapshot_rows
+            WHERE {where_sql}
+            """,
+            params,
+        ).fetchall()
+    return _sort_filter_values(field_name, (row["value"] for row in rows))
+
+
+def _build_summary_filters(
+    query: FullPictureDashboardQuery,
+    *,
+    snapshot_version: str,
+    filtered_ticket_rows: list[dict[str, Any]],
+) -> dict[str, list[str]]:
+    if snapshot_version:
+        return {
+            field_name: _load_materialized_filter_values(
+                snapshot_version=snapshot_version,
+                query=_query_without_filter(query, field_name),
+                field_name=field_name,
+            )
+            for field_name in FILTER_QUERY_FIELD_NAMES
+        }
+
+    summary_filters: dict[str, list[str]] = {}
+    for field_name in FILTER_QUERY_FIELD_NAMES:
+        relaxed_query = _query_without_filter(query, field_name)
+        if relaxed_query == query:
+            relaxed_rows = filtered_ticket_rows
+        else:
+            _generated_from, relaxed_rows = _build_full_picture_dataset(relaxed_query)
+        summary_filters[field_name] = _build_filters(relaxed_rows)[field_name]
+    return summary_filters
+
+
+def _list_materialized_ticket_rows(
+    *,
+    snapshot_version: str,
+    query: FullPictureDashboardQuery,
+    search: str,
+    sort_by: str,
+    sort_order: str,
+    page: int,
+    page_size: int,
+) -> tuple[int, int, list[dict[str, Any]]]:
+    normalized_sort_by = MATERIALIZED_TICKET_SORT_COLUMNS.get(str(sort_by or "ticket_id").strip(), "ticket_id")
+    normalized_sort_order = "DESC" if str(sort_order or "asc").strip().lower() == "desc" else "ASC"
+    offset = (page - 1) * page_size
+
+    hot_db_path = get_full_picture_hot_db_path()
+    with connect(hot_db_path) as conn:
+        _ensure_dashboard_ticket_store(conn)
+        where_sql, params = _build_materialized_ticket_where_clause(
+            query,
+            snapshot_version=snapshot_version,
+            search=search,
+        )
+        total_rows_row = conn.execute(
+            f"SELECT COUNT(*) AS total_rows FROM dashboard_ticket_snapshot_rows WHERE {where_sql}",
+            params,
+        ).fetchone()
+        total_rows = int(total_rows_row["total_rows"] or 0) if total_rows_row else 0
+        total_pages = max((total_rows + page_size - 1) // page_size, 1)
+        rows = conn.execute(
+            f"""
+            SELECT
+                ticket_id,
+                ticket_name,
+                status,
+                creation_time,
+                ticket_date,
+                ticket_month AS month,
+                china_scope,
+                problem_finder_team,
+                classification,
+                problem_severity,
+                group_name AS "group",
+                phase,
+                is_resolved_forward,
+                is_rejected_directly,
+                year,
+                project,
+                assigned_ecu,
+                aida,
+                defect_category,
+                solution_cluster,
+                pu,
+                market,
+                lead_model
+            FROM dashboard_ticket_snapshot_rows
+            WHERE {where_sql}
+            ORDER BY {normalized_sort_by} {normalized_sort_order}, ticket_id {normalized_sort_order}
+            LIMIT ? OFFSET ?
+            """,
+            [*params, page_size, offset],
+        ).fetchall()
+
+    return total_rows, total_pages, [dict(row) for row in rows]
+
+
+def _resolve_snapshot_version(snapshot_metadata: dict[str, object]) -> str:
+    return str(snapshot_metadata.get("active_snapshot_version") or "").strip()
+
+
+def _build_snapshot_bound_dataset(
+    query: FullPictureDashboardQuery,
+    *,
+    requested_snapshot_version: str = "",
+) -> tuple[dict[str, object], dict[str, Any], list[dict[str, Any]]]:
+    snapshot_metadata_before = _read_snapshot_metadata()
+    snapshot_version_before = _resolve_snapshot_version(snapshot_metadata_before)
+    normalized_requested_version = str(requested_snapshot_version or "").strip()
+    if (
+        normalized_requested_version
+        and snapshot_version_before
+        and normalized_requested_version != snapshot_version_before
+    ):
+        raise FullPictureDashboardRequestError(
+            f"Requested snapshot version is stale: {normalized_requested_version}"
+        )
+
+    generated_from, ticket_rows = _build_full_picture_dataset(query)
+
+    snapshot_metadata_after = _read_snapshot_metadata()
+    snapshot_version_after = _resolve_snapshot_version(snapshot_metadata_after)
+    if snapshot_version_before != snapshot_version_after:
+        raise FullPictureDashboardRequestError("Dashboard snapshot changed during request")
+    if (
+        normalized_requested_version
+        and snapshot_version_after
+        and normalized_requested_version != snapshot_version_after
+    ):
+        raise FullPictureDashboardRequestError(
+            f"Requested snapshot version is stale: {normalized_requested_version}"
+        )
+
+    return snapshot_metadata_after, generated_from, ticket_rows
+
+
+def _parse_positive_int(raw_value: Any, *, field_name: str, default: int) -> int:
+    if raw_value in {None, ""}:
+        return default
+    try:
+        parsed_value = int(str(raw_value).strip())
+    except (TypeError, ValueError) as exc:
+        raise FullPictureDashboardRequestError(
+            f"Invalid {field_name}: {raw_value}"
+        ) from exc
+    if parsed_value <= 0:
+        raise FullPictureDashboardRequestError(f"Invalid {field_name}: {raw_value}")
+    return parsed_value
+
+
+def _build_full_picture_dataset(query: FullPictureDashboardQuery) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     defect_rows = _load_defect_rows(query)
     defect_ids = tuple(
         str(row.get("ticket_id") or "").strip()
@@ -786,25 +1575,178 @@ def build_full_picture_payload(**kwargs: Any) -> dict[str, Any]:
     )
     outcome_index = _load_hot_outcomes(defect_ids)
     ticket_rows = _build_ticket_rows(defect_rows, outcome_index)
+    if query.months:
+        allowed_months = set(query.months)
+        ticket_rows = [row for row in ticket_rows if str(row.get("month") or "") in allowed_months]
+    if query.china_scopes:
+        allowed_scopes = set(query.china_scopes)
+        ticket_rows = [row for row in ticket_rows if str(row.get("china_scope") or "") in allowed_scopes]
     ticket_rows = _apply_group_filter(ticket_rows, query.groups)
+    generated_from = {
+        "defect_db_path": str(_resolve_defect_db_path() or ""),
+        "outcome_db_path": str(get_full_picture_hot_db_path()),
+        "history_db_path": str(_resolve_history_db_path() or ""),
+        **_serialize_query_filters(query),
+    }
+    return generated_from, ticket_rows
+
+
+def build_full_picture_summary_payload(**kwargs: Any) -> dict[str, Any]:
+    query = normalize_query(**kwargs)
+    snapshot_metadata = _read_snapshot_metadata()
+    snapshot_version = _resolve_effective_snapshot_version(snapshot_metadata)
+    cache_key = normalize_summary_cache_key(
+        snapshot_version=snapshot_version,
+        filters=_serialize_query_filters(query),
+    )
+    cached_payload = get_summary_cache().get(cache_key)
+    if cached_payload is not None:
+        return cached_payload
+
+    if snapshot_version:
+        _materialize_snapshot_ticket_rows(snapshot_version)
+        snapshot_metadata = _read_snapshot_metadata()
+        if _resolve_effective_snapshot_version(snapshot_metadata) != snapshot_version:
+            raise FullPictureDashboardRequestError("Dashboard snapshot changed during request")
+        generated_from = _build_generated_from_payload(query)
+        ticket_rows = _load_materialized_ticket_rows(
+            snapshot_version=snapshot_version,
+            query=query,
+        )
+    else:
+        snapshot_metadata, generated_from, ticket_rows = _build_snapshot_bound_dataset(
+            query,
+            requested_snapshot_version=snapshot_version,
+        )
+
+    payload = {
+        "snapshot_version": snapshot_version,
+        "generated_from": generated_from,
+        "refresh_metadata": snapshot_metadata,
+        "filters": _build_summary_filters(
+            query,
+            snapshot_version=snapshot_version,
+            filtered_ticket_rows=ticket_rows,
+        ),
+        "overview": _build_overview(ticket_rows),
+        "outcome_summary": _build_outcome_summary(ticket_rows),
+        "team_outcome_rows": _build_team_outcome_rows(ticket_rows),
+    }
+    get_summary_cache()[cache_key] = payload
+    return payload
+
+
+def _search_ticket_rows(ticket_rows: list[dict[str, Any]], search: str) -> list[dict[str, Any]]:
+    search_value = str(search or "").strip().casefold()
+    if not search_value:
+        return ticket_rows
+    return [
+        row
+        for row in ticket_rows
+        if search_value in " ".join(
+            [
+                str(row.get("ticket_id") or ""),
+                str(row.get("ticket_name") or ""),
+                str(row.get("creation_time") or ""),
+                str(row.get("problem_finder_team") or ""),
+                str(row.get("classification") or ""),
+                str(row.get("problem_severity") or ""),
+                str(row.get("status") or ""),
+                str(row.get("phase") or ""),
+                str(row.get("group") or ""),
+                str(row.get("project") or ""),
+            ]
+        ).casefold()
+    ]
+
+
+def _sort_ticket_rows(
+    ticket_rows: list[dict[str, Any]],
+    *,
+    sort_by: str,
+    sort_order: str,
+) -> list[dict[str, Any]]:
+    normalized_sort_by = str(sort_by or "ticket_id").strip() or "ticket_id"
+    reverse = str(sort_order or "asc").strip().lower() == "desc"
+    return sorted(
+        ticket_rows,
+        key=lambda row: (_sortable_value(row.get(normalized_sort_by)), _sortable_value(row.get("ticket_id"))),
+        reverse=reverse,
+    )
+
+
+def list_full_picture_ticket_rows(**kwargs: Any) -> dict[str, Any]:
+    query = normalize_query(**kwargs)
+    requested_snapshot_version = str(kwargs.get("snapshot_version") or "").strip()
+    snapshot_metadata = _read_snapshot_metadata()
+    snapshot_version = _resolve_effective_snapshot_version(snapshot_metadata)
+    if requested_snapshot_version and snapshot_version and requested_snapshot_version != snapshot_version:
+        raise FullPictureDashboardRequestError(
+            f"Requested snapshot version is stale: {requested_snapshot_version}"
+        )
+
+    page = _parse_positive_int(kwargs.get("page"), field_name="page", default=1)
+    page_size = min(
+        _parse_positive_int(kwargs.get("page_size"), field_name="page_size", default=50),
+        200,
+    )
+
+    if snapshot_version:
+        _materialize_snapshot_ticket_rows(snapshot_version)
+        snapshot_metadata = _read_snapshot_metadata()
+        snapshot_version_after = _resolve_effective_snapshot_version(snapshot_metadata)
+        if snapshot_version_after != snapshot_version:
+            raise FullPictureDashboardRequestError("Dashboard snapshot changed during request")
+        if requested_snapshot_version and snapshot_version_after and requested_snapshot_version != snapshot_version_after:
+            raise FullPictureDashboardRequestError(
+                f"Requested snapshot version is stale: {requested_snapshot_version}"
+            )
+
+        total_rows, total_pages, rows = _list_materialized_ticket_rows(
+            snapshot_version=snapshot_version_after,
+            query=query,
+            search=str(kwargs.get("search") or ""),
+            sort_by=str(kwargs.get("sort_by") or "ticket_id"),
+            sort_order=str(kwargs.get("sort_order") or "asc"),
+            page=page,
+            page_size=page_size,
+        )
+        generated_from = _build_generated_from_payload(query)
+    else:
+        snapshot_metadata, generated_from, ticket_rows = _build_snapshot_bound_dataset(
+            query,
+            requested_snapshot_version=requested_snapshot_version,
+        )
+        searched_rows = _search_ticket_rows(ticket_rows, str(kwargs.get("search") or ""))
+        sorted_rows = _sort_ticket_rows(
+            searched_rows,
+            sort_by=str(kwargs.get("sort_by") or "ticket_id"),
+            sort_order=str(kwargs.get("sort_order") or "asc"),
+        )
+        total_rows = len(sorted_rows)
+        total_pages = max((total_rows + page_size - 1) // page_size, 1)
+        start_index = (page - 1) * page_size
+        end_index = start_index + page_size
+        rows = sorted_rows[start_index:end_index]
 
     return {
-        "generated_from": {
-            "defect_db_path": str(_resolve_defect_db_path() or ""),
-            "outcome_db_path": str(get_full_picture_hot_db_path()),
-            "history_db_path": str(_resolve_history_db_path() or ""),
-            "years": list(query.years),
-            "projects": list(query.projects),
-            "assigned_ecus": list(query.assigned_ecus),
-            "problem_finder_teams": list(query.problem_finder_teams),
-            "aidas": list(query.aidas),
-            "phases": list(query.phases),
-            "solution_clusters": list(query.solution_clusters),
-            "pus": list(query.pus),
-            "markets": list(query.markets),
-            "lead_models": list(query.lead_models),
-            "groups": list(query.groups),
-        },
+        "snapshot_version": snapshot_version if snapshot_version else _resolve_snapshot_version(snapshot_metadata),
+        "generated_from": generated_from,
+        "refresh_metadata": snapshot_metadata,
+        "page": page,
+        "page_size": page_size,
+        "total_rows": total_rows,
+        "total_pages": total_pages,
+        "rows": rows,
+    }
+
+
+def build_full_picture_payload(**kwargs: Any) -> dict[str, Any]:
+    query = normalize_query(**kwargs)
+    generated_from, ticket_rows = _build_full_picture_dataset(query)
+
+    return {
+        "generated_from": generated_from,
         "filters": _build_filters(ticket_rows),
         "overview": _build_overview(ticket_rows),
         "outcome_summary": _build_outcome_summary(ticket_rows),
@@ -814,9 +1756,25 @@ def build_full_picture_payload(**kwargs: Any) -> dict[str, Any]:
 
 
 def _connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(get_analytics_db_path())
-    conn.row_factory = sqlite3.Row
-    return conn
+    configured = str(os.environ.get("VIZION_ANALYTICS_DB_PATH", "")).strip()
+    if configured:
+        return connect(get_analytics_db_path())
+    return connect(get_full_picture_source_db_path())
+
+
+def _table_columns(conn: sqlite3.Connection, table_name: str) -> set[str]:
+    return {
+        str(row["name"]).strip()
+        for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+    }
+
+
+def _table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
+    row = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+        (table_name,),
+    ).fetchone()
+    return row is not None
 
 
 def build_testing_summary() -> dict[str, int]:
@@ -854,9 +1812,43 @@ def list_testcases() -> list[dict[str, object]]:
 def list_runs() -> list[dict[str, object]]:
     conn = _connect()
     try:
-        rows = conn.execute(
-            "SELECT mr_id, defect_id, test_id, test_name, status, project, team FROM octane_manual_runs ORDER BY mr_id"
-        ).fetchall()
+        manual_run_columns = _table_columns(conn, "octane_manual_runs")
+        if {"project", "team"}.issubset(manual_run_columns):
+            rows = conn.execute(
+                "SELECT mr_id, defect_id, test_id, test_name, status, project, team FROM octane_manual_runs ORDER BY mr_id"
+            ).fetchall()
+        elif _table_exists(conn, "octane_defects"):
+            rows = conn.execute(
+                '''
+                SELECT
+                    mr.mr_id,
+                    mr.defect_id,
+                    mr.test_id,
+                    TRIM(COALESCE(CAST(mr.test_name AS TEXT), CAST(mr.name AS TEXT), '')) AS test_name,
+                    TRIM(COALESCE(CAST(mr.status AS TEXT), '')) AS status,
+                    TRIM(COALESCE(CAST(d.project AS TEXT), '')) AS project,
+                    TRIM(COALESCE(CAST(d.team AS TEXT), '')) AS team
+                FROM octane_manual_runs mr
+                LEFT JOIN octane_defects d
+                    ON CAST(d.defect_id AS TEXT) = CAST(mr.defect_id AS TEXT)
+                ORDER BY mr.mr_id
+                '''
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                '''
+                SELECT
+                    mr_id,
+                    defect_id,
+                    test_id,
+                    TRIM(COALESCE(CAST(test_name AS TEXT), CAST(name AS TEXT), '')) AS test_name,
+                    TRIM(COALESCE(CAST(status AS TEXT), '')) AS status,
+                    '' AS project,
+                    '' AS team
+                FROM octane_manual_runs
+                ORDER BY mr_id
+                '''
+            ).fetchall()
     finally:
         conn.close()
 

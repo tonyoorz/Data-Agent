@@ -3,6 +3,7 @@ import sqlite3
 from fastapi.testclient import TestClient
 import pytest
 
+from backend.analytics import config as analytics_config
 from backend.analytics.api import app
 from backend.analytics.schema import ensure_schema
 
@@ -21,6 +22,644 @@ REQUIRED_MISSING_FIELDS = [
     "test_name",
     "tester",
 ]
+
+
+def _seed_source_testing_tables(db_path):
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.executescript(
+            """
+            CREATE TABLE octane_defects (
+                defect_id TEXT PRIMARY KEY,
+                top_aida TEXT,
+                test_week TEXT,
+                project TEXT,
+                pu TEXT,
+                fv TEXT,
+                fvp TEXT,
+                team TEXT,
+                lead_model TEXT,
+                market TEXT,
+                raw_json TEXT,
+                fetched_at TEXT
+            );
+            CREATE TABLE octane_manual_runs (
+                mr_id TEXT PRIMARY KEY,
+                defect_id TEXT,
+                test_id TEXT,
+                test_name TEXT,
+                status TEXT,
+                run_by TEXT,
+                author TEXT,
+                year TEXT,
+                raw_json TEXT,
+                fetched_at TEXT
+            );
+            CREATE TABLE octane_testcases (
+                test_id TEXT NOT NULL,
+                scope_team TEXT NOT NULL,
+                scope_release TEXT NOT NULL,
+                source TEXT NOT NULL,
+                test_name TEXT,
+                run_count INTEGER NOT NULL,
+                defect_ids_json TEXT NOT NULL,
+                feature_ids_json TEXT NOT NULL,
+                story_ids_json TEXT NOT NULL,
+                raw_json TEXT NOT NULL,
+                fetched_at TEXT NOT NULL,
+                PRIMARY KEY (test_id, scope_team, scope_release, source)
+            );
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO octane_defects(
+                defect_id, top_aida, test_week, project, pu, fv, fvp,
+                team, lead_model, market, raw_json, fetched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "D-1",
+                "Use Speech operation [01.04.02.01.01.05]",
+                "2026-CW21",
+                "IDCEVO",
+                "ICV",
+                "Speech",
+                "Voice Experience",
+                "DTSV_China",
+                "NA5",
+                "CN",
+                "{}",
+                "2026-05-25T00:00:00Z",
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO octane_manual_runs(
+                mr_id, defect_id, test_id, test_name, status, run_by,
+                author, year, raw_json, fetched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "MR-1",
+                "D-1",
+                "T-1",
+                "Wake test",
+                "Passed",
+                "Tester A",
+                "Author A",
+                "2026",
+                "{}",
+                "2026-05-25T00:00:00Z",
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO octane_testcases(
+                test_id, scope_team, scope_release, source, test_name,
+                run_count, defect_ids_json, feature_ids_json, story_ids_json, raw_json, fetched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "T-1",
+                "DTSV_China",
+                "ALL",
+                "runs",
+                "Wake test",
+                1,
+                '["D-1"]',
+                '["F-1"]',
+                '["S-1"]',
+                "{}",
+                "2026-05-25T00:00:00Z",
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _seed_hot_testing_coverage_rows(db_path):
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.executescript(
+            """
+            CREATE TABLE testing_coverage_runs (
+                mr_id TEXT NOT NULL PRIMARY KEY,
+                defect_id TEXT,
+                test_id TEXT,
+                test_name TEXT,
+                status TEXT,
+                year TEXT,
+                test_week TEXT,
+                project TEXT,
+                pu TEXT,
+                top_aida TEXT,
+                feature_region TEXT,
+                fvp TEXT,
+                fv TEXT,
+                tester TEXT,
+                source_signature TEXT NOT NULL,
+                derived_at TEXT NOT NULL
+            );
+            CREATE TABLE outcome_refresh_state (
+                store_name TEXT NOT NULL PRIMARY KEY,
+                source_signature TEXT NOT NULL,
+                outcome_row_count INTEGER NOT NULL,
+                refreshed_at TEXT NOT NULL
+            );
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO testing_coverage_runs(
+                mr_id, defect_id, test_id, test_name, status, year, test_week,
+                project, pu, top_aida, feature_region, fvp, fv, tester,
+                source_signature, derived_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "MR-HOT-1",
+                "D-HOT-1",
+                "T-HOT-1",
+                "Hot wake test",
+                "Blocked",
+                "2027",
+                "2027-CW01",
+                "HOT-PROJECT",
+                "HOT-PU",
+                "HOT-AIDA",
+                "Global",
+                "HOT-FVP",
+                "HOT-FV",
+                "Hot Tester",
+                "sig-hot",
+                "2026-05-27T00:00:00Z",
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO outcome_refresh_state(
+                store_name, source_signature, outcome_row_count, refreshed_at
+            ) VALUES (?, ?, ?, ?)
+            """,
+            (
+                "testing_coverage_runs",
+                "sig-hot",
+                1,
+                "2026-05-27T00:00:00Z",
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_testing_coverage_analysis_defaults_to_local_source_copy(tmp_path, monkeypatch):
+    database_root = tmp_path / "database"
+    source_db_path = database_root / "source" / "qgate_raw.db"
+    source_db_path.parent.mkdir(parents=True, exist_ok=True)
+    _seed_source_testing_tables(source_db_path)
+
+    monkeypatch.setattr(analytics_config, "DEFAULT_ANALYTICS_DB_PATH", tmp_path / "legacy" / "octane_data.db")
+    monkeypatch.delenv("VIZION_ANALYTICS_DB_PATH", raising=False)
+    monkeypatch.setenv("VIZION_DATABASE_ROOT", str(database_root))
+
+    client = TestClient(app)
+
+    response = client.get("/api/testing/coverage-analysis/filters")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "years": ["2026"],
+        "projects": ["IDCEVO"],
+        "test_weeks": ["2026-CW21"],
+        "pus": ["ICV"],
+        "aidas": ["Use Speech operation [01.04.02.01.01.05]"],
+        "statuses": ["Passed"],
+        "feature_regions": ["China Specific"],
+        "fvps": ["Voice Experience"],
+        "fvs": ["Speech"],
+    }
+
+
+def test_testing_coverage_analysis_prefers_hot_materialized_rows_when_available(tmp_path, monkeypatch):
+    database_root = tmp_path / "database"
+    source_db_path = database_root / "source" / "qgate_raw.db"
+    hot_db_path = database_root / "hot" / "vizion_serving.db"
+    source_db_path.parent.mkdir(parents=True, exist_ok=True)
+    hot_db_path.parent.mkdir(parents=True, exist_ok=True)
+
+    _seed_source_testing_tables(source_db_path)
+    _seed_hot_testing_coverage_rows(hot_db_path)
+
+    monkeypatch.setattr(analytics_config, "DEFAULT_ANALYTICS_DB_PATH", tmp_path / "legacy" / "octane_data.db")
+    monkeypatch.delenv("VIZION_ANALYTICS_DB_PATH", raising=False)
+    monkeypatch.setenv("VIZION_DATABASE_ROOT", str(database_root))
+
+    client = TestClient(app)
+
+    response = client.get("/api/testing/coverage-analysis/filters")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "years": ["2027"],
+        "projects": ["HOT-PROJECT"],
+        "test_weeks": ["2027-CW01"],
+        "pus": ["HOT-PU"],
+        "aidas": ["HOT-AIDA"],
+        "statuses": ["Blocked"],
+        "feature_regions": ["Global"],
+        "fvps": ["HOT-FVP"],
+        "fvs": ["HOT-FV"],
+    }
+
+
+def test_testing_coverage_analysis_falls_back_to_source_when_hot_is_marked_ready_but_empty(
+    tmp_path,
+    monkeypatch,
+):
+    database_root = tmp_path / "database"
+    source_db_path = database_root / "source" / "qgate_raw.db"
+    hot_db_path = database_root / "hot" / "vizion_serving.db"
+    source_db_path.parent.mkdir(parents=True, exist_ok=True)
+    hot_db_path.parent.mkdir(parents=True, exist_ok=True)
+
+    _seed_source_testing_tables(source_db_path)
+
+    conn = sqlite3.connect(hot_db_path)
+    try:
+        conn.executescript(
+            """
+            CREATE TABLE testing_coverage_runs (
+                mr_id TEXT NOT NULL PRIMARY KEY,
+                source_signature TEXT NOT NULL,
+                derived_at TEXT NOT NULL
+            );
+            CREATE TABLE outcome_refresh_state (
+                store_name TEXT NOT NULL PRIMARY KEY,
+                source_signature TEXT NOT NULL,
+                outcome_row_count INTEGER NOT NULL,
+                refreshed_at TEXT NOT NULL
+            );
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO outcome_refresh_state(
+                store_name, source_signature, outcome_row_count, refreshed_at
+            ) VALUES (?, ?, ?, ?)
+            """,
+            (
+                "testing_coverage_runs",
+                "sig-hot-empty",
+                0,
+                "2026-05-27T00:00:00Z",
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    monkeypatch.setattr(analytics_config, "DEFAULT_ANALYTICS_DB_PATH", tmp_path / "legacy" / "octane_data.db")
+    monkeypatch.delenv("VIZION_ANALYTICS_DB_PATH", raising=False)
+    monkeypatch.setenv("VIZION_DATABASE_ROOT", str(database_root))
+
+    client = TestClient(app)
+
+    response = client.get("/api/testing/coverage-analysis/filters")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "years": ["2026"],
+        "projects": ["IDCEVO"],
+        "test_weeks": ["2026-CW21"],
+        "pus": ["ICV"],
+        "aidas": ["Use Speech operation [01.04.02.01.01.05]"],
+        "statuses": ["Passed"],
+        "feature_regions": ["China Specific"],
+        "fvps": ["Voice Experience"],
+        "fvs": ["Speech"],
+    }
+
+
+def test_testing_coverage_analysis_uses_tpmdashboard_feature_region_mapping(
+    tmp_path,
+    monkeypatch,
+):
+    database_root = tmp_path / "database"
+    source_db_path = database_root / "source" / "qgate_raw.db"
+    source_db_path.parent.mkdir(parents=True, exist_ok=True)
+    _seed_source_testing_tables(source_db_path)
+
+    conn = sqlite3.connect(source_db_path)
+    try:
+        conn.execute(
+            "UPDATE octane_defects SET market = ? WHERE defect_id = ?",
+            ("DE", "D-1"),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    monkeypatch.setattr(analytics_config, "DEFAULT_ANALYTICS_DB_PATH", tmp_path / "legacy" / "octane_data.db")
+    monkeypatch.delenv("VIZION_ANALYTICS_DB_PATH", raising=False)
+    monkeypatch.setenv("VIZION_DATABASE_ROOT", str(database_root))
+
+    client = TestClient(app)
+
+    response = client.get("/api/testing/coverage-analysis/filters")
+
+    assert response.status_code == 200
+    assert response.json()["feature_regions"] == ["China Specific"]
+
+
+def test_testing_coverage_analysis_prefers_tpmdashboard_finished_and_project_rules(
+    tmp_path,
+    monkeypatch,
+):
+    database_root = tmp_path / "database"
+    source_db_path = database_root / "source" / "qgate_raw.db"
+    source_db_path.parent.mkdir(parents=True, exist_ok=True)
+
+    conn = sqlite3.connect(source_db_path)
+    try:
+        conn.executescript(
+            """
+            CREATE TABLE octane_defects (
+                defect_id TEXT PRIMARY KEY,
+                top_aida TEXT,
+                test_week TEXT,
+                project TEXT,
+                pu TEXT,
+                fv TEXT,
+                fvp TEXT,
+                team TEXT,
+                lead_model TEXT,
+                market TEXT,
+                raw_json TEXT,
+                fetched_at TEXT
+            );
+            CREATE TABLE octane_manual_runs (
+                mr_id TEXT PRIMARY KEY,
+                defect_id TEXT,
+                test_id TEXT,
+                name TEXT,
+                test_name TEXT,
+                status TEXT,
+                run_by TEXT,
+                author TEXT,
+                year TEXT,
+                finished TEXT,
+                target_ecu_conf TEXT,
+                product_areas TEXT,
+                raw_json TEXT,
+                fetched_at TEXT
+            );
+            CREATE TABLE octane_testcases (
+                test_id TEXT NOT NULL,
+                scope_team TEXT NOT NULL,
+                scope_release TEXT NOT NULL,
+                source TEXT NOT NULL,
+                test_name TEXT,
+                run_count INTEGER NOT NULL,
+                defect_ids_json TEXT NOT NULL,
+                feature_ids_json TEXT NOT NULL,
+                story_ids_json TEXT NOT NULL,
+                raw_json TEXT NOT NULL,
+                fetched_at TEXT NOT NULL,
+                PRIMARY KEY (test_id, scope_team, scope_release, source)
+            );
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO octane_defects(
+                defect_id, top_aida, test_week, project, pu, fv, fvp,
+                team, lead_model, market, raw_json, fetched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "D-TPM-1",
+                "Use Speech operation [01.04.02.01.01.05]",
+                "2099-CW99",
+                "LegacyProject",
+                "ICV",
+                "Speech",
+                "Voice Experience",
+                "DTSV_China",
+                "NA5",
+                "DE",
+                "{}",
+                "2026-05-25T00:00:00Z",
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO octane_manual_runs(
+                mr_id, defect_id, test_id, name, test_name, status, run_by,
+                author, year, finished, target_ecu_conf, product_areas, raw_json, fetched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "MR-TPM-1",
+                "D-TPM-1",
+                "T-TPM-1",
+                "BMW IDCEVO voice wake regression",
+                "Wake test",
+                "Passed",
+                "Tester A",
+                "Author A",
+                "2026",
+                "2026-05-27T08:15:00Z",
+                "IDCEVO headunit",
+                "Use Speech operation [01.04.02.01.01.05]",
+                "{}",
+                "2026-05-25T00:00:00Z",
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO octane_testcases(
+                test_id, scope_team, scope_release, source, test_name,
+                run_count, defect_ids_json, feature_ids_json, story_ids_json, raw_json, fetched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "T-TPM-1",
+                "DTSV_China",
+                "ALL",
+                "runs",
+                "Wake test",
+                1,
+                '["D-TPM-1"]',
+                '["F-1"]',
+                '["S-1"]',
+                "{}",
+                "2026-05-25T00:00:00Z",
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    monkeypatch.setattr(analytics_config, "DEFAULT_ANALYTICS_DB_PATH", tmp_path / "legacy" / "octane_data.db")
+    monkeypatch.delenv("VIZION_ANALYTICS_DB_PATH", raising=False)
+    monkeypatch.setenv("VIZION_DATABASE_ROOT", str(database_root))
+
+    client = TestClient(app)
+
+    response = client.get("/api/testing/coverage-analysis/filters")
+
+    assert response.status_code == 200
+    assert response.json()["projects"] == ["IDCEVO"]
+    assert response.json()["test_weeks"] == ["2026-CW22"]
+
+
+def test_testing_coverage_analysis_uses_tester_column_when_run_by_and_author_are_missing(
+    tmp_path,
+    monkeypatch,
+):
+    database_root = tmp_path / "database"
+    source_db_path = database_root / "source" / "qgate_raw.db"
+    source_db_path.parent.mkdir(parents=True, exist_ok=True)
+
+    conn = sqlite3.connect(source_db_path)
+    try:
+        conn.executescript(
+            """
+            CREATE TABLE octane_defects (
+                defect_id TEXT PRIMARY KEY,
+                top_aida TEXT,
+                test_week TEXT,
+                project TEXT,
+                pu TEXT,
+                fv TEXT,
+                fvp TEXT,
+                market TEXT,
+                raw_json TEXT,
+                fetched_at TEXT
+            );
+            CREATE TABLE octane_manual_runs (
+                mr_id TEXT PRIMARY KEY,
+                defect_id TEXT,
+                test_id TEXT,
+                test_name TEXT,
+                status TEXT,
+                tester TEXT,
+                year TEXT,
+                finished TEXT,
+                target_ecu_conf TEXT,
+                product_areas TEXT,
+                raw_json TEXT,
+                fetched_at TEXT
+            );
+            CREATE TABLE octane_testcases (
+                test_id TEXT NOT NULL,
+                scope_team TEXT NOT NULL,
+                scope_release TEXT NOT NULL,
+                source TEXT NOT NULL,
+                test_name TEXT,
+                run_count INTEGER NOT NULL,
+                defect_ids_json TEXT NOT NULL,
+                feature_ids_json TEXT NOT NULL,
+                story_ids_json TEXT NOT NULL,
+                raw_json TEXT NOT NULL,
+                fetched_at TEXT NOT NULL,
+                PRIMARY KEY (test_id, scope_team, scope_release, source)
+            );
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO octane_defects(
+                defect_id, top_aida, test_week, project, pu, fv, fvp, market, raw_json, fetched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "D-TESTER-1",
+                "Use Speech operation [01.04.02.01.01.05]",
+                "2026-CW22",
+                "LegacyProject",
+                "ICV",
+                "Speech",
+                "Voice Experience",
+                "CN",
+                "{}",
+                "2026-05-25T00:00:00Z",
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO octane_manual_runs(
+                mr_id, defect_id, test_id, test_name, status, tester, year, finished,
+                target_ecu_conf, product_areas, raw_json, fetched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "MR-TESTER-1",
+                "D-TESTER-1",
+                "T-TESTER-1",
+                "Wake test",
+                "Passed",
+                "Tester From Column",
+                "2026",
+                "2026-05-27T08:15:00Z",
+                "IDCEVO headunit",
+                "Use Speech operation [01.04.02.01.01.05]",
+                "{}",
+                "2026-05-25T00:00:00Z",
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO octane_testcases(
+                test_id, scope_team, scope_release, source, test_name,
+                run_count, defect_ids_json, feature_ids_json, story_ids_json, raw_json, fetched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "T-TESTER-1",
+                "ALL",
+                "ALL",
+                "stage-testing-source",
+                "Wake test",
+                1,
+                '["D-TESTER-1"]',
+                '[]',
+                '[]',
+                '{}',
+                "2026-05-25T00:00:00Z",
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    monkeypatch.setattr(analytics_config, "DEFAULT_ANALYTICS_DB_PATH", tmp_path / "legacy" / "octane_data.db")
+    monkeypatch.delenv("VIZION_ANALYTICS_DB_PATH", raising=False)
+    monkeypatch.setenv("VIZION_DATABASE_ROOT", str(database_root))
+
+    client = TestClient(app)
+
+    filters_response = client.get("/api/testing/coverage-analysis/filters")
+    detail_response = client.get("/api/testing/coverage-analysis/testcase-detail")
+
+    assert filters_response.status_code == 200
+    assert detail_response.status_code == 200
+    assert detail_response.json() == [
+        {
+            "test_id": "T-TESTER-1",
+            "test_name": "Wake test",
+            "test_week": "2026-CW22",
+            "status": "Passed",
+            "top_aida": "Use Speech operation [01.04.02.01.01.05]",
+            "project": "IDCEVO",
+            "pu": "ICV",
+            "tester": "Tester From Column",
+            "count": 1,
+        }
+    ]
 
 
 def test_testing_coverage_analysis_endpoints_return_grouped_data(tmp_path, monkeypatch):
@@ -202,6 +841,99 @@ def test_testing_coverage_analysis_endpoints_return_grouped_data(tmp_path, monke
             "count": 1,
         },
     ]
+
+
+def test_testing_coverage_analysis_testcase_detail_honors_limit_query_param(tmp_path, monkeypatch):
+    db_path = tmp_path / "octane_data.db"
+    ensure_schema(db_path)
+
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.executemany(
+            """
+            INSERT INTO octane_manual_runs(
+                mr_id, defect_id, test_id, test_name, status, year, test_week,
+                pu, top_aida, feature_region, tester, project, fv, fvp,
+                team, lead_model, raw_json, fetched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    "MR-L1",
+                    "D-L1",
+                    "T-L1",
+                    "Wake test 1",
+                    "Passed",
+                    "2026",
+                    "TW22",
+                    "PU1",
+                    "AIDA-1",
+                    "China",
+                    "Tester A",
+                    "IDCEVO",
+                    "Speech",
+                    "Voice",
+                    "DTSV_China",
+                    "NA5",
+                    "{}",
+                    "2026-05-25T00:00:00Z",
+                ),
+                (
+                    "MR-L2",
+                    "D-L2",
+                    "T-L2",
+                    "Wake test 2",
+                    "Failed",
+                    "2026",
+                    "TW22",
+                    "PU1",
+                    "AIDA-2",
+                    "China",
+                    "Tester B",
+                    "IDCEVO",
+                    "Speech",
+                    "Voice",
+                    "DTSV_China",
+                    "NA5",
+                    "{}",
+                    "2026-05-25T00:01:00Z",
+                ),
+                (
+                    "MR-L3",
+                    "D-L3",
+                    "T-L3",
+                    "Wake test 3",
+                    "Blocked",
+                    "2026",
+                    "TW23",
+                    "PU1",
+                    "AIDA-3",
+                    "China",
+                    "Tester C",
+                    "IDCEVO",
+                    "Speech",
+                    "Voice",
+                    "DTSV_China",
+                    "NA5",
+                    "{}",
+                    "2026-05-25T00:02:00Z",
+                ),
+            ],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    monkeypatch.setenv("VIZION_ANALYTICS_DB_PATH", str(db_path))
+    client = TestClient(app)
+
+    response = client.get(
+        "/api/testing/coverage-analysis/testcase-detail",
+        params={"years": ["2026"], "limit": 2},
+    )
+
+    assert response.status_code == 200
+    assert len(response.json()) == 2
 
 
 def test_testing_coverage_analysis_grouped_endpoints_merge_normalized_bucket_values(

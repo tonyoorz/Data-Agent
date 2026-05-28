@@ -82,15 +82,7 @@ def get_full_picture_defect_db_candidates() -> tuple[Path, ...]:
 	if configured:
 		return (Path(configured),)
 
-	return _dedupe_paths(
-		[
-			get_full_picture_source_db_path(),
-			REPO_ROOT / "qgate" / "qgate_data.db",
-			get_analytics_db_path(),
-			REPO_ROOT.parent / "TPMDashbaord" / "qgate" / "qgate_data.db",
-			REPO_ROOT.parent / "TPMDashboard" / "qgate" / "qgate_data.db",
-		]
-	)
+	return (get_full_picture_source_db_path(),)
 
 
 def get_full_picture_history_db_candidates() -> tuple[Path, ...]:
@@ -98,12 +90,4 @@ def get_full_picture_history_db_candidates() -> tuple[Path, ...]:
 	if configured:
 		return (Path(configured),)
 
-	return _dedupe_paths(
-		[
-			get_full_picture_source_db_path(),
-			REPO_ROOT / "qgate" / "qgate_data.db",
-			get_analytics_db_path(),
-			REPO_ROOT.parent / "TPMDashbaord" / "qgate" / "qgate_data.db",
-			REPO_ROOT.parent / "TPMDashboard" / "qgate" / "qgate_data.db",
-		]
-	)
+	return (get_full_picture_source_db_path(),)

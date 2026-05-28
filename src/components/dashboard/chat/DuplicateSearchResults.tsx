@@ -144,7 +144,7 @@ const DuplicateSearchResults = ({
                     {candidate.pu || "pu: -"}
                   </span>
                   <span className="rounded-full bg-muted px-2 py-0.5">
-                    {candidate.statusPhase || "phase: -"}
+                    {`Phase ${candidate.statusPhase || "-"}`}
                   </span>
                 </div>
               </div>

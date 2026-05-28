@@ -77,6 +77,7 @@ describe("adaptMainDashboardPayload", () => {
           ticket_name:
             "Navigation app reset after route recalculation under mixed market scope.",
           status: "03-In Analysis",
+          creation_time: "2026-03-18T09:30:00Z",
           updated_at: "2026-03-23T14:45:00Z",
           problem_finder_team: "DTSV_China",
           group: "Integration",
@@ -87,6 +88,8 @@ describe("adaptMainDashboardPayload", () => {
           project: "G68",
           assigned_ecu: "ECU-A",
           aida: "Digital",
+          classification: "Showstopper_Candidate",
+          problem_severity: "05-unsatisfactory",
           defect_category: "CN Speech",
           solution_cluster: "",
           pu: "PU1",
@@ -132,6 +135,9 @@ describe("adaptMainDashboardPayload", () => {
     ]);
     expect(viewModel.ticketRows[0].ticketId).toBe("2553006");
     expect(viewModel.ticketRows[0].ticketDate).toBe("2026-03-23T14:45:00Z");
+    expect(viewModel.ticketRows[0].creationTime).toBe("2026-03-18T09:30:00Z");
+    expect(viewModel.ticketRows[0].classification).toBe("Showstopper_Candidate");
+    expect(viewModel.ticketRows[0].problemSeverity).toBe("05-unsatisfactory");
     expect(viewModel.ticketRows[0].defectCategory).toBe("CN Speech");
     expect(viewModel.ticketRows[0].isResolvedForward).toBe(true);
   });

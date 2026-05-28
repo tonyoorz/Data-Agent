@@ -11,11 +11,20 @@ type MultiSelectFilterFieldProps = {
   options: string[];
   selectedValues: string[];
   onToggleValue: (value: string) => void;
+  triggerAriaLabel?: string;
+  anyLabel?: string;
+  noValuesLabel?: string;
+  availableValuesLabel?: string;
 };
 
-function getTriggerText(options: string[], selectedValues: string[]) {
+function getTriggerText(
+  options: string[],
+  selectedValues: string[],
+  anyLabel: string,
+  noValuesLabel: string,
+) {
   if (selectedValues.length === 0) {
-    return options.length === 0 ? "No values" : "Any";
+    return options.length === 0 ? noValuesLabel : anyLabel;
   }
 
   if (selectedValues.length === 1) {
@@ -30,6 +39,10 @@ const MultiSelectFilterField = ({
   options,
   selectedValues,
   onToggleValue,
+  triggerAriaLabel,
+  anyLabel = "Any",
+  noValuesLabel = "No values",
+  availableValuesLabel = "available values",
 }: MultiSelectFilterFieldProps) => {
   return (
     <div className="space-y-1.5">
@@ -39,9 +52,11 @@ const MultiSelectFilterField = ({
           <button
             type="button"
             className="workbench-filter-trigger"
-            aria-label={`${label} filter`}
+            aria-label={triggerAriaLabel ?? `${label} filter`}
           >
-            <span className="min-w-0 flex-1 truncate">{getTriggerText(options, selectedValues)}</span>
+            <span className="min-w-0 flex-1 truncate">
+              {getTriggerText(options, selectedValues, anyLabel, noValuesLabel)}
+            </span>
             <span className="flex items-center gap-2 text-xs text-muted-foreground">
               <span>{selectedValues.length || options.length}</span>
               <ChevronDown className="h-3.5 w-3.5" />
@@ -51,7 +66,7 @@ const MultiSelectFilterField = ({
         <PopoverContent align="start" className="w-[260px] rounded-xl border-border/80 p-0">
           <div className="border-b border-border/70 px-4 py-3">
             <p className="text-sm font-semibold text-foreground">{label}</p>
-            <p className="text-xs text-muted-foreground">{options.length} available values</p>
+            <p className="text-xs text-muted-foreground">{options.length} {availableValuesLabel}</p>
           </div>
           <div className="max-h-56 space-y-1 overflow-y-auto p-2">
             {options.length > 0 ? (
@@ -76,7 +91,7 @@ const MultiSelectFilterField = ({
                 );
               })
             ) : (
-              <p className="px-3 py-4 text-sm text-muted-foreground">No values available.</p>
+              <p className="px-3 py-4 text-sm text-muted-foreground">{noValuesLabel}.</p>
             )}
           </div>
         </PopoverContent>

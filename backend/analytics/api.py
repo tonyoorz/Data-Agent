@@ -6,13 +6,17 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Query, Request
 from fastapi.responses import JSONResponse
 
-from backend.analytics.config import get_analytics_db_path
+from backend.analytics.config import get_analytics_db_path, get_full_picture_hot_db_path
+from backend.analytics.dashboard_snapshot import read_active_snapshot_state
 from backend.analytics.read_models import (
     FullPictureDashboardDataError,
+    FullPictureDashboardRequestError,
     build_defect_test_correlation,
     build_filter_metadata,
     build_full_picture_payload,
+    build_full_picture_summary_payload,
     build_testing_summary,
+    list_full_picture_ticket_rows,
     list_runs,
     list_testcases,
 )
@@ -35,6 +39,19 @@ async def analytics_lifespan(_app: FastAPI) -> Iterator[None]:
 app = FastAPI(title="Vizion Analytics API", lifespan=analytics_lifespan)
 
 
+def _full_picture_query_params(request: Request) -> dict[str, object]:
+    aggregated: dict[str, object] = {}
+    for key, value in request.query_params.multi_items():
+        existing = aggregated.get(key)
+        if existing is None:
+            aggregated[key] = value
+        elif isinstance(existing, list):
+            existing.append(value)
+        else:
+            aggregated[key] = [existing, value]
+    return aggregated
+
+
 @app.get("/health")
 def health() -> dict[str, object]:
     return {"ok": True, "service": "analytics"}
@@ -43,13 +60,51 @@ def health() -> dict[str, object]:
 @app.get("/api/full-picture/dashboard")
 def full_picture_dashboard(request: Request) -> JSONResponse:
     try:
-        payload = build_full_picture_payload(**dict(request.query_params))
+        payload = build_full_picture_payload(**_full_picture_query_params(request))
     except FullPictureDashboardDataError:
         return JSONResponse(
             status_code=503,
             content={"error": "analytics database not initialized"},
         )
     return JSONResponse(status_code=200, content=payload)
+
+
+@app.get("/api/full-picture/dashboard/summary")
+def full_picture_dashboard_summary(request: Request) -> JSONResponse:
+    try:
+        payload = build_full_picture_summary_payload(**_full_picture_query_params(request))
+    except FullPictureDashboardDataError:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "analytics database not initialized"},
+        )
+    except FullPictureDashboardRequestError as exc:
+        status_code = 409 if "snapshot" in str(exc).lower() else 400
+        return JSONResponse(status_code=status_code, content={"error": str(exc)})
+    return JSONResponse(status_code=200, content=payload)
+
+
+@app.get("/api/full-picture/dashboard/tickets")
+def full_picture_dashboard_tickets(request: Request) -> JSONResponse:
+    try:
+        payload = list_full_picture_ticket_rows(**_full_picture_query_params(request))
+    except FullPictureDashboardDataError:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "analytics database not initialized"},
+        )
+    except FullPictureDashboardRequestError as exc:
+        status_code = 409 if "snapshot" in str(exc).lower() else 400
+        return JSONResponse(status_code=status_code, content={"error": str(exc)})
+    return JSONResponse(status_code=200, content=payload)
+
+
+@app.get("/api/full-picture/dashboard/refresh-status")
+def full_picture_dashboard_refresh_status() -> JSONResponse:
+    return JSONResponse(
+        status_code=200,
+        content=read_active_snapshot_state(get_full_picture_hot_db_path()),
+    )
 
 
 @app.get("/api/testing/summary")
