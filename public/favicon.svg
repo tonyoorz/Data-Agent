@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title>DTSV</title>
+  <rect width="64" height="64" rx="14" fill="#2563eb" />
+  <path d="M17 16h12c8.1 0 14 6.1 14 16s-5.9 16-14 16H17V16zm10.8 25.3c4.7 0 7.9-3.5 7.9-9.3s-3.2-9.3-7.9-9.3h-3.3v18.6h3.3z" fill="#fff" />
+  <path d="M45 18h4v28h-4z" fill="#93c5fd" opacity="0.9" />
+</svg>

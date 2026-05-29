@@ -20,12 +20,15 @@ from backend.analytics.config import (
     get_full_picture_history_db_candidates,
     get_full_picture_hot_db_path,
     get_full_picture_source_db_path,
+    get_octane_base_url,
+    get_octane_cookie_file_path,
 )
+from backend.analytics.asset_loader import get_asset_data_root
 from backend.analytics.cold_archive import archive_source_to_cold_storage
 from backend.analytics.db import connect
 from backend.analytics.full_picture_outcomes import refresh_materialized_outcomes
+from backend.analytics.processor import backfill_defect_projects, run_processor_pipeline, sync_dimension_fields
 from backend.analytics.testing_coverage_hot import refresh_materialized_testing_coverage
-from backend.analytics.processor import backfill_defect_projects, sync_dimension_fields
 from backend.analytics.schema import ensure_schema
 
 
@@ -419,6 +422,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--db-path")
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--force", action="store_true")
+    parser.add_argument("--teams")
+    parser.add_argument("--years")
+    parser.add_argument("--skip-history", action="store_true")
+    parser.add_argument("--skip-comments", action="store_true")
+    parser.add_argument("--skip-testing", action="store_true")
+    parser.add_argument("--headless", action="store_true")
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     db_path = args.db_path or str(get_analytics_db_path())
@@ -434,6 +443,56 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "backfill-projects":
         summary = backfill_defect_projects(db_path, apply=args.apply)
+        print(json.dumps(summary, ensure_ascii=False))
+        return 0
+    if args.command == "refresh-octane-cookie":
+        from backend.analytics.ingest.playwright_cookie_manager import refresh_cookie_file
+
+        refresh_cookie_file(
+            base_url=get_octane_base_url(),
+            cookie_file=get_octane_cookie_file_path(),
+            headless=bool(args.headless),
+        )
+        return 0
+    if args.command == "refresh-octane-source":
+        from backend.analytics.ingest.client import build_default_octane_client
+        from backend.analytics.ingest.pipeline import IngestRequest, refresh_octane_source
+
+        years = tuple(
+            int(value.strip())
+            for value in (args.years or "2025,2026").split(",")
+            if value.strip()
+        )
+        teams = tuple(
+            value.strip()
+            for value in (args.teams or "all").split(",")
+            if value.strip()
+        ) or ("all",)
+        request = IngestRequest(
+            source_db_path=get_full_picture_source_db_path(),
+            teams=teams,
+            years=years,
+            include_history=not args.skip_history,
+            include_comments=not args.skip_comments,
+            include_testing=not args.skip_testing,
+        )
+        summary = refresh_octane_source(
+            request=request,
+            client=build_default_octane_client(),
+        )
+        processor_summary = run_processor_pipeline(
+            request.source_db_path,
+            asset_root=get_asset_data_root(),
+        )
+        print(json.dumps({**summary, **processor_summary}, ensure_ascii=False))
+        return 0
+    if args.command == "audit-octane-dimensions":
+        summary = run_processor_pipeline(
+            get_full_picture_source_db_path(),
+            asset_root=get_asset_data_root(),
+            dry_run=True,
+            report_path=get_full_picture_hot_db_path().parent / "processor_dimension_diff.json",
+        )
         print(json.dumps(summary, ensure_ascii=False))
         return 0
     if args.command == "stage-full-picture-source":

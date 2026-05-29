@@ -67,7 +67,7 @@ def build_feature_region_sql_expr(
     solution_cluster_expr: str,
 ) -> str:
     quoted_aidas = ", ".join(
-        f"'{value.replace("'", "''")}'"
+        "'{}'".format(value.replace("'", "''"))
         for value in CHINA_SPECIFIC_AIDAS
     )
     return """

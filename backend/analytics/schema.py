@@ -5,21 +5,26 @@ from pathlib import Path
 from backend.analytics.db import connect
 
 
-MANUAL_RUN_TAP_COLUMNS: tuple[str, ...] = (
+MANUAL_RUN_ADDITIONAL_COLUMNS: tuple[str, ...] = (
     "year",
     "test_week",
     "pu",
     "top_aida",
     "feature_region",
     "tester",
+    "project",
+    "fv",
+    "fvp",
+    "team",
+    "lead_model",
 )
 
 
-def _ensure_manual_run_tap_columns(conn) -> None:
+def _ensure_manual_run_additional_columns(conn) -> None:
     existing_columns = {
         row[1] for row in conn.execute("PRAGMA table_info(octane_manual_runs)").fetchall()
     }
-    for column_name in MANUAL_RUN_TAP_COLUMNS:
+    for column_name in MANUAL_RUN_ADDITIONAL_COLUMNS:
         if column_name in existing_columns:
             continue
         conn.execute(f"ALTER TABLE octane_manual_runs ADD COLUMN {column_name} TEXT")
@@ -99,7 +104,7 @@ def ensure_schema(db_path: Path | str) -> None:
             );
             """
         )
-        _ensure_manual_run_tap_columns(conn)
+        _ensure_manual_run_additional_columns(conn)
         conn.commit()
     finally:
         conn.close()

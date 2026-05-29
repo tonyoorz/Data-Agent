@@ -1,0 +1,557 @@
+[
+  {
+    "vin_prefix": "WBA11FX040HY15262",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV81BE08P1A02605",
+    "project": "MGU_02_L",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV41FX07RM618961",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "SCA21HA080HY35632",
+    "project": "MGU_02_L",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WBA71GP0XP9U00371",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WBY21CF02PCN18309",
+    "project": "IDCEVO25",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WBA21HY030HY47120",
+    "project": "IDCEVO25",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WMW51GD06P2V17644",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WBA31HR040HY35514",
+    "project": "IDCEVO25",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV21GT04S1A62072",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WMW12GC04RTA10044",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WBA25GP040HY25272",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV21FM03SSB30560",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WBA42HZ0X0HY47121",
+    "project": "IDCEVO25",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WBA21EH0XPCK79048",
+    "project": "MGU_02_L",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WBACR6102KLH81514",
+    "project": "MGU_02_L",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WMW21GC01PTA10121",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WBATC61060HY18062",
+    "project": "MGU_02_L",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WBA41FX090HY09583",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WBA71EH0X0HY07492",
+    "project": "MGU_02_L",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WBY21CF030HY01553",
+    "project": "MGU_02_L",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WMW11GY010HY16017",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WMW11GA010HY26704",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WBACR6109L9D27145",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WBA11EV030HY13368",
+    "project": "MGU_02_L",
+    "market": ""
+  },
+  {
+    "vin_prefix": "SCATK21030HY18414",
+    "project": "MGU_02_L",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WBACV6105KLK20040",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WBA12EH000CJ07626",
+    "project": "MGU_02_L",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WBY21CF04RCR75965",
+    "project": "IDCEVO25",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WMW81GC00RTA00421",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WBY21CF08PCN23000",
+    "project": "IDCEVO25",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WBA31HR040HY42964",
+    "project": "IDCEVO25",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WBA62FX000HY29503",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WBA31HR030HY44656",
+    "project": "IDCEVO25",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV41HT02V1B36320",
+    "project": "IDCEVO25",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV81FM09SSC02288",
+    "project": "MGU_02_L",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WBA21GT020HY20900",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WBA71FM080HY28966",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WBA61JE060HY47495",
+    "project": "IDCEVO25",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV61FX08SM715231",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WBY22CF0X0CN18562",
+    "project": "IDCEVO25",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV41HT01V1B36311",
+    "project": "IDCEVO25",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV61FX0XSM627118",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV11HS05SSC03583",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WBA61EE0005W65834",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WBACR620X09F64155",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV21GJ09SM665436",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "HGS21GC05RTA46038",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV21FM01RSD50015",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WMW21GD02P2U18032",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WMW31GA05P7L81344",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WMW21GC02RTA00135",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV71FM07SSC02320",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV5U5407NM303615",
+    "project": "MGU_02_L",
+    "market": ""
+  },
+  {
+    "vin_prefix": "CK79048",
+    "project": "MGU_02_L",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WBY21CF06PCN19866",
+    "project": "IDCEVO25",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WBA31HR07RH021760",
+    "project": "IDCEVO25",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV21FH09SM627138",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WBY51EJ04PCL26695",
+    "project": "IDCEVO25",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV11GT03T1B13770",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV11GJ05SM706804",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV31GJ09TM973597",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WMW61GC04STA79105",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV71FM02SSD35857",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WMW81GC06RTA00424",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "HGS21HF03STA00621",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV11HS02SSB30575",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV81FM06TSF94230",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV11FX05TM894128",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV21FM07SSB30559",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV31FM07TSF94229",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WMW21GX05S2W83466",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV11FM01TSF94234",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV31FM06TSF94237",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV21GT01T1B13769",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV51FX00SM805923",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WMW81GC05STA79106",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV11FM07SSD35858",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WBA21EA0207J70673",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV11GT02T1B36344",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WBA21HV05RH022262",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV71FX04SM627121",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WMW21HF0XSTA79108",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV71FM07TSG81873",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV41HT08V1B36306",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV41HT00V1B36297",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV21FH05TMA30864",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV21GJ02TM973596",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV41HT05V1B36327",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV41HT00V1B36283",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV41HT0XV1B36307",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV71FM01SSB30577",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV31EP04TSE72174",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "TEST",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "M715225",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "1111111111111",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "NONE",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV11HN03VMC00587",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV21GT08S1B35881",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV41HT03V1B54101",
+    "project": "IDCEVO25",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV51FM05RS603606",
+    "project": "MGU_02_L",
+    "market": ""
+  },
+  {
+    "vin_prefix": "LBV51FX01RM319616",
+    "project": "MGU_02_A",
+    "market": ""
+  },
+  {
+    "vin_prefix": "SCA61HA030HY58561",
+    "project": "IDCEVO25",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WBA11EE0705232179",
+    "project": "IDCEVO25",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WBA11LE030HY56855",
+    "project": "IDCEVO25",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WBA32HR020DA03337",
+    "project": "IDCEVO25",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WBA32JM0X0HY52877",
+    "project": "IDCEVO25",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WBA41JN070HY55287",
+    "project": "IDCEVO25",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WBA61JF09V9072884",
+    "project": "IDCEVO25",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WBY21CF02RCP17024",
+    "project": "IDCEVO25",
+    "market": ""
+  },
+  {
+    "vin_prefix": "WMW31DH03N2R42882",
+    "project": "ENTRYEVO",
+    "market": ""
+  }
+]

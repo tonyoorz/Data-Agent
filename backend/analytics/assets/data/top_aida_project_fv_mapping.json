@@ -1,0 +1,686 @@
+[
+  {
+    "top_aida": "3rd party audio streaming enablement [01.04.01.01.06]",
+    "project": "IDCevo",
+    "fv": "DIPS_TSP_Car_Apps_CN",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Accident Call (Accident Help) [01.04.02.01.03.03.01]",
+    "project": "IDCevo",
+    "fv": "DIPS_TSP_Call_Services",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Acoustic request to audio control unit [01.04.04.01.03.01]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_AZV",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Base Audio",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_Audio",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Basic Vehicle Connectivity [01.04.04.02.02.02]",
+    "project": "IDCevo",
+    "fv": "DIPS_TSP_Enabler",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Call Customer service [01.04.02.01.03.03.06]",
+    "project": "IDCevo",
+    "fv": "DIPS_TSP_Call_Services",
+    "fvp": ""
+  },
+  {
+    "top_aida": "CarPlay [01.04.01.07.02]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_Entertainment",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Change Audio Sound Settings [01.04.04.01.01.02]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_Audio",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Change Audio Volume [01.04.04.01.01.01]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_Audio",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Charge CE Device Wireless [01.04.01.03.01.03]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_Connectivity",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Charging Information (Mobile App) [01.04.03.02.03.03]",
+    "project": "IDCevo",
+    "fv": "eMob",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Connected Music China [01.04.01.06.04]",
+    "project": "IDCevo",
+    "fv": "DIPS_TSP_Car_Apps_CN",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Contact Roadside Assistance [01.04.02.01.03.03.03]",
+    "project": "IDCevo",
+    "fv": "DIPS_TSP_Call_Services",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Contacting Service Partner [01.04.02.01.03.03.07]",
+    "project": "IDCevo",
+    "fv": "DIPS_TSP_Call_Services",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Core UI",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_HMI",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Date and Time Settings",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_AZV",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Date and Time Settings [01.04.04.01.03.07]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_AZV",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Display Check-Control-Message and telltales [01.04.04.01.03.03]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_AZV",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Display Real Time Clock [01.04.04.01.03.04]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_AZV",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Display Touch Control [01.04.02.03.01.01.04]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_HMI",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Display of Legal Disclaimer  [01.04.02.03.01.01.02]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_HMI",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Display of User Manual [01.04.02.03.01.01.08.01]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_HMI",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Display of vehicle data in the Mobile App [01.04.02.02.01.01.06]",
+    "project": "IDCevo",
+    "fv": "DIPS_TSP_MobileApps",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Display weather [01.04.01.05.01.03]",
+    "project": "IDCevo",
+    "fv": "DIPS_TSP_Car_Apps_CN",
+    "fvp": ""
+  },
+  {
+    "top_aida": "EE_CoC_Lenkradbedienung",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_Carfunctions",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Emergency Call",
+    "project": "IDCevo",
+    "fv": "DIPS_TSP_Call_Services",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Enable Configuration and Onboarding [01.04.01.08.05]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_Perso CN",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Enable Registration, Login, Mapping [01.04.01.08.01]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_Perso CN",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Enable User Management [01.04.01.08.03]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_Perso CN",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Enable User Recognition [01.04.01.08.02]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_Perso CN",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Functional Bookmark Control [01.04.02.03.01.01.03]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_HMI",
+    "fvp": ""
+  },
+  {
+    "top_aida": "HUD Settings",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_AZV",
+    "fvp": ""
+  },
+  {
+    "top_aida": "HUD Settings [01.04.02.03.04.01.02]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_AZV",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Handsfree Telephony in the rear seats [01.04.01.04.01.04]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_Connectivity",
+    "fvp": ""
+  },
+  {
+    "top_aida": "IPA Interactive Elements provided [01.04.02.01.02.01.03]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_HMI",
+    "fvp": ""
+  },
+  {
+    "top_aida": "IPA Routines provided [01.04.02.01.02.01.06]",
+    "project": "IDCevo",
+    "fv": "DIPS_TSP_Remote_Services",
+    "fvp": ""
+  },
+  {
+    "top_aida": "IPA Visualization  [01.04.02.01.02.01.01]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_HMI",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Implement BMW Lens [01.04.02.02.01.04.09]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_HMI",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Kombi Display Settings [01.04.04.01.03.08]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_AZV",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Listen to Radio (FM/AM/DAB/HD) [01.04.01.01.01.04]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_Entertainment",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Manage BMW Apps [01.04.01.05.03.03]",
+    "project": "IDCevo",
+    "fv": "DIPS_TSP_CD_Updates",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Manage CE Devices (Bluetooth) [01.04.01.03.01.02.01]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_Connectivity",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Manage CE Devices (WIFI AP) [01.04.01.03.01.02.02]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_Connectivity",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Manage ConnectedDrive Upgrades [01.04.01.05.03.01]",
+    "project": "IDCevo",
+    "fv": "DIPS_TSP_CD_Updates",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Manage Privacy Settings [01.04.01.08.12]",
+    "project": "IDCevo",
+    "fv": "DIPS_TSP_Remote_Services",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Manage SMS Messages [01.04.01.04.02.01.04.02]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_Connectivity",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Operation of steering wheel buttons [01.01.02.12.08]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_Carfunctions",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Play audio via Bluetooth [01.04.01.01.04.02]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_Entertainment",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Play audio via USB [01.04.01.01.04.04]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_Entertainment",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Predictive thermal management (manual) [01.06.01.04.04]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_Carfunctions",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Predictive thermal management (navi-based) [01.06.01.04.01]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_Carfunctions",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Provide 3rd Party Gaming App [01.04.01.02.03.05]",
+    "project": "IDCevo",
+    "fv": "DIPS_TSP_Car_Apps_CN",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Provide 3rd party gaming enablement [01.04.01.02.03]",
+    "project": "IDCevo",
+    "fv": "DIPS_TSP_Car_Apps_CN",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Provide App Center China [01.04.01.06.09]",
+    "project": "IDCevo",
+    "fv": "DIPS_TSP_Car_Apps_CN",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Provide Festival Mode [01.04.02.01.04.08]",
+    "project": "IDCevo",
+    "fv": "DIPS_TSP_Car_Apps_CN",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Provide IPA interactive Elements China [01.04.02.01.02.01.03.01]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_HMI",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Provide Karaoke Service [01.04.01.06.10]",
+    "project": "IDCevo",
+    "fv": "DIPS_TSP_Car_Apps_CN",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Provide Launcher  [01.04.02.03.01.01.09]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_HMI",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Provide Navigation 2.0 [01.04.03.01.03.06]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_Navi",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Provide Remote in Car View [01.04.02.02.01.04.05]",
+    "project": "IDCevo",
+    "fv": "DIPS_TSP_Remote_Services",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Provide SHUD Driver Assistance [01.04.02.03.03.06]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_Navi",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Provide SHUD Navigation [01.04.02.03.03.05]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_Navi",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Provide Showroom mode [01.05.02.01.14]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_HMI",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Provide Snapshot [01.04.02.02.01.04.04]",
+    "project": "IDCevo",
+    "fv": "DIPS_TSP_Remote_Services",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Provide Storage and synchronization of data [01.04.01.08.06]",
+    "project": "IDCevo",
+    "fv": "DIPS_TSP_CD_Updates",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Providexa0voicexa0Control WeChat &xa0App Centerxa0China​ [01.04.01.06.02.06]",
+    "project": "IDCevo",
+    "fv": "DIPS_TSP_Car_Apps_CN",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Provide voice Control WeChat & App Center China​ [01.04.01.06.02.06]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_HMI",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Provisioning International Speller [01.04.02.03.01.01.06]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_HMI",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Receive notification in BMW Messages [01.04.02.02.01.01.03]",
+    "project": "IDCevo",
+    "fv": "DIPS_TSP_Call_Services",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Remote teleservice diagnosis [01.04.02.02.01.01.02]",
+    "project": "IDCevo",
+    "fv": "DIPS_TSP_Call_Services",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Report service issues via Teleservice [01.04.02.01.03.03.04]",
+    "project": "IDCevo",
+    "fv": "DIPS_TSP_Call_Services",
+    "fvp": ""
+  },
+  {
+    "top_aida": "SMS show message [01.04.01.04.02.01.04.02.02]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_Connectivity",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Setting system language [01.04.04.01.03.12]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_AZV",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Speedlock",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_HMI",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Telephony via customer device [01.04.01.04.01.01]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_Connectivity",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Telephony via second customer device [01.04.01.04.01.02]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_Connectivity",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Tencent WeChat [01.04.01.06.02]",
+    "project": "IDCevo",
+    "fv": "DIPS_TSP_Car_Apps_CN",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Use App Store China  [01.04.01.06.07]",
+    "project": "IDCevo",
+    "fv": "DIPS_TSP_Car_Apps_CN",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Use Speech operation [01.04.02.01.01.05]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_HMI",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Video streaming China [01.04.01.06.05]",
+    "project": "IDCevo",
+    "fv": "DIPS_TSP_Car_Apps_CN",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Voice Interface [01.04.02.01.01.02]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_HMI",
+    "fvp": ""
+  },
+  {
+    "top_aida": "eRoute [01.04.03.01.07]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_Navi",
+    "fvp": ""
+  },
+  {
+    "top_aida": "nan",
+    "project": "IDCevo",
+    "fv": "nan",
+    "fvp": ""
+  },
+  {
+    "top_aida": "provide HUAWEI HiCar [01.04.01.06.13]",
+    "project": "IDCevo",
+    "fv": "DIPS_TSP_Car_Apps_CN",
+    "fvp": ""
+  },
+  {
+    "top_aida": "provide PHUD settings",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_AZV",
+    "fvp": ""
+  },
+  {
+    "top_aida": "provide eCall [01.04.02.01.03.03.02]",
+    "project": "IDCevo",
+    "fv": "DIPS_TSP_Call_Services",
+    "fvp": ""
+  },
+  {
+    "top_aida": "unit display settings",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_AZV",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Adjust Audio Volume: mixed sources [01.04.04.01.01.01.02]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_Audio",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Display & operation in the rear of entertainment sources (BMT) [01.04.01.03.02.02]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_Entertainment",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Enable remote personalisation [01.04.01.08.05.02]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_Perso CN",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Provide Speech Multimodality [01.04.02.01.01.04.27]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_HMI",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Provide Speech Dialog Improvement​ China [01.04.02.01.01.04.31]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_HMI",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Provide voice Car control China [01.04.02.01.01.04.26]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_HMI",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Provide voice control 3rd party cloud service [01.04.02.01.01.04.23]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_HMI",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Provide voice control System settings [01.04.02.01.01.04.15]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_HMI",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Provide Speech Long snoozing China [01.04.02.01.01.04.29]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_HMI",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Provide Speech Multi-seats interaction​ [01.04.02.01.01.04.28]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_HMI",
+    "fvp": ""
+  },
+  {
+    "top_aida": "[SYS_Security_DSZ] Delete personal data [01.05.02.09.03.03]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_Perso CN",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Available campaigns are displayed [01.04.02.01.02.01.04.02]",
+    "project": "IDCevo",
+    "fv": "DIPS_TSP_Remote_Services",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Efficiency Coach tips display and evaluate [01.06.01.02.09]",
+    "project": "IDCevo",
+    "fv": "DIPS_TSP_Remote_Services",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Enable Multisession [01.04.01.08.04]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_HMI",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Enable Registration",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_Perso CN",
+    "fvp": ""
+  },
+  {
+    "top_aida": "HMI Display configuration for CID display and operation [01.04.02.03.01.01.07.01.01]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_HMI",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Provide Child Seat App [01.04.01.06.12]",
+    "project": "IDCevo",
+    "fv": "DIPS_TSP_Car_Apps_CN",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Provide IPA Visualization [01.04.02.01.01.04.22]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_HMI",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Provide Projected Modes China [01.04.01.06.13]",
+    "project": "IDCevo",
+    "fv": "DIPS_TSP_Car_Apps_CN",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Provide SHUD Driver Assistance [01.04.02.03.03.04]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_Navi",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Provide SHUD Navigation [01.04.02.03.03.03]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_Navi",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Store local data [01.04.01.08.06.02]",
+    "project": "IDCevo",
+    "fv": "DIPS_TSP_Call_Services",
+    "fvp": ""
+  },
+  {
+    "top_aida": "TRASH",
+    "project": "IDCevo",
+    "fv": "PLEASE_UPDATE",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Use Co-Driver Entertainment [01.04.01.09.03]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_Entertainment",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Use Rear Seat Entertainment [01.04.01.09.02]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_Entertainment",
+    "fvp": ""
+  },
+  {
+    "top_aida": "Use Third Party App Store [01.04.01.05.03.02]",
+    "project": "IDCevo",
+    "fv": "DIPS_TSP_Car_Apps_CN",
+    "fvp": ""
+  },
+  {
+    "top_aida": "provide PHUD settings [01.04.02.03.04.02.01]",
+    "project": "IDCevo",
+    "fv": "IuK_TSP_Navi",
+    "fvp": ""
+  }
+]
