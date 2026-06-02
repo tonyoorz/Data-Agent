@@ -183,6 +183,12 @@ def _record_active_snapshot(
     source_db_path: Path | str | None = None,
 ) -> None:
     effective_source_db_path = Path(source_db_path or read_models.get_full_picture_source_db_path()).resolve()
+    if source_db_path is not None and effective_source_db_path.exists():
+        read_models.publish_dashboard_snapshot_rows(
+            snapshot_version,
+            defect_db_path=effective_source_db_path,
+            hot_db_path=hot_db_path,
+        )
     source_db_mtime = read_models._format_snapshot_source_mtime(effective_source_db_path) or "2026-05-28T00:00:00Z"
     record_snapshot_refresh(
         hot_db_path,
