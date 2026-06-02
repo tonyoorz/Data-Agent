@@ -224,7 +224,7 @@ describe("CoverageAnalysis page", () => {
 
     await waitFor(() => {
       expect(screen.getByLabelText("Year filter")).toHaveTextContent("2026");
-      expect(fetchMock).toHaveBeenCalledTimes(7);
+      expect(fetchMock).toHaveBeenCalledTimes(5);
     });
 
     const refetchUrls = fetchMock.mock.calls.slice(-4).map(([url]) => String(url));
@@ -271,14 +271,14 @@ describe("CoverageAnalysis page", () => {
 
     await waitFor(() => {
       expect(screen.getByLabelText("FV filter")).toHaveTextContent("全部");
-      expect(fetchMock).toHaveBeenCalledTimes(7);
+      expect(fetchMock).toHaveBeenCalledTimes(5);
     });
 
     fireEvent.click(await screen.findByRole("button", { name: "Select Speech for Passed" }));
 
     await waitFor(() => {
       expect(screen.getByLabelText("FV filter")).toHaveTextContent("Speech");
-      expect(fetchMock).toHaveBeenCalledTimes(11);
+      expect(fetchMock).toHaveBeenCalledTimes(9);
     });
 
     const refetchUrls = fetchMock.mock.calls.slice(-4).map(([url]) => String(url));
@@ -409,7 +409,7 @@ describe("CoverageAnalysis page", () => {
 
     await waitFor(() => {
       expect(screen.getByLabelText("Year filter")).toHaveTextContent("2026");
-      expect(fetchMock).toHaveBeenCalledTimes(7);
+      expect(fetchMock).toHaveBeenCalledTimes(5);
     });
 
     expect(screen.getByRole("button", { name: "Select Speech for Passed" })).toBeInTheDocument();
@@ -431,6 +431,112 @@ describe("CoverageAnalysis page", () => {
       ]),
     );
 
-    expect(await screen.findByText("Wake word test")).toBeInTheDocument();
+    expect((await screen.findAllByText("Wake word test")).length).toBeGreaterThan(0);
+  });
+
+  it("renders the chart-3 testcase execution matrix with week columns and summary stats", async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+
+      if (url.includes("/api/testing/coverage-analysis/filters")) {
+        return createJsonResponse({
+          years: ["2026"],
+          projects: ["IDCEVO"],
+          test_weeks: ["2026-CW20", "2026-CW21"],
+          pus: ["PU1"],
+          aidas: ["Use Speech operation [01.04.02.01.01.05]"],
+          statuses: ["Passed", "Failed"],
+          feature_regions: ["China Specific"],
+          fvps: ["Voice Experience"],
+          fvs: ["Speech"],
+        });
+      }
+
+      if (url.includes("/api/testing/coverage-analysis/project-status")) {
+        return createJsonResponse([
+          {
+            test_week: "2026-CW20",
+            fv: "Speech",
+            fvp: "Voice Experience",
+            status: "Passed",
+            count: 3,
+          },
+          {
+            test_week: "2026-CW21",
+            fv: "Speech",
+            fvp: "Voice Experience",
+            status: "Failed",
+            count: 2,
+          },
+        ]);
+      }
+
+      if (url.includes("/api/testing/coverage-analysis/aida-status")) {
+        return createJsonResponse([
+          {
+            test_week: "2026-CW20",
+            top_aida: "Use Speech operation [01.04.02.01.01.05]",
+            status: "Passed",
+            count: 3,
+          },
+          {
+            test_week: "2026-CW21",
+            top_aida: "Use Speech operation [01.04.02.01.01.05]",
+            status: "Failed",
+            count: 2,
+          },
+        ]);
+      }
+
+      if (url.includes("/api/testing/coverage-analysis/testcase-detail")) {
+        return createJsonResponse([
+          {
+            test_id: "T-1",
+            test_name: "Wake word test",
+            test_week: "2026-CW20",
+            status: "Passed",
+            top_aida: "Use Speech operation [01.04.02.01.01.05]",
+            project: "IDCEVO",
+            pu: "PU1",
+            tester: "Tester-A",
+            count: 1,
+          },
+          {
+            test_id: "T-1",
+            test_name: "Wake word test",
+            test_week: "2026-CW21",
+            status: "Failed",
+            top_aida: "Use Speech operation [01.04.02.01.01.05]",
+            project: "IDCEVO",
+            pu: "PU1",
+            tester: "Tester-A",
+            count: 1,
+          },
+          {
+            test_id: "T-2",
+            test_name: "Noise suppression",
+            test_week: "2026-CW21",
+            status: "Passed",
+            top_aida: "Use Speech operation [01.04.02.01.01.05]",
+            project: "IDCEVO",
+            pu: "PU1",
+            tester: "Tester-B",
+            count: 1,
+          },
+        ]);
+      }
+
+      throw new Error(`Unhandled fetch URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderCoverageAnalysis();
+
+    expect(await screen.findByRole("columnheader", { name: "2026-CW20" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "2026-CW21" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Test Frequency" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Pass Rate" })).toBeInTheDocument();
+    expect(screen.getAllByText("Wake word test").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("50%").length).toBeGreaterThan(0);
   });
 });

@@ -7,6 +7,9 @@ export type MainDashboardOutcomeKey = "resolvedForward" | "rejectedDirectly";
 export type MainDashboardFilters = {
   years: string[];
   months: string[];
+  creationTimeStart: string;
+  creationTimeEnd: string;
+  requirements: string[];
   chinaScopes: string[];
   projects: string[];
   assignedEcus: string[];
@@ -20,9 +23,17 @@ export type MainDashboardFilters = {
   groups: string[];
 };
 
+export type MainDashboardMultiSelectFilterKey = Exclude<
+  keyof MainDashboardFilters,
+  "creationTimeStart" | "creationTimeEnd"
+>;
+
 export type MainDashboardFiltersPayload = {
   years: string[];
   months?: string[];
+  creation_time_start?: string;
+  creation_time_end?: string;
+  requirements?: string[];
   china_scopes?: string[];
   projects: string[];
   assigned_ecus: string[];
@@ -36,25 +47,10 @@ export type MainDashboardFiltersPayload = {
   groups: string[];
 };
 
-export const mainDashboardFilterKeys = [
-  "years",
-  "months",
-  "chinaScopes",
-  "projects",
-  "assignedEcus",
-  "problemFinderTeams",
-  "aidas",
-  "phases",
-  "solutionClusters",
-  "pus",
-  "markets",
-  "leadModels",
-  "groups",
-] as const satisfies ReadonlyArray<keyof MainDashboardFilters>;
-
 export const mainDashboardFilterFieldMappings = [
   { viewKey: "years", payloadKey: "years", label: "Year" },
-  { viewKey: "months", payloadKey: "months", label: "Month" },
+  { viewKey: "months", payloadKey: "months", label: "Creation Time" },
+  { viewKey: "requirements", payloadKey: "requirements", label: "Requirement" },
   { viewKey: "chinaScopes", payloadKey: "china_scopes", label: "China/Global" },
   { viewKey: "projects", payloadKey: "projects", label: "Project" },
   { viewKey: "assignedEcus", payloadKey: "assigned_ecus", label: "Assigned ECU" },
@@ -81,8 +77,7 @@ export const mainDashboardFilterFieldMappings = [
 }>;
 
 export const mainDashboardUiFilterFieldMappings = [
-  { viewKey: "years", label: "Year" },
-  { viewKey: "months", label: "Month" },
+  { viewKey: "requirements", label: "Requirement" },
   { viewKey: "chinaScopes", label: "China/Global" },
   { viewKey: "projects", label: "Project" },
   { viewKey: "assignedEcus", label: "Assigned ECU" },
@@ -94,7 +89,7 @@ export const mainDashboardUiFilterFieldMappings = [
   { viewKey: "markets", label: "Market" },
   { viewKey: "leadModels", label: "Lead Model" },
 ] as const satisfies ReadonlyArray<{
-  viewKey: keyof MainDashboardFilters;
+  viewKey: Exclude<keyof MainDashboardFilters, "years" | "months" | "creationTimeStart" | "creationTimeEnd">;
   label: string;
 }>;
 
@@ -149,6 +144,7 @@ export type MainDashboardTicketRowPayload = {
   problem_finder_team: string;
   group: string;
   phase: string;
+  requirement?: string | null;
   is_resolved_forward: boolean;
   is_rejected_directly: boolean;
   year: string;
@@ -203,6 +199,7 @@ export type MainDashboardTicketsPagePayload = {
   total_rows: number;
   total_pages: number;
   rows: MainDashboardTicketRowPayload[];
+  priority_rows?: MainDashboardTicketRowPayload[];
 };
 
 export type MainDashboardGeneratedFrom = MainDashboardFilters & {
@@ -247,6 +244,7 @@ export type MainDashboardTicketRow = {
   problemSeverity?: string | null;
   group: string;
   phase: string;
+  requirement?: string | null;
   isResolvedForward: boolean;
   isRejectedDirectly: boolean;
   year: string;
@@ -304,4 +302,5 @@ export type MainDashboardTicketsPage = {
   totalRows: number;
   totalPages: number;
   rows: MainDashboardTicketRow[];
+  priorityRows: MainDashboardTicketRow[];
 };

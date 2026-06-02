@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Query, Request
@@ -31,7 +31,7 @@ from backend.analytics.schema import ensure_schema
 
 
 @asynccontextmanager
-async def analytics_lifespan(_app: FastAPI) -> Iterator[None]:
+async def analytics_lifespan(_app: FastAPI) -> AsyncIterator[None]:
     ensure_schema(get_analytics_db_path())
     yield
 

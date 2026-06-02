@@ -5,6 +5,10 @@ import {
   buildMainDashboardApiUrl,
   fetchMainDashboardData,
 } from "@/components/dashboard/main-dashboard/mainDashboardApi";
+import {
+  mainDashboardFilterFieldMappings,
+  mainDashboardUiFilterFieldMappings,
+} from "@/components/dashboard/main-dashboard/mainDashboardTypes";
 
 describe("adaptMainDashboardPayload", () => {
   it("maps the TPMDashboard payload into local camelCase fields", () => {
@@ -13,6 +17,7 @@ describe("adaptMainDashboardPayload", () => {
         defect_db_path: "defect.db",
         history_db_path: "history.db",
         years: ["2026"],
+        requirements: ["DOC_PreCon_A", "DOC_PreCon_B"],
         projects: ["G68"],
         assigned_ecus: ["ECU-A"],
         problem_finder_teams: ["DTSV_China"],
@@ -26,6 +31,7 @@ describe("adaptMainDashboardPayload", () => {
       },
       filters: {
         years: ["2026"],
+        requirements: ["DOC_PreCon_A", "DOC_PreCon_B"],
         projects: ["G68"],
         assigned_ecus: ["ECU-A"],
         problem_finder_teams: ["DTSV_China"],
@@ -82,6 +88,7 @@ describe("adaptMainDashboardPayload", () => {
           problem_finder_team: "DTSV_China",
           group: "Integration",
           phase: "Validation",
+          requirement: "DOC_PreCon_A | DOC_PreCon_B",
           is_resolved_forward: true,
           is_rejected_directly: false,
           year: "2026",
@@ -104,6 +111,9 @@ describe("adaptMainDashboardPayload", () => {
       historyDbPath: "history.db",
       years: ["2026"],
       months: ["2026-03"],
+      creationTimeStart: "",
+      creationTimeEnd: "",
+      requirements: ["DOC_PreCon_A", "DOC_PreCon_B"],
       chinaScopes: ["China"],
       projects: ["G68"],
       assignedEcus: ["ECU-A"],
@@ -138,6 +148,7 @@ describe("adaptMainDashboardPayload", () => {
     expect(viewModel.ticketRows[0].creationTime).toBe("2026-03-18T09:30:00Z");
     expect(viewModel.ticketRows[0].classification).toBe("Showstopper_Candidate");
     expect(viewModel.ticketRows[0].problemSeverity).toBe("05-unsatisfactory");
+    expect(viewModel.ticketRows[0].requirement).toBe("DOC_PreCon_A | DOC_PreCon_B");
     expect(viewModel.ticketRows[0].defectCategory).toBe("CN Speech");
     expect(viewModel.ticketRows[0].isResolvedForward).toBe(true);
   });
@@ -247,12 +258,99 @@ describe("adaptMainDashboardPayload", () => {
       }),
     ).toThrow(/unknown outcome key/i);
   });
+
+  it("derives month filter options from creation_time instead of updated_at", () => {
+    const viewModel = adaptMainDashboardPayload({
+      generated_from: {
+        defect_db_path: "defect.db",
+        history_db_path: "history.db",
+        years: ["2026"],
+        projects: ["G68"],
+        assigned_ecus: ["ECU-A"],
+        problem_finder_teams: ["DTSV_China"],
+        aidas: ["Digital"],
+        phases: ["Validation"],
+        solution_clusters: ["Integration"],
+        pus: ["PU1"],
+        markets: ["CN"],
+        lead_models: ["LM1"],
+        groups: ["Integration"],
+      },
+      filters: {
+        years: ["2026"],
+        projects: ["G68"],
+        assigned_ecus: ["ECU-A"],
+        problem_finder_teams: ["DTSV_China"],
+        aidas: ["Digital"],
+        phases: ["Validation"],
+        solution_clusters: ["Integration"],
+        pus: ["PU1"],
+        markets: ["CN"],
+        lead_models: ["LM1"],
+        groups: ["Integration"],
+      },
+      overview: {
+        ticket_count: 1,
+        resolved_forward_count: 0,
+        rejected_directly_count: 0,
+        resolved_forward_percent: 0,
+        rejected_directly_percent: 0,
+      },
+      outcome_summary: [],
+      team_outcome_rows: [],
+      ticket_rows: [
+        {
+          ticket_id: "2553006",
+          ticket_name: "Navigation app reset",
+          status: "03-In Analysis",
+          creation_time: "2026-02-18T09:30:00Z",
+          updated_at: "2026-05-23T14:45:00Z",
+          problem_finder_team: "DTSV_China",
+          group: "Integration",
+          phase: "Validation",
+          is_resolved_forward: false,
+          is_rejected_directly: false,
+          year: "2026",
+          project: "G68",
+          assigned_ecu: "ECU-A",
+          aida: "Digital",
+          solution_cluster: "Integration",
+          pu: "PU1",
+          market: "CN",
+          lead_model: "LM1",
+        },
+      ],
+    });
+
+    expect(viewModel.generatedFrom.months).toEqual(["2026-02"]);
+    expect(viewModel.filters.months).toEqual(["2026-02"]);
+  });
+});
+
+describe("main dashboard filter labels", () => {
+  it("labels the month filter as Creation Time and uses Requirement in the UI mappings", () => {
+    expect(
+      mainDashboardFilterFieldMappings.find(({ viewKey }) => viewKey === "months")?.label,
+    ).toBe("Creation Time");
+    expect(
+      mainDashboardUiFilterFieldMappings.some(({ viewKey }) => viewKey === "months"),
+    ).toBe(false);
+    expect(
+      mainDashboardUiFilterFieldMappings.find(({ viewKey }) => viewKey === "requirements")?.label,
+    ).toBe("Requirement");
+    expect(
+      mainDashboardUiFilterFieldMappings.some(({ viewKey }) => viewKey === "years"),
+    ).toBe(false);
+  });
 });
 
 describe("buildMainDashboardApiUrl", () => {
   it("preserves the TPMDashboard query parameter names", () => {
     const url = buildMainDashboardApiUrl("/api/full-picture/dashboard", {
       years: ["2026"],
+      creationTimeStart: "2026-03-01",
+      creationTimeEnd: "2026-05-31",
+      requirements: ["DOC_PreCon_A", "DOC_PreCon_B"],
       projects: ["G68", "U12"],
       assignedEcus: ["ECU-A"],
       problemFinderTeams: ["DTSV_China"],
@@ -266,6 +364,9 @@ describe("buildMainDashboardApiUrl", () => {
     });
 
     expect(url).toContain("years=2026");
+    expect(url).toContain("creation_time_start=2026-03-01");
+    expect(url).toContain("creation_time_end=2026-05-31");
+    expect(url).toContain("requirements=DOC_PreCon_A%2CDOC_PreCon_B");
     expect(url).toContain("projects=G68%2CU12");
     expect(url).toContain("assigned_ecus=ECU-A");
     expect(url).toContain("problem_finder_teams=DTSV_China");
@@ -302,6 +403,7 @@ describe("fetchMainDashboardData", () => {
           defect_db_path: "defect.db",
           history_db_path: "history.db",
           years: ["2026"],
+          requirements: ["DOC_PreCon_A"],
           projects: ["G68"],
           assigned_ecus: [],
           problem_finder_teams: [],
@@ -315,6 +417,7 @@ describe("fetchMainDashboardData", () => {
         },
         filters: {
           years: ["2026"],
+          requirements: ["DOC_PreCon_A"],
           projects: ["G68"],
           assigned_ecus: [],
           problem_finder_teams: [],
@@ -351,6 +454,7 @@ describe("fetchMainDashboardData", () => {
             problem_finder_team: "DTSV_China",
             group: "Integration",
             phase: "Validation",
+            requirement: "DOC_PreCon_A",
             is_resolved_forward: true,
             is_rejected_directly: false,
             year: "2026",

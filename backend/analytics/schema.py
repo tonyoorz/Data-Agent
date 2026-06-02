@@ -19,6 +19,21 @@ MANUAL_RUN_ADDITIONAL_COLUMNS: tuple[str, ...] = (
     "lead_model",
 )
 
+DEFECT_ADDITIONAL_COLUMNS: tuple[str, ...] = (
+    "requirement",
+    "requirements_json",
+)
+
+
+def _ensure_defect_additional_columns(conn) -> None:
+    existing_columns = {
+        row[1] for row in conn.execute("PRAGMA table_info(octane_defects)").fetchall()
+    }
+    for column_name in DEFECT_ADDITIONAL_COLUMNS:
+        if column_name in existing_columns:
+            continue
+        conn.execute(f"ALTER TABLE octane_defects ADD COLUMN {column_name} TEXT")
+
 
 def _ensure_manual_run_additional_columns(conn) -> None:
     existing_columns = {
@@ -54,7 +69,6 @@ def ensure_schema(db_path: Path | str) -> None:
                 field_name TEXT,
                 old_value TEXT,
                 new_value TEXT,
-                raw_event_json TEXT NOT NULL,
                 fetched_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS octane_manual_runs (
@@ -104,6 +118,7 @@ def ensure_schema(db_path: Path | str) -> None:
             );
             """
         )
+        _ensure_defect_additional_columns(conn)
         _ensure_manual_run_additional_columns(conn)
         conn.commit()
     finally:

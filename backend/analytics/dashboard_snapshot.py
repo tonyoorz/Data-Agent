@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timezone
@@ -17,6 +18,25 @@ def get_summary_cache() -> dict[str, dict[str, object]]:
 
 def reset_summary_cache() -> None:
     _summary_cache.clear()
+
+
+def format_snapshot_source_mtime(db_path: Path | str) -> str:
+    stat_result = Path(db_path).resolve().stat()
+    return datetime.fromtimestamp(stat_result.st_mtime, timezone.utc).replace(microsecond=0).isoformat().replace(
+        "+00:00",
+        "Z",
+    )
+
+
+def build_snapshot_source_signature(db_path: Path | str) -> str:
+    resolved_path = Path(db_path).resolve()
+    stat_result = resolved_path.stat()
+    return f"{resolved_path}|{stat_result.st_size}|{stat_result.st_mtime_ns}"
+
+
+def build_full_picture_snapshot_version(source_db_path: Path | str) -> str:
+    digest = hashlib.sha1(build_snapshot_source_signature(source_db_path).encode("utf-8")).hexdigest()[:16]
+    return f"snapshot-{digest}"
 
 
 def _normalize_filter_values(values: object) -> list[str]:

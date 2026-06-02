@@ -7,11 +7,15 @@ const numberFormatter = new Intl.NumberFormat("en-US");
 type MainDashboardKpisProps = {
   overview: MainDashboardOverview;
   teamCount: number;
+  aidaCount: number;
+  solutionClusterCount: number;
 };
 
 const MainDashboardKpis = ({
   overview,
   teamCount,
+  aidaCount,
+  solutionClusterCount,
 }: MainDashboardKpisProps) => {
   const cards = [
     {
@@ -22,16 +26,16 @@ const MainDashboardKpis = ({
       iconClassName: "bg-primary/10 text-primary",
     },
     {
-      label: "Resolved Forward",
-      value: numberFormatter.format(overview.resolvedForwardCount),
-      meta: `${overview.resolvedForwardPercent}% of scoped tickets`,
+      label: "AIDA",
+      value: numberFormatter.format(aidaCount),
+      meta: `${aidaCount === 1 ? "value" : "values"} available in the current filter scope`,
       icon: GitPullRequestArrow,
       iconClassName: "bg-success/10 text-success",
     },
     {
-      label: "Rejected Directly",
-      value: numberFormatter.format(overview.rejectedDirectlyCount),
-      meta: `${overview.rejectedDirectlyPercent}% of scoped tickets`,
+      label: "Solution Cluster",
+      value: numberFormatter.format(solutionClusterCount),
+      meta: `${solutionClusterCount === 1 ? "value" : "values"} available in the current filter scope`,
       icon: ShieldX,
       iconClassName: "bg-destructive/10 text-destructive",
     },

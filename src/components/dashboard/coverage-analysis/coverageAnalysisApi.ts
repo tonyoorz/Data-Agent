@@ -164,37 +164,62 @@ export async function fetchCoverageAnalysisPageData(
 export async function fetchCoverageAnalysisOverviewData(
   filters: Partial<CoverageAnalysisFilters> = {},
 ): Promise<CoverageAnalysisOverviewData> {
+  const [filterOptions, projectStatusRows, aidaStatusRows] =
+    await Promise.all([
+      fetchCoverageAnalysisFilterOptions(filters),
+      fetchCoverageAnalysisProjectStatusRows(filters),
+      fetchCoverageAnalysisAidaStatusRows(filters),
+    ]);
+
+  return {
+    filterOptions,
+    projectStatusRows,
+    aidaStatusRows,
+  };
+}
+
+export async function fetchCoverageAnalysisFilterOptions(
+  filters: Partial<CoverageAnalysisFilters> = {},
+): Promise<CoverageAnalysisFilterOptions> {
   const filtersUrl = buildCoverageAnalysisUrl(
     "/api/testing/coverage-analysis/filters",
     filters,
   );
+
+  const payload = await fetchJson<CoverageAnalysisFilterOptionsResponse>(
+    filtersUrl,
+    "coverage filters",
+  );
+
+  return adaptCoverageAnalysisFilterOptions(payload);
+}
+
+export async function fetchCoverageAnalysisProjectStatusRows(
+  filters: Partial<CoverageAnalysisFilters> = {},
+): Promise<CoverageAnalysisProjectStatusRow[]> {
   const projectStatusUrl = buildCoverageAnalysisUrl(
     "/api/testing/coverage-analysis/project-status",
     filters,
   );
+
+  return fetchJson<CoverageAnalysisProjectStatusRow[]>(
+    projectStatusUrl,
+    "coverage project status",
+  );
+}
+
+export async function fetchCoverageAnalysisAidaStatusRows(
+  filters: Partial<CoverageAnalysisFilters> = {},
+): Promise<CoverageAnalysisAidaStatusRow[]> {
   const aidaStatusUrl = buildCoverageAnalysisUrl(
     "/api/testing/coverage-analysis/aida-status",
     filters,
   );
 
-  const [filterOptions, projectStatusRows, aidaStatusRows] =
-    await Promise.all([
-      fetchJson<CoverageAnalysisFilterOptionsResponse>(filtersUrl, "coverage filters"),
-      fetchJson<CoverageAnalysisProjectStatusRow[]>(
-        projectStatusUrl,
-        "coverage project status",
-      ),
-      fetchJson<CoverageAnalysisAidaStatusRow[]>(
-        aidaStatusUrl,
-        "coverage AIDA status",
-      ),
-    ]);
-
-  return {
-    filterOptions: adaptCoverageAnalysisFilterOptions(filterOptions),
-    projectStatusRows,
-    aidaStatusRows,
-  };
+  return fetchJson<CoverageAnalysisAidaStatusRow[]>(
+    aidaStatusUrl,
+    "coverage AIDA status",
+  );
 }
 
 export async function fetchCoverageAnalysisTestcaseDetailRows(

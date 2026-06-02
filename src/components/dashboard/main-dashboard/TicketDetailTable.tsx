@@ -36,12 +36,14 @@ import type { MainDashboardTicketRow, MainDashboardTicketSortOrder } from "./mai
 type TicketDetailTableProps = {
   rows: MainDashboardTicketRow[];
   totalRows: number;
+  totalPages?: number;
   page: number;
   pageSize: number;
   sortBy: string;
   sortOrder: MainDashboardTicketSortOrder;
   selection: MainDashboardDrilldownSelection;
   selectedOutcomeLabel?: string | null;
+  pinnedTopTopicCount?: number;
   onClearSelection: () => void;
   onPageChange: (page: number) => void;
   onPageSizeChange: (pageSize: number) => void;
@@ -71,6 +73,7 @@ const ticketDetailColumnSortKeys = {
   ticketName: "ticket_name",
   problemFinderTeam: "problem_finder_team",
   classification: "classification",
+  requirement: "requirement",
   problemSeverity: "problem_severity",
   phase: "phase",
   group: "group",
@@ -117,6 +120,24 @@ const densityClassNames: Record<DensityMode, { cell: string; header: string }> =
 };
 
 const pageSizeOptions = [20, 50, 100] as const;
+const autoExpandColumnId = "ticketName";
+const OCTANE_WORK_ITEM_URL_BASE =
+  "https://octane-prod.bmwgroup.net/ui/entity-navigation?p=1002/2001&entityType=work_item&id=";
+
+function buildOctaneWorkItemUrl(ticketId: string) {
+  return `${OCTANE_WORK_ITEM_URL_BASE}${encodeURIComponent(ticketId)}`;
+}
+
+function getColumnWidthStyle(
+  column: Column<MainDashboardTicketRow, unknown>,
+  columnSizing: Record<string, number>,
+) {
+  if (column.id === autoExpandColumnId && !(column.id in columnSizing)) {
+    return undefined;
+  }
+
+  return { width: column.getSize() };
+}
 
 function getOutcomeLabel(row: MainDashboardTicketRow) {
   if (row.isResolvedForward) {
@@ -137,6 +158,7 @@ function createTicketDetailSearchIndex(row: MainDashboardTicketRow) {
     row.ticketName,
     row.problemFinderTeam,
     row.classification ?? "",
+    row.requirement ?? "",
     row.problemSeverity ?? "",
     row.status,
     row.phase,
@@ -188,12 +210,14 @@ function getColumnMenuFilterOptions(column: Column<MainDashboardTicketRow, unkno
 const TicketDetailTable = ({
   rows,
   totalRows,
+  totalPages,
   page,
   pageSize,
   sortBy,
   sortOrder,
   selection,
   selectedOutcomeLabel,
+  pinnedTopTopicCount = 0,
   onClearSelection,
   onPageChange,
   onPageSizeChange,
@@ -205,6 +229,7 @@ const TicketDetailTable = ({
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [sorting, setSorting] = useState<SortingState>(() => createSortingState(sortBy, sortOrder));
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({
+    phase: false,
     group: false,
     outcome: false,
     project: false,
@@ -222,9 +247,9 @@ const TicketDetailTable = ({
   const [columnSizing, setColumnSizing] = useState<Record<string, number>>({
     ticketId: 104,
     creationTime: 172,
-    ticketName: 260,
     problemFinderTeam: 184,
     classification: 180,
+    requirement: 208,
     problemSeverity: 164,
     phase: 132,
     group: 132,
@@ -275,7 +300,14 @@ const TicketDetailTable = ({
         } satisfies TicketDetailColumnMeta,
         enableSorting: true,
         cell: ({ row }) => (
-          <span className="font-mono text-[11px] text-muted-foreground">{row.original.ticketId}</span>
+          <a
+            href={buildOctaneWorkItemUrl(row.original.ticketId)}
+            target="_blank"
+            rel="noreferrer"
+            className="font-mono text-[11px] text-primary underline-offset-2 hover:underline"
+          >
+            {row.original.ticketId}
+          </a>
         ),
       },
       {
@@ -332,6 +364,19 @@ const TicketDetailTable = ({
         cell: ({ row }) => <span>{row.original.classification || "-"}</span>,
       },
       {
+        accessorKey: "phase",
+        header: "Phase",
+        size: 132,
+        minSize: 108,
+        meta: {
+          label: "Phase",
+          filterPlaceholder: "Filter Phase column",
+          sortBy: "phase",
+          supportsMenuFilter: true,
+        } satisfies TicketDetailColumnMeta,
+        enableSorting: true,
+      },
+      {
         accessorKey: "problemSeverity",
         header: "Problem Severity",
         size: 164,
@@ -346,17 +391,18 @@ const TicketDetailTable = ({
         cell: ({ row }) => <span>{row.original.problemSeverity || "-"}</span>,
       },
       {
-        accessorKey: "phase",
-        header: "Phase",
-        size: 132,
-        minSize: 108,
+        accessorKey: "requirement",
+        header: "Requirement",
+        size: 208,
+        minSize: 160,
         meta: {
-          label: "Phase",
-          filterPlaceholder: "Filter Phase column",
-          sortBy: "phase",
+          label: "Requirement",
+          filterPlaceholder: "Filter Requirement column",
+          sortBy: "requirement",
           supportsMenuFilter: true,
         } satisfies TicketDetailColumnMeta,
         enableSorting: true,
+        cell: ({ row }) => <span>{row.original.requirement || "-"}</span>,
       },
       {
         accessorKey: "group",
@@ -562,12 +608,12 @@ const TicketDetailTable = ({
 
   const visibleColumns = table.getAllLeafColumns().filter((column) => column.getCanHide());
   const visibleRows = table.getRowModel().rows;
-  const totalPages = Math.max(Math.ceil(totalRows / pageSize), 1);
+  const resolvedTotalPages = totalPages ?? Math.max(Math.ceil(totalRows / pageSize), 1);
   const densityClassName = densityClassNames[density];
 
   useEffect(() => {
-    setPageJumpValue(String(Math.min(page, totalPages)));
-  }, [page, totalPages]);
+    setPageJumpValue(String(Math.min(page, resolvedTotalPages)));
+  }, [page, resolvedTotalPages]);
 
   const commitPageJump = () => {
     const trimmedPage = pageJumpValue.trim();
@@ -584,7 +630,7 @@ const TicketDetailTable = ({
       return;
     }
 
-    const nextPage = Math.min(Math.max(Math.trunc(parsedPage), 1), totalPages);
+    const nextPage = Math.min(Math.max(Math.trunc(parsedPage), 1), resolvedTotalPages);
     onPageChange(nextPage);
     setPageJumpValue(String(nextPage));
   };
@@ -597,6 +643,11 @@ const TicketDetailTable = ({
           <p className="text-sm text-muted-foreground">
             {rows.length} of {totalRows} tickets
           </p>
+          {pinnedTopTopicCount > 0 ? (
+            <p className="text-xs text-muted-foreground">
+              {pinnedTopTopicCount} Top Topic {pinnedTopTopicCount === 1 ? "ticket is" : "tickets are"} pinned above current Creation Time / Problem Finder Team scope.
+            </p>
+          ) : null}
         </div>
 
         {hasSelection ? (
@@ -646,7 +697,7 @@ const TicketDetailTable = ({
                     setGlobalFilter(nextValue);
                     onSearchChange(nextValue);
                   }}
-                  placeholder="Search tickets, titles, teams, or phase"
+                  placeholder="Search tickets, titles, teams, requirement, or phase"
                   className="h-9 pl-8 text-sm"
                 />
               </div>
@@ -743,7 +794,7 @@ const TicketDetailTable = ({
 
           <div className="flex flex-col gap-2 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
             <p>
-              Page {page} of {totalPages}
+              Page {page} of {resolvedTotalPages}
             </p>
             <div className="flex flex-wrap items-center gap-2">
               <label className="flex items-center gap-2">
@@ -752,7 +803,7 @@ const TicketDetailTable = ({
                   type="number"
                   inputMode="numeric"
                   min={1}
-                  max={totalPages}
+                  max={resolvedTotalPages}
                   value={pageJumpValue}
                   onChange={(event) => setPageJumpValue(event.target.value)}
                   onBlur={commitPageJump}
@@ -778,8 +829,8 @@ const TicketDetailTable = ({
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => onPageChange(Math.min(page + 1, totalPages))}
-                disabled={page >= totalPages}
+                onClick={() => onPageChange(Math.min(page + 1, resolvedTotalPages))}
+                disabled={page >= resolvedTotalPages}
               >
                 Next page
               </Button>
@@ -794,7 +845,7 @@ const TicketDetailTable = ({
             <Table
               aria-label="Ticket detail table"
               className="min-w-[1100px] table-fixed border-separate border-spacing-0"
-              style={{ width: table.getCenterTotalSize() }}
+              style={{ width: "100%", minWidth: table.getCenterTotalSize() }}
             >
               <TableHeader>
                 {table.getHeaderGroups().map((headerGroup) => (
@@ -834,7 +885,7 @@ const TicketDetailTable = ({
                           key={header.id}
                           aria-sort={ariaSort}
                           className={`relative border-b border-border/70 bg-background/95 ${densityClassNames[density].header}`}
-                          style={{ width: header.getSize() }}
+                          style={getColumnWidthStyle(header.column, columnSizing)}
                         >
                           {meta?.sortBy && !header.isPlaceholder ? (
                             <div className="flex items-start gap-1 pr-3">
@@ -969,7 +1020,7 @@ const TicketDetailTable = ({
                       <TableHead
                         key={`${column.id}-filter`}
                         className="border-b border-border/60 bg-muted/20 px-2 py-2"
-                        style={{ width: column.getSize() }}
+                        style={getColumnWidthStyle(column, columnSizing)}
                       >
                         {selectedValueCount !== null ? (
                           <div className="mb-1 text-[11px] text-muted-foreground">{selectedValueCount} selected</div>
@@ -1002,7 +1053,7 @@ const TicketDetailTable = ({
                         <TableCell
                           key={cell.id}
                           className={`${densityClassName.cell} border-b border-border/50 last:border-r-0`}
-                          style={{ width: cell.column.getSize() }}
+                          style={getColumnWidthStyle(cell.column, columnSizing)}
                         >
                           <div className="truncate">
                             {flexRender(cell.column.columnDef.cell, cell.getContext())}

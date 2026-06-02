@@ -6,6 +6,8 @@ import json
 import re
 import sqlite3
 
+from backend.analytics.dashboard_snapshot import build_full_picture_snapshot_version
+
 
 OUTCOME_SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS defect_outcomes (
@@ -54,6 +56,17 @@ def _compute_source_signature(db_path: Path | str) -> str:
 	resolved_path = Path(db_path).resolve()
 	stat_result = resolved_path.stat()
 	return f"{resolved_path}|{stat_result.st_size}|{stat_result.st_mtime_ns}"
+
+
+def _source_has_full_picture_defect_table(db_path: Path | str) -> bool:
+	conn = _open_read_only_connection(db_path)
+	try:
+		row = conn.execute(
+			"SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'octane_defects'"
+		).fetchone()
+		return row is not None
+	finally:
+		conn.close()
 
 
 def _extract_phase_code(raw_value: object) -> str | None:
@@ -134,18 +147,13 @@ def _derive_outcome_rows(source_db_path: Path | str, source_signature: str) -> l
 		defect_id = str(_row_value(row, "defect_id") or "").strip()
 		if not defect_id:
 			continue
-		payload = _coerce_json_object(_row_value(row, "raw_event_json"))
 		old_code = _extract_preferred_phase_code(
 			_row_value(row, "old_value_text"),
-			payload.get("old_value_text"),
 			_row_value(row, "old_value"),
-			payload.get("old_value"),
 		)
 		new_code = _extract_preferred_phase_code(
 			_row_value(row, "new_value_text"),
-			payload.get("new_value_text"),
 			_row_value(row, "new_value"),
-			payload.get("new_value"),
 		)
 		bucket = per_defect.setdefault(
 			defect_id,
@@ -190,6 +198,10 @@ def refresh_materialized_outcomes(
 ) -> dict[str, object]:
 	resolved_hot_path = ensure_outcome_store(hot_db_path)
 	source_signature = _compute_source_signature(source_db_path)
+	snapshot_version = build_full_picture_snapshot_version(source_db_path)
+	publish_dashboard_snapshot = _source_has_full_picture_defect_table(source_db_path)
+
+	from backend.analytics import read_models
 
 	hot_conn = sqlite3.connect(resolved_hot_path)
 	try:
@@ -204,6 +216,13 @@ def refresh_materialized_outcomes(
 			not force
 			and refresh_state_signature == source_signature
 			and refresh_state_row_count == existing_row_count
+			and (
+				not publish_dashboard_snapshot
+				or read_models.has_materialized_dashboard_snapshot_rows(
+					snapshot_version,
+					hot_db_path=resolved_hot_path,
+				)
+			)
 		):
 			return {
 				"row_count": existing_row_count,
@@ -252,6 +271,13 @@ def refresh_materialized_outcomes(
 		hot_conn.commit()
 	finally:
 		hot_conn.close()
+
+	if publish_dashboard_snapshot:
+		read_models.publish_dashboard_snapshot_rows(
+			snapshot_version,
+			defect_db_path=source_db_path,
+			hot_db_path=resolved_hot_path,
+		)
 
 	return {
 		"row_count": len(derived_rows),

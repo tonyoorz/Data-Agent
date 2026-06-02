@@ -8,7 +8,7 @@ import type {
   MainDashboardViewModel,
 } from "./mainDashboardTypes";
 import { getTicketChinaScope } from "./mainDashboardChinaScope";
-import { getTicketMonthValue } from "./mainDashboardDateUtils";
+import { getTicketMonthValue, parseTicketDateValue } from "./mainDashboardDateUtils";
 
 export type MainDashboardFilterState = {
   searchText: string;
@@ -65,6 +65,19 @@ function matchesProblemFinderTeamFilter(activeValues: string[], candidate: strin
   );
 }
 
+function matchesRequirementFilter(activeValues: string[], candidate: string) {
+  if (activeValues.length === 0) {
+    return true;
+  }
+
+  const normalizedValues = candidate
+    .split("|")
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  return activeValues.some((value) => normalizedValues.includes(value));
+}
+
 function matchesSearch(row: MainDashboardTicketRow, searchText: string) {
   const query = searchText.trim().toLocaleLowerCase();
 
@@ -74,8 +87,36 @@ function matchesSearch(row: MainDashboardTicketRow, searchText: string) {
 
   return (
     row.ticketId.toLocaleLowerCase().includes(query) ||
-    row.ticketName.toLocaleLowerCase().includes(query)
+    row.ticketName.toLocaleLowerCase().includes(query) ||
+    (row.requirement ?? "").toLocaleLowerCase().includes(query)
   );
+}
+
+function matchesCreationTimeRange(row: MainDashboardTicketRow, filters: MainDashboardFilters) {
+  if (!filters.creationTimeStart && !filters.creationTimeEnd) {
+    return true;
+  }
+
+  const parsedCreationTime = parseTicketDateValue(row.creationTime);
+  if (!parsedCreationTime) {
+    return false;
+  }
+
+  if (filters.creationTimeStart) {
+    const startValue = parseTicketDateValue(filters.creationTimeStart);
+    if (startValue && parsedCreationTime.sortValue < startValue.sortValue) {
+      return false;
+    }
+  }
+
+  if (filters.creationTimeEnd) {
+    const endValue = parseTicketDateValue(filters.creationTimeEnd);
+    if (endValue && parsedCreationTime.sortValue > endValue.sortValue) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 function matchesFilters(
@@ -84,7 +125,9 @@ function matchesFilters(
 ) {
   return (
     matchesListFilter(filters.years, row.year) &&
-    matchesListFilter(filters.months, getTicketMonthValue(row.ticketDate) ?? "") &&
+    matchesCreationTimeRange(row, filters) &&
+    matchesListFilter(filters.months, getTicketMonthValue(row.creationTime) ?? "") &&
+    matchesRequirementFilter(filters.requirements, row.requirement ?? "") &&
     matchesListFilter(filters.chinaScopes, getTicketChinaScope(row)) &&
     matchesListFilter(filters.projects, row.project) &&
     matchesListFilter(filters.assignedEcus, row.assignedEcu) &&

@@ -6,7 +6,6 @@ import shutil
 import sqlite3
 import sys
 from collections.abc import Sequence
-from datetime import datetime, timezone
 from pathlib import Path
 
 if __package__ in {None, ""}:
@@ -20,21 +19,140 @@ from backend.analytics.config import (
     get_full_picture_history_db_candidates,
     get_full_picture_hot_db_path,
     get_full_picture_source_db_path,
-    get_octane_base_url,
-    get_octane_cookie_file_path,
 )
-from backend.analytics.asset_loader import get_asset_data_root
 from backend.analytics.cold_archive import archive_source_to_cold_storage
+from backend.analytics.dashboard_snapshot import (
+    activate_snapshot_version,
+    build_full_picture_snapshot_version,
+    format_snapshot_source_mtime,
+    record_snapshot_refresh,
+)
 from backend.analytics.db import connect
 from backend.analytics.full_picture_outcomes import refresh_materialized_outcomes
+from backend.analytics.ingest import client as ingest_client
+from backend.analytics.ingest import pipeline as ingest_pipeline
+from backend.analytics.legacy_bridge import (
+    refresh_legacy_qgate_source_incremental,
+    refresh_octane_cookie,
+    resume_legacy_qgate_history_source,
+    run_legacy_qgate_source,
+    run_legacy_testcase_source,
+    sync_octane_auth_from_legacy,
+)
 from backend.analytics.processor import backfill_defect_projects, run_processor_pipeline, sync_dimension_fields
-from backend.analytics.testing_coverage_hot import refresh_materialized_testing_coverage
 from backend.analytics.schema import ensure_schema
+from backend.analytics.testing_coverage_hot import refresh_materialized_testing_coverage
 
 
 HISTORY_SOURCE_REQUIRED_COLUMNS = frozenset({"defect_id", "field_name", "event_timestamp"})
 SOURCE_STAGE_REQUIRED_TABLES = frozenset({"octane_defects", "octane_defect_history_events"})
-TESTING_SOURCE_REQUIRED_TABLES = frozenset({"octane_manual_runs"})
+def _parse_csv_values(raw_value: str | None) -> tuple[str, ...]:
+    if raw_value is None:
+        return ()
+    return tuple(part.strip() for part in str(raw_value).split(",") if part.strip())
+
+
+def _parse_year_values(raw_value: str | None) -> tuple[int, ...]:
+    values = _parse_csv_values(raw_value)
+    return tuple(int(value) for value in values if value.isdigit())
+
+
+def _emit_progress(message: str) -> None:
+    print(message, flush=True)
+
+
+def _refresh_full_picture_outcomes_with_progress(
+    *,
+    source_db_path: Path | str,
+    hot_db_path: Path | str,
+    force: bool,
+) -> dict[str, object]:
+    _emit_progress(f"Starting full-picture outcomes refresh force={bool(force)}")
+    _emit_progress(f"Deriving hot outcomes from {Path(source_db_path).resolve()}")
+    summary = refresh_materialized_outcomes(
+        source_db_path,
+        hot_db_path,
+        force=force,
+    )
+    _emit_progress("Recording dashboard snapshot metadata...")
+    snapshot_version = _build_full_picture_snapshot_version(source_db_path)
+    record_snapshot_refresh(
+        hot_db_path,
+        snapshot_version=snapshot_version,
+        source_db_path=str(Path(source_db_path).resolve()),
+        source_db_mtime=_format_snapshot_source_mtime(source_db_path),
+        refresh_status="ready",
+        last_error=None,
+    )
+    activate_snapshot_version(hot_db_path, snapshot_version)
+    _emit_progress("Full-picture outcomes refresh finished")
+    return summary
+
+
+def _refresh_manual_runs_source_with_progress(*, team_name: str, years: tuple[int, ...]) -> dict[str, object]:
+    source_db_path = get_full_picture_source_db_path()
+    _emit_progress(
+        f"Starting manual-runs refresh for {team_name} years={','.join(str(year) for year in years)}"
+    )
+    summary = ingest_pipeline.refresh_octane_manual_runs_only(
+        source_db_path=source_db_path,
+        team_name=team_name,
+        years=years,
+        client=ingest_client.build_default_octane_client(),
+        progress=_emit_progress,
+    )
+    _emit_progress("Running processor pipeline...")
+    processor_summary = run_processor_pipeline(source_db_path)
+    _emit_progress("Processor pipeline finished")
+    return {**summary, **processor_summary}
+
+
+def _refresh_testing_coverage_hot_with_progress(*, force: bool) -> dict[str, object]:
+    source_db_path = get_full_picture_source_db_path()
+    hot_db_path = get_full_picture_hot_db_path()
+    summary = refresh_materialized_testing_coverage(
+        source_db_path=source_db_path,
+        hot_db_path=hot_db_path,
+        force=force,
+    )
+    return summary
+
+
+def _refresh_all_sources_with_progress(args: argparse.Namespace) -> dict[str, object]:
+    teams = tuple(part.strip() for part in str(args.teams or "").split(",") if part.strip()) or ("DTSV_China",)
+    years = tuple(int(part.strip()) for part in str(args.years or datetime.now().year).split(",") if part.strip())
+    manual_team_name = str(args.team_name or "DTSV_China")
+    source_db_path = get_full_picture_source_db_path()
+    hot_db_path = get_full_picture_hot_db_path()
+
+    _emit_progress(
+        f"Starting combined source refresh teams={','.join(teams)} years={','.join(str(year) for year in years)} manual_team={manual_team_name}"
+    )
+    _emit_progress("Step 1/3: refreshing incremental defect/history source...")
+    legacy_summary = refresh_legacy_qgate_source_incremental(
+        teams=teams,
+        years=years,
+        include_comments=not args.skip_comments,
+        history_max_workers=int(args.history_max_workers or 50),
+        save_files=args.save_files,
+        cookie_file=args.cookie_file,
+    )
+
+    _emit_progress("Step 2/3: refreshing manual runs source...")
+    manual_summary = _refresh_manual_runs_source_with_progress(team_name=manual_team_name, years=years)
+
+    _emit_progress("Step 3/3: refreshing full-picture outcomes...")
+    outcomes_summary = _refresh_full_picture_outcomes_with_progress(
+        source_db_path=source_db_path,
+        hot_db_path=hot_db_path,
+        force=args.force,
+    )
+    _emit_progress("Combined source refresh finished")
+    return {
+        "legacy_refresh": legacy_summary,
+        "manual_runs_refresh": manual_summary,
+        "outcomes_refresh": outcomes_summary,
+    }
 
 
 def seed_testing_rows() -> None:
@@ -140,41 +258,11 @@ def _require_source_stage_input_path() -> Path:
     raise SystemExit("No Full Picture source database is available for local staging")
 
 
-def _require_testing_source_input_path() -> Path:
-    repo_root = Path(__file__).resolve().parents[1]
-    candidates = [
-        Path(str(Path.cwd() / "database" / "local_data_rebuilt.db")),
-        repo_root.parent / "TPMDashbaord" / "database" / "local_data_rebuilt.db",
-    ]
-    for candidate in candidates:
-        if _is_valid_testing_source_path(candidate):
-            return candidate.resolve()
-    raise SystemExit("No testing source database is available for local staging")
-
-
-def _require_valid_testing_source_input_path(candidate: str | Path) -> Path:
-    resolved = Path(candidate)
-    if _is_valid_testing_source_path(resolved):
-        return resolved.resolve()
-    raise SystemExit(f"Provided testing source database is invalid: {resolved}")
-
-
 def _require_valid_source_stage_input_path(candidate: str | Path) -> Path:
     resolved = Path(candidate)
     if _is_valid_source_stage_path(resolved):
         return resolved
     raise SystemExit(f"Provided Full Picture source database is invalid: {resolved}")
-
-
-def _require_local_source_path() -> Path:
-	resolved = get_full_picture_source_db_path().resolve()
-	if _is_valid_source_stage_path(resolved):
-		return resolved
-	raise SystemExit("No staged Full Picture source database is available")
-
-
-def _table_columns(conn: sqlite3.Connection, table_name: str) -> list[str]:
-    return [str(row[1]).strip() for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()]
 
 
 def _is_valid_source_stage_path(candidate: Path) -> bool:
@@ -201,32 +289,6 @@ def _is_valid_source_stage_path(candidate: Path) -> bool:
     return SOURCE_STAGE_REQUIRED_TABLES.issubset(tables)
 
 
-def _is_valid_testing_source_path(candidate: Path) -> bool:
-    if not candidate.exists() or not candidate.is_file():
-        return False
-
-    try:
-        conn = sqlite3.connect(str(candidate))
-    except sqlite3.Error:
-        return False
-
-    try:
-        tables = {
-            str(row[0]).strip().lower()
-            for row in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table'"
-            ).fetchall()
-        }
-        if not TESTING_SOURCE_REQUIRED_TABLES.issubset(tables):
-            return False
-        row = conn.execute("SELECT COUNT(*) FROM octane_manual_runs").fetchone()
-        return bool(row and int(row[0] or 0) > 0)
-    except sqlite3.Error:
-        return False
-    finally:
-        conn.close()
-
-
 def _get_defect_source_row_count(candidate: Path) -> int:
     conn = sqlite3.connect(str(candidate))
     try:
@@ -249,125 +311,6 @@ def _stage_full_picture_source(source_db_path: Path | str) -> dict[str, object]:
         "staged_db_path": str(target_path),
         "copied": resolved_source_path != target_path,
     }
-
-
-def _stage_testing_source(source_db_path: Path | str) -> dict[str, object]:
-    resolved_source_path = Path(source_db_path).resolve()
-    target_path = get_full_picture_source_db_path().resolve()
-    target_path.parent.mkdir(parents=True, exist_ok=True)
-    ensure_schema(target_path)
-
-    source_conn = sqlite3.connect(str(resolved_source_path))
-    source_conn.row_factory = sqlite3.Row
-    target_conn = sqlite3.connect(str(target_path))
-    try:
-        source_columns = _table_columns(source_conn, "octane_manual_runs")
-        target_columns = _table_columns(target_conn, "octane_manual_runs")
-        insert_columns = [
-            column
-            for column in target_columns
-            if column in source_columns or column == "tester"
-        ]
-        if not insert_columns:
-            raise SystemExit("Testing source database has no compatible octane_manual_runs columns")
-
-        source_rows = source_conn.execute(
-            f"SELECT {', '.join(source_columns)} FROM octane_manual_runs"
-        ).fetchall()
-
-        target_conn.execute("DELETE FROM octane_manual_runs")
-        target_conn.execute("DELETE FROM octane_testcases")
-
-        if source_rows:
-            placeholders = ", ".join("?" for _ in insert_columns)
-            target_conn.executemany(
-                f"INSERT INTO octane_manual_runs({', '.join(insert_columns)}) VALUES ({placeholders})",
-                [
-                    tuple(
-                        (
-                            str(
-                                row["tester"]
-                                if "tester" in source_columns and row["tester"]
-                                else row["author_name"]
-                                if "author_name" in source_columns and row["author_name"]
-                                else row["run_by"]
-                                if "run_by" in source_columns and row["run_by"]
-                                else row["author"]
-                                if "author" in source_columns and row["author"]
-                                else ""
-                            ).strip()
-                            if column == "tester"
-                            else row[column]
-                        )
-                        for column in insert_columns
-                    )
-                    for row in source_rows
-                ],
-            )
-
-        testcase_rows_by_id: dict[str, dict[str, object]] = {}
-        for row in source_rows:
-            test_id = str(row["test_id"] or "").strip()
-            if not test_id:
-                continue
-            current = testcase_rows_by_id.setdefault(
-                test_id,
-                {
-                    "test_name": str(row["test_name"] or "").strip(),
-                    "run_count": 0,
-                    "defect_ids": [],
-                    "seen_defect_ids": set(),
-                },
-            )
-            if not current["test_name"]:
-                current["test_name"] = str(row["test_name"] or "").strip()
-            current["run_count"] = int(current["run_count"]) + 1
-            defect_id = str(row["defect_id"] or "").strip()
-            if defect_id and defect_id not in current["seen_defect_ids"]:
-                current["seen_defect_ids"].add(defect_id)
-                current["defect_ids"].append(defect_id)
-
-        fetched_at = datetime.now(timezone.utc).isoformat()
-        testcase_target_columns = _table_columns(target_conn, "octane_testcases")
-        testcase_column_values = []
-        for test_id, payload in testcase_rows_by_id.items():
-            synthesized_row = {
-                "test_id": test_id,
-                "scope_team": "ALL",
-                "scope_release": "ALL",
-                "source": "stage-testing-source",
-                "test_name": str(payload["test_name"] or "").strip(),
-                "test_subtype": "",
-                "run_count": int(payload["run_count"]),
-                "run_ids_json": json.dumps([]),
-                "run_status_distribution_json": json.dumps({}),
-                "defect_ids_json": json.dumps(payload["defect_ids"]),
-                "manual_test_ids_json": json.dumps([]),
-                "feature_ids_json": json.dumps([]),
-                "story_ids_json": json.dumps([]),
-                "raw_json": json.dumps({"staged_from": str(resolved_source_path), "synthesized": True}),
-                "fetched_at": fetched_at,
-            }
-            testcase_column_values.append(
-                tuple(synthesized_row[column] for column in testcase_target_columns)
-            )
-        if testcase_column_values:
-            placeholders = ", ".join("?" for _ in testcase_target_columns)
-            target_conn.executemany(
-                f"INSERT INTO octane_testcases({', '.join(testcase_target_columns)}) VALUES ({placeholders})",
-                testcase_column_values,
-            )
-
-        target_conn.commit()
-        return {
-            "source_db_path": str(resolved_source_path),
-            "staged_db_path": str(target_path),
-            "manual_run_row_count": len(source_rows),
-            "testcase_row_count": len(testcase_column_values),
-        }
-    finally:
-        source_conn.close()
-        target_conn.close()
 
 
 def _is_valid_history_source_path(candidate: Path) -> bool:
@@ -426,8 +369,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--years")
     parser.add_argument("--skip-history", action="store_true")
     parser.add_argument("--skip-comments", action="store_true")
-    parser.add_argument("--skip-testing", action="store_true")
+    parser.add_argument("--full-history", action="store_true")
+    parser.add_argument("--save-files", action="store_true")
+    parser.add_argument("--cookie-file")
+    parser.add_argument("--team-name")
+    parser.add_argument("--release-name")
+    parser.add_argument("--page-limit", type=int)
+    parser.add_argument("--workers", type=int)
+    parser.add_argument("--workitems-fallback-max", type=int)
+    parser.add_argument("--workitems-fallback-workers", type=int)
+    parser.add_argument("--history-max-workers", type=int, default=50)
+    parser.add_argument("--refreshed-after")
     parser.add_argument("--headless", action="store_true")
+    parser.add_argument("--sync-login", action="store_true")
+    parser.add_argument("--prefer-local", action="store_true")
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     db_path = args.db_path or str(get_analytics_db_path())
@@ -445,56 +400,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         summary = backfill_defect_projects(db_path, apply=args.apply)
         print(json.dumps(summary, ensure_ascii=False))
         return 0
-    if args.command == "refresh-octane-cookie":
-        from backend.analytics.ingest.playwright_cookie_manager import refresh_cookie_file
-
-        refresh_cookie_file(
-            base_url=get_octane_base_url(),
-            cookie_file=get_octane_cookie_file_path(),
-            headless=bool(args.headless),
-        )
-        return 0
-    if args.command == "refresh-octane-source":
-        from backend.analytics.ingest.client import build_default_octane_client
-        from backend.analytics.ingest.pipeline import IngestRequest, refresh_octane_source
-
-        years = tuple(
-            int(value.strip())
-            for value in (args.years or "2025,2026").split(",")
-            if value.strip()
-        )
-        teams = tuple(
-            value.strip()
-            for value in (args.teams or "all").split(",")
-            if value.strip()
-        ) or ("all",)
-        request = IngestRequest(
-            source_db_path=get_full_picture_source_db_path(),
-            teams=teams,
-            years=years,
-            include_history=not args.skip_history,
-            include_comments=not args.skip_comments,
-            include_testing=not args.skip_testing,
-        )
-        summary = refresh_octane_source(
-            request=request,
-            client=build_default_octane_client(),
-        )
-        processor_summary = run_processor_pipeline(
-            request.source_db_path,
-            asset_root=get_asset_data_root(),
-        )
-        print(json.dumps({**summary, **processor_summary}, ensure_ascii=False))
-        return 0
-    if args.command == "audit-octane-dimensions":
-        summary = run_processor_pipeline(
-            get_full_picture_source_db_path(),
-            asset_root=get_asset_data_root(),
-            dry_run=True,
-            report_path=get_full_picture_hot_db_path().parent / "processor_dimension_diff.json",
-        )
-        print(json.dumps(summary, ensure_ascii=False))
-        return 0
     if args.command == "stage-full-picture-source":
         source_db_path = (
             _require_valid_source_stage_input_path(args.db_path)
@@ -508,7 +413,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         source_db_path = (
             _require_valid_source_stage_input_path(args.db_path)
             if args.db_path
-            else _require_local_source_path()
+            else _require_source_stage_input_path()
         )
         summary = archive_source_to_cold_storage(
             source_db_path,
@@ -517,39 +422,133 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         print(json.dumps(summary, ensure_ascii=False))
         return 0
-    if args.command == "stage-testing-source":
-        source_db_path = (
-            _require_valid_testing_source_input_path(args.db_path)
-            if args.db_path
-            else _require_testing_source_input_path()
-        )
-        summary = _stage_testing_source(source_db_path)
-        print(json.dumps(summary, ensure_ascii=False))
-        return 0
     if args.command == "refresh-full-picture-outcomes":
         source_db_path = (
             _require_valid_history_source_path(args.db_path)
             if args.db_path
             else _require_history_source_path()
         )
-        summary = refresh_materialized_outcomes(
-            source_db_path,
-            get_full_picture_hot_db_path(),
+        hot_db_path = get_full_picture_hot_db_path()
+        summary = _refresh_full_picture_outcomes_with_progress(
+            source_db_path=source_db_path,
+            hot_db_path=hot_db_path,
             force=args.force,
         )
         print(json.dumps(summary, ensure_ascii=False))
         return 0
+    if args.command == "refresh-octane-source":
+        source_db_path = get_full_picture_source_db_path()
+        request = ingest_pipeline.IngestRequest(
+            source_db_path=source_db_path,
+            teams=_parse_csv_values(args.teams) or ("all",),
+            years=_parse_year_values(args.years) or (datetime.now().year,),
+            include_history=not args.skip_history,
+            include_comments=not args.skip_comments,
+            include_testing=True,
+        )
+        summary = ingest_pipeline.refresh_octane_source(
+            request=request,
+            client=ingest_client.build_default_octane_client(),
+        )
+        processor_summary = run_processor_pipeline(source_db_path)
+        print(json.dumps({**summary, **processor_summary}, ensure_ascii=False))
+        return 0
+    if args.command == "refresh-manual-runs-source":
+        summary = _refresh_manual_runs_source_with_progress(
+            team_name=str(args.team_name or "DTSV_China"),
+            years=_parse_year_values(args.years) or (datetime.now().year,),
+        )
+        print(json.dumps(summary, ensure_ascii=False))
+        return 0
     if args.command == "refresh-testing-coverage-hot":
-        source_db_path = (
-            _require_valid_source_stage_input_path(args.db_path)
-            if args.db_path
-            else _require_local_source_path()
-        )
-        summary = refresh_materialized_testing_coverage(
+        summary = _refresh_testing_coverage_hot_with_progress(force=args.force)
+        print(json.dumps(summary, ensure_ascii=False))
+        return 0
+    if args.command == "refresh-all-sources":
+        summary = _refresh_all_sources_with_progress(args)
+        print(json.dumps(summary, ensure_ascii=False))
+        return 0
+    if args.command == "audit-octane-dimensions":
+        source_db_path = get_full_picture_source_db_path()
+        report_path = get_full_picture_hot_db_path().parent / "processor_dimension_diff.json"
+        summary = run_processor_pipeline(
             source_db_path,
-            get_full_picture_hot_db_path(),
-            force=args.force,
+            dry_run=True,
+            report_path=report_path,
         )
+        print(json.dumps(summary, ensure_ascii=False))
+        return 0
+    if args.command == "refresh-legacy-qgate-source":
+        teams = tuple(part.strip() for part in str(args.teams or "").split(",") if part.strip()) or ("DTSV_China",)
+        years = tuple(int(part.strip()) for part in str(args.years or datetime.now().year).split(",") if part.strip())
+        if args.skip_history:
+            summary = run_legacy_qgate_source(
+                teams=teams,
+                years=years,
+                include_history=False,
+                include_comments=not args.skip_comments,
+                save_files=args.save_files,
+                cookie_file=args.cookie_file,
+            )
+        elif args.full_history:
+            summary = run_legacy_qgate_source(
+                teams=teams,
+                years=years,
+                include_history=True,
+                include_comments=not args.skip_comments,
+                save_files=args.save_files,
+                cookie_file=args.cookie_file,
+            )
+        else:
+            summary = refresh_legacy_qgate_source_incremental(
+                teams=teams,
+                years=years,
+                include_comments=not args.skip_comments,
+                history_max_workers=int(args.history_max_workers or 50),
+                save_files=args.save_files,
+                cookie_file=args.cookie_file,
+            )
+        print(json.dumps(summary, ensure_ascii=False))
+        return 0
+    if args.command == "resume-legacy-qgate-history-source":
+        teams = tuple(part.strip() for part in str(args.teams or "").split(",") if part.strip()) or ("DTSV_China",)
+        years = tuple(int(part.strip()) for part in str(args.years or datetime.now().year).split(",") if part.strip())
+        refreshed_after = str(args.refreshed_after or "").strip()
+        if not refreshed_after:
+            raise SystemExit("--refreshed-after is required for resume-legacy-qgate-history-source")
+        summary = resume_legacy_qgate_history_source(
+            teams=teams,
+            years=years,
+            history_max_workers=int(args.history_max_workers or 50),
+            refreshed_after=refreshed_after,
+            save_files=args.save_files,
+            cookie_file=args.cookie_file,
+        )
+        print(json.dumps(summary, ensure_ascii=False))
+        return 0
+    if args.command == "refresh-legacy-testcase-source":
+        summary = run_legacy_testcase_source(
+            team_name=str(args.team_name or "DTSV_China"),
+            release_name=str(args.release_name or "").strip() or None,
+            page_limit=args.page_limit,
+            workers=args.workers,
+            workitems_fallback_max=args.workitems_fallback_max,
+            workitems_fallback_workers=args.workitems_fallback_workers,
+            save_files=args.save_files,
+            cookie_file=args.cookie_file,
+        )
+        print(json.dumps(summary, ensure_ascii=False))
+        return 0
+    if args.command == "refresh-octane-cookie":
+        summary = refresh_octane_cookie(
+            prefer_legacy=not args.prefer_local,
+            sync_login=args.sync_login,
+            headless=args.headless,
+        )
+        print(json.dumps(summary, ensure_ascii=False))
+        return 0
+    if args.command == "sync-octane-cookie":
+        summary = sync_octane_auth_from_legacy(sync_login=args.sync_login)
         print(json.dumps(summary, ensure_ascii=False))
         return 0
 

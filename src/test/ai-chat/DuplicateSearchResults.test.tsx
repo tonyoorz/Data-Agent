@@ -8,6 +8,41 @@ describe("DuplicateSearchResults", () => {
     vi.restoreAllMocks();
   });
 
+  it("renders candidate ticket IDs as Octane hyperlinks", () => {
+    render(
+      <DuplicateSearchResults
+        allowFeedback={false}
+        result={{
+          searchId: "search-link-1",
+          queryText: "导航黑屏",
+          modelPhase: "click_boost",
+          feedbackCount: 0,
+          candidates: [
+            {
+              ticketId: "DTV-1024",
+              name: "IDCEVO 26/07 导航黑屏",
+              score1to10: 9,
+              similarity: 0.92,
+              project: "IDCEVO",
+              pu: "26-07",
+              statusPhase: "03-In Analysis",
+              snippet: "车辆冷启动后中控导航黑屏，需要重启恢复。",
+            },
+          ],
+        }}
+      />,
+    );
+
+    const ticketLink = screen.getByRole("link", { name: "DTV-1024" });
+
+    expect(ticketLink).toHaveAttribute(
+      "href",
+      "https://octane-prod.bmwgroup.net/ui/entity-navigation?p=1002/2001&entityType=work_item&id=DTV-1024",
+    );
+    expect(ticketLink).toHaveAttribute("target", "_blank");
+    expect(ticketLink).toHaveAttribute("rel", "noreferrer");
+  });
+
   it("renders candidates as one compact list instead of separate article cards", () => {
     const { container } = render(
       <DuplicateSearchResults

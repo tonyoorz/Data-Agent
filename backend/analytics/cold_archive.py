@@ -47,9 +47,55 @@ def _sqlite_table_query(table_name: str) -> str:
 	return f"SELECT * FROM {_quote_identifier(table_name)}"
 
 
+def _sqlite_columns(sqlite_conn: sqlite3.Connection, table_name: str) -> list[tuple[str, str]]:
+	rows = sqlite_conn.execute(
+		f"PRAGMA table_info({_quote_identifier(table_name)})"
+	).fetchall()
+	return [
+		(str(row[1]).strip(), str(row[2] or "").strip())
+		for row in rows
+		if str(row[1]).strip()
+	]
+
+
+def _sqlite_type_to_duckdb(sqlite_type: str) -> str:
+	normalized = sqlite_type.strip().upper()
+	if not normalized:
+		return "VARCHAR"
+	if "INT" in normalized:
+		return "BIGINT"
+	if any(token in normalized for token in ("CHAR", "CLOB", "TEXT")):
+		return "VARCHAR"
+	if "BLOB" in normalized:
+		return "BLOB"
+	if any(token in normalized for token in ("REAL", "FLOA", "DOUB")):
+		return "DOUBLE"
+	if any(token in normalized for token in ("DECIMAL", "NUMERIC")):
+		return "DOUBLE"
+	if "BOOL" in normalized:
+		return "BOOLEAN"
+	if any(token in normalized for token in ("DATE", "TIME")):
+		return "TIMESTAMP"
+	return "VARCHAR"
+
+
+def _create_duckdb_table_from_sqlite_schema(duck_conn, sqlite_conn: sqlite3.Connection, table_name: str) -> None:
+	columns = _sqlite_columns(sqlite_conn, table_name)
+	if not columns:
+		raise RuntimeError(f"SQLite table {table_name!r} has no columns")
+	column_sql = ", ".join(
+		f"{_quote_identifier(column_name)} {_sqlite_type_to_duckdb(column_type)}"
+		for column_name, column_type in columns
+	)
+	duck_conn.execute(
+		f"CREATE OR REPLACE TABLE {_quote_identifier(table_name)} ({column_sql})"
+	)
+
+
 def _copy_sqlite_table_to_duckdb(duck_conn, sqlite_conn: sqlite3.Connection, table_name: str, table_index: int) -> int:
 	row_count = 0
 	query = _sqlite_table_query(table_name)
+	_create_duckdb_table_from_sqlite_schema(duck_conn, sqlite_conn, table_name)
 	for chunk_index, frame in enumerate(
 		pd.read_sql_query(query, sqlite_conn, chunksize=SQLITE_EXPORT_CHUNK_SIZE),
 		start=1,
@@ -57,14 +103,9 @@ def _copy_sqlite_table_to_duckdb(duck_conn, sqlite_conn: sqlite3.Connection, tab
 		relation_name = f"archive_frame_{table_index}_{chunk_index}"
 		duck_conn.register(relation_name, frame)
 		try:
-			if chunk_index == 1:
-				duck_conn.execute(
-					f"CREATE OR REPLACE TABLE {_quote_identifier(table_name)} AS SELECT * FROM {relation_name}"
-				)
-			else:
-				duck_conn.execute(
-					f"INSERT INTO {_quote_identifier(table_name)} SELECT * FROM {relation_name}"
-				)
+			duck_conn.execute(
+				f"INSERT INTO {_quote_identifier(table_name)} SELECT * FROM {relation_name}"
+			)
 		finally:
 			if hasattr(duck_conn, "unregister"):
 				try:
@@ -73,23 +114,7 @@ def _copy_sqlite_table_to_duckdb(duck_conn, sqlite_conn: sqlite3.Connection, tab
 					pass
 		row_count += len(frame)
 
-	if row_count:
-		return row_count
-
-	empty_frame = pd.read_sql_query(f"{query} LIMIT 0", sqlite_conn)
-	relation_name = f"archive_frame_{table_index}_0"
-	duck_conn.register(relation_name, empty_frame)
-	try:
-		duck_conn.execute(
-			f"CREATE OR REPLACE TABLE {_quote_identifier(table_name)} AS SELECT * FROM {relation_name}"
-		)
-	finally:
-		if hasattr(duck_conn, "unregister"):
-			try:
-				duck_conn.unregister(relation_name)
-			except Exception:
-				pass
-	return 0
+	return row_count
 
 
 def archive_source_to_cold_storage(

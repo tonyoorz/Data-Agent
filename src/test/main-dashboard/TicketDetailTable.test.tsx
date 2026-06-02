@@ -14,6 +14,7 @@ function createRows(count: number): MainDashboardTicketRow[] {
     problemFinderTeam: index % 2 === 0 ? "DTSV_China" : "[AT]W72-FIT",
     classification: index % 2 === 0 ? "Showstopper_Candidate" : "Field Observation",
     problemSeverity: index % 2 === 0 ? "05-unsatisfactory" : "04-deficient",
+    requirement: index % 2 === 0 ? "DOC_PreCon_A | DOC_PreCon_B" : "DOC_PreCon_C",
     group: index % 2 === 0 ? "Integration" : "Q-Gate",
     phase: index % 2 === 0 ? "03-In Analysis" : "04-In Progress",
     isResolvedForward: index % 3 === 0,
@@ -64,6 +65,31 @@ function renderTicketDetailTable(
 }
 
 describe("TicketDetailTable", () => {
+  it("renders Ticket ID values as Octane hyperlinks", () => {
+    renderTicketDetailTable();
+
+    const ticketLink = screen.getByRole("link", { name: "1000" });
+
+    expect(ticketLink).toHaveAttribute(
+      "href",
+      "https://octane-prod.bmwgroup.net/ui/entity-navigation?p=1002/2001&entityType=work_item&id=1000",
+    );
+    expect(ticketLink).toHaveAttribute("target", "_blank");
+    expect(ticketLink).toHaveAttribute("rel", "noreferrer");
+  });
+
+  it("lets the Title column absorb remaining table width by default", () => {
+    renderTicketDetailTable();
+
+    const titleHeader = screen.getByRole("columnheader", { name: "Title" });
+    const titleFilterCell = screen.getByLabelText("Filter Title column").closest("th");
+    const ticketIdHeader = screen.getByRole("columnheader", { name: "Ticket ID" });
+
+    expect(titleHeader.getAttribute("style") ?? "").not.toContain("width");
+    expect(titleFilterCell?.getAttribute("style") ?? "").not.toContain("width");
+    expect(ticketIdHeader.getAttribute("style") ?? "").toContain("width");
+  });
+
   it("delegates page changes and page-size changes to the parent", () => {
     const { onPageChange, onPageSizeChange } = renderTicketDetailTable(createRows(50));
 
@@ -90,21 +116,23 @@ describe("TicketDetailTable", () => {
   it("keeps dense grid controls, local search filtering, and column toggles", () => {
     const { onSearchChange } = renderTicketDetailTable();
 
-    expect(screen.getByPlaceholderText("Search tickets, titles, teams, or phase")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Search tickets, titles, teams, requirement, or phase")).toBeInTheDocument();
     expect(screen.getByLabelText("Filter Ticket ID column")).toBeInTheDocument();
     expect(screen.getByLabelText("Filter Title column")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Compact density" })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Defect Category" })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Creation Time" })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Classification" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Requirement" })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "Problem Severity" })).toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Phase" })).not.toBeInTheDocument();
     expect(screen.queryByRole("columnheader", { name: "Status" })).not.toBeInTheDocument();
     expect(screen.queryByRole("columnheader", { name: "Group" })).not.toBeInTheDocument();
     expect(screen.queryByRole("columnheader", { name: "Outcome" })).not.toBeInTheDocument();
     expect(screen.queryByRole("columnheader", { name: "Project" })).not.toBeInTheDocument();
     expect(screen.queryByRole("columnheader", { name: "Year" })).not.toBeInTheDocument();
 
-    fireEvent.change(screen.getByPlaceholderText("Search tickets, titles, teams, or phase"), {
+    fireEvent.change(screen.getByPlaceholderText("Search tickets, titles, teams, requirement, or phase"), {
       target: { value: "ticket 2" },
     });
 
@@ -117,6 +145,8 @@ describe("TicketDetailTable", () => {
     expect(screen.queryByRole("menuitemcheckbox", { name: "Status" })).not.toBeInTheDocument();
     expect(screen.getByRole("menuitemcheckbox", { name: "Group" })).toBeInTheDocument();
     expect(screen.getByRole("menuitemcheckbox", { name: "Outcome" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitemcheckbox", { name: "Phase" })).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByRole("menuitemcheckbox", { name: "Requirement" })).toBeInTheDocument();
     expect(screen.getByRole("menuitemcheckbox", { name: "Project" })).toBeInTheDocument();
     expect(screen.getByRole("menuitemcheckbox", { name: "Year" })).toBeInTheDocument();
 
@@ -132,6 +162,8 @@ describe("TicketDetailTable", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Sort by Ticket ID" }));
     fireEvent.click(screen.getByRole("button", { name: "Sort by Ticket ID" }));
+    fireEvent.click(screen.getByRole("button", { name: "Columns" }));
+    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Phase" }));
     fireEvent.click(screen.getByRole("button", { name: "Sort by Phase" }));
 
     expect(onSortChange).toHaveBeenNthCalledWith(1, "ticket_id", "desc");
@@ -139,9 +171,27 @@ describe("TicketDetailTable", () => {
     expect(onSortChange).toHaveBeenNthCalledWith(3, "phase", "asc");
   });
 
+  it("reflects descending classification as the default active sort", () => {
+    renderTicketDetailTable(createRows(3), {
+      sortBy: "classification",
+      sortOrder: "desc",
+    });
+
+    expect(screen.getByRole("columnheader", { name: "Classification" })).toHaveAttribute(
+      "aria-sort",
+      "descending",
+    );
+    expect(screen.getByRole("columnheader", { name: "Ticket ID" })).toHaveAttribute(
+      "aria-sort",
+      "none",
+    );
+  });
+
   it("filters visible rows from a column filter menu", () => {
     renderTicketDetailTable(createRows(4));
 
+    fireEvent.click(screen.getByRole("button", { name: "Columns" }));
+    fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Phase" }));
     fireEvent.click(screen.getByRole("button", { name: "Filter Phase" }));
     fireEvent.click(screen.getByRole("button", { name: "Select none" }));
     fireEvent.click(screen.getByRole("checkbox", { name: "04-In Progress" }));

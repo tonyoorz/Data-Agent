@@ -15,24 +15,43 @@ import {
 import {
   selectTicketRowsForDrilldown,
 } from "@/components/dashboard/main-dashboard/mainDashboardFiltering";
-import { getLatestTicketDateLabel } from "@/components/dashboard/main-dashboard/mainDashboardDateUtils";
+import {
+  getCoveredYearsForCreationTimeRange,
+  getLatestTicketDateLabel,
+  getRecentCreationTimeRange,
+  getRecentCreationTimeRangeFromAnchor,
+} from "@/components/dashboard/main-dashboard/mainDashboardDateUtils";
 import type { MainDashboardDrilldownSelection } from "@/components/dashboard/main-dashboard/mainDashboardFiltering";
 import type {
   MainDashboardFilters as MainDashboardFiltersType,
+  MainDashboardMultiSelectFilterKey,
   MainDashboardOutcomeKey,
   MainDashboardSummaryViewModel,
+  MainDashboardTicketRow,
   MainDashboardTicketsPageRequest,
-} from "@/components/dashboard/main-dashboard/mainDashboardTypes";
-import {
-  mainDashboardFilterKeys,
 } from "@/components/dashboard/main-dashboard/mainDashboardTypes";
 import { useMainDashboardSummary } from "@/components/dashboard/main-dashboard/useMainDashboardSummary";
 import { useMainDashboardTickets } from "@/components/dashboard/main-dashboard/useMainDashboardTickets";
 
 function createEmptyFilters(): MainDashboardFiltersType {
-  return Object.fromEntries(
-    mainDashboardFilterKeys.map((viewKey) => [viewKey, []]),
-  ) as MainDashboardFiltersType;
+  return {
+    years: [],
+    months: [],
+    creationTimeStart: "",
+    creationTimeEnd: "",
+    requirements: [],
+    chinaScopes: [],
+    projects: [],
+    assignedEcus: [],
+    problemFinderTeams: [],
+    aidas: [],
+    phases: [],
+    solutionClusters: [],
+    pus: [],
+    markets: [],
+    leadModels: [],
+    groups: [],
+  };
 }
 
 const emptySummaryViewModel: MainDashboardSummaryViewModel = {
@@ -98,6 +117,23 @@ function getDefaultMonths(
   return viewModel.filters.months.slice(-1);
 }
 
+function getDefaultCreationTimeRange(
+  viewModel: MainDashboardSummaryViewModel,
+  defaultYears: string[],
+) {
+  const anchoredRange = getRecentCreationTimeRangeFromAnchor(viewModel.refreshMetadata.lastSuccessAt);
+
+  if (anchoredRange.startDate && anchoredRange.endDate) {
+    return anchoredRange;
+  }
+
+  const matchingMonths = viewModel.filters.months.filter((month) =>
+    defaultYears.some((year) => month.startsWith(`${year}-`)),
+  );
+
+  return getRecentCreationTimeRange(matchingMonths.length > 0 ? matchingMonths : viewModel.filters.months);
+}
+
 function getDefaultPhases(viewModel: MainDashboardSummaryViewModel) {
   return viewModel.filters.phases.filter((phase) => /^(03|04)(?=[^0-9]|$)/.test(phase));
 }
@@ -132,11 +168,17 @@ function createDefaultFilters(
   }
 
   const defaultYears = getDefaultYears(viewModel);
+  const creationTimeRange = getDefaultCreationTimeRange(viewModel, defaultYears);
+  const coveredYears = getCoveredYearsForCreationTimeRange(
+    creationTimeRange.startDate,
+    creationTimeRange.endDate,
+  );
 
   return {
     ...emptyFilters,
-    years: defaultYears,
-    months: getDefaultMonths(viewModel, defaultYears),
+    years: coveredYears.length > 0 ? coveredYears : defaultYears,
+    creationTimeStart: creationTimeRange.startDate,
+    creationTimeEnd: creationTimeRange.endDate,
     chinaScopes: getDefaultChinaScopes(viewModel),
     projects: getDefaultProjects(viewModel),
     phases: getDefaultPhases(viewModel),
@@ -156,6 +198,17 @@ function getOutcomeLabel(outcomeKey?: MainDashboardOutcomeKey | null) {
   return null;
 }
 
+function dedupeTicketRowsById(ticketRows: MainDashboardTicketRow[]) {
+  const seenTicketIds = new Set<string>();
+  return ticketRows.filter((row) => {
+    if (seenTicketIds.has(row.ticketId)) {
+      return false;
+    }
+    seenTicketIds.add(row.ticketId);
+    return true;
+  });
+}
+
 type MainDashboardProps = {
   onSyncDateChange?: (value: string | null) => void;
 };
@@ -171,22 +224,30 @@ const MainDashboard = ({ onSyncDateChange }: MainDashboardProps) => {
     page: 1,
     pageSize: 50,
     search: "",
-    sortBy: "ticket_id",
-    sortOrder: "asc",
+    sortBy: "classification",
+    sortOrder: "desc",
     snapshotVersion: "",
   });
   const summaryQuery = useMainDashboardSummary(selectedFilters);
   const summaryData = summaryQuery.data ?? emptySummaryViewModel;
+  const summarySnapshotVersion = summaryQuery.data?.snapshotVersion ?? "";
+  const isCurrentSummarySnapshotInitialized = Boolean(summaryQuery.data) &&
+    initializedSnapshotVersion === (summarySnapshotVersion || "missing-snapshot");
+  const canLoadTickets = Boolean(summarySnapshotVersion) &&
+    isCurrentSummarySnapshotInitialized &&
+    !summaryQuery.isPlaceholderData;
   const effectiveTicketPageRequest = {
     ...ticketPageRequest,
-    snapshotVersion: summaryData.snapshotVersion,
+    snapshotVersion: canLoadTickets ? summarySnapshotVersion : "",
   };
   const ticketsQuery = useMainDashboardTickets(
     selectedFilters,
     effectiveTicketPageRequest,
-    { enabled: Boolean(summaryQuery.data) },
+    { enabled: canLoadTickets },
   );
   const refreshError = summaryQuery.error ?? ticketsQuery.error;
+  const hasVisibleDashboardData = Boolean(summaryQuery.data) || Boolean(ticketsQuery.data);
+  const isRefreshingFilters = hasVisibleDashboardData && (summaryQuery.isFetching || ticketsQuery.isFetching);
 
   useEffect(() => {
     setSelection({});
@@ -209,8 +270,8 @@ const MainDashboard = ({ onSyncDateChange }: MainDashboardProps) => {
       ...current,
       page: 1,
       search: "",
-      sortBy: "ticket_id",
-      sortOrder: "asc",
+      sortBy: "classification",
+      sortOrder: "desc",
     }));
     setInitializedSnapshotVersion(snapshotVersion);
   }, [initializedSnapshotVersion, summaryQuery.data]);
@@ -268,11 +329,19 @@ const MainDashboard = ({ onSyncDateChange }: MainDashboardProps) => {
     );
   }
 
-  const drilldownRows = selectTicketRowsForDrilldown(ticketsQuery.data?.rows ?? [], selection);
+  const priorityDrilldownRows = selectTicketRowsForDrilldown(
+    ticketsQuery.data?.priorityRows ?? [],
+    selection,
+  );
+  const priorityTicketIds = new Set(priorityDrilldownRows.map((row) => row.ticketId));
+  const drilldownRows = selectTicketRowsForDrilldown(ticketsQuery.data?.rows ?? [], selection)
+    .filter((row) => !priorityTicketIds.has(row.ticketId));
+  const combinedTicketRows = dedupeTicketRowsById([...priorityDrilldownRows, ...drilldownRows]);
+  const displayedTotalRows = (ticketsQuery.data?.totalRows ?? 0) + priorityDrilldownRows.length;
   const selectedOutcomeLabel = getOutcomeLabel(selection.outcomeKey);
 
-  const handleToggleValue = <K extends keyof MainDashboardFiltersType>(
-    field: K,
+  const handleToggleValue = (
+    field: MainDashboardMultiSelectFilterKey,
     value: string,
   ) => {
     setSelectedFilters((current) => {
@@ -288,6 +357,18 @@ const MainDashboard = ({ onSyncDateChange }: MainDashboardProps) => {
     });
   };
 
+  const handleCreationTimeRangeApply = (
+    startDate: string,
+    endDate: string,
+  ) => {
+    setSelectedFilters((current) => ({
+      ...current,
+      years: getCoveredYearsForCreationTimeRange(startDate, endDate),
+      creationTimeStart: startDate,
+      creationTimeEnd: endDate,
+    }));
+  };
+
   const handleReset = () => {
     setSearchText("");
     setSelectedFilters(createDefaultFilters(summaryQuery.data));
@@ -296,8 +377,8 @@ const MainDashboard = ({ onSyncDateChange }: MainDashboardProps) => {
       page: 1,
       pageSize: 50,
       search: "",
-      sortBy: "ticket_id",
-      sortOrder: "asc",
+      sortBy: "classification",
+      sortOrder: "desc",
     }));
     setSelection({});
   };
@@ -356,22 +437,37 @@ const MainDashboard = ({ onSyncDateChange }: MainDashboardProps) => {
             availableFilters={summaryData.filters}
             selectedFilters={selectedFilters}
             onToggleValue={handleToggleValue}
+            onCreationTimeRangeApply={handleCreationTimeRangeApply}
           />
         ) : null}
       </div>
+      {isRefreshingFilters ? (
+        <div
+          className="flex items-center gap-2 px-1 text-sm text-muted-foreground"
+          role="status"
+          aria-live="polite"
+        >
+          <Loader2 className="h-4 w-4 animate-spin" />
+          <span>Refreshing filters...</span>
+        </div>
+      ) : null}
       <MainDashboardKpis
         overview={summaryData.overview}
         teamCount={summaryData.teamOutcomeRows.length}
+        aidaCount={summaryData.filters.aidas.length}
+        solutionClusterCount={summaryData.filters.solutionClusters.length}
       />
       <TicketDetailTable
-        rows={drilldownRows}
-        totalRows={ticketsQuery.data?.totalRows ?? 0}
+        rows={combinedTicketRows}
+        totalRows={displayedTotalRows}
+        totalPages={ticketsQuery.data?.totalPages ?? 1}
         page={ticketsQuery.data?.page ?? ticketPageRequest.page}
         pageSize={ticketsQuery.data?.pageSize ?? ticketPageRequest.pageSize}
         sortBy={ticketPageRequest.sortBy}
         sortOrder={ticketPageRequest.sortOrder}
         selection={selection}
         selectedOutcomeLabel={selectedOutcomeLabel}
+        pinnedTopTopicCount={priorityDrilldownRows.length}
         onClearSelection={() => setSelection({})}
         onPageChange={(page) => {
           setTicketPageRequest((current) => ({

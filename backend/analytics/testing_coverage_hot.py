@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
 from pathlib import Path
 import sqlite3
 
@@ -13,11 +14,14 @@ from backend.analytics.testing_coverage_reference import (
 
 
 TESTING_COVERAGE_STORE_NAME = "testing_coverage_runs"
+TESTING_COVERAGE_SNAPSHOT_STATE_TABLE = "testing_coverage_snapshot_state"
+TESTING_COVERAGE_SNAPSHOT_POINTER_TABLE = "testing_coverage_snapshot_pointer"
 
 
 TESTING_COVERAGE_SCHEMA_SQL = f"""
 CREATE TABLE IF NOT EXISTS {TESTING_COVERAGE_STORE_NAME} (
-    mr_id TEXT NOT NULL PRIMARY KEY,
+    snapshot_version TEXT NOT NULL,
+    mr_id TEXT NOT NULL,
     defect_id TEXT,
     test_id TEXT,
     test_name TEXT,
@@ -32,7 +36,25 @@ CREATE TABLE IF NOT EXISTS {TESTING_COVERAGE_STORE_NAME} (
     fv TEXT,
     tester TEXT,
     source_signature TEXT NOT NULL,
-    derived_at TEXT NOT NULL
+    derived_at TEXT NOT NULL,
+    PRIMARY KEY (snapshot_version, mr_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_testing_coverage_runs_snapshot
+ON {TESTING_COVERAGE_STORE_NAME}(snapshot_version);
+
+CREATE TABLE IF NOT EXISTS {TESTING_COVERAGE_SNAPSHOT_STATE_TABLE} (
+    snapshot_version TEXT NOT NULL PRIMARY KEY,
+    source_signature TEXT NOT NULL,
+    row_count INTEGER NOT NULL,
+    refresh_status TEXT NOT NULL,
+    refreshed_at TEXT NOT NULL,
+    last_error TEXT
+);
+
+CREATE TABLE IF NOT EXISTS {TESTING_COVERAGE_SNAPSHOT_POINTER_TABLE} (
+    pointer_name TEXT NOT NULL PRIMARY KEY,
+    snapshot_version TEXT NOT NULL
 );
 """
 
@@ -40,12 +62,34 @@ CREATE TABLE IF NOT EXISTS {TESTING_COVERAGE_STORE_NAME} (
 def ensure_testing_coverage_store(db_path: Path | str) -> Path:
     resolved_path = ensure_outcome_store(db_path)
     conn = sqlite3.connect(resolved_path)
+    conn.row_factory = sqlite3.Row
     try:
+        conn.execute("PRAGMA journal_mode=WAL")
+        existing_tables = {
+            str(row[0]).strip()
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        if TESTING_COVERAGE_STORE_NAME in existing_tables:
+            columns = {
+                str(row["name"]).strip()
+                for row in conn.execute(f"PRAGMA table_info({TESTING_COVERAGE_STORE_NAME})").fetchall()
+            }
+            if "snapshot_version" not in columns:
+                conn.execute(f"DROP TABLE IF EXISTS {TESTING_COVERAGE_STORE_NAME}")
+                conn.execute(f"DROP TABLE IF EXISTS {TESTING_COVERAGE_SNAPSHOT_STATE_TABLE}")
+                conn.execute(f"DROP TABLE IF EXISTS {TESTING_COVERAGE_SNAPSHOT_POINTER_TABLE}")
         conn.executescript(TESTING_COVERAGE_SCHEMA_SQL)
         conn.commit()
     finally:
         conn.close()
     return resolved_path
+
+
+def _build_testing_coverage_snapshot_version(source_signature: str) -> str:
+    digest = hashlib.sha1(source_signature.encode("utf-8")).hexdigest()[:16]
+    return f"testing-coverage-{digest}"
 
 
 def _open_read_only_connection(db_path: Path | str) -> sqlite3.Connection:
@@ -199,41 +243,60 @@ def refresh_materialized_testing_coverage(
 ) -> dict[str, object]:
     resolved_hot_path = ensure_testing_coverage_store(hot_db_path)
     source_signature = _compute_source_signature(source_db_path)
+    snapshot_version = _build_testing_coverage_snapshot_version(source_signature)
 
     hot_conn = sqlite3.connect(resolved_hot_path)
     try:
         refresh_state_row = hot_conn.execute(
-            """
-            SELECT source_signature, outcome_row_count
-            FROM outcome_refresh_state
-            WHERE store_name = ?
+            f"""
+            SELECT source_signature, row_count, refresh_status
+            FROM {TESTING_COVERAGE_SNAPSHOT_STATE_TABLE}
+            WHERE snapshot_version = ?
             LIMIT 1
             """,
-            (TESTING_COVERAGE_STORE_NAME,),
+            (snapshot_version,),
+        ).fetchone()
+        active_pointer_row = hot_conn.execute(
+            """
+            SELECT snapshot_version
+            FROM testing_coverage_snapshot_pointer
+            WHERE pointer_name = 'active'
+            LIMIT 1
+            """,
         ).fetchone()
         existing_row_count_row = hot_conn.execute(
-            f"SELECT COUNT(*) FROM {TESTING_COVERAGE_STORE_NAME}"
+            f"SELECT COUNT(*) FROM {TESTING_COVERAGE_STORE_NAME} WHERE snapshot_version = ?",
+            (snapshot_version,),
         ).fetchone()
         existing_row_count = int(existing_row_count_row[0] or 0) if existing_row_count_row else 0
         refresh_state_signature = str(refresh_state_row[0]).strip() if refresh_state_row else ""
         refresh_state_row_count = int(refresh_state_row[1] or 0) if refresh_state_row else -1
+        refresh_state_status = str(refresh_state_row[2] or "").strip() if refresh_state_row else ""
+        active_snapshot_version = str(active_pointer_row[0] or "").strip() if active_pointer_row else ""
         if (
             not force
             and refresh_state_signature == source_signature
             and refresh_state_row_count == existing_row_count
+            and refresh_state_status == "ready"
+            and active_snapshot_version == snapshot_version
         ):
             return {
                 "row_count": existing_row_count,
                 "skipped": True,
                 "source_signature": source_signature,
+                "snapshot_version": snapshot_version,
             }
 
         derived_rows = _derive_testing_coverage_rows(source_db_path, source_signature)
         refreshed_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-        hot_conn.execute(f"DELETE FROM {TESTING_COVERAGE_STORE_NAME}")
+        hot_conn.execute(
+            f"DELETE FROM {TESTING_COVERAGE_STORE_NAME} WHERE snapshot_version = ?",
+            (snapshot_version,),
+        )
         hot_conn.executemany(
             f'''
             INSERT INTO {TESTING_COVERAGE_STORE_NAME}(
+                snapshot_version,
                 mr_id,
                 defect_id,
                 test_id,
@@ -250,9 +313,50 @@ def refresh_materialized_testing_coverage(
                 tester,
                 source_signature,
                 derived_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''',
-            derived_rows,
+            [
+                (
+                    snapshot_version,
+                    *row,
+                )
+                for row in derived_rows
+            ],
+        )
+        hot_conn.execute(
+            f"""
+            INSERT INTO {TESTING_COVERAGE_SNAPSHOT_STATE_TABLE}(
+                snapshot_version,
+                source_signature,
+                row_count,
+                refresh_status,
+                refreshed_at,
+                last_error
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(snapshot_version) DO UPDATE SET
+                source_signature = excluded.source_signature,
+                row_count = excluded.row_count,
+                refresh_status = excluded.refresh_status,
+                refreshed_at = excluded.refreshed_at,
+                last_error = excluded.last_error
+            """,
+            (
+                snapshot_version,
+                source_signature,
+                len(derived_rows),
+                "ready",
+                refreshed_at,
+                None,
+            ),
+        )
+        hot_conn.execute(
+            f"""
+            INSERT INTO {TESTING_COVERAGE_SNAPSHOT_POINTER_TABLE}(pointer_name, snapshot_version)
+            VALUES ('active', ?)
+            ON CONFLICT(pointer_name) DO UPDATE SET
+                snapshot_version = excluded.snapshot_version
+            """,
+            (snapshot_version,),
         )
         hot_conn.execute(
             """
@@ -282,4 +386,5 @@ def refresh_materialized_testing_coverage(
         "row_count": len(derived_rows),
         "skipped": False,
         "source_signature": source_signature,
+            "snapshot_version": snapshot_version,
     }

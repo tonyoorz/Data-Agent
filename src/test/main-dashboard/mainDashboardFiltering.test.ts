@@ -246,15 +246,28 @@ describe("applyMainDashboardFilters", () => {
     ]);
   });
 
-  it("supports derived month filters using ticket dates", () => {
-    const filtered = applyMainDashboardFilters(viewModel, {
-      searchText: "",
-      filters: {
-        ...createEmptyFilters(),
-        years: ["2026"],
-        months: ["2026-04"],
+  it("supports derived month filters using creationTime", () => {
+    const filtered = applyMainDashboardFilters(
+      {
+        ...viewModel,
+        ticketRows: viewModel.ticketRows.map((row) =>
+          row.ticketId === "1004" || row.ticketId === "2005"
+            ? {
+                ...row,
+                creationTime: row.ticketDate,
+              }
+            : row,
+        ),
       },
-    });
+      {
+        searchText: "",
+        filters: {
+          ...createEmptyFilters(),
+          years: ["2026"],
+          months: ["2026-04"],
+        },
+      },
+    );
 
     expect(filtered.ticketRows.map((row) => row.ticketId)).toEqual([
       "1004",
@@ -267,6 +280,32 @@ describe("applyMainDashboardFilters", () => {
       resolvedForwardPercent: 50,
       rejectedDirectlyPercent: 50,
     });
+  });
+
+  it("filters creation-time months from creationTime instead of ticketDate", () => {
+    const filtered = applyMainDashboardFilters(
+      {
+        ...viewModel,
+        ticketRows: viewModel.ticketRows.map((row) =>
+          row.ticketId === "1004"
+            ? {
+                ...row,
+                creationTime: "2026-02-20",
+                ticketDate: "2026-04-01",
+              }
+            : row,
+        ),
+      },
+      {
+        searchText: "",
+        filters: {
+          ...createEmptyFilters(),
+          months: ["2026-02"],
+        },
+      },
+    );
+
+    expect(filtered.ticketRows.map((row) => row.ticketId)).toEqual(["1004"]);
   });
 
   it("supports China/Global filtering from solution cluster with defect category fallback", () => {

@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
-from datetime import datetime
+from collections.abc import Callable, Sequence
 from typing import Any
 
 import requests
+import urllib3
 
 from backend.analytics.config import (
     get_octane_base_url,
-    get_octane_cookie_file_path,
     get_octane_shared_space_id,
     get_octane_workspace_id,
+    resolve_octane_cookie_file_path,
 )
 from backend.analytics.ingest.auth import build_cookie_session
 
@@ -56,6 +56,27 @@ MANUAL_RUN_FIELDS: tuple[str, ...] = (
     "exec_model_series_udf{name}",
 )
 
+HISTORY_FIELDS: tuple[str, ...] = (
+    "timestamp",
+    "action",
+    "user{full_name,name}",
+    "change_set{field_name,old_value,new_value,value,old_value_text,new_value_text,value_text}",
+)
+
+WORK_ITEM_RELATION_FIELDS: tuple[str, ...] = (
+    "id",
+    "name",
+    "subtype",
+    "parent{id,name,subtype}",
+    "run_covered_content_relation{id}",
+    "path",
+)
+
+ProgressCallback = Callable[[str], None]
+
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 
 def _escape_octane_text(value: str) -> str:
     return value.replace("'", "\\'")
@@ -66,6 +87,23 @@ def _release_names_for_year(year: int) -> tuple[str, ...]:
     return tuple(f"R-{suffix}-{month:02d}" for month in range(1, 14))
 
 
+def _chunked(values: Sequence[str], chunk_size: int) -> list[list[str]]:
+    return [list(values[index:index + chunk_size]) for index in range(0, len(values), chunk_size)]
+
+
+def _normalize_relation_run_ids(value: object) -> list[str]:
+    if isinstance(value, dict):
+        relation_id = str(value.get("id") or "").strip()
+        return [relation_id] if relation_id else []
+    if isinstance(value, list):
+        normalized: list[str] = []
+        for item in value:
+            normalized.extend(_normalize_relation_run_ids(item))
+        return normalized
+    relation_id = str(value or "").strip()
+    return [relation_id] if relation_id else []
+
+
 class OctaneApiClient:
     def __init__(self, *, base_url: str, shared_space_id: str, workspace_id: str, session: requests.Session):
         self._base_url = base_url.rstrip("/")
@@ -73,14 +111,26 @@ class OctaneApiClient:
         self._session = session
         self._team_name_cache: dict[str, str] = {}
 
-    def fetch_rows(self, endpoint: str, *, fields: str | Sequence[str], query: str, limit: int = 1000) -> list[dict[str, Any]]:
+    def fetch_rows(
+        self,
+        endpoint: str,
+        *,
+        fields: str | Sequence[str],
+        query: str | None = None,
+        limit: int = 1000,
+        progress: ProgressCallback | None = None,
+        progress_label: str | None = None,
+    ) -> list[dict[str, Any]]:
         offset = 0
         rows: list[dict[str, Any]] = []
         field_expr = ",".join(fields) if not isinstance(fields, str) else fields
         while True:
+            params = {"fields": field_expr, "limit": limit, "offset": offset}
+            if query is not None:
+                params["query"] = query
             response = self._session.get(
                 f"{self._api_base}/{endpoint}",
-                params={"fields": field_expr, "query": query, "limit": limit, "offset": offset},
+                params=params,
                 timeout=60,
                 verify=False,
             )
@@ -88,6 +138,8 @@ class OctaneApiClient:
             payload = response.json()
             batch = [row for row in list(payload.get("data") or []) if isinstance(row, dict)]
             rows.extend(batch)
+            if progress is not None and progress_label:
+                progress(f"{progress_label}: fetched {len(rows)} rows")
             if len(batch) < limit:
                 return rows
             offset += limit
@@ -95,7 +147,7 @@ class OctaneApiClient:
     def list_teams(self) -> list[dict[str, str]]:
         rows = [
             {"id": str(row.get("id") or "").strip(), "name": str(row.get("name") or "").strip()}
-            for row in self.fetch_rows(endpoint="teams", fields=("id", "name"), query='"true"')
+            for row in self.fetch_rows(endpoint="teams", fields=("id", "name"))
             if str(row.get("id") or "").strip() and str(row.get("name") or "").strip()
         ]
         self._team_name_cache = {row["id"]: row["name"] for row in rows}
@@ -129,15 +181,71 @@ class OctaneApiClient:
 
     def fetch_history(self, *, defect_id: str) -> dict[str, Any]:
         query = f'"(entity_id=\'{_escape_octane_text(str(defect_id).strip())}\';entity_type=\'defect\')"'
-        rows = self.fetch_rows(endpoint="history_logs", fields="*", query=query, limit=10000)
+        rows = self.fetch_rows(endpoint="history_logs", fields=HISTORY_FIELDS, query=query, limit=10000)
         return {"data": rows, "total_count": len(rows)}
 
-    def fetch_manual_runs(self, *, team_id: str, year: int) -> list[dict[str, Any]]:
+    def fetch_manual_runs(
+        self,
+        *,
+        team_id: str,
+        year: int,
+        modified_since: str | None = None,
+        include_related_work_items: bool = True,
+        progress: ProgressCallback | None = None,
+    ) -> list[dict[str, Any]]:
         team_name = self._team_name_cache.get(str(team_id).strip(), str(team_id).strip())
         safe_team = _escape_octane_text(team_name)
         rel_expr = "||".join(f"(release={{name='{release_name}'}})" for release_name in _release_names_for_year(year))
-        query = f'"(run_team_000_udf={{name=\'{safe_team}\'}});({rel_expr})"'
-        return self.fetch_rows(endpoint="manual_runs", fields=MANUAL_RUN_FIELDS, query=query)
+        query_parts = [
+            f"run_team_000_udf={{name='{safe_team}'}}",
+            f"({rel_expr})",
+        ]
+        if modified_since:
+            query_parts.append(f"last_modified>='{_escape_octane_text(str(modified_since).strip())}'")
+        query = f'"({";".join(query_parts)})"'
+        runs = self.fetch_rows(
+            endpoint="manual_runs",
+            fields=MANUAL_RUN_FIELDS,
+            query=query,
+            progress=progress,
+            progress_label=f"manual-runs {team_name} {year}",
+        )
+        if include_related_work_items:
+            run_ids = [str(row.get("id") or "").strip() for row in runs if str(row.get("id") or "").strip()]
+            related_by_run = self.fetch_related_work_items_for_runs(run_ids)
+            for row in runs:
+                run_id = str(row.get("id") or "").strip()
+                row["related_work_items"] = related_by_run.get(run_id, [])
+        return runs
+
+    def fetch_related_work_items_for_runs(self, run_ids: Sequence[str], *, batch_size: int = 100) -> dict[str, list[dict[str, Any]]]:
+        normalized_ids = [str(run_id).strip() for run_id in run_ids if str(run_id).strip()]
+        if not normalized_ids:
+            return {}
+
+        related_by_run: dict[str, list[dict[str, Any]]] = {run_id: [] for run_id in normalized_ids}
+        for batch in _chunked(normalized_ids, batch_size):
+            id_expr = ",".join(f"'{_escape_octane_text(run_id)}'" for run_id in batch)
+            query = f'"(subtype IN \'defect\',\'feature\',\'story\';run_covered_content_relation={{id IN {id_expr}}})"'
+            rows = self.fetch_rows(
+                endpoint="work_items",
+                fields=WORK_ITEM_RELATION_FIELDS,
+                query=query,
+                limit=1000,
+            )
+            for row in rows:
+                relation_run_ids = _normalize_relation_run_ids(row.get("run_covered_content_relation"))
+                relation_payload = {
+                    "id": str(row.get("id") or "").strip(),
+                    "name": str(row.get("name") or "").strip(),
+                    "subtype": str(row.get("subtype") or "").strip(),
+                    "path": str(row.get("path") or "").strip(),
+                    "parent": row.get("parent"),
+                }
+                for run_id in relation_run_ids:
+                    if run_id in related_by_run:
+                        related_by_run[run_id].append(relation_payload)
+        return related_by_run
 
 
 def build_default_octane_client() -> OctaneApiClient:
@@ -145,5 +253,5 @@ def build_default_octane_client() -> OctaneApiClient:
         base_url=get_octane_base_url(),
         shared_space_id=get_octane_shared_space_id(),
         workspace_id=get_octane_workspace_id(),
-        session=build_cookie_session(get_octane_cookie_file_path()),
+        session=build_cookie_session(resolve_octane_cookie_file_path()),
     )

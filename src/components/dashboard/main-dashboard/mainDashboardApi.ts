@@ -32,6 +32,13 @@ export function buildMainDashboardApiUrl(
     }
   }
 
+  if (filters.creationTimeStart) {
+    params.set("creation_time_start", filters.creationTimeStart);
+  }
+  if (filters.creationTimeEnd) {
+    params.set("creation_time_end", filters.creationTimeEnd);
+  }
+
   const queryString = params.toString();
   return queryString ? `${basePath}?${queryString}` : basePath;
 }

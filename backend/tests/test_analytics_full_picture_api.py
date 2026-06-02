@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 import sqlite3
 
@@ -12,6 +13,7 @@ from backend.analytics.dashboard_snapshot import (
     record_snapshot_refresh,
     reset_summary_cache,
 )
+from backend.analytics.ingest.source_store import OctaneSourceStore
 from backend.analytics.full_picture_outcomes import ensure_outcome_store, refresh_materialized_outcomes
 from backend.analytics import read_models
 from backend.analytics.schema import ensure_schema
@@ -38,6 +40,49 @@ def _configure_full_picture_env(
         monkeypatch.delenv("VIZION_FULL_PICTURE_HISTORY_DB_PATH", raising=False)
     else:
         monkeypatch.setenv("VIZION_FULL_PICTURE_HISTORY_DB_PATH", str(history_db_path))
+
+
+def test_full_picture_ignores_raw_only_history_db(tmp_path, monkeypatch):
+    history_db_path = tmp_path / "legacy-history.db"
+
+    conn = sqlite3.connect(history_db_path)
+    try:
+        conn.execute(
+            """
+            CREATE TABLE octane_defect_history_events (
+                defect_id TEXT,
+                event_timestamp TEXT,
+                field_name TEXT,
+                old_value TEXT,
+                new_value TEXT,
+                raw_event_json TEXT,
+                fetched_at TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO octane_defect_history_events(
+                defect_id, event_timestamp, field_name, old_value, new_value, raw_event_json, fetched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "D-RAW-1",
+                "2026-05-25T00:00:00Z",
+                "status_phase",
+                "08",
+                "06",
+                '{"old_value_text":"08-Resolved Forward","new_value_text":"06-Ready for Test"}',
+                "2026-05-25T00:00:00Z",
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    monkeypatch.setenv("VIZION_FULL_PICTURE_HISTORY_DB_PATH", str(history_db_path))
+
+    assert read_models._resolve_history_db_path() is None
 
 
 def _seed_qgate_source_db(db_path: Path, *, defect_count: int = 1) -> None:
@@ -131,12 +176,19 @@ def _seed_qgate_source_db(db_path: Path, *, defect_count: int = 1) -> None:
         conn.close()
 
 
-def _record_active_snapshot(hot_db_path: Path, *, snapshot_version: str = "snapshot-20260528-1") -> None:
+def _record_active_snapshot(
+    hot_db_path: Path,
+    *,
+    snapshot_version: str = "snapshot-20260528-1",
+    source_db_path: Path | str | None = None,
+) -> None:
+    effective_source_db_path = Path(source_db_path or read_models.get_full_picture_source_db_path()).resolve()
+    source_db_mtime = read_models._format_snapshot_source_mtime(effective_source_db_path) or "2026-05-28T00:00:00Z"
     record_snapshot_refresh(
         hot_db_path,
         snapshot_version=snapshot_version,
-        source_db_path="C:/data/qgate_raw.db",
-        source_db_mtime="2026-05-28T00:00:00Z",
+        source_db_path=str(effective_source_db_path),
+        source_db_mtime=source_db_mtime,
         refresh_status="ready",
         last_error=None,
     )
@@ -181,7 +233,7 @@ def test_full_picture_summary_endpoint_returns_snapshot_version(tmp_path, monkey
     hot_db_path = _default_hot_db_path(tmp_path)
     _seed_qgate_source_db(db_path)
     _refresh_full_picture_hot_outcomes(db_path, hot_db_path)
-    _record_active_snapshot(hot_db_path)
+    _record_active_snapshot(hot_db_path, source_db_path=db_path)
     _configure_full_picture_env(
         monkeypatch,
         defect_db_path=db_path,
@@ -200,12 +252,509 @@ def test_full_picture_summary_endpoint_returns_snapshot_version(tmp_path, monkey
     assert payload["filters"]["china_scopes"] == ["Global"]
 
 
+def test_full_picture_dashboard_exposes_requirement_field_and_filters(tmp_path, monkeypatch):
+    db_path = tmp_path / "qgate_data.db"
+    hot_db_path = _default_hot_db_path(tmp_path)
+    store = OctaneSourceStore(db_path)
+    try:
+        store.create_tables()
+    finally:
+        store.close()
+
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.executemany(
+            """
+            INSERT INTO octane_defects(
+                defect_id, name, status_phase, problem_finder_team, year,
+                assigned_ecu, top_aida, phase, solution_cluster, lead_model,
+                project, pu, market, last_modified, creation_time,
+                requirement, requirements_json, raw_json, fetched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    "D-REQ-1",
+                    "Requirement A defect",
+                    "03-In Analysis",
+                    "DTSV_China",
+                    "2026",
+                    "ECU-A",
+                    "Speech",
+                    "03-In Analysis",
+                    "Integration",
+                    "NA5",
+                    "IDCEVO",
+                    "PU1",
+                    "CN",
+                    "2026-05-25T00:00:00Z",
+                    "2026-05-24T00:00:00Z",
+                    "DOC_PreCon_A | DOC_PreCon_B",
+                    '["DOC_PreCon_A", "DOC_PreCon_B"]',
+                    '{}',
+                    "2026-05-25T00:00:00Z",
+                ),
+                (
+                    "D-REQ-2",
+                    "Requirement C defect",
+                    "03-In Analysis",
+                    "DTSV_China",
+                    "2026",
+                    "ECU-B",
+                    "Speech",
+                    "03-In Analysis",
+                    "Integration",
+                    "NA5",
+                    "IDCEVO",
+                    "PU1",
+                    "CN",
+                    "2026-05-26T00:00:00Z",
+                    "2026-05-25T00:00:00Z",
+                    "DOC_PreCon_C",
+                    '["DOC_PreCon_C"]',
+                    '{}',
+                    "2026-05-26T00:00:00Z",
+                ),
+            ],
+        )
+        conn.executemany(
+            """
+            INSERT INTO octane_defect_history_events(
+                defect_id, field_name, event_timestamp, entry_index, change_index,
+                old_value, new_value, old_value_text, new_value_text, fetched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    "D-REQ-1",
+                    "status_phase",
+                    "2026-05-25T00:00:00Z",
+                    1,
+                    1,
+                    "08",
+                    "06",
+                    "08-Resolved Forward",
+                    "06-Ready for Test",
+                    "2026-05-25T00:00:00Z",
+                ),
+                (
+                    "D-REQ-2",
+                    "status_phase",
+                    "2026-05-26T00:00:00Z",
+                    1,
+                    1,
+                    "08",
+                    "06",
+                    "08-Resolved Forward",
+                    "06-Ready for Test",
+                    "2026-05-26T00:00:00Z",
+                ),
+            ],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    _refresh_full_picture_hot_outcomes(db_path, hot_db_path)
+    _record_active_snapshot(hot_db_path, source_db_path=db_path)
+    _configure_full_picture_env(
+        monkeypatch,
+        defect_db_path=db_path,
+        hot_db_path=hot_db_path,
+    )
+
+    client = TestClient(app)
+
+    summary_response = client.get("/api/full-picture/dashboard/summary?years=2026")
+    tickets_response = client.get("/api/full-picture/dashboard/tickets?years=2026&requirements=DOC_PreCon_B")
+
+    assert summary_response.status_code == 200
+    assert tickets_response.status_code == 200
+
+    summary_payload = summary_response.json()
+    tickets_payload = tickets_response.json()
+
+    assert summary_payload["filters"]["requirements"] == [
+        "DOC_PreCon_A",
+        "DOC_PreCon_B",
+        "DOC_PreCon_C",
+    ]
+    assert tickets_payload["total_rows"] == 1
+    assert tickets_payload["rows"][0]["ticket_id"] == "D-REQ-1"
+    assert tickets_payload["rows"][0]["requirement"] == "DOC_PreCon_A | DOC_PreCon_B"
+
+
+def test_full_picture_tickets_return_top_topic_priority_rows_ignoring_creation_time_and_team(
+    tmp_path,
+    monkeypatch,
+):
+    db_path = tmp_path / "qgate_data.db"
+    hot_db_path = _default_hot_db_path(tmp_path)
+    store = OctaneSourceStore(db_path)
+    try:
+        store.create_tables()
+    finally:
+        store.close()
+
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.executemany(
+            """
+            INSERT INTO octane_defects(
+                defect_id, name, status_phase, problem_finder_team, year,
+                assigned_ecu, top_aida, phase, solution_cluster, lead_model,
+                project, pu, market, last_modified, creation_time,
+                requirement, requirements_json, raw_json, fetched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    "D-TOP-DATE",
+                    "Top topic outside date range",
+                    "03-In Analysis",
+                    "DTSV_China",
+                    "2026",
+                    "ECU-A",
+                    "Speech",
+                    "03-In Analysis",
+                    "Integration",
+                    "NA5",
+                    "IDCEVO",
+                    "PU1",
+                    "CN",
+                    "2026-05-25T00:00:00Z",
+                    "2026-03-01T00:00:00Z",
+                    "Top Topic | DOC_PreCon_A",
+                    '["Top Topic", "DOC_PreCon_A"]',
+                    '{}',
+                    "2026-05-25T00:00:00Z",
+                ),
+                (
+                    "D-TOP-TEAM",
+                    "Top topic outside team filter",
+                    "03-In Analysis",
+                    "OtherTeam",
+                    "2026",
+                    "ECU-A",
+                    "Speech",
+                    "03-In Analysis",
+                    "Integration",
+                    "NA5",
+                    "IDCEVO",
+                    "PU1",
+                    "CN",
+                    "2026-05-25T00:00:00Z",
+                    "2026-05-22T00:00:00Z",
+                    "Top Topic | DOC_PreCon_A",
+                    '["Top Topic", "DOC_PreCon_A"]',
+                    '{}',
+                    "2026-05-25T00:00:00Z",
+                ),
+                (
+                    "D-TOP-GLOBAL",
+                    "Top topic outside China scope filter",
+                    "03-In Analysis",
+                    "OtherTeam",
+                    "2026",
+                    "ECU-A",
+                    "Speech",
+                    "03-In Analysis",
+                    "Integration",
+                    "NA5",
+                    "IDCEVO",
+                    "PU1",
+                    "DE",
+                    "2026-05-25T00:00:00Z",
+                    "2026-05-22T00:00:00Z",
+                    "Top Topic | DOC_PreCon_A",
+                    '["Top Topic", "DOC_PreCon_A"]',
+                    '{}',
+                    "2026-05-25T00:00:00Z",
+                ),
+                (
+                    "D-NORMAL",
+                    "Normal in-scope defect",
+                    "03-In Analysis",
+                    "DTSV_China",
+                    "2026",
+                    "ECU-A",
+                    "Speech",
+                    "03-In Analysis",
+                    "Integration",
+                    "NA5",
+                    "IDCEVO",
+                    "PU1",
+                    "CN",
+                    "2026-05-25T00:00:00Z",
+                    "2026-05-24T00:00:00Z",
+                    "DOC_PreCon_A",
+                    '["DOC_PreCon_A"]',
+                    '{}',
+                    "2026-05-25T00:00:00Z",
+                ),
+                (
+                    "D-TOP-WRONG-PROJECT",
+                    "Top topic excluded by project",
+                    "03-In Analysis",
+                    "DTSV_China",
+                    "2026",
+                    "ECU-A",
+                    "Speech",
+                    "03-In Analysis",
+                    "Integration",
+                    "NA5",
+                    "U12",
+                    "PU1",
+                    "CN",
+                    "2026-05-25T00:00:00Z",
+                    "2026-05-24T00:00:00Z",
+                    "Top Topic | DOC_PreCon_A",
+                    '["Top Topic", "DOC_PreCon_A"]',
+                    '{}',
+                    "2026-05-25T00:00:00Z",
+                ),
+            ],
+        )
+        conn.executemany(
+            """
+            INSERT INTO octane_defect_history_events(
+                defect_id, field_name, event_timestamp, entry_index, change_index,
+                old_value, new_value, old_value_text, new_value_text, fetched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    defect_id,
+                    "status_phase",
+                    "2026-05-25T00:00:00Z",
+                    1,
+                    1,
+                    "08",
+                    "06",
+                    "08-Resolved Forward",
+                    "06-Ready for Test",
+                    "2026-05-25T00:00:00Z",
+                )
+                for defect_id in (
+                    "D-TOP-DATE",
+                    "D-TOP-TEAM",
+                    "D-TOP-GLOBAL",
+                    "D-NORMAL",
+                    "D-TOP-WRONG-PROJECT",
+                )
+            ],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    _refresh_full_picture_hot_outcomes(db_path, hot_db_path)
+    _record_active_snapshot(hot_db_path, snapshot_version="snapshot-top-topic", source_db_path=db_path)
+    _configure_full_picture_env(
+        monkeypatch,
+        defect_db_path=db_path,
+        hot_db_path=hot_db_path,
+    )
+
+    tickets_payload = read_models.list_full_picture_ticket_rows(
+        years=["2026"],
+        projects=["IDCEVO"],
+        phases=["03-In Analysis"],
+        requirements=["DOC_PreCon_A"],
+        china_scopes=["China"],
+        problem_finder_teams=["DTSV_China"],
+        creation_time_start="2026-05-20",
+        creation_time_end="2026-05-31",
+        page=1,
+        page_size=50,
+        snapshot_version="snapshot-top-topic",
+    )
+
+    assert [row["ticket_id"] for row in tickets_payload["priority_rows"]] == [
+        "D-TOP-DATE",
+        "D-TOP-GLOBAL",
+        "D-TOP-TEAM",
+    ]
+
+
+def test_full_picture_tickets_hide_top_topic_priority_rows_after_first_page(tmp_path, monkeypatch):
+    db_path = tmp_path / "qgate_data.db"
+    hot_db_path = _default_hot_db_path(tmp_path)
+    store = OctaneSourceStore(db_path)
+    try:
+        store.create_tables()
+    finally:
+        store.close()
+
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            """
+            INSERT INTO octane_defects(
+                defect_id, name, status_phase, problem_finder_team, year,
+                assigned_ecu, top_aida, phase, solution_cluster, lead_model,
+                project, pu, market, last_modified, creation_time,
+                requirement, requirements_json, raw_json, fetched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "D-TOP-PAGED",
+                "Top topic second page hidden",
+                "03-In Analysis",
+                "OtherTeam",
+                "2026",
+                "ECU-A",
+                "Speech",
+                "03-In Analysis",
+                "Integration",
+                "NA5",
+                "IDCEVO",
+                "PU1",
+                "CN",
+                "2026-05-25T00:00:00Z",
+                "2026-03-01T00:00:00Z",
+                "Top Topic | DOC_PreCon_A",
+                '["Top Topic", "DOC_PreCon_A"]',
+                '{}',
+                "2026-05-25T00:00:00Z",
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO octane_defect_history_events(
+                defect_id, field_name, event_timestamp, entry_index, change_index,
+                old_value, new_value, old_value_text, new_value_text, fetched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "D-TOP-PAGED",
+                "status_phase",
+                "2026-05-25T00:00:00Z",
+                1,
+                1,
+                "08",
+                "06",
+                "08-Resolved Forward",
+                "06-Ready for Test",
+                "2026-05-25T00:00:00Z",
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    _refresh_full_picture_hot_outcomes(db_path, hot_db_path)
+    _record_active_snapshot(hot_db_path, snapshot_version="snapshot-top-topic-page-2", source_db_path=db_path)
+    _configure_full_picture_env(
+        monkeypatch,
+        defect_db_path=db_path,
+        hot_db_path=hot_db_path,
+    )
+
+    tickets_payload = read_models.list_full_picture_ticket_rows(
+        years=["2026"],
+        projects=["IDCEVO"],
+        requirements=["DOC_PreCon_A"],
+        problem_finder_teams=["DTSV_China"],
+        creation_time_start="2026-05-20",
+        creation_time_end="2026-05-31",
+        page=2,
+        page_size=1,
+        snapshot_version="snapshot-top-topic-page-2",
+    )
+
+    assert tickets_payload["priority_rows"] == []
+
+
+def test_full_picture_creation_time_month_filter_uses_creation_time_not_last_modified(tmp_path, monkeypatch):
+    db_path = tmp_path / "qgate_data.db"
+    hot_db_path = _default_hot_db_path(tmp_path)
+    _seed_qgate_source_db(db_path)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            UPDATE octane_defects
+            SET creation_time = ?, last_modified = ?
+            WHERE defect_id = ?
+            """,
+            ("2026-02-20T00:00:00Z", "2026-05-21T00:00:00Z", "D-001"),
+        )
+        conn.commit()
+    _refresh_full_picture_hot_outcomes(db_path, hot_db_path)
+    _record_active_snapshot(hot_db_path, source_db_path=db_path)
+    _configure_full_picture_env(
+        monkeypatch,
+        defect_db_path=db_path,
+        hot_db_path=hot_db_path,
+    )
+
+    summary_payload = read_models.build_full_picture_summary_payload(years=["2026"])
+    tickets_payload = read_models.list_full_picture_ticket_rows(
+        years=["2026"],
+        months=["2026-02"],
+        page=1,
+        page_size=50,
+        snapshot_version=summary_payload["snapshot_version"],
+    )
+
+    assert summary_payload["filters"]["months"] == ["2026-02"]
+    assert [row["ticket_id"] for row in tickets_payload["rows"]] == ["D-001"]
+
+
+def test_full_picture_creation_time_date_range_filters_summary_and_tickets(tmp_path, monkeypatch):
+    db_path = tmp_path / "qgate_data.db"
+    hot_db_path = _default_hot_db_path(tmp_path)
+    _seed_qgate_source_db(db_path, defect_count=2)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            UPDATE octane_defects
+            SET creation_time = ?, last_modified = ?
+            WHERE defect_id = ?
+            """,
+            ("2026-03-15T00:00:00Z", "2026-05-21T00:00:00Z", "D-001"),
+        )
+        conn.execute(
+            """
+            UPDATE octane_defects
+            SET creation_time = ?, last_modified = ?
+            WHERE defect_id = ?
+            """,
+            ("2026-05-22T00:00:00Z", "2026-05-22T00:00:00Z", "D-002"),
+        )
+        conn.commit()
+    _refresh_full_picture_hot_outcomes(db_path, hot_db_path)
+    _record_active_snapshot(hot_db_path, source_db_path=db_path)
+    _configure_full_picture_env(
+        monkeypatch,
+        defect_db_path=db_path,
+        hot_db_path=hot_db_path,
+    )
+
+    summary_payload = read_models.build_full_picture_summary_payload(
+        years=["2026"],
+        creation_time_start="2026-03-01",
+        creation_time_end="2026-04-30",
+    )
+    tickets_payload = read_models.list_full_picture_ticket_rows(
+        years=["2026"],
+        creation_time_start="2026-03-01",
+        creation_time_end="2026-04-30",
+        page=1,
+        page_size=50,
+        snapshot_version=summary_payload["snapshot_version"],
+    )
+
+    assert summary_payload["overview"]["ticket_count"] == 1
+    assert [row["ticket_id"] for row in tickets_payload["rows"]] == ["D-001"]
+
+
 def test_full_picture_tickets_endpoint_returns_paged_rows(tmp_path, monkeypatch):
     db_path = tmp_path / "qgate_data.db"
     hot_db_path = _default_hot_db_path(tmp_path)
     _seed_qgate_source_db(db_path, defect_count=3)
     _refresh_full_picture_hot_outcomes(db_path, hot_db_path)
-    _record_active_snapshot(hot_db_path)
+    _record_active_snapshot(hot_db_path, source_db_path=db_path)
     _configure_full_picture_env(
         monkeypatch,
         defect_db_path=db_path,
@@ -228,7 +777,7 @@ def test_full_picture_tickets_endpoint_returns_paged_rows(tmp_path, monkeypatch)
 
 def test_full_picture_refresh_status_endpoint_reads_active_snapshot(tmp_path, monkeypatch):
     hot_db_path = _default_hot_db_path(tmp_path)
-    _record_active_snapshot(hot_db_path, snapshot_version="snapshot-20260528-2")
+    _record_active_snapshot(hot_db_path, snapshot_version="snapshot-20260528-2", source_db_path=db_path)
     monkeypatch.setenv("VIZION_FULL_PICTURE_HOT_DB_PATH", str(hot_db_path))
     client = TestClient(app)
 
@@ -245,7 +794,7 @@ def test_full_picture_dashboard_split_endpoints_share_active_snapshot_version(tm
     hot_db_path = _default_hot_db_path(tmp_path)
     _seed_qgate_source_db(db_path, defect_count=2)
     _refresh_full_picture_hot_outcomes(db_path, hot_db_path)
-    _record_active_snapshot(hot_db_path, snapshot_version="snapshot-20260528-shared")
+    _record_active_snapshot(hot_db_path, snapshot_version="snapshot-20260528-shared", source_db_path=db_path)
     _configure_full_picture_env(
         monkeypatch,
         defect_db_path=db_path,
@@ -265,12 +814,35 @@ def test_full_picture_dashboard_split_endpoints_share_active_snapshot_version(tm
     assert refresh_status_response.json()["active_snapshot_version"] == "snapshot-20260528-shared"
 
 
+def test_full_picture_summary_reads_published_snapshot_without_request_time_materialization(tmp_path, monkeypatch):
+    db_path = tmp_path / "qgate_data.db"
+    hot_db_path = _default_hot_db_path(tmp_path)
+    _seed_qgate_source_db(db_path, defect_count=2)
+    _refresh_full_picture_hot_outcomes(db_path, hot_db_path)
+    _record_active_snapshot(hot_db_path, snapshot_version="snapshot-published", source_db_path=db_path)
+    _configure_full_picture_env(
+        monkeypatch,
+        defect_db_path=db_path,
+        hot_db_path=hot_db_path,
+    )
+
+    def fail_if_materialized_on_read(*_args, **_kwargs):
+        pytest.fail("summary request unexpectedly materialized snapshot rows on the read path")
+
+    monkeypatch.setattr(read_models, "_materialize_snapshot_ticket_rows", fail_if_materialized_on_read)
+
+    payload = read_models.build_full_picture_summary_payload(years=["2026"])
+
+    assert payload["snapshot_version"] == "snapshot-published"
+    assert payload["overview"]["ticket_count"] == 2
+
+
 def test_full_picture_summary_endpoint_preserves_repeated_query_values(tmp_path, monkeypatch):
     db_path = tmp_path / "qgate_data.db"
     hot_db_path = _default_hot_db_path(tmp_path)
     _seed_qgate_source_db(db_path)
     _refresh_full_picture_hot_outcomes(db_path, hot_db_path)
-    _record_active_snapshot(hot_db_path)
+    _record_active_snapshot(hot_db_path, source_db_path=db_path)
     _configure_full_picture_env(
         monkeypatch,
         defect_db_path=db_path,
@@ -289,7 +861,7 @@ def test_full_picture_tickets_endpoint_rejects_invalid_page_value(tmp_path, monk
     hot_db_path = _default_hot_db_path(tmp_path)
     _seed_qgate_source_db(db_path)
     _refresh_full_picture_hot_outcomes(db_path, hot_db_path)
-    _record_active_snapshot(hot_db_path)
+    _record_active_snapshot(hot_db_path, source_db_path=db_path)
     _configure_full_picture_env(
         monkeypatch,
         defect_db_path=db_path,
@@ -308,7 +880,7 @@ def test_full_picture_tickets_endpoint_rejects_stale_snapshot_version(tmp_path, 
     hot_db_path = _default_hot_db_path(tmp_path)
     _seed_qgate_source_db(db_path)
     _refresh_full_picture_hot_outcomes(db_path, hot_db_path)
-    _record_active_snapshot(hot_db_path, snapshot_version="snapshot-live")
+    _record_active_snapshot(hot_db_path, snapshot_version="snapshot-live", source_db_path=db_path)
     _configure_full_picture_env(
         monkeypatch,
         defect_db_path=db_path,
@@ -358,7 +930,7 @@ def test_full_picture_tickets_reuse_materialized_rows_after_summary_build(tmp_pa
     hot_db_path = _default_hot_db_path(tmp_path)
     _seed_qgate_source_db(db_path, defect_count=3)
     _refresh_full_picture_hot_outcomes(db_path, hot_db_path)
-    _record_active_snapshot(hot_db_path, snapshot_version="snapshot-materialized")
+    _record_active_snapshot(hot_db_path, snapshot_version="snapshot-materialized", source_db_path=db_path)
     _configure_full_picture_env(
         monkeypatch,
         defect_db_path=db_path,
@@ -416,6 +988,132 @@ def test_full_picture_tickets_use_materialized_rows_without_active_snapshot(tmp_
     assert tickets_payload["snapshot_version"] == summary_payload["snapshot_version"]
     assert tickets_payload["total_rows"] == 3
     assert tickets_payload["rows"][0]["ticket_id"] == "D-002"
+
+
+def test_full_picture_summary_uses_live_snapshot_when_active_snapshot_source_is_stale(tmp_path, monkeypatch):
+    db_path = tmp_path / "qgate_data.db"
+    hot_db_path = _default_hot_db_path(tmp_path)
+    store = OctaneSourceStore(db_path)
+    try:
+        store.create_tables()
+    finally:
+        store.close()
+
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            """
+            INSERT INTO octane_defects(
+                defect_id, name, status_phase, problem_finder_team, year,
+                assigned_ecu, top_aida, phase, solution_cluster, lead_model,
+                project, pu, market, last_modified, creation_time,
+                requirement, requirements_json, raw_json, fetched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "D-REQ-STALE",
+                "Requirement updated after snapshot",
+                "03-In Analysis",
+                "DTSV_China",
+                "2026",
+                "ECU-A",
+                "Speech",
+                "03-In Analysis",
+                "Integration",
+                "NA5",
+                "IDCEVO",
+                "PU1",
+                "CN",
+                "2026-05-25T00:00:00Z",
+                "2026-05-24T00:00:00Z",
+                "DOC_PreCon_A",
+                '["DOC_PreCon_A"]',
+                '{}',
+                "2026-05-25T00:00:00Z",
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO octane_defect_history_events(
+                defect_id, field_name, event_timestamp, entry_index, change_index,
+                old_value, new_value, old_value_text, new_value_text, fetched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "D-REQ-STALE",
+                "status_phase",
+                "2026-05-25T00:00:00Z",
+                1,
+                1,
+                "08",
+                "06",
+                "08-Resolved Forward",
+                "06-Ready for Test",
+                "2026-05-25T00:00:00Z",
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    _refresh_full_picture_hot_outcomes(db_path, hot_db_path)
+    record_snapshot_refresh(
+        hot_db_path,
+        snapshot_version="snapshot-stale",
+        source_db_path=str(db_path.resolve()),
+        source_db_mtime=read_models._format_snapshot_source_mtime(db_path),
+        refresh_status="ready",
+        last_error=None,
+    )
+    activate_snapshot_version(hot_db_path, "snapshot-stale")
+    _configure_full_picture_env(
+        monkeypatch,
+        defect_db_path=db_path,
+        hot_db_path=hot_db_path,
+    )
+
+    initial_summary_payload = read_models.build_full_picture_summary_payload(years=["2026"])
+    initial_tickets_payload = read_models.list_full_picture_ticket_rows(
+        years=["2026"],
+        snapshot_version="snapshot-stale",
+    )
+
+    assert initial_summary_payload["snapshot_version"] == "snapshot-stale"
+    assert initial_tickets_payload["rows"][0]["requirement"] == "DOC_PreCon_A"
+
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            """
+            UPDATE octane_defects
+            SET requirement = ?, requirements_json = ?, last_modified = ?
+            WHERE defect_id = ?
+            """,
+            (
+                "Top Topic | DOC_PreCon_A",
+                '["Top Topic", "DOC_PreCon_A"]',
+                "2026-05-26T00:00:00Z",
+                "D-REQ-STALE",
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    newer_mtime_ns = db_path.stat().st_mtime_ns + 5_000_000_000
+    os.utime(db_path, ns=(newer_mtime_ns, newer_mtime_ns))
+    reset_summary_cache()
+
+    refreshed_summary_payload = read_models.build_full_picture_summary_payload(years=["2026"])
+    refreshed_tickets_payload = read_models.list_full_picture_ticket_rows(
+        years=["2026"],
+        snapshot_version=refreshed_summary_payload["snapshot_version"],
+    )
+
+    assert refreshed_summary_payload["snapshot_version"].startswith("live-")
+    assert refreshed_summary_payload["snapshot_version"] != "snapshot-stale"
+    assert "Top Topic" in refreshed_summary_payload["filters"]["requirements"]
+    assert refreshed_tickets_payload["rows"][0]["requirement"] == "Top Topic | DOC_PreCon_A"
 
 
 def test_full_picture_summary_filters_keep_current_field_expandable(tmp_path, monkeypatch):
@@ -486,7 +1184,7 @@ def test_full_picture_summary_filters_keep_current_field_expandable(tmp_path, mo
         conn.close()
 
     _refresh_full_picture_hot_outcomes(db_path, hot_db_path)
-    _record_active_snapshot(hot_db_path, snapshot_version="snapshot-self-filter")
+    _record_active_snapshot(hot_db_path, snapshot_version="snapshot-self-filter", source_db_path=db_path)
     _configure_full_picture_env(
         monkeypatch,
         defect_db_path=db_path,
@@ -1140,8 +1838,8 @@ def test_full_picture_prefers_local_octane_db_when_explicitly_configured(tmp_pat
         conn.execute(
             """
             INSERT INTO octane_defect_history_events(
-                defect_id, event_timestamp, field_name, old_value, new_value, raw_event_json, fetched_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                defect_id, event_timestamp, field_name, old_value, new_value, fetched_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
                 "D-2",
@@ -1149,7 +1847,6 @@ def test_full_picture_prefers_local_octane_db_when_explicitly_configured(tmp_pat
                 "status_phase",
                 "08",
                 "06",
-                '{"old_value_text":"08-Resolved Forward","new_value_text":"06-Ready for Test"}',
                 "2026-05-25T00:00:00Z",
             ),
         )

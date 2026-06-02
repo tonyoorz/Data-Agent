@@ -145,7 +145,8 @@ def _seed_hot_testing_coverage_rows(db_path):
         conn.executescript(
             """
             CREATE TABLE testing_coverage_runs (
-                mr_id TEXT NOT NULL PRIMARY KEY,
+                snapshot_version TEXT NOT NULL,
+                mr_id TEXT NOT NULL,
                 defect_id TEXT,
                 test_id TEXT,
                 test_name TEXT,
@@ -160,25 +161,34 @@ def _seed_hot_testing_coverage_rows(db_path):
                 fv TEXT,
                 tester TEXT,
                 source_signature TEXT NOT NULL,
-                derived_at TEXT NOT NULL
+                derived_at TEXT NOT NULL,
+                PRIMARY KEY (snapshot_version, mr_id)
             );
-            CREATE TABLE outcome_refresh_state (
-                store_name TEXT NOT NULL PRIMARY KEY,
+            CREATE TABLE testing_coverage_snapshot_state (
+                snapshot_version TEXT NOT NULL PRIMARY KEY,
                 source_signature TEXT NOT NULL,
-                outcome_row_count INTEGER NOT NULL,
-                refreshed_at TEXT NOT NULL
+                row_count INTEGER NOT NULL,
+                refresh_status TEXT NOT NULL,
+                refreshed_at TEXT NOT NULL,
+                last_error TEXT
+            );
+            CREATE TABLE testing_coverage_snapshot_pointer (
+                pointer_name TEXT NOT NULL PRIMARY KEY,
+                snapshot_version TEXT NOT NULL
             );
             """
         )
         conn.execute(
             """
             INSERT INTO testing_coverage_runs(
+                snapshot_version,
                 mr_id, defect_id, test_id, test_name, status, year, test_week,
                 project, pu, top_aida, feature_region, fvp, fv, tester,
                 source_signature, derived_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
+                "testing-snapshot-hot-1",
                 "MR-HOT-1",
                 "D-HOT-1",
                 "T-HOT-1",
@@ -199,23 +209,32 @@ def _seed_hot_testing_coverage_rows(db_path):
         )
         conn.execute(
             """
-            INSERT INTO outcome_refresh_state(
-                store_name, source_signature, outcome_row_count, refreshed_at
-            ) VALUES (?, ?, ?, ?)
+            INSERT INTO testing_coverage_snapshot_state(
+                snapshot_version, source_signature, row_count, refresh_status, refreshed_at, last_error
+            ) VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
-                "testing_coverage_runs",
+                "testing-snapshot-hot-1",
                 "sig-hot",
                 1,
+                "ready",
                 "2026-05-27T00:00:00Z",
+                None,
             ),
+        )
+        conn.execute(
+            """
+            INSERT INTO testing_coverage_snapshot_pointer(pointer_name, snapshot_version)
+            VALUES (?, ?)
+            """,
+            ("active", "testing-snapshot-hot-1"),
         )
         conn.commit()
     finally:
         conn.close()
 
 
-def test_testing_coverage_analysis_defaults_to_local_source_copy(tmp_path, monkeypatch):
+def test_testing_coverage_analysis_returns_503_without_published_testing_snapshot(tmp_path, monkeypatch):
     database_root = tmp_path / "database"
     source_db_path = database_root / "source" / "qgate_raw.db"
     source_db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -229,17 +248,10 @@ def test_testing_coverage_analysis_defaults_to_local_source_copy(tmp_path, monke
 
     response = client.get("/api/testing/coverage-analysis/filters")
 
-    assert response.status_code == 200
+    assert response.status_code == 503
     assert response.json() == {
-        "years": ["2026"],
-        "projects": ["IDCEVO"],
-        "test_weeks": ["2026-CW21"],
-        "pus": ["ICV"],
-        "aidas": ["Use Speech operation [01.04.02.01.01.05]"],
-        "statuses": ["Passed"],
-        "feature_regions": ["China Specific"],
-        "fvps": ["Voice Experience"],
-        "fvs": ["Speech"],
+        "error": "testing coverage analysis data not ready",
+        "missing_fields": REQUIRED_MISSING_FIELDS,
     }
 
 
@@ -275,7 +287,7 @@ def test_testing_coverage_analysis_prefers_hot_materialized_rows_when_available(
     }
 
 
-def test_testing_coverage_analysis_falls_back_to_source_when_hot_is_marked_ready_but_empty(
+def test_testing_coverage_analysis_returns_503_when_hot_rows_exist_without_active_snapshot(
     tmp_path,
     monkeypatch,
 ):
@@ -292,29 +304,35 @@ def test_testing_coverage_analysis_falls_back_to_source_when_hot_is_marked_ready
         conn.executescript(
             """
             CREATE TABLE testing_coverage_runs (
-                mr_id TEXT NOT NULL PRIMARY KEY,
+                snapshot_version TEXT NOT NULL,
+                mr_id TEXT NOT NULL,
                 source_signature TEXT NOT NULL,
-                derived_at TEXT NOT NULL
+                derived_at TEXT NOT NULL,
+                PRIMARY KEY (snapshot_version, mr_id)
             );
-            CREATE TABLE outcome_refresh_state (
-                store_name TEXT NOT NULL PRIMARY KEY,
+            CREATE TABLE testing_coverage_snapshot_state (
+                snapshot_version TEXT NOT NULL PRIMARY KEY,
                 source_signature TEXT NOT NULL,
-                outcome_row_count INTEGER NOT NULL,
-                refreshed_at TEXT NOT NULL
+                row_count INTEGER NOT NULL,
+                refresh_status TEXT NOT NULL,
+                refreshed_at TEXT NOT NULL,
+                last_error TEXT
             );
             """
         )
         conn.execute(
             """
-            INSERT INTO outcome_refresh_state(
-                store_name, source_signature, outcome_row_count, refreshed_at
-            ) VALUES (?, ?, ?, ?)
+            INSERT INTO testing_coverage_snapshot_state(
+                snapshot_version, source_signature, row_count, refresh_status, refreshed_at, last_error
+            ) VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
-                "testing_coverage_runs",
-                "sig-hot-empty",
-                0,
+                "testing-snapshot-without-pointer",
+                "sig-hot-without-pointer",
+                1,
+                "ready",
                 "2026-05-27T00:00:00Z",
+                None,
             ),
         )
         conn.commit()
@@ -329,17 +347,10 @@ def test_testing_coverage_analysis_falls_back_to_source_when_hot_is_marked_ready
 
     response = client.get("/api/testing/coverage-analysis/filters")
 
-    assert response.status_code == 200
+    assert response.status_code == 503
     assert response.json() == {
-        "years": ["2026"],
-        "projects": ["IDCEVO"],
-        "test_weeks": ["2026-CW21"],
-        "pus": ["ICV"],
-        "aidas": ["Use Speech operation [01.04.02.01.01.05]"],
-        "statuses": ["Passed"],
-        "feature_regions": ["China Specific"],
-        "fvps": ["Voice Experience"],
-        "fvs": ["Speech"],
+        "error": "testing coverage analysis data not ready",
+        "missing_fields": REQUIRED_MISSING_FIELDS,
     }
 
 
@@ -357,6 +368,156 @@ def test_testing_coverage_analysis_uses_tpmdashboard_feature_region_mapping(
         conn.execute(
             "UPDATE octane_defects SET market = ? WHERE defect_id = ?",
             ("DE", "D-1"),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    monkeypatch.setattr(analytics_config, "DEFAULT_ANALYTICS_DB_PATH", tmp_path / "legacy" / "octane_data.db")
+    monkeypatch.delenv("VIZION_ANALYTICS_DB_PATH", raising=False)
+    monkeypatch.setenv("VIZION_DATABASE_ROOT", str(database_root))
+
+    client = TestClient(app)
+
+    response = client.get("/api/testing/coverage-analysis/filters")
+
+    assert response.status_code == 200
+    assert response.json()["feature_regions"] == ["China Specific"]
+
+
+def test_testing_coverage_analysis_falls_back_from_legacy_columns_when_feature_region_values_are_blank(
+    tmp_path,
+    monkeypatch,
+):
+    database_root = tmp_path / "database"
+    source_db_path = database_root / "source" / "qgate_raw.db"
+    source_db_path.parent.mkdir(parents=True, exist_ok=True)
+
+    conn = sqlite3.connect(source_db_path)
+    try:
+        conn.executescript(
+            """
+            CREATE TABLE octane_defects (
+                defect_id TEXT PRIMARY KEY,
+                top_aida TEXT,
+                test_week TEXT,
+                project TEXT,
+                pu TEXT,
+                fv TEXT,
+                fvp TEXT,
+                team TEXT,
+                lead_model TEXT,
+                market TEXT,
+                raw_json TEXT,
+                fetched_at TEXT
+            );
+            CREATE TABLE octane_manual_runs (
+                mr_id TEXT PRIMARY KEY,
+                defect_id TEXT,
+                test_id TEXT,
+                test_name TEXT,
+                status TEXT,
+                year TEXT,
+                test_week TEXT,
+                pu TEXT,
+                top_aida TEXT,
+                feature_region TEXT,
+                tester TEXT,
+                project TEXT,
+                fv TEXT,
+                fvp TEXT,
+                team TEXT,
+                lead_model TEXT,
+                raw_json TEXT,
+                fetched_at TEXT
+            );
+            CREATE TABLE octane_testcases (
+                test_id TEXT NOT NULL,
+                scope_team TEXT NOT NULL,
+                scope_release TEXT NOT NULL,
+                source TEXT NOT NULL,
+                test_name TEXT,
+                run_count INTEGER NOT NULL,
+                defect_ids_json TEXT NOT NULL,
+                feature_ids_json TEXT NOT NULL,
+                story_ids_json TEXT NOT NULL,
+                raw_json TEXT NOT NULL,
+                fetched_at TEXT NOT NULL,
+                PRIMARY KEY (test_id, scope_team, scope_release, source)
+            );
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO octane_defects(
+                defect_id, top_aida, test_week, project, pu, fv, fvp,
+                team, lead_model, market, raw_json, fetched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "D-LEGACY-BLANK-1",
+                "Use Speech operation [01.04.02.01.01.05]",
+                "2026-CW21",
+                "IDCEVO",
+                "ICV",
+                "Speech",
+                "Voice Experience",
+                "DTSV_China",
+                "NA5",
+                "CN",
+                "{}",
+                "2026-05-25T00:00:00Z",
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO octane_manual_runs(
+                mr_id, defect_id, test_id, test_name, status, year, test_week,
+                pu, top_aida, feature_region, tester, project, fv, fvp,
+                team, lead_model, raw_json, fetched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "MR-LEGACY-BLANK-1",
+                "D-LEGACY-BLANK-1",
+                "T-LEGACY-BLANK-1",
+                "Wake test",
+                "Passed",
+                "2026",
+                "2026-CW21",
+                "ICV",
+                "Use Speech operation [01.04.02.01.01.05]",
+                "",
+                "Tester A",
+                "IDCEVO",
+                "Speech",
+                "Voice Experience",
+                "DTSV_China",
+                "NA5",
+                "{}",
+                "2026-05-25T00:00:00Z",
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO octane_testcases(
+                test_id, scope_team, scope_release, source, test_name,
+                run_count, defect_ids_json, feature_ids_json, story_ids_json, raw_json, fetched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "T-LEGACY-BLANK-1",
+                "DTSV_China",
+                "ALL",
+                "runs",
+                "Wake test",
+                1,
+                '["D-LEGACY-BLANK-1"]',
+                '[]',
+                '[]',
+                "{}",
+                "2026-05-25T00:00:00Z",
+            ),
         )
         conn.commit()
     finally:
@@ -657,6 +818,190 @@ def test_testing_coverage_analysis_uses_tester_column_when_run_by_and_author_are
             "project": "IDCEVO",
             "pu": "ICV",
             "tester": "Tester From Column",
+            "count": 1,
+        }
+    ]
+
+
+def test_testing_coverage_analysis_source_queries_prefer_manual_run_dimensions_when_defect_values_are_blank(
+    tmp_path,
+    monkeypatch,
+):
+    database_root = tmp_path / "database"
+    source_db_path = database_root / "source" / "qgate_raw.db"
+    source_db_path.parent.mkdir(parents=True, exist_ok=True)
+
+    conn = sqlite3.connect(source_db_path)
+    try:
+        conn.executescript(
+            """
+            CREATE TABLE octane_defects (
+                defect_id TEXT PRIMARY KEY,
+                top_aida TEXT,
+                test_week TEXT,
+                project TEXT,
+                pu TEXT,
+                fv TEXT,
+                fvp TEXT,
+                market TEXT,
+                raw_json TEXT,
+                fetched_at TEXT
+            );
+            CREATE TABLE octane_manual_runs (
+                mr_id TEXT PRIMARY KEY,
+                defect_id TEXT,
+                test_id TEXT,
+                test_name TEXT,
+                status TEXT,
+                tester TEXT,
+                year TEXT,
+                finished TEXT,
+                target_ecu_conf TEXT,
+                pu TEXT,
+                top_aida TEXT,
+                fv TEXT,
+                fvp TEXT,
+                raw_json TEXT,
+                fetched_at TEXT
+            );
+            CREATE TABLE octane_testcases (
+                test_id TEXT NOT NULL,
+                scope_team TEXT NOT NULL,
+                scope_release TEXT NOT NULL,
+                source TEXT NOT NULL,
+                test_name TEXT,
+                run_count INTEGER NOT NULL,
+                defect_ids_json TEXT NOT NULL,
+                feature_ids_json TEXT NOT NULL,
+                story_ids_json TEXT NOT NULL,
+                raw_json TEXT NOT NULL,
+                fetched_at TEXT NOT NULL,
+                PRIMARY KEY (test_id, scope_team, scope_release, source)
+            );
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO octane_defects(
+                defect_id, top_aida, test_week, project, pu, fv, fvp, market, raw_json, fetched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "D-MANUAL-DIMS-1",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "CN",
+                "{}",
+                "2026-05-25T00:00:00Z",
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO octane_manual_runs(
+                mr_id, defect_id, test_id, test_name, status, tester, year, finished,
+                target_ecu_conf, pu, top_aida, fv, fvp, raw_json, fetched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "MR-MANUAL-DIMS-1",
+                "D-MANUAL-DIMS-1",
+                "T-MANUAL-DIMS-1",
+                "Wake test",
+                "Passed",
+                "Tester From Manual Run",
+                "2026",
+                "2026-05-27T08:15:00Z",
+                "IDCEVO headunit",
+                "ICV",
+                "Use Speech operation [01.04.02.01.01.05]",
+                "Speech",
+                "Voice Experience",
+                "{}",
+                "2026-05-25T00:00:00Z",
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO octane_testcases(
+                test_id, scope_team, scope_release, source, test_name,
+                run_count, defect_ids_json, feature_ids_json, story_ids_json, raw_json, fetched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "T-MANUAL-DIMS-1",
+                "ALL",
+                "ALL",
+                "stage-testing-source",
+                "Wake test",
+                1,
+                '["D-MANUAL-DIMS-1"]',
+                '[]',
+                '[]',
+                '{}',
+                "2026-05-25T00:00:00Z",
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    monkeypatch.setattr(analytics_config, "DEFAULT_ANALYTICS_DB_PATH", tmp_path / "legacy" / "octane_data.db")
+    monkeypatch.delenv("VIZION_ANALYTICS_DB_PATH", raising=False)
+    monkeypatch.setenv("VIZION_DATABASE_ROOT", str(database_root))
+
+    client = TestClient(app)
+
+    filters_response = client.get("/api/testing/coverage-analysis/filters")
+    project_status_response = client.get("/api/testing/coverage-analysis/project-status")
+    aida_status_response = client.get("/api/testing/coverage-analysis/aida-status")
+    detail_response = client.get("/api/testing/coverage-analysis/testcase-detail")
+
+    assert filters_response.status_code == 200
+    assert filters_response.json() == {
+        "years": ["2026"],
+        "projects": ["IDCEVO"],
+        "test_weeks": ["2026-CW22"],
+        "pus": ["ICV"],
+        "aidas": ["Use Speech operation [01.04.02.01.01.05]"],
+        "statuses": ["Passed"],
+        "feature_regions": ["China Specific"],
+        "fvps": ["Voice Experience"],
+        "fvs": ["Speech"],
+    }
+    assert project_status_response.status_code == 200
+    assert project_status_response.json() == [
+        {
+            "test_week": "2026-CW22",
+            "fv": "Speech",
+            "fvp": "Voice Experience",
+            "status": "Passed",
+            "count": 1,
+        }
+    ]
+    assert aida_status_response.status_code == 200
+    assert aida_status_response.json() == [
+        {
+            "test_week": "2026-CW22",
+            "top_aida": "Use Speech operation [01.04.02.01.01.05]",
+            "status": "Passed",
+            "count": 1,
+        }
+    ]
+    assert detail_response.status_code == 200
+    assert detail_response.json() == [
+        {
+            "test_id": "T-MANUAL-DIMS-1",
+            "test_name": "Wake test",
+            "test_week": "2026-CW22",
+            "status": "Passed",
+            "top_aida": "Use Speech operation [01.04.02.01.01.05]",
+            "project": "IDCEVO",
+            "pu": "ICV",
+            "tester": "Tester From Manual Run",
             "count": 1,
         }
     ]

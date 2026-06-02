@@ -12,6 +12,13 @@ type DuplicateSearchResultsProps = {
   allowFeedback?: boolean;
 };
 
+const OCTANE_WORK_ITEM_URL_BASE =
+  "https://octane-prod.bmwgroup.net/ui/entity-navigation?p=1002/2001&entityType=work_item&id=";
+
+function buildOctaneWorkItemUrl(ticketId: string) {
+  return `${OCTANE_WORK_ITEM_URL_BASE}${encodeURIComponent(ticketId)}`;
+}
+
 const DuplicateSearchResults = ({
   result,
   allowFeedback = true,
@@ -113,9 +120,20 @@ const DuplicateSearchResults = ({
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="rounded-md bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">
-                    {candidate.ticketId || "N/A"}
-                  </span>
+                    {candidate.ticketId ? (
+                      <a
+                        href={buildOctaneWorkItemUrl(candidate.ticketId)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="rounded-md bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary underline-offset-2 hover:underline"
+                      >
+                        {candidate.ticketId}
+                      </a>
+                    ) : (
+                      <span className="rounded-md bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">
+                        N/A
+                      </span>
+                    )}
                   <span className="min-w-0 text-sm font-semibold text-foreground">
                     {candidate.name || "Untitled issue"}
                   </span>

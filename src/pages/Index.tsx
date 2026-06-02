@@ -14,6 +14,7 @@ import TestStatusAnalysis from "@/components/dashboard/pages/TestStatusAnalysis"
 import DefectStatusAnalysis from "@/components/dashboard/pages/DefectStatusAnalysis";
 import AIChat from "@/components/dashboard/pages/AIChat";
 import MainDashboard from "@/components/dashboard/pages/MainDashboard";
+import { formatSyncTimestamp } from "@/lib/formatSyncTimestamp";
 
 const pageTitles: Record<string, { title: string; subtitle: string }> = {
   "main-dashboard": {
@@ -35,6 +36,7 @@ const Index = () => {
   const [activeNav, setActiveNav] = useState("main-dashboard");
   const [mainDashboardSyncDate, setMainDashboardSyncDate] = useState<string | null>(null);
   const info = pageTitles[activeNav] || pageTitles["main-dashboard"];
+  const formattedMainDashboardSyncDate = formatSyncTimestamp(mainDashboardSyncDate);
 
   const renderContent = () => {
     switch (activeNav) {
@@ -87,7 +89,7 @@ const Index = () => {
           </div>
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <span className="flex h-2 w-2 rounded-full bg-success" />
-            {`数据已同步 · ${mainDashboardSyncDate ?? "暂无日期"}`}
+            {`数据已同步 · ${formattedMainDashboardSyncDate ?? "暂无日期"}`}
           </div>
         </header>
 

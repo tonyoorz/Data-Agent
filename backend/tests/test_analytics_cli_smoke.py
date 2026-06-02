@@ -7,6 +7,7 @@ from pathlib import Path
 
 import backend.analytics_cli as analytics_cli
 from backend.analytics_cli import main
+from backend.analytics.dashboard_snapshot import read_active_snapshot_state
 from backend.analytics.ingest import client as ingest_client
 from backend.analytics.ingest import pipeline as ingest_pipeline
 
@@ -114,6 +115,197 @@ def test_analytics_cli_refresh_octane_source_invokes_repo_owned_pipeline(
     assert '"run_updates": 7' in stdout
 
 
+def test_analytics_cli_refresh_manual_runs_source_invokes_repo_owned_pipeline(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    database_root = tmp_path / "database"
+    monkeypatch.setenv("VIZION_DATABASE_ROOT", str(database_root))
+
+    captured: dict[str, object] = {}
+
+    def fake_build_default_octane_client() -> str:
+        return "fake-client"
+
+    def fake_refresh_octane_manual_runs_only(*, source_db_path, team_name, years, client, progress=None) -> dict[str, int]:
+        captured["pipeline"] = {
+            "source_db_path": source_db_path,
+            "team_name": team_name,
+            "years": years,
+            "client": client,
+        }
+        if progress is not None:
+            progress("Refreshing manual runs for DTSV_China 2025 with full fetch")
+        return {"manual_run_rows": 3}
+
+    def fake_run_processor_pipeline(db_path, *, asset_root=None, dry_run=False, report_path=None) -> dict[str, int]:
+        captured["processor"] = {
+            "db_path": db_path,
+            "asset_root": asset_root,
+            "dry_run": dry_run,
+            "report_path": report_path,
+        }
+        return {"defect_updates": 0, "run_updates": 5}
+
+    monkeypatch.setattr(ingest_client, "build_default_octane_client", fake_build_default_octane_client)
+    monkeypatch.setattr(ingest_pipeline, "refresh_octane_manual_runs_only", fake_refresh_octane_manual_runs_only)
+    monkeypatch.setattr(analytics_cli, "run_processor_pipeline", fake_run_processor_pipeline)
+
+    exit_code = main([
+        "refresh-manual-runs-source",
+        "--team-name",
+        "DTSV_China",
+        "--years",
+        "2025,2026",
+    ])
+
+    stdout = capsys.readouterr().out
+    assert exit_code == 0
+    assert captured["pipeline"] == {
+        "source_db_path": database_root / "source" / "qgate_raw.db",
+        "team_name": "DTSV_China",
+        "years": (2025, 2026),
+        "client": "fake-client",
+    }
+    assert captured["processor"] == {
+        "db_path": database_root / "source" / "qgate_raw.db",
+        "asset_root": None,
+        "dry_run": False,
+        "report_path": None,
+    }
+    assert "Starting manual-runs refresh for DTSV_China years=2025,2026" in stdout
+    assert "Refreshing manual runs for DTSV_China 2025 with full fetch" in stdout
+    assert "Running processor pipeline..." in stdout
+    assert "Processor pipeline finished" in stdout
+    assert '"manual_run_rows": 3' in stdout
+    assert '"run_updates": 5' in stdout
+
+
+def test_analytics_cli_refresh_full_picture_outcomes_reports_progress(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    source_db = tmp_path / "history.db"
+    hot_db = tmp_path / "database" / "hot" / "vizion_serving.db"
+
+    conn = sqlite3.connect(source_db)
+    try:
+        conn.execute(
+            "CREATE TABLE octane_defect_history_events (defect_id TEXT, field_name TEXT, event_timestamp TEXT)"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    def fake_refresh(source_db_path, hot_db_path, force):
+        return {"row_count": 12, "skipped": False, "source_signature": "sig-1"}
+
+    monkeypatch.setattr(analytics_cli, "refresh_materialized_outcomes", fake_refresh)
+    monkeypatch.setattr(analytics_cli, "record_snapshot_refresh", lambda *args, **kwargs: None)
+    monkeypatch.setattr(analytics_cli, "activate_snapshot_version", lambda *args, **kwargs: None)
+    monkeypatch.setenv("VIZION_FULL_PICTURE_HISTORY_DB_PATH", str(source_db))
+    monkeypatch.setenv("VIZION_FULL_PICTURE_HOT_DB_PATH", str(hot_db))
+
+    exit_code = main(["refresh-full-picture-outcomes"])
+
+    stdout = capsys.readouterr().out
+    assert exit_code == 0
+    assert "Starting full-picture outcomes refresh" in stdout
+    assert "Deriving hot outcomes from" in stdout
+    assert "Recording dashboard snapshot metadata..." in stdout
+    assert "Full-picture outcomes refresh finished" in stdout
+    assert '"row_count": 12' in stdout
+
+
+def test_analytics_cli_refresh_all_sources_runs_steps_in_order(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    database_root = tmp_path / "database"
+    source_db_path = database_root / "source" / "qgate_raw.db"
+    source_db_path.parent.mkdir(parents=True, exist_ok=True)
+    source_db_path.touch()
+    monkeypatch.setenv("VIZION_DATABASE_ROOT", str(database_root))
+
+    calls: list[tuple[str, object]] = []
+
+    def fake_refresh_legacy_qgate_source_incremental(**kwargs):
+        calls.append(("legacy", kwargs))
+        return {"defect_refresh": {"team_summaries": []}, "history_refresh": {"team_summaries": []}}
+
+    def fake_build_default_octane_client() -> str:
+        calls.append(("build_client", None))
+        return "fake-client"
+
+    def fake_refresh_octane_manual_runs_only(*, source_db_path, team_name, years, client, progress=None):
+        calls.append(("manual_runs", {
+            "source_db_path": source_db_path,
+            "team_name": team_name,
+            "years": years,
+            "client": client,
+        }))
+        if progress is not None:
+            progress("manual progress line")
+        return {"manual_run_rows": 7}
+
+    def fake_run_processor_pipeline(db_path, *, asset_root=None, dry_run=False, report_path=None):
+        calls.append(("processor", {
+            "db_path": db_path,
+            "asset_root": asset_root,
+            "dry_run": dry_run,
+            "report_path": report_path,
+        }))
+        return {"defect_updates": 2, "run_updates": 3}
+
+    def fake_refresh_materialized_outcomes(source_db_path, hot_db_path, force):
+        calls.append(("outcomes", {
+            "source_db_path": source_db_path,
+            "hot_db_path": hot_db_path,
+            "force": force,
+        }))
+        return {"row_count": 11, "skipped": False, "source_signature": "sig-2"}
+
+    monkeypatch.setattr(analytics_cli, "refresh_legacy_qgate_source_incremental", fake_refresh_legacy_qgate_source_incremental)
+    monkeypatch.setattr(ingest_client, "build_default_octane_client", fake_build_default_octane_client)
+    monkeypatch.setattr(ingest_pipeline, "refresh_octane_manual_runs_only", fake_refresh_octane_manual_runs_only)
+    monkeypatch.setattr(analytics_cli, "run_processor_pipeline", fake_run_processor_pipeline)
+    monkeypatch.setattr(analytics_cli, "refresh_materialized_outcomes", fake_refresh_materialized_outcomes)
+    monkeypatch.setattr(analytics_cli, "record_snapshot_refresh", lambda *args, **kwargs: None)
+    monkeypatch.setattr(analytics_cli, "activate_snapshot_version", lambda *args, **kwargs: None)
+
+    exit_code = main([
+        "refresh-all-sources",
+        "--teams",
+        "DTSV_China,[AT]CoC_EI_IuK",
+        "--years",
+        "2025,2026",
+        "--team-name",
+        "DTSV_China",
+        "--history-max-workers",
+        "50",
+    ])
+
+    stdout = capsys.readouterr().out
+    assert exit_code == 0
+    assert [name for name, _ in calls] == [
+        "legacy",
+        "build_client",
+        "manual_runs",
+        "processor",
+        "outcomes",
+    ]
+    assert "Starting combined source refresh" in stdout
+    assert "Step 1/3: refreshing incremental defect/history source..." in stdout
+    assert "Step 2/3: refreshing manual runs source..." in stdout
+    assert "manual progress line" in stdout
+    assert "Step 3/3: refreshing full-picture outcomes..." in stdout
+    assert '"manual_run_rows": 7' in stdout
+    assert '"row_count": 11' in stdout
+
+
 def test_analytics_cli_audit_octane_dimensions_writes_report_under_hot_database(
     tmp_path: Path,
     monkeypatch,
@@ -147,3 +339,58 @@ def test_analytics_cli_audit_octane_dimensions_writes_report_under_hot_database(
     assert captured["report_path"] == database_root / "hot" / "processor_dimension_diff.json"
     assert '"fillable_rows": 11' in stdout
     assert '"conflict_rows": 22' in stdout
+
+
+def test_analytics_cli_refresh_full_picture_outcomes_activates_snapshot(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    source_db = tmp_path / "history.db"
+    hot_db = tmp_path / "database" / "hot" / "vizion_serving.db"
+
+    conn = sqlite3.connect(source_db)
+    try:
+        conn.execute(
+            """
+            CREATE TABLE octane_defect_history_events (
+                defect_id TEXT,
+                field_name TEXT,
+                event_timestamp TEXT,
+                old_value TEXT,
+                new_value TEXT,
+                old_value_text TEXT,
+                new_value_text TEXT
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO octane_defect_history_events(
+                defect_id, field_name, event_timestamp, old_value, new_value, old_value_text, new_value_text
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "D-001",
+                "status_phase",
+                "2026-06-01T00:00:00Z",
+                "08",
+                "06",
+                "08-Resolved Forward",
+                "06-Ready for Test",
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    monkeypatch.setenv("VIZION_FULL_PICTURE_HISTORY_DB_PATH", str(source_db))
+    monkeypatch.setenv("VIZION_FULL_PICTURE_HOT_DB_PATH", str(hot_db))
+
+    exit_code = main(["refresh-full-picture-outcomes"])
+
+    state = read_active_snapshot_state(hot_db)
+
+    assert exit_code == 0
+    assert state["refresh_status"] == "ready"
+    assert state["active_snapshot_version"]
+    assert state["source_db_path"] == str(source_db.resolve())

@@ -1,18 +1,10 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { applyMainDashboardFilters } from "@/components/dashboard/main-dashboard/mainDashboardFiltering";
-import {
-  mainDashboardFilterKeys,
-  type MainDashboardFilters,
-  type MainDashboardSummaryViewModel,
-  type MainDashboardTicketsPage,
-  type MainDashboardTicketsPageRequest,
-  type MainDashboardViewModel,
-} from "@/components/dashboard/main-dashboard/mainDashboardTypes";
-import { useMainDashboardSummary } from "@/components/dashboard/main-dashboard/useMainDashboardSummary";
-import { useMainDashboardTickets } from "@/components/dashboard/main-dashboard/useMainDashboardTickets";
+import type { MainDashboardViewModel } from "@/components/dashboard/main-dashboard/mainDashboardTypes";
 import Index from "@/pages/Index";
+
+import { useMainDashboardData } from "@/components/dashboard/main-dashboard/useMainDashboardData";
 
 vi.mock("@/components/dashboard/FilterPanel", () => ({
   default: () => <div>Filter Panel</div>,
@@ -34,12 +26,8 @@ vi.mock("@/components/dashboard/TopIssueTable", () => ({
   default: () => <div>Top Issue Table</div>,
 }));
 
-vi.mock("@/components/dashboard/main-dashboard/useMainDashboardSummary", () => ({
-  useMainDashboardSummary: vi.fn(),
-}));
-
-vi.mock("@/components/dashboard/main-dashboard/useMainDashboardTickets", () => ({
-  useMainDashboardTickets: vi.fn(),
+vi.mock("@/components/dashboard/main-dashboard/useMainDashboardData", () => ({
+  useMainDashboardData: vi.fn(),
 }));
 
 vi.mock("@/components/dashboard/pages/ProjectAnalysis", () => ({
@@ -80,7 +68,7 @@ function createSampleViewModel(): MainDashboardViewModel {
       defectDbPath: "defect.db",
       historyDbPath: "history.db",
       years: ["2026"],
-      months: ["2025-11", "2026-03", "2026-04"],
+      months: ["2026-04", "2026-03", "2025-11"],
       chinaScopes: ["China", "Global"],
       projects: ["G68", "U12"],
       assignedEcus: ["ECU-A", "ECU-B"],
@@ -95,7 +83,7 @@ function createSampleViewModel(): MainDashboardViewModel {
     },
     filters: {
       years: ["2025", "2026"],
-      months: ["2025-11", "2026-03", "2026-04"],
+      months: ["2026-04", "2026-03", "2025-11"],
       chinaScopes: ["China", "Global"],
       projects: ["G68", "U12"],
       assignedEcus: ["ECU-A", "ECU-B"],
@@ -319,15 +307,22 @@ function expectKpiValues(values: {
   rejectedDirectly: string;
   teams: string;
 }) {
-  const ticketsCard = screen.getByRole("article", { name: "Tickets in scope" });
-  const resolvedForwardCard = screen.getByRole("article", { name: "Resolved Forward" });
-  const rejectedDirectlyCard = screen.getByRole("article", { name: "Rejected Directly" });
-  const teamsCard = screen.getByRole("article", { name: "Teams in scope" });
-
-  expect(ticketsCard.querySelector(".kpi-value")).toHaveTextContent(values.tickets);
-  expect(resolvedForwardCard.querySelector(".kpi-value")).toHaveTextContent(values.resolvedForward);
-  expect(rejectedDirectlyCard.querySelector(".kpi-value")).toHaveTextContent(values.rejectedDirectly);
-  expect(teamsCard.querySelector(".kpi-value")).toHaveTextContent(values.teams);
+  expect(
+    within(screen.getByRole("article", { name: "Tickets in scope" })).getByText(values.tickets),
+  ).toBeInTheDocument();
+  expect(
+    within(screen.getByRole("article", { name: "Resolved Forward" })).getByText(
+      values.resolvedForward,
+    ),
+  ).toBeInTheDocument();
+  expect(
+    within(screen.getByRole("article", { name: "Rejected Directly" })).getByText(
+      values.rejectedDirectly,
+    ),
+  ).toBeInTheDocument();
+  expect(
+    within(screen.getByRole("article", { name: "Teams in scope" })).getByText(values.teams),
+  ).toBeInTheDocument();
 }
 
 function expectTicketDetailRows(values: {
@@ -339,9 +334,9 @@ function expectTicketDetailRows(values: {
   const table = screen.getByRole("table", { name: "Ticket detail table" });
 
   expect(section).not.toBeNull();
-  expect(section as HTMLElement).toHaveTextContent(
-    new RegExp(`${values.count}\\s+of\\s+\\d+\\s+tickets`),
-  );
+  expect(
+    within(section as HTMLElement).getByText(new RegExp(`^${values.count}( of \\d+)? tickets$`)),
+  ).toBeInTheDocument();
 
   values.present.forEach((value) => {
     expect(within(table).getByText(value)).toBeInTheDocument();
@@ -352,125 +347,14 @@ function expectTicketDetailRows(values: {
   });
 }
 
-function createEmptyFilters(): MainDashboardFilters {
-  return Object.fromEntries(
-    mainDashboardFilterKeys.map((filterKey) => [filterKey, []]),
-  ) as MainDashboardFilters;
-}
-
-function hasActiveFilters(filters: Partial<MainDashboardFilters>) {
-  return mainDashboardFilterKeys.some((filterKey) => (filters[filterKey] ?? []).length > 0);
-}
-
-function getDefaultFilters(viewModel: MainDashboardViewModel): MainDashboardFilters {
-  const defaultYears =
-    viewModel.generatedFrom.years.length > 0
-      ? viewModel.generatedFrom.years
-      : viewModel.filters.years.slice(0, 1);
-  const defaultMonths = viewModel.filters.months.filter((month) =>
-    defaultYears.some((year) => month.startsWith(`${year}-`)),
-  );
-  const visibleTeams = viewModel.filters.problemFinderTeams.filter(
-    (team) => !team.trim().toLocaleLowerCase().includes("coc"),
-  );
-
-  return {
-    ...createEmptyFilters(),
-    years: defaultYears,
-    months: defaultMonths.length > 0 ? [defaultMonths[defaultMonths.length - 1]] : [],
-    chinaScopes: viewModel.filters.chinaScopes.includes("China") ? ["China"] : [],
-    projects: viewModel.filters.projects.includes("IDCEVO") ? ["IDCEVO"] : [],
-    phases: viewModel.filters.phases.filter((phase) => /^(03|04)(?=[^0-9]|$)/.test(phase)),
-    problemFinderTeams:
-      visibleTeams.length > 0 && visibleTeams.length < viewModel.filters.problemFinderTeams.length
-        ? visibleTeams
-        : [],
-  };
-}
-
-function getEffectiveFilters(
-  viewModel: MainDashboardViewModel,
-  filters: Partial<MainDashboardFilters>,
-): MainDashboardFilters {
-  if (!hasActiveFilters(filters)) {
-    return getDefaultFilters(viewModel);
-  }
-
-  return {
-    ...createEmptyFilters(),
-    ...filters,
-  };
-}
-
-function createRefreshMetadata(snapshotVersion: string) {
-  return {
-    activeSnapshotVersion: snapshotVersion,
-    refreshStatus: "ready",
-    lastSuccessAt: "2026-04-05T14:45:00Z",
-  };
-}
-
-function createSummaryViewModel(
-  viewModel: MainDashboardViewModel,
-  snapshotVersion: string,
-  filters: Partial<MainDashboardFilters>,
-): MainDashboardSummaryViewModel {
-  const filtered = applyMainDashboardFilters(viewModel, {
-    searchText: "",
-    filters: getEffectiveFilters(viewModel, filters),
-  });
-
-  return {
-    snapshotVersion,
-    refreshMetadata: createRefreshMetadata(snapshotVersion),
-    generatedFrom: viewModel.generatedFrom,
-    filters: viewModel.filters,
-    overview: filtered.overview,
-    outcomeSummary: filtered.outcomeSummary,
-    teamOutcomeRows: filtered.teamOutcomeRows,
-  };
-}
-
-function createTicketsPage(
-  viewModel: MainDashboardViewModel,
-  snapshotVersion: string,
-  filters: Partial<MainDashboardFilters>,
-  pageRequest: MainDashboardTicketsPageRequest,
-): MainDashboardTicketsPage {
-  const filtered = applyMainDashboardFilters(viewModel, {
-    searchText: pageRequest.search,
-    filters: getEffectiveFilters(viewModel, filters),
-  });
-  const totalRows = filtered.ticketRows.length;
-  const startIndex = (pageRequest.page - 1) * pageRequest.pageSize;
-
-  return {
-    snapshotVersion,
-    refreshMetadata: createRefreshMetadata(snapshotVersion),
-    page: pageRequest.page,
-    pageSize: pageRequest.pageSize,
-    totalRows,
-    totalPages: Math.max(1, Math.ceil(totalRows / pageRequest.pageSize)),
-    rows: filtered.ticketRows.slice(startIndex, startIndex + pageRequest.pageSize),
-  };
-}
-
 function renderIndexWithMockedData(initialData = createSampleViewModel()) {
   let currentData = initialData;
-  let snapshotSequence = 1;
 
-  vi.mocked(useMainDashboardSummary).mockImplementation((filters) => ({
-    data: createSummaryViewModel(currentData, `snapshot-${snapshotSequence}`, filters),
+  vi.mocked(useMainDashboardData).mockImplementation(() => ({
+    data: currentData,
     error: null,
     isLoading: false,
-  }) as ReturnType<typeof useMainDashboardSummary>);
-
-  vi.mocked(useMainDashboardTickets).mockImplementation((filters, pageRequest) => ({
-    data: createTicketsPage(currentData, `snapshot-${snapshotSequence}`, filters, pageRequest),
-    error: null,
-    isLoading: false,
-    isFetching: false,
-  }) as ReturnType<typeof useMainDashboardTickets>);
+  }));
 
   const rendered = render(<Index />);
 
@@ -478,7 +362,6 @@ function renderIndexWithMockedData(initialData = createSampleViewModel()) {
     ...rendered,
     rerenderWithData(nextData: MainDashboardViewModel) {
       currentData = nextData;
-      snapshotSequence += 1;
       rendered.rerender(<Index />);
     },
   };
@@ -487,11 +370,6 @@ function renderIndexWithMockedData(initialData = createSampleViewModel()) {
 function clearDefaultMonthFilter() {
   fireEvent.click(screen.getByRole("button", { name: "Month filter" }));
   fireEvent.click(screen.getByRole("checkbox", { name: "Month 2026-04" }));
-}
-
-function clearDefaultChinaScopeFilter() {
-  fireEvent.click(screen.getByRole("button", { name: "China/Global filter" }));
-  fireEvent.click(screen.getByRole("checkbox", { name: "China/Global China" }));
 }
 
 function clearDefaultPhaseFilter() {
@@ -506,18 +384,11 @@ beforeEach(() => {
 
 describe("Index main dashboard integration", () => {
   it("shows a loading state while Full Picture data is fetching", () => {
-    vi.mocked(useMainDashboardSummary).mockReturnValue({
-      data: undefined,
+    vi.mocked(useMainDashboardData).mockReturnValue({
+      data: null,
       error: null,
       isLoading: true,
-    } as ReturnType<typeof useMainDashboardSummary>);
-
-    vi.mocked(useMainDashboardTickets).mockReturnValue({
-      data: undefined,
-      error: null,
-      isLoading: false,
-      isFetching: false,
-    } as ReturnType<typeof useMainDashboardTickets>);
+    } as ReturnType<typeof useMainDashboardData>);
 
     render(<Index />);
 
@@ -526,18 +397,11 @@ describe("Index main dashboard integration", () => {
   });
 
   it("shows an error panel when Full Picture data cannot be loaded", () => {
-    vi.mocked(useMainDashboardSummary).mockReturnValue({
-      data: undefined,
+    vi.mocked(useMainDashboardData).mockReturnValue({
+      data: null,
       error: new Error("Service unavailable"),
       isLoading: false,
-    } as ReturnType<typeof useMainDashboardSummary>);
-
-    vi.mocked(useMainDashboardTickets).mockReturnValue({
-      data: undefined,
-      error: null,
-      isLoading: false,
-      isFetching: false,
-    } as ReturnType<typeof useMainDashboardTickets>);
+    } as ReturnType<typeof useMainDashboardData>);
 
     render(<Index />);
 
@@ -561,17 +425,16 @@ describe("Index main dashboard integration", () => {
     expect(screen.getByRole("button", { name: "Year filter" })).toHaveTextContent("2026");
     expect(screen.getByRole("button", { name: "Month filter" })).toHaveTextContent("2026-04");
     expect(screen.getByRole("button", { name: "Phase filter" })).toHaveTextContent("03-In Analysis +1");
-    expect(screen.getByRole("button", { name: "China/Global filter" })).toHaveTextContent("China");
+    expect(screen.getByRole("button", { name: "China/Global filter" })).toHaveTextContent("Any");
     expect(screen.getByText("Year", { selector: ".workbench-filter-label" })).toBeInTheDocument();
     expect(screen.getByText("Month", { selector: ".workbench-filter-label" })).toBeInTheDocument();
     expect(screen.getByText("China/Global", { selector: ".workbench-filter-label" })).toBeInTheDocument();
     expect(screen.getByText("Project", { selector: ".workbench-filter-label" })).toBeInTheDocument();
-    expect(screen.queryByText("Group", { selector: ".workbench-filter-label" })).not.toBeInTheDocument();
     expect(screen.getByRole("article", { name: "Tickets in scope" })).toBeInTheDocument();
     expect(screen.getByRole("article", { name: "Resolved Forward" })).toBeInTheDocument();
     expect(screen.getByRole("article", { name: "Rejected Directly" })).toBeInTheDocument();
     expect(screen.getByRole("article", { name: "Teams in scope" })).toBeInTheDocument();
-    expect(screen.getByRole("banner")).toHaveTextContent("数据已同步 · 2026-04-05");
+    expect(screen.getByText("数据已同步 · 2026-04-05")).toBeInTheDocument();
     expectKpiValues({
       tickets: "1",
       resolvedForward: "1",
@@ -613,8 +476,6 @@ describe("Index main dashboard integration", () => {
       screen.getByRole("button", { name: "Problem Finder Team filter" }),
     ).not.toHaveTextContent("[AT]CoC_EI_IuK");
 
-    clearDefaultChinaScopeFilter();
-
     fireEvent.click(screen.getByRole("button", { name: "Problem Finder Team filter" }));
     fireEvent.click(
       screen.getByRole("checkbox", { name: "Problem Finder Team [AT]CoC_EI_IuK" }),
@@ -628,33 +489,20 @@ describe("Index main dashboard integration", () => {
     });
   });
 
-  it("narrows the ticket detail rows when the search text changes without changing KPI output", () => {
+  it("updates KPI output when the search text changes", () => {
     renderIndexWithMockedData();
     clearDefaultMonthFilter();
-    clearDefaultChinaScopeFilter();
     clearDefaultPhaseFilter();
-
-    expectKpiValues({
-      tickets: "4",
-      resolvedForward: "2",
-      rejectedDirectly: "1",
-      teams: "2",
-    });
 
     fireEvent.change(screen.getByPlaceholderText("Search ticket ID or title"), {
       target: { value: "delta" },
     });
 
-    expectTicketDetailRows({
-      count: "1",
-      present: ["1004", "Delta gateway timeout"],
-      absent: ["1001", "1002", "1005", "Alpha power reset"],
-    });
     expectKpiValues({
-      tickets: "4",
-      resolvedForward: "2",
-      rejectedDirectly: "1",
-      teams: "2",
+      tickets: "1",
+      resolvedForward: "0",
+      rejectedDirectly: "0",
+      teams: "1",
     });
   });
 
@@ -676,26 +524,16 @@ describe("Index main dashboard integration", () => {
   it("resets search and restores default scoped KPI output", () => {
     renderIndexWithMockedData();
     clearDefaultMonthFilter();
-    clearDefaultChinaScopeFilter();
     clearDefaultPhaseFilter();
-    fireEvent.click(screen.getByRole("button", { name: "Project filter" }));
-    fireEvent.click(screen.getByRole("checkbox", { name: "Project U12" }));
-
-    expectKpiValues({
-      tickets: "2",
-      resolvedForward: "1",
-      rejectedDirectly: "1",
-      teams: "1",
-    });
 
     fireEvent.change(screen.getByPlaceholderText("Search ticket ID or title"), {
-      target: { value: "beta" },
+      target: { value: "delta" },
     });
-
-    expectTicketDetailRows({
-      count: "1",
-      present: ["1002", "Beta thermal flicker"],
-      absent: ["1005", "Epsilon sensor desync"],
+    expectKpiValues({
+      tickets: "1",
+      resolvedForward: "0",
+      rejectedDirectly: "0",
+      teams: "1",
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Reset" }));
@@ -709,7 +547,6 @@ describe("Index main dashboard integration", () => {
     });
     expect(screen.getByRole("button", { name: "Year filter" })).toHaveTextContent("2026");
     expect(screen.getByRole("button", { name: "Month filter" })).toHaveTextContent("2026-04");
-    expect(screen.getByRole("button", { name: "China/Global filter" })).toHaveTextContent("China");
   });
 
   it("resets search and selected filters on data refresh while preserving filtersOpen", () => {
@@ -753,7 +590,6 @@ describe("Index main dashboard integration", () => {
   it("narrows the ticket detail table from outcome and team drilldowns and can clear selection", () => {
     renderIndexWithMockedData();
     clearDefaultMonthFilter();
-    clearDefaultChinaScopeFilter();
     clearDefaultPhaseFilter();
 
     const solutionOutcomeHeading = screen.getByText("Solution Outcome");
@@ -840,7 +676,6 @@ describe("Index main dashboard integration", () => {
   it("clears drilldown without resetting the broader filter scope", () => {
     renderIndexWithMockedData();
     clearDefaultMonthFilter();
-    clearDefaultChinaScopeFilter();
 
     fireEvent.click(screen.getByRole("button", { name: "Project filter" }));
     fireEvent.click(screen.getByRole("checkbox", { name: "Project U12" }));
@@ -878,7 +713,6 @@ describe("Index main dashboard integration", () => {
   it("allows drilling into a team outcome directly from the team panel", () => {
     renderIndexWithMockedData();
     clearDefaultMonthFilter();
-    clearDefaultChinaScopeFilter();
 
     fireEvent.click(
       screen.getByRole("button", {

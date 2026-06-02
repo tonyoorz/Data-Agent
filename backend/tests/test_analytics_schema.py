@@ -21,6 +21,11 @@ MANUAL_RUN_TAP_COLUMNS = {
     "tester",
 }
 
+DEFECT_REQUIREMENT_COLUMNS = {
+    "requirement",
+    "requirements_json",
+}
+
 
 def _seed_source_testing_coverage_tables(db_path: Path) -> None:
     conn = sqlite3.connect(db_path)
@@ -161,6 +166,22 @@ def test_ensure_schema_creates_required_tables(tmp_path):
     assert "octane_manual_runs" in tables
     assert "octane_testcases" in tables
     assert "octane_testcase_relations" in tables
+
+
+def test_ensure_schema_includes_requirement_columns_on_defects(tmp_path):
+    db_path = tmp_path / "octane_data.db"
+
+    ensure_schema(db_path)
+
+    conn = sqlite3.connect(db_path)
+    try:
+        columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(octane_defects)").fetchall()
+        }
+    finally:
+        conn.close()
+
+    assert DEFECT_REQUIREMENT_COLUMNS.issubset(columns)
 
 
 def test_ensure_schema_includes_tap_manual_run_columns(tmp_path):
@@ -411,29 +432,36 @@ def test_cli_refresh_testing_coverage_hot_populates_hot_db(tmp_path, monkeypatch
     printed = json.loads(capsys.readouterr().out)
     assert printed["row_count"] == 1
     assert printed["skipped"] is False
+    assert printed["snapshot_version"].startswith("testing-coverage-")
 
     conn = sqlite3.connect(hot_db)
     try:
         row = conn.execute(
             """
-            SELECT project, test_week, top_aida, feature_region
+            SELECT snapshot_version, project, test_week, top_aida, feature_region
             FROM testing_coverage_runs
             WHERE mr_id = 'MR-HOT-CLI-1'
             """
         ).fetchone()
-        refresh_state = conn.execute(
-            "SELECT outcome_row_count FROM outcome_refresh_state WHERE store_name = 'testing_coverage_runs'"
+        snapshot_state = conn.execute(
+            "SELECT row_count, refresh_status FROM testing_coverage_snapshot_state WHERE snapshot_version = ?",
+            (printed["snapshot_version"],),
+        ).fetchone()
+        active_pointer = conn.execute(
+            "SELECT snapshot_version FROM testing_coverage_snapshot_pointer WHERE pointer_name = 'active'"
         ).fetchone()
     finally:
         conn.close()
 
     assert row == (
+        printed["snapshot_version"],
         "IDCEVO",
         "2026-CW22",
         "Use Speech operation [01.04.02.01.01.05]",
         "China Specific",
     )
-    assert refresh_state == (1,)
+    assert snapshot_state == (1, "ready")
+    assert active_pointer == (printed["snapshot_version"],)
 
 
 def test_cli_refresh_testing_coverage_hot_uses_tpmdashboard_feature_region_mapping(
@@ -1215,4 +1243,5 @@ def test_cli_refresh_full_picture_outcomes_passes_force_flag(tmp_path, monkeypat
         "hot_db_path": hot_db,
         "force": True,
     }
-    assert json.loads(capsys.readouterr().out) == {"row_count": 0, "skipped": False}
+    stdout_lines = [line for line in capsys.readouterr().out.splitlines() if line.strip()]
+    assert json.loads(stdout_lines[-1]) == {"row_count": 0, "skipped": False}

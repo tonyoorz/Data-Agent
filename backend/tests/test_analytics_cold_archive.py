@@ -151,3 +151,77 @@ def test_archive_source_to_cold_storage_removes_zero_byte_duckdb_target(tmp_path
 
 	assert cold_db.exists()
 	assert summary["table_count"] == 1
+
+
+def test_archive_source_to_cold_storage_uses_sqlite_declared_types_for_chunked_tables(tmp_path, monkeypatch):
+	source_db = tmp_path / "database" / "source" / "qgate_raw.db"
+	cold_db = tmp_path / "database" / "cold" / "qgate_archive.duckdb"
+	parquet_dir = tmp_path / "database" / "cold" / "parquet"
+	source_db.parent.mkdir(parents=True, exist_ok=True)
+
+	conn = sqlite3.connect(source_db)
+	try:
+		conn.execute(
+			"CREATE TABLE octane_manual_runs (run_id TEXT PRIMARY KEY, execution_sw_version TEXT, steps_num INTEGER)"
+		)
+		rows = [(f"RUN-{index:04d}", None, index) for index in range(1000)]
+		rows.append(("RUN-1000", "pu2503-24w43.7-1-nodex_IDC23_I_24w43.5-2-6", 1000))
+		conn.executemany(
+			"INSERT INTO octane_manual_runs(run_id, execution_sw_version, steps_num) VALUES (?, ?, ?)",
+			rows,
+		)
+		conn.commit()
+	finally:
+		conn.close()
+
+	records: dict[str, object] = {}
+
+	class FakeDuckConnection:
+		def register(self, name, frame):
+			records.setdefault("frames", []).append((name, tuple(frame.columns), len(frame)))
+
+		def unregister(self, name):
+			records.setdefault("unregistered", []).append(name)
+
+		def execute(self, sql):
+			records.setdefault("sql", []).append(sql)
+			if " TO '" in sql:
+				parquet_path = sql.split(" TO '", 1)[1].split("'", 1)[0]
+				Path(parquet_path).parent.mkdir(parents=True, exist_ok=True)
+				Path(parquet_path).touch()
+			return self
+
+		def close(self):
+			records["closed"] = True
+
+	class FakeDuckModule:
+		def connect(self, path):
+			records["cold_db_path"] = path
+			Path(path).parent.mkdir(parents=True, exist_ok=True)
+			Path(path).touch()
+			return FakeDuckConnection()
+
+	from backend.analytics import cold_archive
+
+	monkeypatch.setattr(cold_archive, "_import_duckdb", lambda: FakeDuckModule())
+
+	summary = archive_source_to_cold_storage(source_db, cold_db, parquet_dir)
+
+	assert summary["table_count"] == 1
+	assert summary["tables"] == [
+		{
+			"table_name": "octane_manual_runs",
+			"row_count": 1001,
+			"parquet_path": str((parquet_dir / "octane_manual_runs.parquet").resolve()),
+		}
+	]
+	assert records["frames"] == [
+		("archive_frame_1_1", ("run_id", "execution_sw_version", "steps_num"), 1000),
+		("archive_frame_1_2", ("run_id", "execution_sw_version", "steps_num"), 1),
+	]
+	assert records["sql"][0] == (
+		'CREATE OR REPLACE TABLE "octane_manual_runs" ('
+		'"run_id" VARCHAR, "execution_sw_version" VARCHAR, "steps_num" BIGINT)'
+	)
+	assert records["sql"][1] == 'INSERT INTO "octane_manual_runs" SELECT * FROM archive_frame_1_1'
+	assert records["sql"][2] == 'INSERT INTO "octane_manual_runs" SELECT * FROM archive_frame_1_2'

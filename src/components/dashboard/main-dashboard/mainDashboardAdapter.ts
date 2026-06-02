@@ -23,12 +23,22 @@ import { collectChinaScopeOptions } from "./mainDashboardChinaScope";
 function adaptFilterValues(
   filters: MainDashboardFiltersPayload,
 ): Omit<MainDashboardFilters, "months" | "chinaScopes"> {
-  return Object.fromEntries(
-    mainDashboardFilterFieldMappings.map(({ viewKey, payloadKey }) => [
-      viewKey,
-      filters[payloadKey],
-    ]),
-  ) as MainDashboardFilters;
+  return {
+    years: filters.years ?? [],
+    creationTimeStart: filters.creation_time_start ?? "",
+    creationTimeEnd: filters.creation_time_end ?? "",
+    requirements: filters.requirements ?? [],
+    projects: filters.projects ?? [],
+    assignedEcus: filters.assigned_ecus ?? [],
+    problemFinderTeams: filters.problem_finder_teams ?? [],
+    aidas: filters.aidas ?? [],
+    phases: filters.phases ?? [],
+    solutionClusters: filters.solution_clusters ?? [],
+    pus: filters.pus ?? [],
+    markets: filters.markets ?? [],
+    leadModels: filters.lead_models ?? [],
+    groups: filters.groups ?? [],
+  };
 }
 
 function adaptOutcomeKey(key: string): MainDashboardOutcomeKey {
@@ -55,6 +65,7 @@ function adaptTicketRow(row: MainDashboardPayload["ticket_rows"][number]): MainD
     problemSeverity: row.problem_severity ?? null,
     group: row.group,
     phase: row.phase,
+    requirement: row.requirement ?? null,
     isResolvedForward: row.is_resolved_forward,
     isRejectedDirectly: row.is_rejected_directly,
     year: row.year,
@@ -88,7 +99,7 @@ export function adaptMainDashboardPayload(
   payload: MainDashboardPayload,
 ): MainDashboardViewModel {
   const ticketRows = payload.ticket_rows.map(adaptTicketRow);
-  const months = collectTicketMonthOptions(ticketRows);
+  const months = collectTicketMonthOptions(ticketRows, (row) => row.creationTime);
   const chinaScopes = collectChinaScopeOptions(ticketRows);
 
   return {
@@ -191,5 +202,6 @@ export function adaptMainDashboardTicketsPagePayload(
     totalRows: payload.total_rows,
     totalPages: payload.total_pages,
     rows: payload.rows.map(adaptTicketRow),
+    priorityRows: (payload.priority_rows ?? []).map(adaptTicketRow),
   };
 }

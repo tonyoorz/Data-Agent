@@ -10,7 +10,6 @@ import sqlite3
 from backend.analytics.config import (
     get_analytics_db_path,
     get_full_picture_hot_db_path,
-    get_full_picture_source_db_path,
 )
 from backend.analytics.db import connect
 from backend.analytics.testing_coverage_reference import (
@@ -48,6 +47,8 @@ FILTER_COLUMN_MAP: dict[str, str] = {
 }
 
 HOT_TESTING_STORE_NAME = "testing_coverage_runs"
+HOT_TESTING_SNAPSHOT_STATE_TABLE = "testing_coverage_snapshot_state"
+HOT_TESTING_SNAPSHOT_POINTER_TABLE = "testing_coverage_snapshot_pointer"
 TEMP_TESTING_RUNS_NAME = "temp_testing_coverage_runs"
 
 
@@ -74,10 +75,7 @@ def _resolve_testing_db_path() -> Path:
     configured = str(os.environ.get("VIZION_ANALYTICS_DB_PATH", "")).strip()
     if configured:
         return get_analytics_db_path()
-    hot_db_path = get_full_picture_hot_db_path()
-    if _is_ready_hot_testing_db(hot_db_path):
-        return hot_db_path
-    return get_full_picture_source_db_path()
+    return get_full_picture_hot_db_path()
 
 
 def _connect() -> sqlite3.Connection:
@@ -157,28 +155,76 @@ def _is_ready_hot_testing_db(db_path: Path) -> bool:
     try:
         if not _table_exists(conn, HOT_TESTING_STORE_NAME):
             return False
-        if not _table_exists(conn, "outcome_refresh_state"):
+        if not _table_exists(conn, HOT_TESTING_SNAPSHOT_STATE_TABLE):
             return False
-        row = conn.execute(
+        if not _table_exists(conn, HOT_TESTING_SNAPSHOT_POINTER_TABLE):
+            return False
+        pointer_row = conn.execute(
             """
-            SELECT outcome_row_count
-            FROM outcome_refresh_state
-            WHERE store_name = ?
+            SELECT snapshot_version
+            FROM testing_coverage_snapshot_pointer
+            WHERE pointer_name = 'active'
             LIMIT 1
             """,
-            (HOT_TESTING_STORE_NAME,),
         ).fetchone()
-        if row is None:
+        if pointer_row is None:
             return False
-        outcome_row_count = int(row[0] or 0)
-        if outcome_row_count > 0:
-            return True
-        hot_row_count = conn.execute(f"SELECT COUNT(*) FROM {HOT_TESTING_STORE_NAME}").fetchone()
-        return bool(hot_row_count and int(hot_row_count[0] or 0) > 0)
+        snapshot_version = str(pointer_row[0] or "").strip()
+        if not snapshot_version:
+            return False
+        state_row = conn.execute(
+            f"""
+            SELECT row_count, refresh_status
+            FROM {HOT_TESTING_SNAPSHOT_STATE_TABLE}
+            WHERE snapshot_version = ?
+            LIMIT 1
+            """,
+            (snapshot_version,),
+        ).fetchone()
+        if state_row is None:
+            return False
+        row_count = int(state_row[0] or 0)
+        refresh_status = str(state_row[1] or "").strip()
+        return refresh_status == "ready" and row_count > 0
     except sqlite3.Error:
         return False
     finally:
         conn.close()
+
+
+def _resolve_active_testing_snapshot_version(conn: sqlite3.Connection) -> str:
+    if not _table_exists(conn, HOT_TESTING_STORE_NAME):
+        return ""
+    if not _table_exists(conn, HOT_TESTING_SNAPSHOT_STATE_TABLE):
+        return ""
+    if not _table_exists(conn, HOT_TESTING_SNAPSHOT_POINTER_TABLE):
+        return ""
+
+    pointer_row = conn.execute(
+        f"SELECT snapshot_version FROM {HOT_TESTING_SNAPSHOT_POINTER_TABLE} WHERE pointer_name = 'active'"
+    ).fetchone()
+    if pointer_row is None:
+        return ""
+    snapshot_version = str(pointer_row[0] or "").strip()
+    if not snapshot_version:
+        return ""
+
+    state_row = conn.execute(
+        f"""
+        SELECT row_count, refresh_status
+        FROM {HOT_TESTING_SNAPSHOT_STATE_TABLE}
+        WHERE snapshot_version = ?
+        LIMIT 1
+        """,
+        (snapshot_version,),
+    ).fetchone()
+    if state_row is None:
+        return ""
+    row_count = int(state_row[0] or 0)
+    refresh_status = str(state_row[1] or "").strip()
+    if refresh_status != "ready" or row_count <= 0:
+        return ""
+    return snapshot_version
 
 
 def _manual_runs_table_exists(conn: sqlite3.Connection) -> bool:
@@ -257,6 +303,14 @@ def _source_testing_dataset_query(conn: sqlite3.Connection) -> str:
             return "''"
         return f"COALESCE({', '.join(available)}, '')"
 
+    def _coalesced_expr(*expressions: str) -> str:
+        available = [expression for expression in expressions if expression != "''"]
+        if not available:
+            return "''"
+        if len(available) == 1:
+            return available[0]
+        return f"COALESCE({', '.join(available)}, '')"
+
     year_expr = _optional_expr("mr", manual_run_columns, "year")
     if year_expr != "''" and "year" in defect_columns:
         year_expr = f"COALESCE({year_expr}, CAST(d.year AS TEXT), '')"
@@ -269,11 +323,10 @@ def _source_testing_dataset_query(conn: sqlite3.Connection) -> str:
     elif "test_name" in testcase_columns:
         test_name_expr = f"COALESCE({test_name_expr}, CAST(tc.test_name AS TEXT), '')"
 
-    top_aida_expr = _optional_expr("d", defect_columns, "top_aida", "product_areas")
-    if top_aida_expr == "''" and "product_areas" in manual_run_columns:
-        top_aida_expr = "COALESCE(CAST(mr.product_areas AS TEXT), '')"
-    elif "product_areas" in manual_run_columns:
-        top_aida_expr = f"COALESCE({top_aida_expr}, CAST(mr.product_areas AS TEXT), '')"
+    top_aida_expr = _coalesced_expr(
+        _optional_expr("mr", manual_run_columns, "top_aida", "product_areas"),
+        _optional_expr("d", defect_columns, "top_aida", "product_areas"),
+    )
 
     test_week_expr = build_iso_test_week_sql_expr(
         finished_expr=_optional_expr("mr", manual_run_columns, "finished", "finished_udf"),
@@ -291,11 +344,11 @@ def _source_testing_dataset_query(conn: sqlite3.Connection) -> str:
             TRIM({year_expr}) AS year,
             TRIM({test_week_expr}) AS test_week,
             TRIM({project_expr}) AS project,
-            TRIM({_optional_expr("d", defect_columns, "pu")}) AS pu,
+            TRIM({_coalesced_expr(_optional_expr("mr", manual_run_columns, "pu"), _optional_expr("d", defect_columns, "pu"))}) AS pu,
             TRIM({top_aida_expr}) AS top_aida,
             {_source_feature_region_expr(manual_run_columns, defect_columns)} AS feature_region,
-            TRIM({_optional_expr("d", defect_columns, "fvp")}) AS fvp,
-            TRIM({_optional_expr("d", defect_columns, "fv")}) AS fv,
+            TRIM({_coalesced_expr(_optional_expr("mr", manual_run_columns, "fvp"), _optional_expr("d", defect_columns, "fvp"))}) AS fvp,
+            TRIM({_coalesced_expr(_optional_expr("mr", manual_run_columns, "fv"), _optional_expr("d", defect_columns, "fv"))}) AS fv,
             TRIM({_optional_expr("mr", manual_run_columns, "status")}) AS status,
             TRIM({_optional_expr("mr", manual_run_columns, "test_id")}) AS test_id,
             TRIM({test_name_expr}) AS test_name,
@@ -309,6 +362,9 @@ def _source_testing_dataset_query(conn: sqlite3.Connection) -> str:
 
 
 def _testing_dataset_query(conn: sqlite3.Connection) -> str | None:
+    if not str(os.environ.get("VIZION_ANALYTICS_DB_PATH", "")).strip():
+        return None
+
     if _table_exists(conn, HOT_TESTING_STORE_NAME):
         hot_columns = _table_columns(conn, HOT_TESTING_STORE_NAME)
         if set(REQUIRED_COVERAGE_FIELDS).issubset(hot_columns):
@@ -318,17 +374,39 @@ def _testing_dataset_query(conn: sqlite3.Connection) -> str | None:
         return None
 
     columns = _table_columns(conn)
-    if set(REQUIRED_COVERAGE_FIELDS).issubset(columns):
-        return _legacy_testing_dataset_query()
-
     source_required_columns = {"mr_id", "defect_id", "test_id", "status", "year"}
-    if source_required_columns.issubset(columns) and _table_exists(conn, "octane_defects"):
+    source_query_available = source_required_columns.issubset(columns) and _table_exists(conn, "octane_defects")
+
+    if set(REQUIRED_COVERAGE_FIELDS).issubset(columns):
+        if not source_query_available or _relation_has_non_blank_required_fields(
+            conn,
+            "octane_manual_runs",
+            REQUIRED_COVERAGE_FIELDS,
+        ):
+            return _legacy_testing_dataset_query()
+
+    if source_query_available:
         return _source_testing_dataset_query(conn)
 
     return None
 
 
 def _materialize_testing_runs(conn: sqlite3.Connection) -> str | None:
+    if not str(os.environ.get("VIZION_ANALYTICS_DB_PATH", "")).strip():
+        snapshot_version = _resolve_active_testing_snapshot_version(conn)
+        if not snapshot_version:
+            return None
+        conn.execute(f"DROP TABLE IF EXISTS {TEMP_TESTING_RUNS_NAME}")
+        conn.execute(
+            f"""
+            CREATE TEMP TABLE {TEMP_TESTING_RUNS_NAME} AS
+            {_hot_testing_dataset_query()}
+            WHERE snapshot_version = ?
+            """,
+            (snapshot_version,),
+        )
+        return TEMP_TESTING_RUNS_NAME
+
     dataset_query = _testing_dataset_query(conn)
     if not dataset_query:
         return None
@@ -349,6 +427,17 @@ def _has_non_blank_values(conn: sqlite3.Connection, relation_name: str, column_n
         '''
     ).fetchone()
     return row is not None
+
+
+def _relation_has_non_blank_required_fields(
+    conn: sqlite3.Connection,
+    relation_name: str,
+    required_fields: tuple[str, ...],
+) -> bool:
+    return all(
+        _has_non_blank_values(conn, relation_name, field)
+        for field in required_fields
+    )
 
 
 def _ensure_coverage_data_ready(conn: sqlite3.Connection, relation_name: str | None) -> None:
