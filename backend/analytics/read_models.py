@@ -1797,14 +1797,20 @@ def _parse_positive_int(raw_value: Any, *, field_name: str, default: int) -> int
     return parsed_value
 
 
-def _build_full_picture_dataset(query: FullPictureDashboardQuery) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    defect_rows = _load_defect_rows(query)
+def _build_full_picture_dataset(
+    query: FullPictureDashboardQuery,
+    *,
+    defect_db_path: Path | str | None = None,
+    hot_db_path: Path | str | None = None,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    defect_rows = _load_defect_rows(query, defect_db_path=defect_db_path)
     defect_ids = tuple(
         str(row.get("ticket_id") or "").strip()
         for row in defect_rows
         if str(row.get("ticket_id") or "").strip()
     )
-    outcome_index = _load_hot_outcomes(defect_ids)
+    resolved_hot_db_path = Path(hot_db_path).resolve() if hot_db_path is not None else get_full_picture_hot_db_path()
+    outcome_index = _load_hot_outcomes(defect_ids, hot_db_path=resolved_hot_db_path)
     ticket_rows = _build_ticket_rows(defect_rows, outcome_index)
     if query.months:
         allowed_months = set(query.months)
@@ -1824,8 +1830,8 @@ def _build_full_picture_dataset(query: FullPictureDashboardQuery) -> tuple[dict[
         ticket_rows = [row for row in ticket_rows if str(row.get("china_scope") or "") in allowed_scopes]
     ticket_rows = _apply_group_filter(ticket_rows, query.groups)
     generated_from = {
-        "defect_db_path": str(_resolve_defect_db_path() or ""),
-        "outcome_db_path": str(get_full_picture_hot_db_path()),
+        "defect_db_path": str(Path(defect_db_path).resolve() if defect_db_path is not None else (_resolve_defect_db_path() or "")),
+        "outcome_db_path": str(resolved_hot_db_path),
         "history_db_path": str(_resolve_history_db_path() or ""),
         **_serialize_query_filters(query),
     }
@@ -1845,7 +1851,8 @@ def build_full_picture_summary_payload(**kwargs: Any) -> dict[str, Any]:
         return cached_payload
 
     if snapshot_version:
-        _materialize_snapshot_ticket_rows(snapshot_version)
+        if snapshot_version.startswith("live-"):
+            _materialize_snapshot_ticket_rows(snapshot_version)
         snapshot_metadata = _read_snapshot_metadata()
         if _resolve_effective_snapshot_version(snapshot_metadata) != snapshot_version:
             raise FullPictureDashboardRequestError("Dashboard snapshot changed during request")
@@ -1977,7 +1984,8 @@ def list_full_picture_ticket_rows(**kwargs: Any) -> dict[str, Any]:
     priority_rows: list[dict[str, Any]] = []
 
     if snapshot_version:
-        _materialize_snapshot_ticket_rows(snapshot_version)
+        if snapshot_version.startswith("live-"):
+            _materialize_snapshot_ticket_rows(snapshot_version)
         snapshot_metadata = _read_snapshot_metadata()
         snapshot_version_after = _resolve_effective_snapshot_version(snapshot_metadata)
         if snapshot_version_after != snapshot_version:
