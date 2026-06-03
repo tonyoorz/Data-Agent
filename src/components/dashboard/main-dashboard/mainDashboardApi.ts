@@ -1,4 +1,5 @@
 import {
+  adaptRefreshMetadata,
   adaptMainDashboardPayload,
   adaptMainDashboardSummaryPayload,
   adaptMainDashboardTicketsPagePayload,
@@ -6,6 +7,8 @@ import {
 import {
   type MainDashboardFilters,
   type MainDashboardPayload,
+  type MainDashboardRefreshMetadata,
+  type MainDashboardRefreshMetadataPayload,
   type MainDashboardSummaryPayload,
   type MainDashboardSummaryViewModel,
   type MainDashboardTicketsPage,
@@ -18,6 +21,28 @@ import {
 const MAIN_DASHBOARD_API_PATH = "/api/full-picture/dashboard";
 const MAIN_DASHBOARD_SUMMARY_API_PATH = "/api/full-picture/dashboard/summary";
 const MAIN_DASHBOARD_TICKETS_API_PATH = "/api/full-picture/dashboard/tickets";
+const MAIN_DASHBOARD_REFRESH_STATUS_API_PATH = "/api/full-picture/dashboard/refresh-status";
+
+export class MainDashboardApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "MainDashboardApiError";
+    this.status = status;
+  }
+}
+
+function throwMainDashboardApiError(prefix: string, response: Response): never {
+  throw new MainDashboardApiError(
+    `${prefix} (${response.status} ${response.statusText})`,
+    response.status,
+  );
+}
+
+export function isMainDashboardSnapshotConflict(error: unknown) {
+  return error instanceof MainDashboardApiError && error.status === 409;
+}
 
 export function buildMainDashboardApiUrl(
   basePath: string,
@@ -51,9 +76,7 @@ export async function fetchMainDashboardData(
   );
 
   if (!response.ok) {
-    throw new Error(
-      `Full Picture request failed (${response.status} ${response.statusText})`,
-    );
+    throwMainDashboardApiError("Full Picture request failed", response);
   }
 
   const payload = (await response.json()) as MainDashboardPayload;
@@ -69,9 +92,7 @@ export async function fetchMainDashboardSummary(
   );
 
   if (!response.ok) {
-    throw new Error(
-      `Full Picture summary request failed (${response.status} ${response.statusText})`,
-    );
+    throwMainDashboardApiError("Full Picture summary request failed", response);
   }
 
   const payload = (await response.json()) as MainDashboardSummaryPayload;
@@ -101,11 +122,20 @@ export async function fetchMainDashboardTickets(
   const response = await fetch(`${url.pathname}${url.search}`);
 
   if (!response.ok) {
-    throw new Error(
-      `Full Picture tickets request failed (${response.status} ${response.statusText})`,
-    );
+    throwMainDashboardApiError("Full Picture tickets request failed", response);
   }
 
   const payload = (await response.json()) as MainDashboardTicketsPagePayload;
   return adaptMainDashboardTicketsPagePayload(payload);
+}
+
+export async function fetchMainDashboardRefreshStatus(): Promise<MainDashboardRefreshMetadata> {
+  const response = await fetch(MAIN_DASHBOARD_REFRESH_STATUS_API_PATH);
+
+  if (!response.ok) {
+    throwMainDashboardApiError("Full Picture refresh-status request failed", response);
+  }
+
+  const payload = (await response.json()) as MainDashboardRefreshMetadataPayload;
+  return adaptRefreshMetadata(payload);
 }

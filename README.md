@@ -201,6 +201,14 @@ powershell -ExecutionPolicy Bypass -File .\scripts\run-nightly-source-refresh.ps
 py -3.11 -m backend.analytics_cli refresh-all-sources --teams "DTSV_China,[AT]CoC_EI_IuK,Plant-Tiexi FIT,[AT]FIT_LAENDER_CHINA,Plant-Dadong FIT,[AT]BBA_Basis-FIT,Spotlight_FIT" --years 2025,2026 --team-name DTSV_China --history-max-workers 50
 ```
 
+上面这条总命令如果不显式传 `--manual-years`，manual runs 默认只刷新当前年份（例如 2026），不会再扫 2025。
+
+如果你确实需要补历史年份的 manual runs，再显式传：
+
+```powershell
+py -3.11 -m backend.analytics_cli refresh-all-sources --teams "DTSV_China,[AT]CoC_EI_IuK,Plant-Tiexi FIT,[AT]FIT_LAENDER_CHINA,Plant-Dadong FIT,[AT]BBA_Basis-FIT,Spotlight_FIT" --years 2025,2026 --manual-years 2025,2026 --team-name DTSV_China --history-max-workers 50
+```
+
 如果你想分步骤手动跑，就按下面顺序执行。
 
 先确认 Octane cookie 可用；如果已经过期，先刷新：
@@ -257,6 +265,7 @@ py -3.11 -m backend.analytics_cli refresh-all-sources --teams "DTSV_China,[AT]Co
 
 - `refresh-legacy-qgate-source` 现在的 defect 增量不是“只更新几个字段”，而是“增量筛对象，全量写对象”，所以新 ticket 会被发现，变更 ticket 也会被完整覆盖写回。
 - `refresh-manual-runs-source` 当前故意不碰 testcase relation 链路；等测试数据流程稳定后，再把 testcase / relation 更新并回这条手动链路。
+- `refresh-all-sources` 里的 manual runs 现在默认只跑当前年份；如果要补历史年份，显式用 `--manual-years` 覆盖。
 - 同一时间不要并发跑两个 source writer，避免 SQLite 写冲突。
 
 ### 2.3 Nightly scheduled refresh
@@ -267,7 +276,7 @@ py -3.11 -m backend.analytics_cli refresh-all-sources --teams "DTSV_China,[AT]Co
 powershell -ExecutionPolicy Bypass -File .\scripts\register-nightly-source-refresh-task.ps1
 ```
 
-这条命令默认会注册一个 `VizionLab Nightly Source Refresh` 计划任务，每天 `01:00` 执行 `scripts\run-nightly-source-refresh.ps1`。
+这条命令默认会注册一个 `VizionLab Nightly Source Refresh` 计划任务，每天 `01:00` 执行 `scripts\run-nightly-source-refresh.ps1`，并且会提示你在终端里直接输入当前 Windows 账号密码，让任务以后可以在 `whether user is logged on or not` 模式下真正无人值守运行。
 
 如果你想改时间或任务名，可以带参数：
 
@@ -275,11 +284,25 @@ powershell -ExecutionPolicy Bypass -File .\scripts\register-nightly-source-refre
 powershell -ExecutionPolicy Bypass -File .\scripts\register-nightly-source-refresh-task.ps1 -StartTime 01:30 -TaskName "VizionLab Full Picture Refresh"
 ```
 
+如果你想显式指定运行账号，也可以带上：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\register-nightly-source-refresh-task.ps1 -RunAsUser "CHINA\Q446328"
+```
+
+如果你只想保留旧的 `Interactive only` 行为，不做真正的无人值守注册，可以显式带上：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\register-nightly-source-refresh-task.ps1 -InteractiveOnly
+```
+
 默认运行日志会写到 `database\hot\logs\nightly-source-refresh.log`，方便回看每天的抓取结果。
 
 说明：
 
 - 计划任务脚本调用的仍然是 `refresh-all-sources`，所以 defect/history、manual runs、hot outcomes 会按现有顺序串行执行。
+- `run-nightly-source-refresh.ps1` 现在默认会在遇到 `401` / 认证失败时自动调用 `refresh-octane-cookie`，并自动重试一次 `refresh-all-sources`，尽量避免凌晨因 cookie 过期而失败。
+- 默认注册方式会让 `schtasks` 在当前终端里提示输入 Windows 密码；密码不要写到命令行里，直接在终端提示符里输入即可。
 - 页头右上角 `数据已同步` 读取的是 dashboard snapshot 的 `lastSuccessAt`；定时刷新产出新 snapshot 后，页面重新加载就会显示最新时间。
 - 现在前端时间戳会自动截断到秒，只显示到 `YYYY-MM-DD HH:MM:SS`，不再显示微秒和时区尾巴。
 

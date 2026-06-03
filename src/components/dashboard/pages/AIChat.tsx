@@ -161,28 +161,6 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
     };
   }, []);
 
-  useEffect(() => {
-    if (interactionMode !== "duplicate-search") {
-      return undefined;
-    }
-
-    const controller = new AbortController();
-    void fetch("/api/duplicate-search/warmup", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ reason: "duplicate-tab" }),
-      signal: controller.signal,
-    }).catch(() => {
-      // Warmup is best-effort; a real duplicate-search request still owns correctness.
-    });
-
-    return () => {
-      controller.abort();
-    };
-  }, [interactionMode]);
-
   const sortedConvos = useMemo(() => {
     return [...conversations].sort((a, b) => {
       if (!!b.pinned !== !!a.pinned) return (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0);

@@ -10,7 +10,6 @@ import {
   getFacetedUniqueValues,
   getCoreRowModel,
   getFilteredRowModel,
-  getSortedRowModel,
   type VisibilityState,
   useReactTable,
 } from "@tanstack/react-table";
@@ -603,7 +602,6 @@ const TicketDetailTable = ({
     getFilteredRowModel: getFilteredRowModel(),
     getFacetedRowModel: getFacetedRowModel(),
     getFacetedUniqueValues: getFacetedUniqueValues(),
-    getSortedRowModel: getSortedRowModel(),
   });
 
   const visibleColumns = table.getAllLeafColumns().filter((column) => column.getCanHide());

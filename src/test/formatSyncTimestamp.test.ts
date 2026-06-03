@@ -7,8 +7,8 @@ describe("formatSyncTimestamp", () => {
     expect(formatSyncTimestamp("2026-04-05")).toBe("2026-04-05");
   });
 
-  it("trims ISO timestamps to second precision", () => {
-    expect(formatSyncTimestamp("2026-06-01T09:08:26.907250+00:00")).toBe("2026-06-01 09:08:26");
+  it("converts ISO timestamps to Beijing time with second precision", () => {
+    expect(formatSyncTimestamp("2026-06-01T09:08:26.907250+00:00")).toBe("2026-06-01 17:08:26");
   });
 
   it("returns null for empty values", () => {

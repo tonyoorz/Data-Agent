@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Loader2 } from "lucide-react";
 
 import MainDashboardFilters from "@/components/dashboard/main-dashboard/MainDashboardFilters";
@@ -30,8 +31,12 @@ import type {
   MainDashboardTicketRow,
   MainDashboardTicketsPageRequest,
 } from "@/components/dashboard/main-dashboard/mainDashboardTypes";
+import { isMainDashboardSnapshotConflict } from "@/components/dashboard/main-dashboard/mainDashboardApi";
 import { useMainDashboardSummary } from "@/components/dashboard/main-dashboard/useMainDashboardSummary";
+import { useMainDashboardRefreshStatus } from "@/components/dashboard/main-dashboard/useMainDashboardRefreshStatus";
 import { useMainDashboardTickets } from "@/components/dashboard/main-dashboard/useMainDashboardTickets";
+
+const SNAPSHOT_STATUS_POLL_INTERVAL_MS = 120_000;
 
 function createEmptyFilters(): MainDashboardFiltersType {
   return {
@@ -214,6 +219,8 @@ type MainDashboardProps = {
 };
 
 const MainDashboard = ({ onSyncDateChange }: MainDashboardProps) => {
+  const queryClient = useQueryClient();
+  const snapshotRecoveryKeyRef = useRef("");
   const [selectedFilters, setSelectedFilters] =
     useState<MainDashboardFiltersType>(createEmptyFilters);
   const [initializedSnapshotVersion, setInitializedSnapshotVersion] = useState("");
@@ -228,6 +235,7 @@ const MainDashboard = ({ onSyncDateChange }: MainDashboardProps) => {
     sortOrder: "desc",
     snapshotVersion: "",
   });
+  const refreshStatusQuery = useMainDashboardRefreshStatus();
   const summaryQuery = useMainDashboardSummary(selectedFilters);
   const summaryData = summaryQuery.data ?? emptySummaryViewModel;
   const summarySnapshotVersion = summaryQuery.data?.snapshotVersion ?? "";
@@ -246,8 +254,51 @@ const MainDashboard = ({ onSyncDateChange }: MainDashboardProps) => {
     { enabled: canLoadTickets },
   );
   const refreshError = summaryQuery.error ?? ticketsQuery.error;
+  const activeSnapshotVersion = summaryQuery.data?.refreshMetadata.activeSnapshotVersion ?? summarySnapshotVersion;
+  const polledSnapshotVersion = refreshStatusQuery.data?.activeSnapshotVersion ?? "";
   const hasVisibleDashboardData = Boolean(summaryQuery.data) || Boolean(ticketsQuery.data);
   const isRefreshingFilters = hasVisibleDashboardData && (summaryQuery.isFetching || ticketsQuery.isFetching);
+  const isSnapshotRecoveryInFlight = isMainDashboardSnapshotConflict(refreshError)
+    && summaryQuery.isFetching;
+  const visibleRefreshError = isSnapshotRecoveryInFlight ? null : refreshError;
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "hidden") {
+        return;
+      }
+
+      void refreshStatusQuery.refetch();
+    }, SNAPSHOT_STATUS_POLL_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [refreshStatusQuery]);
+
+  useEffect(() => {
+    const staleSnapshotError = isMainDashboardSnapshotConflict(refreshError);
+    const hasSnapshotMismatch = Boolean(polledSnapshotVersion)
+      && Boolean(activeSnapshotVersion)
+      && polledSnapshotVersion !== activeSnapshotVersion;
+    const recoveryKey = staleSnapshotError
+      ? `error:${activeSnapshotVersion}:${refreshError.message}`
+      : hasSnapshotMismatch
+        ? `status:${activeSnapshotVersion}:${polledSnapshotVersion}`
+        : "";
+
+    if (!recoveryKey) {
+      snapshotRecoveryKeyRef.current = "";
+      return;
+    }
+
+    if (snapshotRecoveryKeyRef.current === recoveryKey) {
+      return;
+    }
+
+    snapshotRecoveryKeyRef.current = recoveryKey;
+    void queryClient.invalidateQueries({ queryKey: ["main-dashboard", "summary"] });
+  }, [activeSnapshotVersion, polledSnapshotVersion, queryClient, refreshError]);
 
   useEffect(() => {
     setSelection({});
@@ -333,11 +384,13 @@ const MainDashboard = ({ onSyncDateChange }: MainDashboardProps) => {
     ticketsQuery.data?.priorityRows ?? [],
     selection,
   );
+  const baseDrilldownRows = selectTicketRowsForDrilldown(ticketsQuery.data?.rows ?? [], selection);
+  const baseTicketIds = new Set(baseDrilldownRows.map((row) => row.ticketId));
   const priorityTicketIds = new Set(priorityDrilldownRows.map((row) => row.ticketId));
-  const drilldownRows = selectTicketRowsForDrilldown(ticketsQuery.data?.rows ?? [], selection)
-    .filter((row) => !priorityTicketIds.has(row.ticketId));
+  const drilldownRows = baseDrilldownRows.filter((row) => !priorityTicketIds.has(row.ticketId));
   const combinedTicketRows = dedupeTicketRowsById([...priorityDrilldownRows, ...drilldownRows]);
-  const displayedTotalRows = (ticketsQuery.data?.totalRows ?? 0) + priorityDrilldownRows.length;
+  const displayedTotalRows = (ticketsQuery.data?.totalRows ?? 0)
+    + priorityDrilldownRows.filter((row) => !baseTicketIds.has(row.ticketId)).length;
   const selectedOutcomeLabel = getOutcomeLabel(selection.outcomeKey);
 
   const handleToggleValue = (
@@ -414,13 +467,13 @@ const MainDashboard = ({ onSyncDateChange }: MainDashboardProps) => {
 
   return (
     <section className="space-y-4">
-      {refreshError ? (
+      {visibleRefreshError ? (
         <Alert variant="destructive">
           <AlertTriangle className="h-4 w-4" />
           <AlertTitle>Unable to refresh Full Picture data.</AlertTitle>
           <AlertDescription>
             Showing the latest cached dashboard snapshot.
-            {refreshError.message ? ` ${refreshError.message}` : ""}
+            {visibleRefreshError.message ? ` ${visibleRefreshError.message}` : ""}
           </AlertDescription>
         </Alert>
       ) : null}

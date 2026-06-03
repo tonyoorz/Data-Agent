@@ -20,6 +20,57 @@ import {
 import { collectTicketMonthOptions } from "./mainDashboardDateUtils";
 import { collectChinaScopeOptions } from "./mainDashboardChinaScope";
 
+const prioritizedRequirementLabels = ["Top Topic", "DOC_PreCon_Prio_CN_26-11"] as const;
+
+function normalizeRequirementDisplayOrder(requirement?: string | null) {
+  const normalizedRequirement = String(requirement ?? "").trim();
+
+  if (!normalizedRequirement) {
+    return null;
+  }
+
+  const tokens = normalizedRequirement
+    .split("|")
+    .map((token) => token.trim())
+    .filter(Boolean);
+
+  if (!tokens.length) {
+    return null;
+  }
+
+  const seenTokens = new Set<string>();
+  const orderedTokens: string[] = [];
+
+  for (const prioritizedLabel of prioritizedRequirementLabels) {
+    const matchedToken = tokens.find(
+      (token) => token.localeCompare(prioritizedLabel, undefined, { sensitivity: "base" }) === 0,
+    );
+
+    if (!matchedToken) {
+      continue;
+    }
+
+    const normalizedToken = prioritizedLabel.toLocaleLowerCase();
+    if (!seenTokens.has(normalizedToken)) {
+      seenTokens.add(normalizedToken);
+      orderedTokens.push(prioritizedLabel);
+    }
+  }
+
+  for (const token of tokens) {
+    const normalizedToken = token.toLocaleLowerCase();
+
+    if (seenTokens.has(normalizedToken)) {
+      continue;
+    }
+
+    seenTokens.add(normalizedToken);
+    orderedTokens.push(token);
+  }
+
+  return orderedTokens.join(" | ");
+}
+
 function adaptFilterValues(
   filters: MainDashboardFiltersPayload,
 ): Omit<MainDashboardFilters, "months" | "chinaScopes"> {
@@ -65,7 +116,7 @@ function adaptTicketRow(row: MainDashboardPayload["ticket_rows"][number]): MainD
     problemSeverity: row.problem_severity ?? null,
     group: row.group,
     phase: row.phase,
-    requirement: row.requirement ?? null,
+    requirement: normalizeRequirementDisplayOrder(row.requirement),
     isResolvedForward: row.is_resolved_forward,
     isRejectedDirectly: row.is_rejected_directly,
     year: row.year,
@@ -80,7 +131,7 @@ function adaptTicketRow(row: MainDashboardPayload["ticket_rows"][number]): MainD
   };
 }
 
-function adaptRefreshMetadata(
+export function adaptRefreshMetadata(
   payload: MainDashboardRefreshMetadataPayload,
 ): MainDashboardRefreshMetadata {
   return {

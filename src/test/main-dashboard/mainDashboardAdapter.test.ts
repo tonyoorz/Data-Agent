@@ -153,6 +153,78 @@ describe("adaptMainDashboardPayload", () => {
     expect(viewModel.ticketRows[0].isResolvedForward).toBe(true);
   });
 
+  it("reorders requirement labels so Top Topic and DOC_PreCon_Prio_CN_26-11 stay visible first", () => {
+    const viewModel = adaptMainDashboardPayload({
+      generated_from: {
+        defect_db_path: "defect.db",
+        history_db_path: "history.db",
+        years: [],
+        projects: [],
+        assigned_ecus: [],
+        problem_finder_teams: [],
+        aidas: [],
+        phases: [],
+        solution_clusters: [],
+        pus: [],
+        markets: [],
+        lead_models: [],
+        groups: [],
+      },
+      filters: {
+        years: [],
+        projects: [],
+        assigned_ecus: [],
+        problem_finder_teams: [],
+        aidas: [],
+        phases: [],
+        solution_clusters: [],
+        pus: [],
+        markets: [],
+        lead_models: [],
+        groups: [],
+      },
+      overview: {
+        ticket_count: 1,
+        resolved_forward_count: 0,
+        rejected_directly_count: 0,
+        resolved_forward_percent: 0,
+        rejected_directly_percent: 0,
+      },
+      outcome_summary: [],
+      team_outcome_rows: [],
+      ticket_rows: [
+        {
+          ticket_id: "2553007",
+          ticket_name: "Long requirement ordering",
+          status: "03-In Analysis",
+          creation_time: "2026-03-18T09:30:00Z",
+          updated_at: "2026-03-23T14:45:00Z",
+          problem_finder_team: "DTSV_China",
+          group: "Integration",
+          phase: "Validation",
+          requirement: "DOC_X | DOC_PreCon_Prio_CN_26-11 | Extra Requirement | Top Topic",
+          is_resolved_forward: false,
+          is_rejected_directly: false,
+          year: "2026",
+          project: "G68",
+          assigned_ecu: "ECU-A",
+          aida: "Digital",
+          classification: "Showstopper_Candidate",
+          problem_severity: "05-unsatisfactory",
+          defect_category: "CN Speech",
+          solution_cluster: "Integration",
+          pu: "PU1",
+          market: "CN",
+          lead_model: "LM1",
+        },
+      ],
+    });
+
+    expect(viewModel.ticketRows[0].requirement).toBe(
+      "Top Topic | DOC_PreCon_Prio_CN_26-11 | DOC_X | Extra Requirement",
+    );
+  });
+
   it("throws when the backend sends an unknown outcome key", () => {
     expect(() =>
       adaptMainDashboardPayload({

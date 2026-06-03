@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from backend.analytics.api import app
 from backend.analytics.dashboard_snapshot import (
     activate_snapshot_version,
+    build_full_picture_snapshot_version,
     get_summary_cache,
     normalize_summary_cache_key,
     record_snapshot_refresh,
@@ -179,26 +180,35 @@ def _seed_qgate_source_db(db_path: Path, *, defect_count: int = 1) -> None:
 def _record_active_snapshot(
     hot_db_path: Path,
     *,
-    snapshot_version: str = "snapshot-20260528-1",
+    snapshot_version: str | None = None,
     source_db_path: Path | str | None = None,
 ) -> None:
     effective_source_db_path = Path(source_db_path or read_models.get_full_picture_source_db_path()).resolve()
+    effective_snapshot_version = snapshot_version or build_full_picture_snapshot_version(effective_source_db_path)
+    has_publishable_source = False
     if source_db_path is not None and effective_source_db_path.exists():
+        with sqlite3.connect(effective_source_db_path) as conn:
+            source_table_row = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'octane_defects'"
+            ).fetchone()
+        has_publishable_source = source_table_row is not None
+    if has_publishable_source:
         read_models.publish_dashboard_snapshot_rows(
-            snapshot_version,
+            effective_snapshot_version,
             defect_db_path=effective_source_db_path,
             hot_db_path=hot_db_path,
         )
+    reset_summary_cache()
     source_db_mtime = read_models._format_snapshot_source_mtime(effective_source_db_path) or "2026-05-28T00:00:00Z"
     record_snapshot_refresh(
         hot_db_path,
-        snapshot_version=snapshot_version,
+        snapshot_version=effective_snapshot_version,
         source_db_path=str(effective_source_db_path),
         source_db_mtime=source_db_mtime,
         refresh_status="ready",
         last_error=None,
     )
-    activate_snapshot_version(hot_db_path, snapshot_version)
+    activate_snapshot_version(hot_db_path, effective_snapshot_version)
 
 
 def test_health_endpoint_returns_ok():
@@ -251,7 +261,7 @@ def test_full_picture_summary_endpoint_returns_snapshot_version(tmp_path, monkey
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["snapshot_version"] == "snapshot-20260528-1"
+    assert payload["snapshot_version"] == build_full_picture_snapshot_version(db_path)
     assert payload["overview"]["ticket_count"] == 1
     assert "ticket_rows" not in payload
     assert payload["filters"]["months"] == ["2026-05"]
@@ -772,7 +782,7 @@ def test_full_picture_tickets_endpoint_returns_paged_rows(tmp_path, monkeypatch)
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["snapshot_version"] == "snapshot-20260528-1"
+    assert payload["snapshot_version"] == build_full_picture_snapshot_version(db_path)
     assert payload["page"] == 2
     assert payload["page_size"] == 1
     assert payload["total_rows"] == 3
@@ -782,6 +792,8 @@ def test_full_picture_tickets_endpoint_returns_paged_rows(tmp_path, monkeypatch)
 
 
 def test_full_picture_refresh_status_endpoint_reads_active_snapshot(tmp_path, monkeypatch):
+    db_path = tmp_path / "qgate_data.db"
+    db_path.touch()
     hot_db_path = _default_hot_db_path(tmp_path)
     _record_active_snapshot(hot_db_path, snapshot_version="snapshot-20260528-2", source_db_path=db_path)
     monkeypatch.setenv("VIZION_FULL_PICTURE_HOT_DB_PATH", str(hot_db_path))
@@ -1063,6 +1075,11 @@ def test_full_picture_summary_uses_live_snapshot_when_active_snapshot_source_is_
         conn.close()
 
     _refresh_full_picture_hot_outcomes(db_path, hot_db_path)
+    read_models.publish_dashboard_snapshot_rows(
+        "snapshot-stale",
+        defect_db_path=db_path,
+        hot_db_path=hot_db_path,
+    )
     record_snapshot_refresh(
         hot_db_path,
         snapshot_version="snapshot-stale",

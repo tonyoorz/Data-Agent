@@ -284,6 +284,8 @@ def test_analytics_cli_refresh_all_sources_runs_steps_in_order(
         "2025,2026",
         "--team-name",
         "DTSV_China",
+        "--manual-years",
+        "2026",
         "--history-max-workers",
         "50",
     ])
@@ -304,6 +306,8 @@ def test_analytics_cli_refresh_all_sources_runs_steps_in_order(
     assert "Step 3/3: refreshing full-picture outcomes..." in stdout
     assert '"manual_run_rows": 7' in stdout
     assert '"row_count": 11' in stdout
+    assert calls[0][1]["years"] == (2025, 2026)
+    assert calls[2][1]["years"] == (2026,)
 
 
 def test_analytics_cli_audit_octane_dimensions_writes_report_under_hot_database(

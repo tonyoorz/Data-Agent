@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import MainDashboard from "@/components/dashboard/pages/MainDashboard";
 
-function createSummaryPayload() {
+function createSummaryPayload(overrides: Record<string, unknown> = {}) {
   return {
     snapshot_version: "snapshot-20260528-1",
     generated_from: {
@@ -80,6 +80,7 @@ function createSummaryPayload() {
         team_denominator: 1,
       },
     ],
+    ...overrides,
   };
 }
 
@@ -124,6 +125,8 @@ const widenedTicketsUrl =
 const page2TicketsUrl =
   "/api/full-picture/dashboard/tickets?years=2026&china_scopes=China&projects=IDCEVO&phases=03-In+Analysis%2C04-In+Progress&creation_time_start=2026-05-15&creation_time_end=2026-05-28&page=2&page_size=50&sort_by=classification&sort_order=desc&snapshot_version=snapshot-20260528-1";
 
+const refreshStatusUrl = "/api/full-picture/dashboard/refresh-status";
+
 function createTicketsPagePayload(overrides: Record<string, unknown> = {}) {
   return {
     snapshot_version: "snapshot-20260528-1",
@@ -165,6 +168,15 @@ function createFetchResponse(payload: unknown) {
   } as Response;
 }
 
+function createErrorResponse(status: number, statusText: string) {
+  return {
+    ok: false,
+    status,
+    statusText,
+    json: async () => ({ error: statusText }),
+  } as Response;
+}
+
 function createRouteAwareFetchMock() {
   return vi.fn(async (input: string | URL | Request) => {
     const requestUrl = String(input);
@@ -193,6 +205,10 @@ function createDeferred<T>() {
   return { promise, resolve, reject };
 }
 
+function getFetchRequestUrls() {
+  return vi.mocked(fetch).mock.calls.map(([input]) => String(input));
+}
+
 function createQueryClient() {
   return new QueryClient({
     defaultOptions: {
@@ -217,6 +233,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 describe("MainDashboard split data loading", () => {
@@ -509,6 +526,227 @@ describe("MainDashboard split data loading", () => {
     deferredSummary.resolve(createFetchResponse(createSummaryPayload()));
   });
 
+  it("recovers automatically when the ticket request hits a stale snapshot 409", async () => {
+    const refreshedSummary = createSummaryPayload({
+      snapshot_version: "snapshot-20260603-2",
+      generated_from: {
+        defect_db_path: "defect.db",
+        history_db_path: "history.db",
+        years: ["2026"],
+        months: ["2026-05", "2026-06"],
+        requirements: ["DOC_PreCon_A", "DOC_PreCon_B"],
+        china_scopes: ["China"],
+        projects: ["IDCEVO"],
+        assigned_ecus: ["ECU-A"],
+        problem_finder_teams: ["DTSV_China"],
+        aidas: ["Digital"],
+        phases: ["03-In Analysis", "04-In Progress"],
+        solution_clusters: ["Integration"],
+        pus: ["PU1"],
+        markets: ["CN"],
+        lead_models: ["LM1"],
+        groups: ["Integration"],
+      },
+      refresh_metadata: {
+        active_snapshot_version: "snapshot-20260603-2",
+        refresh_status: "ready",
+        last_success_at: "2026-06-03T01:00:00Z",
+      },
+    });
+    const refreshedSummaryUrl =
+      "/api/full-picture/dashboard/summary?years=2026&china_scopes=China&projects=IDCEVO&phases=03-In+Analysis%2C04-In+Progress&creation_time_start=2026-05-21&creation_time_end=2026-06-03";
+    const refreshedTicketsUrl =
+      "/api/full-picture/dashboard/tickets?years=2026&china_scopes=China&projects=IDCEVO&phases=03-In+Analysis%2C04-In+Progress&creation_time_start=2026-05-21&creation_time_end=2026-06-03&page=1&page_size=50&sort_by=classification&sort_order=desc&snapshot_version=snapshot-20260603-2";
+    let filteredSummaryCallCount = 0;
+    let staleTicketsServed = false;
+
+    vi.mocked(fetch).mockImplementation(async (input: string | URL | Request) => {
+      const requestUrl = String(input);
+
+      if (requestUrl === "/api/full-picture/dashboard/summary") {
+        return createFetchResponse(createSummaryPayload());
+      }
+
+      if (requestUrl === defaultSummaryUrl) {
+        filteredSummaryCallCount += 1;
+        if (filteredSummaryCallCount >= 2) {
+          return createFetchResponse(refreshedSummary);
+        }
+        return createFetchResponse(createSummaryPayload());
+      }
+
+      if (requestUrl === refreshedSummaryUrl) {
+        return createFetchResponse(refreshedSummary);
+      }
+
+      if (requestUrl === defaultTicketsUrl && !staleTicketsServed) {
+        staleTicketsServed = true;
+        return createErrorResponse(409, "Conflict");
+      }
+
+      if (requestUrl === refreshedTicketsUrl) {
+        return createFetchResponse(
+          createTicketsPagePayload({
+            snapshot_version: "snapshot-20260603-2",
+            refresh_metadata: {
+              active_snapshot_version: "snapshot-20260603-2",
+              refresh_status: "ready",
+              last_success_at: "2026-06-03T01:00:00Z",
+            },
+            rows: [
+              createTicketRow({
+                ticket_id: "2002",
+                ticket_name: "Recovered snapshot issue",
+                creation_time: "2026-06-03T00:10:00Z",
+              }),
+            ],
+          }),
+        );
+      }
+
+      throw new Error(`Unexpected fetch URL: ${requestUrl}`);
+    });
+
+    renderMainDashboard(createQueryClient());
+
+    expect(await screen.findByRole("article", { name: "Tickets in scope" })).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(getFetchRequestUrls()).toContain(defaultTicketsUrl);
+    });
+    await waitFor(() => {
+      expect(getFetchRequestUrls()).toContain(refreshedTicketsUrl);
+    });
+    expect(await screen.findByText("Recovered snapshot issue")).toBeInTheDocument();
+  });
+
+  it("polls refresh status lightly and refreshes data when a new snapshot becomes active", async () => {
+    const refreshedSummary = createSummaryPayload({
+      snapshot_version: "snapshot-20260603-2",
+      generated_from: {
+        defect_db_path: "defect.db",
+        history_db_path: "history.db",
+        years: ["2026"],
+        months: ["2026-05", "2026-06"],
+        requirements: ["DOC_PreCon_A", "DOC_PreCon_B"],
+        china_scopes: ["China"],
+        projects: ["IDCEVO"],
+        assigned_ecus: ["ECU-A"],
+        problem_finder_teams: ["DTSV_China"],
+        aidas: ["Digital"],
+        phases: ["03-In Analysis", "04-In Progress"],
+        solution_clusters: ["Integration"],
+        pus: ["PU1"],
+        markets: ["CN"],
+        lead_models: ["LM1"],
+        groups: ["Integration"],
+      },
+      refresh_metadata: {
+        active_snapshot_version: "snapshot-20260603-2",
+        refresh_status: "ready",
+        last_success_at: "2026-06-03T01:00:00Z",
+      },
+    });
+    const refreshedSummaryUrl =
+      "/api/full-picture/dashboard/summary?years=2026&china_scopes=China&projects=IDCEVO&phases=03-In+Analysis%2C04-In+Progress&creation_time_start=2026-05-21&creation_time_end=2026-06-03";
+    const refreshedTicketsUrl =
+      "/api/full-picture/dashboard/tickets?years=2026&china_scopes=China&projects=IDCEVO&phases=03-In+Analysis%2C04-In+Progress&creation_time_start=2026-05-21&creation_time_end=2026-06-03&page=1&page_size=50&sort_by=classification&sort_order=desc&snapshot_version=snapshot-20260603-2";
+    let refreshStatusCallCount = 0;
+    const intervalCallbacks: Array<() => void> = [];
+
+    vi.spyOn(window, "setInterval").mockImplementation(((handler: TimerHandler, timeout?: number) => {
+      if (typeof handler === "function" && timeout === 120_000) {
+        intervalCallbacks.push(handler as () => void);
+      }
+
+      return 1 as unknown as ReturnType<typeof window.setInterval>;
+    }) as typeof window.setInterval);
+    vi.spyOn(window, "clearInterval").mockImplementation(() => undefined);
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+
+    vi.mocked(fetch).mockImplementation(async (input: string | URL | Request) => {
+      const requestUrl = String(input);
+
+      if (requestUrl === refreshStatusUrl) {
+        refreshStatusCallCount += 1;
+        if (refreshStatusCallCount >= 1) {
+          return createFetchResponse({
+            active_snapshot_version: "snapshot-20260603-2",
+            refresh_status: "ready",
+            last_success_at: "2026-06-03T01:00:00Z",
+          });
+        }
+        return createFetchResponse({
+          active_snapshot_version: "snapshot-20260528-1",
+          refresh_status: "ready",
+          last_success_at: "2026-05-28T00:00:00Z",
+        });
+      }
+
+      if (requestUrl === "/api/full-picture/dashboard/summary") {
+        return createFetchResponse(createSummaryPayload());
+      }
+
+      if (requestUrl === defaultSummaryUrl) {
+        if (refreshStatusCallCount >= 1) {
+          return createFetchResponse(refreshedSummary);
+        }
+        return createFetchResponse(createSummaryPayload());
+      }
+
+      if (requestUrl === refreshedSummaryUrl) {
+        return createFetchResponse(refreshedSummary);
+      }
+
+      if (requestUrl === defaultTicketsUrl) {
+        return createFetchResponse(createTicketsPagePayload());
+      }
+
+      if (requestUrl === refreshedTicketsUrl) {
+        return createFetchResponse(
+          createTicketsPagePayload({
+            snapshot_version: "snapshot-20260603-2",
+            refresh_metadata: {
+              active_snapshot_version: "snapshot-20260603-2",
+              refresh_status: "ready",
+              last_success_at: "2026-06-03T01:00:00Z",
+            },
+            rows: [
+              createTicketRow({
+                ticket_id: "3003",
+                ticket_name: "Polled snapshot refresh",
+                creation_time: "2026-06-03T00:20:00Z",
+              }),
+            ],
+          }),
+        );
+      }
+
+      throw new Error(`Unexpected fetch URL: ${requestUrl}`);
+    });
+
+    renderMainDashboard(createQueryClient());
+
+    expect(await screen.findByText("Alpha power reset")).toBeInTheDocument();
+    expect(window.setInterval).toHaveBeenCalledWith(expect.any(Function), 120_000);
+    expect(intervalCallbacks.length).toBeGreaterThan(0);
+
+    await act(async () => {
+      intervalCallbacks[intervalCallbacks.length - 1]();
+    });
+
+    await waitFor(() => {
+      expect(getFetchRequestUrls()).toContain(refreshStatusUrl);
+    });
+    await waitFor(() => {
+      expect(getFetchRequestUrls()).toContain(refreshedSummaryUrl);
+    });
+    await waitFor(() => {
+      expect(getFetchRequestUrls()).toContain(refreshedTicketsUrl);
+    });
+    expect(await screen.findByText("Polled snapshot refresh")).toBeInTheDocument();
+  });
+
   it("pins Top Topic tickets above the normal first page and hides them on page 2", async () => {
     vi.mocked(fetch).mockImplementation(
       async (input: string | URL | Request) => {
@@ -528,6 +766,7 @@ describe("MainDashboard split data loading", () => {
                   ticket_id: "1001",
                   ticket_name: "Alpha power reset",
                   requirement: "DOC_PreCon_A",
+                  classification: "Showstopper_Candidate",
                 }),
               ],
               priority_rows: [
@@ -535,6 +774,7 @@ describe("MainDashboard split data loading", () => {
                   ticket_id: "9001",
                   ticket_name: "Top Topic older issue",
                   requirement: "Top Topic | DOC_PreCon_A",
+                  classification: "Homologation L-labelled",
                   creation_time: "2026-03-01T00:00:00Z",
                 }),
                 createTicketRow({
@@ -542,6 +782,7 @@ describe("MainDashboard split data loading", () => {
                   ticket_name: "Top Topic other team issue",
                   requirement: "Top Topic | DOC_PreCon_A",
                   problem_finder_team: "OtherTeam",
+                  classification: "No_Showstopper_Candidate",
                   creation_time: "2026-05-22T00:00:00Z",
                 }),
               ],
@@ -578,6 +819,10 @@ describe("MainDashboard split data loading", () => {
     expect(screen.getByText("Top Topic other team issue")).toBeInTheDocument();
     expect(screen.getByText("Alpha power reset")).toBeInTheDocument();
     expect(screen.getByText(/Top Topic tickets.*pinned/i)).toBeInTheDocument();
+    expect(
+      screen.getByText("Top Topic older issue").compareDocumentPosition(screen.getByText("Alpha power reset"))
+        & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Next page" }));
 

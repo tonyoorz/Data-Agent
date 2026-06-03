@@ -48,11 +48,8 @@ describe("AIChat duplicate search integration", () => {
     expect(screen.getByRole("switch", { name: /缺陷上下文/i })).not.toBeChecked();
   });
 
-  it("requests duplicate-search warmup when switching to duplicate-search mode", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ state: "warm" }),
-    });
+  it("does not request duplicate-search warmup when switching to duplicate-search mode", async () => {
+    const fetchMock = vi.fn();
 
     vi.stubGlobal("fetch", fetchMock);
 
@@ -61,13 +58,12 @@ describe("AIChat duplicate search integration", () => {
     fireEvent.click(screen.getByRole("button", { name: /duplicate search/i }));
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(
-        "/api/duplicate-search/warmup",
-        expect.objectContaining({
-          method: "POST",
-        }),
-      );
+      expect(
+        screen.getByRole("button", { name: /^duplicate search$/i, pressed: true }),
+      ).toBeInTheDocument();
     });
+
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("submits duplicate search queries to the local API and renders candidates", async () => {
@@ -123,13 +119,6 @@ describe("AIChat duplicate search integration", () => {
 
   it("shows an immediate retrieval status for duplicate search before results arrive", async () => {
     const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
-      if (String(input) === "/api/duplicate-search/warmup") {
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({ state: "warming" }),
-        });
-      }
-
       return new Promise(() => {}) as Promise<Response>;
     });
 
@@ -150,13 +139,6 @@ describe("AIChat duplicate search integration", () => {
     vi.useFakeTimers();
 
     const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
-      if (String(input) === "/api/duplicate-search/warmup") {
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({ state: "warm" }),
-        });
-      }
-
       return Promise.resolve({
         ok: true,
         json: async () => ({
@@ -222,13 +204,6 @@ describe("AIChat duplicate search integration", () => {
     let releaseFirstAbort: (() => void) | null = null;
 
     const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
-      if (String(input) === "/api/duplicate-search/warmup") {
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({ state: "warm" }),
-        });
-      }
-
       const requestBody = JSON.parse(String(init?.body ?? "{}")) as { query?: string };
 
       if (requestBody.query === "first search") {

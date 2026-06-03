@@ -6,6 +6,7 @@ import shutil
 import sqlite3
 import sys
 from collections.abc import Sequence
+from datetime import datetime, timezone
 from pathlib import Path
 
 if __package__ in {None, ""}:
@@ -75,12 +76,12 @@ def _refresh_full_picture_outcomes_with_progress(
         force=force,
     )
     _emit_progress("Recording dashboard snapshot metadata...")
-    snapshot_version = _build_full_picture_snapshot_version(source_db_path)
+    snapshot_version = build_full_picture_snapshot_version(source_db_path)
     record_snapshot_refresh(
         hot_db_path,
         snapshot_version=snapshot_version,
         source_db_path=str(Path(source_db_path).resolve()),
-        source_db_mtime=_format_snapshot_source_mtime(source_db_path),
+        source_db_mtime=format_snapshot_source_mtime(source_db_path),
         refresh_status="ready",
         last_error=None,
     )
@@ -121,12 +122,13 @@ def _refresh_testing_coverage_hot_with_progress(*, force: bool) -> dict[str, obj
 def _refresh_all_sources_with_progress(args: argparse.Namespace) -> dict[str, object]:
     teams = tuple(part.strip() for part in str(args.teams or "").split(",") if part.strip()) or ("DTSV_China",)
     years = tuple(int(part.strip()) for part in str(args.years or datetime.now().year).split(",") if part.strip())
+    manual_years = _parse_year_values(getattr(args, "manual_years", None)) or (datetime.now().year,)
     manual_team_name = str(args.team_name or "DTSV_China")
     source_db_path = get_full_picture_source_db_path()
     hot_db_path = get_full_picture_hot_db_path()
 
     _emit_progress(
-        f"Starting combined source refresh teams={','.join(teams)} years={','.join(str(year) for year in years)} manual_team={manual_team_name}"
+        f"Starting combined source refresh teams={','.join(teams)} years={','.join(str(year) for year in years)} manual_team={manual_team_name} manual_years={','.join(str(year) for year in manual_years)}"
     )
     _emit_progress("Step 1/3: refreshing incremental defect/history source...")
     legacy_summary = refresh_legacy_qgate_source_incremental(
@@ -139,7 +141,7 @@ def _refresh_all_sources_with_progress(args: argparse.Namespace) -> dict[str, ob
     )
 
     _emit_progress("Step 2/3: refreshing manual runs source...")
-    manual_summary = _refresh_manual_runs_source_with_progress(team_name=manual_team_name, years=years)
+    manual_summary = _refresh_manual_runs_source_with_progress(team_name=manual_team_name, years=manual_years)
 
     _emit_progress("Step 3/3: refreshing full-picture outcomes...")
     outcomes_summary = _refresh_full_picture_outcomes_with_progress(
@@ -367,6 +369,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--teams")
     parser.add_argument("--years")
+    parser.add_argument("--manual-years")
     parser.add_argument("--skip-history", action="store_true")
     parser.add_argument("--skip-comments", action="store_true")
     parser.add_argument("--full-history", action="store_true")
