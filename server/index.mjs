@@ -8,12 +8,15 @@ import { createDuplicateWarmupManager } from "./duplicateWarmup.mjs";
 import { extractLatestUserQuery, resolveAiDefectContext } from "./aiContext.mjs";
 import { streamCompanyChatCompletion, writeSseEvent } from "./companyChat.mjs";
 import { summarizeDuplicateResults } from "./duplicateSummary.mjs";
+import { loadLocalEnv } from "./loadLocalEnv.mjs";
+import { handleTranscribeRequest } from "./transcribe.mjs";
 
 const { runDuplicateBridge, stopDuplicateBridgeRuntime } = duplicateBridgeRuntime;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "..");
+loadLocalEnv();
 const port = Number(process.env.VIZION_API_PORT || 3004);
 const staticDir = fs.existsSync(path.join(repoRoot, "dist")) ? path.join(repoRoot, "dist") : "";
 const duplicateWarmupManager = createDuplicateWarmupManager({
@@ -234,6 +237,13 @@ const server = http.createServer(async (request, response) => {
     if (request.method === "POST" && url.pathname === "/api/ai/chat") {
       const body = await readJsonBody(request);
       await handleAiChatRequest(body, response);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/ai/transcribe") {
+      const body = await readJsonBody(request);
+      const result = await handleTranscribeRequest(body);
+      sendJson(response, 200, result);
       return;
     }
 

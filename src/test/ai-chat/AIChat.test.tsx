@@ -3,10 +3,50 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import AIChat from "@/components/dashboard/pages/AIChat";
 
+class MockMediaRecorder {
+  public static instances: MockMediaRecorder[] = [];
+
+  public state: "inactive" | "recording" = "inactive";
+  public ondataavailable: ((event: { data: Blob }) => void) | null = null;
+  public onstop: (() => void) | null = null;
+
+  constructor(_stream: MediaStream) {
+    MockMediaRecorder.instances.push(this);
+  }
+
+  start() {
+    this.state = "recording";
+  }
+
+  stop() {
+    this.state = "inactive";
+    this.ondataavailable?.({
+      data: new Blob(["voice-bytes"], { type: "audio/webm" }),
+    });
+    this.onstop?.();
+  }
+}
+
 describe("AIChat duplicate search integration", () => {
   beforeEach(() => {
     window.localStorage.clear();
     vi.restoreAllMocks();
+    MockMediaRecorder.instances = [];
+
+    Object.defineProperty(globalThis, "MediaRecorder", {
+      configurable: true,
+      writable: true,
+      value: MockMediaRecorder,
+    });
+
+    Object.defineProperty(globalThis.navigator, "mediaDevices", {
+      configurable: true,
+      value: {
+        getUserMedia: vi.fn().mockResolvedValue({
+          getTracks: () => [{ stop: vi.fn() }],
+        }),
+      },
+    });
   });
 
   afterEach(() => {
@@ -491,5 +531,63 @@ describe("AIChat duplicate search integration", () => {
     });
 
     expect(await screen.findByText("正在检索 qgate 相关缺陷…")).toBeInTheDocument();
+  });
+
+  it("transcribes recorded audio and fills the input without auto-sending", async () => {
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      if (String(input) === "/api/ai/transcribe") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ success: true, text: "voice transcript" }),
+          text: async () => "",
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        body: new ReadableStream({
+          start(controller) {
+            controller.close();
+          },
+        }),
+        json: async () => ({ error: "unexpected" }),
+      });
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<AIChat moduleKey="ai-chat" moduleLabel="AI Chat" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "开始录音" }));
+    fireEvent.click(await screen.findByRole("button", { name: "停止录音" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/ai/transcribe",
+        expect.objectContaining({
+          method: "POST",
+        }),
+      );
+    });
+
+    expect(screen.getByRole("textbox")).toHaveValue("voice transcript");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows a short error when transcription fails", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      json: async () => ({ error: "transcribe failed" }),
+      text: async () => "transcribe failed",
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<AIChat moduleKey="ai-chat" moduleLabel="AI Chat" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "开始录音" }));
+    fireEvent.click(await screen.findByRole("button", { name: "停止录音" }));
+
+    expect(await screen.findByText("语音转写失败，请重试。")).toBeInTheDocument();
   });
 });

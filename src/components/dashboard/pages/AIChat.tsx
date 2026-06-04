@@ -3,7 +3,9 @@ import {
   ArrowUp,
   Check,
   Copy,
+  Loader2,
   MessageSquarePlus,
+  Mic,
   MoreHorizontal,
   Paperclip,
   Pencil,
@@ -119,6 +121,9 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
   const [menuId, setMenuId] = useState<string | null>(null);
   const [editingMsgId, setEditingMsgId] = useState<string | null>(null);
   const [editingMsgVal, setEditingMsgVal] = useState("");
+  const [recording, setRecording] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+  const [voiceError, setVoiceError] = useState("");
 
   const abortRef = useRef<AbortController | null>(null);
   const activeRequestRef = useRef<string | null>(null);
@@ -126,6 +131,9 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
 
   const active = conversations.find((c) => c.id === activeId) ?? conversations[0];
   const isEmpty = active.messages.length === 0;
@@ -156,6 +164,8 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
     document.addEventListener("click", close);
     return () => {
       document.removeEventListener("click", close);
+      mediaRecorderRef.current = null;
+      stopMediaStream();
       streamAnimatorRef.current?.stop();
       streamAnimatorRef.current = null;
     };
@@ -218,6 +228,109 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
     if (e.clipboardData.files?.length) {
       handleFiles(e.clipboardData.files);
     }
+  };
+
+  const stopMediaStream = (stream = mediaStreamRef.current) => {
+    stream?.getTracks?.().forEach((track) => track.stop());
+    if (stream === mediaStreamRef.current) {
+      mediaStreamRef.current = null;
+    }
+  };
+
+  const blobToBase64 = async (blob: Blob) => {
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = String(reader.result || "");
+        const marker = result.indexOf(",");
+        resolve(marker >= 0 ? result.slice(marker + 1) : result);
+      };
+      reader.onerror = () => reject(reader.error || new Error("Failed to read audio blob"));
+      reader.readAsDataURL(blob);
+    });
+  };
+
+  const transcribeAudioBlob = async (blob: Blob) => {
+    const response = await fetch("/api/ai/transcribe", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        audio: await blobToBase64(blob),
+        mime: blob.type || "audio/webm",
+      }),
+    });
+
+    const payload = await response.json().catch(async () => ({
+      error: (await response.text().catch(() => "")) || "语音转写失败，请重试。",
+    }));
+
+    if (!response.ok || typeof payload?.text !== "string" || !payload.text.trim()) {
+      throw new Error(payload?.error || "语音转写失败，请重试。");
+    }
+
+    return payload.text.trim();
+  };
+
+  const startVoiceRecording = async () => {
+    if (recording || transcribing) return;
+
+    setVoiceError("");
+
+    if (typeof MediaRecorder !== "function" || !navigator.mediaDevices?.getUserMedia) {
+      setVoiceError("当前浏览器不支持语音输入。");
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaStreamRef.current = stream;
+      audioChunksRef.current = [];
+
+      const recorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = recorder;
+      recorder.ondataavailable = (event) => {
+        if (event.data) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+      recorder.onstop = async () => {
+        const chunks = audioChunksRef.current.slice();
+        audioChunksRef.current = [];
+        mediaRecorderRef.current = null;
+        stopMediaStream(stream);
+
+        const blob = new Blob(chunks, { type: chunks[0]?.type || recorder.mimeType || "audio/webm" });
+        if (!blob.size) {
+          return;
+        }
+
+        setTranscribing(true);
+        try {
+          const transcript = await transcribeAudioBlob(blob);
+          setInput((prev) => (prev.trim() ? `${prev}${prev.endsWith("\n") ? "" : "\n"}${transcript}` : transcript));
+          setVoiceError("");
+          setTimeout(() => taRef.current?.focus(), 0);
+        } catch {
+          setVoiceError("语音转写失败，请重试。");
+        } finally {
+          setTranscribing(false);
+        }
+      };
+      recorder.start();
+      setRecording(true);
+    } catch {
+      stopMediaStream();
+      setVoiceError("无法访问麦克风，请检查浏览器权限。");
+    }
+  };
+
+  const stopVoiceRecording = () => {
+    if (!recording) return;
+
+    setRecording(false);
+    mediaRecorderRef.current?.stop();
   };
 
   // ----- slash menu -----
@@ -1051,6 +1164,12 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
               </div>
             )}
 
+            {(voiceError || transcribing) && (
+              <p className="mb-2 text-xs text-muted-foreground">
+                {transcribing ? "正在转写语音…" : voiceError}
+              </p>
+            )}
+
             <div className="relative flex items-end gap-2 rounded-2xl border border-border bg-card px-3 py-2 shadow-sm transition-colors focus-within:border-primary/50 focus-within:shadow-md">
               {slashOpen && (
                 <SlashMenu
@@ -1070,6 +1189,22 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
                   e.currentTarget.value = "";
                 }}
               />
+              <button
+                type="button"
+                onClick={recording ? stopVoiceRecording : startVoiceRecording}
+                disabled={transcribing}
+                aria-label={recording ? "停止录音" : "开始录音"}
+                className="mb-1 flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"
+                title={recording ? "停止录音" : transcribing ? "语音转写中" : "开始录音"}
+              >
+                {transcribing ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : recording ? (
+                  <StopCircle className="h-4 w-4" />
+                ) : (
+                  <Mic className="h-4 w-4" />
+                )}
+              </button>
               <button
                 type="button"
                 onClick={() => fileRef.current?.click()}

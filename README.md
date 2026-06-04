@@ -259,6 +259,47 @@ py -3.11 -m backend.analytics_cli refresh-full-picture-outcomes
 py -3.11 -m backend.analytics_cli refresh-all-sources --teams "DTSV_China,[AT]CoC_EI_IuK,Plant-Tiexi FIT,[AT]FIT_LAENDER_CHINA,Plant-Dadong FIT,[AT]BBA_Basis-FIT,Spotlight_FIT" --years 2025,2026 --team-name DTSV_China --history-max-workers 50
 ```
 
+### 3. AI Chat voice transcription
+
+AI Chat 现在支持浏览器录音，并通过当前仓库的本地 Node API `/api/ai/transcribe` 做语音转写。
+
+本地 Node 服务现在会在启动时自动读取仓库根目录的 `.env` 和 `.env.local`。实际推荐把 access code 放进 `.env.local`，这样 `npm run dev` 或 `npm start` 时就不需要每次先在终端手动执行 `$env:...`。
+
+默认优先走公司 AI Studio Whisper ASR：
+
+```powershell
+$env:DUPSEARCH_TRANSCRIBE_ACCESS_CODE = "<your access code>"
+```
+
+如果你已经给聊天模型配置过 access code，也可以直接复用现有变量，不需要再额外配一份：
+
+```powershell
+$env:DUPSEARCH_CHAT_ACCESS_CODE = "<your access code>"
+```
+
+当前本地转写层会优先读取这些环境变量：
+
+- `DUPSEARCH_TRANSCRIBE_ACCESS_CODE`
+- `TRANSCRIBE_ACCESS_CODE`
+- `DUPSEARCH_CHAT_ACCESS_CODE`
+- `ACCESS_CODE`
+- `DEEPSEEK_ACCESS_CODE`
+
+命中后会自动调用公司 Whisper ASR 接口：
+
+- `POST /api/service/49/{accessCode}/asr`
+- query: `task=transcribe&output=txt`
+- body: `multipart/form-data`，字段 `audio_file`
+
+如果你不想走公司 Whisper ASR，也可以改用通用 JSON 转写上游：
+
+```powershell
+$env:DUPSEARCH_TRANSCRIBE_URL = "https://your-transcribe-service.example/api"
+$env:DUPSEARCH_TRANSCRIBE_API_KEY = "<your api key>"
+```
+
+当前仓库不会自动从浏览器页面读取 access code，也不会把 access code 写死到代码里；需要在启动前通过环境变量显式提供。
+
 这条总命令会在终端里按步骤打印当前阶段，方便判断现在是在拉 defect/history、manual runs，还是在刷新 hot outcomes。
 
 补充说明：
@@ -309,6 +350,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\register-nightly-source-refre
 ### 3. Company model credentials
 
 至少配置其一：
+
+这些变量同样可以直接放到仓库根目录的 `.env.local`，不需要每次手动 export。
 
 ```powershell
 $env:DUPSEARCH_CHAT_ACCESS_CODE = "<company-access-code>"
