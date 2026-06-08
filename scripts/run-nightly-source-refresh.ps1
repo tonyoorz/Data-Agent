@@ -7,7 +7,8 @@ param(
   [string]$TeamName = "DTSV_China",
   [int]$HistoryMaxWorkers = 50,
   [string]$LogPath = "",
-  [bool]$AutoRefreshCookieOnAuthFailure = $true
+  [bool]$AutoRefreshCookieOnAuthFailure = $true,
+  [bool]$CookieRefreshHeadless = $true
 )
 
 $ErrorActionPreference = "Stop"
@@ -15,12 +16,16 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $repoRoot
 
+$latestLogPath = $null
+
 if ([string]::IsNullOrWhiteSpace($LogPath)) {
   $logDirectory = Join-Path $repoRoot "database\hot\logs"
   if (-not (Test-Path $logDirectory)) {
     New-Item -ItemType Directory -Path $logDirectory | Out-Null
   }
-  $LogPath = Join-Path $logDirectory "nightly-source-refresh.log"
+  $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+  $LogPath = Join-Path $logDirectory ("nightly-source-refresh-" + $timestamp + ".log")
+  $latestLogPath = Join-Path $logDirectory "nightly-source-refresh.log"
 }
 
 function Write-LogLine {
@@ -30,6 +35,9 @@ function Write-LogLine {
   )
 
   Add-Content -Path $LogPath -Value $Message -Encoding utf8
+  if ($latestLogPath) {
+    Add-Content -Path $latestLogPath -Value $Message -Encoding utf8
+  }
   if (-not $NoConsole) {
     Write-Host $Message
   }
@@ -37,6 +45,8 @@ function Write-LogLine {
 
 $startedAt = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 Write-LogLine -Message "[$startedAt] Starting refresh-all-sources"
+Write-LogLine -Message ("[$startedAt] Log file: " + $LogPath)
+Write-LogLine -Message ("[$startedAt] Runtime config teams=" + $Teams + " years=" + $Years + " manual_years=" + $ManualRunYears + " team_name=" + $TeamName + " history_max_workers=" + $HistoryMaxWorkers + " auto_refresh_cookie_on_auth_failure=" + $AutoRefreshCookieOnAuthFailure + " cookie_refresh_headless=" + $CookieRefreshHeadless)
 
 if ([string]::IsNullOrWhiteSpace($ManualRunYears)) {
   $ManualRunYears = (Get-Date).Year.ToString()
@@ -71,6 +81,8 @@ function Invoke-AnalyticsCli {
   $env:PYTHONIOENCODING = "utf-8"
   $ErrorActionPreference = "Continue"
   try {
+    $started = Get-Date
+    Write-LogLine -Message ("[" + ($started.ToString("yyyy-MM-dd HH:mm:ss")) + "] Running " + $CommandId + ": " + ($PythonLauncher + " " + (($CliArguments | ForEach-Object { Format-CmdArgument $_ }) -join " ")))
     & $PythonLauncher @CliArguments 2>&1 | ForEach-Object {
       if ($_ -is [System.Management.Automation.ErrorRecord]) {
         $line = $_.Exception.Message
@@ -87,6 +99,9 @@ function Invoke-AnalyticsCli {
     }
 
     $commandExitCode = if ($null -ne $LASTEXITCODE) { [int]$LASTEXITCODE } else { 0 }
+    $finished = Get-Date
+    $durationSeconds = [Math]::Round((New-TimeSpan -Start $started -End $finished).TotalSeconds, 1)
+    Write-LogLine -Message ("[" + ($finished.ToString("yyyy-MM-dd HH:mm:ss")) + "] Completed " + $CommandId + " exit_code=" + $commandExitCode + " duration_seconds=" + $durationSeconds)
   }
   finally {
     $ErrorActionPreference = $previousErrorActionPreference
@@ -152,6 +167,9 @@ if ($refreshResult.ExitCode -ne 0 -and $AutoRefreshCookieOnAuthFailure -and (Tes
     "backend.analytics_cli",
     "refresh-octane-cookie"
   )
+  if ($CookieRefreshHeadless) {
+    $cookieArguments += "--headless"
+  }
 
   $cookieResult = Invoke-AnalyticsCli -CliArguments $cookieArguments -CommandId "refresh-cookie"
   if ($cookieResult.ExitCode -eq 0) {

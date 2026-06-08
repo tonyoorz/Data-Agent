@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 import importlib
+import json
 import sqlite3
 import shutil
 import subprocess
@@ -21,6 +22,8 @@ from backend.analytics.config import (
 
 
 INCREMENTAL_DEFECT_OVERLAP_DAYS = 3
+COMMENT_SYNC_TABLE = "octane_defect_comment_refresh_state"
+SQLITE_IN_CLAUSE_BATCH_SIZE = 900
 
 
 def _legacy_repo_candidates() -> tuple[Path, ...]:
@@ -144,8 +147,11 @@ def refresh_octane_cookie(*, prefer_legacy: bool, sync_login: bool, headless: bo
 
 def _refresh_octane_cookie_via_legacy(*, sync_login: bool, headless: bool) -> dict[str, object]:
     legacy_root = resolve_legacy_repo_root()
+    argv = [sys.executable, str(legacy_root / "playwright_cookie_manager.py"), "--refresh"]
+    if headless:
+        argv.append("--headless")
     result = subprocess.run(
-        [sys.executable, str(legacy_root / "playwright_cookie_manager.py"), "--refresh"],
+        argv,
         cwd=legacy_root,
         check=False,
     )
@@ -313,6 +319,160 @@ def _build_incremental_defect_query(*, team_id: str, year: int, start_date: str,
     )
 
 
+def _iter_batched(values: list[str], size: int = SQLITE_IN_CLAUSE_BATCH_SIZE):
+    for index in range(0, len(values), max(1, int(size))):
+        yield values[index:index + max(1, int(size))]
+
+
+def _ensure_comment_sync_table(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {COMMENT_SYNC_TABLE} (
+            defect_id TEXT PRIMARY KEY,
+            last_defect_modified TEXT NOT NULL,
+            last_synced_at TEXT NOT NULL
+        )
+        """
+    )
+
+
+def _load_comment_sync_watermarks(*, source_db_path: Path, defect_ids: list[str]) -> dict[str, datetime]:
+    normalized_ids = [str(value or "").strip() for value in defect_ids if str(value or "").strip()]
+    if not normalized_ids or not source_db_path.exists():
+        return {}
+
+    watermarks: dict[str, datetime] = {}
+    conn = sqlite3.connect(str(source_db_path))
+    try:
+        _ensure_comment_sync_table(conn)
+        for batch in _iter_batched(normalized_ids):
+            placeholders = ", ".join("?" for _ in batch)
+            rows = conn.execute(
+                f"""
+                SELECT defect_id, last_defect_modified
+                FROM {COMMENT_SYNC_TABLE}
+                WHERE defect_id IN ({placeholders})
+                """,
+                batch,
+            ).fetchall()
+            for defect_id, watermark in rows:
+                parsed = _parse_iso_datetime(watermark)
+                if parsed is not None:
+                    watermarks[str(defect_id or "").strip()] = parsed
+    except sqlite3.Error:
+        return {}
+    finally:
+        conn.close()
+
+    return watermarks
+
+
+def _load_existing_comments_by_defect_id(*, source_db_path: Path, defect_ids: list[str]) -> dict[str, list[dict[str, object]]]:
+    normalized_ids = [str(value or "").strip() for value in defect_ids if str(value or "").strip()]
+    if not normalized_ids or not source_db_path.exists():
+        return {}
+
+    comments_by_defect: dict[str, list[dict[str, object]]] = {}
+    conn = sqlite3.connect(str(source_db_path))
+    try:
+        for batch in _iter_batched(normalized_ids):
+            placeholders = ", ".join("?" for _ in batch)
+            rows = conn.execute(
+                f"""
+                SELECT defect_id, comments
+                FROM octane_defects
+                WHERE defect_id IN ({placeholders})
+                """,
+                batch,
+            ).fetchall()
+            for defect_id, raw_comments in rows:
+                normalized_id = str(defect_id or "").strip()
+                if not normalized_id:
+                    continue
+                parsed_comments: list[dict[str, object]] = []
+                text_value = str(raw_comments or "").strip()
+                if text_value:
+                    try:
+                        loaded = json.loads(text_value)
+                    except json.JSONDecodeError:
+                        loaded = []
+                    if isinstance(loaded, list):
+                        parsed_comments = [item for item in loaded if isinstance(item, dict)]
+                comments_by_defect[normalized_id] = parsed_comments
+    except sqlite3.Error:
+        return {}
+    finally:
+        conn.close()
+
+    return comments_by_defect
+
+
+def _hydrate_existing_comments_for_defects(*, source_db_path: Path, defects: list[dict[str, object]]) -> None:
+    defect_ids = [str(row.get("id") or "").strip() for row in defects if isinstance(row, dict)]
+    existing = _load_existing_comments_by_defect_id(source_db_path=source_db_path, defect_ids=defect_ids)
+    if not existing:
+        return
+    for defect in defects:
+        defect_id = str(defect.get("id") or "").strip()
+        if defect_id in existing:
+            defect["comments"] = existing[defect_id]
+
+
+def _partition_defects_for_incremental_comment_refresh(*, source_db_path: Path, defects: list[dict[str, object]]) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    defect_ids = [str(row.get("id") or "").strip() for row in defects if isinstance(row, dict)]
+    watermarks = _load_comment_sync_watermarks(source_db_path=source_db_path, defect_ids=defect_ids)
+    refresh_targets: list[dict[str, object]] = []
+    reuse_targets: list[dict[str, object]] = []
+
+    for defect in defects:
+        defect_id = str(defect.get("id") or "").strip()
+        if not defect_id:
+            refresh_targets.append(defect)
+            continue
+        source_watermark = _parse_iso_datetime(defect.get("last_modified")) or _parse_iso_datetime(defect.get("creation_time"))
+        synced_watermark = watermarks.get(defect_id)
+        if synced_watermark is None or source_watermark is None or source_watermark > synced_watermark:
+            refresh_targets.append(defect)
+        else:
+            reuse_targets.append(defect)
+
+    return refresh_targets, reuse_targets
+
+
+def _upsert_comment_sync_watermarks(*, source_db_path: Path, defects: list[dict[str, object]], fetched_at: str) -> None:
+    if not defects:
+        return
+    rows: list[tuple[str, str, str]] = []
+    for defect in defects:
+        defect_id = str(defect.get("id") or "").strip()
+        if not defect_id:
+            continue
+        source_watermark = _parse_iso_datetime(defect.get("last_modified")) or _parse_iso_datetime(defect.get("creation_time"))
+        source_text = (source_watermark or _parse_iso_datetime(fetched_at) or datetime.now(timezone.utc)).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        rows.append((defect_id, source_text, fetched_at))
+    if not rows:
+        return
+
+    conn = sqlite3.connect(str(source_db_path))
+    try:
+        _ensure_comment_sync_table(conn)
+        conn.executemany(
+            f"""
+            INSERT INTO {COMMENT_SYNC_TABLE}(defect_id, last_defect_modified, last_synced_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(defect_id) DO UPDATE SET
+                last_defect_modified=excluded.last_defect_modified,
+                last_synced_at=excluded.last_synced_at
+            """,
+            rows,
+        )
+        conn.commit()
+    except sqlite3.Error:
+        return
+    finally:
+        conn.close()
+
+
 def _merge_legacy_comments_into_defects(*, module: ModuleType, session: object, defects: list[dict[str, object]], max_workers: int = 6) -> None:
     defect_ids = [str(item.get("id") or "").strip() for item in defects if str(item.get("id") or "").strip()]
     if not defect_ids:
@@ -377,6 +537,7 @@ def run_legacy_qgate_defect_source_incremental(
     )
     fetched_at = _utc_now_iso()
     team_summaries: list[dict[str, object]] = []
+    refreshed_defect_ids_by_team: dict[str, set[str]] = {team: set() for team in teams}
 
     with _legacy_environment(legacy_root):
         module = importlib.import_module("downloaderqgate")
@@ -427,8 +588,39 @@ def run_legacy_qgate_defect_source_incremental(
                         )
                         or []
                     )
+                    refreshed_comment_targets = 0
+                    reused_comment_targets = 0
                     if include_comments and defect_rows:
-                        _merge_legacy_comments_into_defects(module=module, session=session, defects=defect_rows)
+                        refresh_comment_rows, reuse_comment_rows = _partition_defects_for_incremental_comment_refresh(
+                            source_db_path=target_db_path,
+                            defects=defect_rows,
+                        )
+                        refreshed_comment_targets = len(refresh_comment_rows)
+                        reused_comment_targets = len(reuse_comment_rows)
+
+                        if refresh_comment_rows:
+                            _merge_legacy_comments_into_defects(module=module, session=session, defects=refresh_comment_rows)
+                            missing_comment_rows = [
+                                row
+                                for row in refresh_comment_rows
+                                if "comments" not in row
+                            ]
+                            if missing_comment_rows:
+                                _hydrate_existing_comments_for_defects(
+                                    source_db_path=target_db_path,
+                                    defects=missing_comment_rows,
+                                )
+                            _upsert_comment_sync_watermarks(
+                                source_db_path=target_db_path,
+                                defects=refresh_comment_rows,
+                                fetched_at=fetched_at,
+                            )
+
+                        if reuse_comment_rows:
+                            _hydrate_existing_comments_for_defects(
+                                source_db_path=target_db_path,
+                                defects=reuse_comment_rows,
+                            )
 
                     rows_by_year: dict[int, list[dict[str, object]]] = {}
                     for row in defect_rows:
@@ -453,6 +645,11 @@ def run_legacy_qgate_defect_source_incremental(
                             store=store,
                             fetched_at=fetched_at,
                         )
+                        refreshed_defect_ids_by_team.setdefault(team, set()).update(
+                            str(defect_id).strip()
+                            for defect_id in ids
+                            if str(defect_id).strip()
+                        )
                         saved_count += len(ids)
 
                     refreshed_defects += saved_count
@@ -463,6 +660,8 @@ def run_legacy_qgate_defect_source_incremental(
                             "start_date": str(window["start_date"]),
                             "end_date": str(window["end_date"]),
                             "refreshed_defects": saved_count,
+                            "comments_refreshed": refreshed_comment_targets,
+                            "comments_reused": reused_comment_targets,
                         }
                     )
 
@@ -491,6 +690,10 @@ def run_legacy_qgate_defect_source_incremental(
         "cookie_file": str(effective_cookie_file),
         "fetched_at": fetched_at,
         "team_summaries": team_summaries,
+        "refreshed_defect_ids_by_team": {
+            team: sorted(defect_ids)
+            for team, defect_ids in refreshed_defect_ids_by_team.items()
+        },
     }
 
 
@@ -688,9 +891,10 @@ def resume_incremental_legacy_qgate_history_source(
     history_max_workers: int,
     save_files: bool,
     cookie_file: str | None,
+    defect_ids_by_team: dict[str, list[str]] | None = None,
 ) -> dict[str, object]:
     target_db_path = get_full_picture_source_db_path()
-    incremental_ids_by_team = _load_incremental_history_ids_by_team(
+    incremental_ids_by_team = defect_ids_by_team or _load_incremental_history_ids_by_team(
         source_db_path=target_db_path,
         teams=teams,
         years=years,
@@ -729,6 +933,7 @@ def refresh_legacy_qgate_source_incremental(
         history_max_workers=history_max_workers,
         save_files=save_files,
         cookie_file=cookie_file,
+        defect_ids_by_team=defect_summary.get("refreshed_defect_ids_by_team"),
     )
 
     return {

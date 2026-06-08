@@ -139,6 +139,35 @@ def _refresh_all_sources_with_progress(args: argparse.Namespace) -> dict[str, ob
         save_files=args.save_files,
         cookie_file=args.cookie_file,
     )
+    defect_team_summaries = list((legacy_summary.get("defect_refresh") or {}).get("team_summaries") or [])
+    history_team_summaries = list((legacy_summary.get("history_resume") or {}).get("team_summaries") or [])
+    refreshed_defects = sum(int(team.get("refreshed_defects") or 0) for team in defect_team_summaries if isinstance(team, dict))
+    comments_refreshed = sum(
+        int(year.get("comments_refreshed") or 0)
+        for team in defect_team_summaries
+        if isinstance(team, dict)
+        for year in list(team.get("year_summaries") or [])
+        if isinstance(year, dict)
+    )
+    comments_reused = sum(
+        int(year.get("comments_reused") or 0)
+        for team in defect_team_summaries
+        if isinstance(team, dict)
+        for year in list(team.get("year_summaries") or [])
+        if isinstance(year, dict)
+    )
+    history_queued = sum(int(team.get("queued_defects") or 0) for team in history_team_summaries if isinstance(team, dict))
+    history_processed = sum(int(team.get("processed_defects") or 0) for team in history_team_summaries if isinstance(team, dict))
+    history_failed = sum(int(team.get("failed_defects") or 0) for team in history_team_summaries if isinstance(team, dict))
+    _emit_progress(
+        "Step 1/3 summary: "
+        f"defects={refreshed_defects} "
+        f"comments_refreshed={comments_refreshed} "
+        f"comments_reused={comments_reused} "
+        f"history_queued={history_queued} "
+        f"history_processed={history_processed} "
+        f"history_failed={history_failed}"
+    )
 
     _emit_progress("Step 2/3: refreshing manual runs source...")
     manual_summary = _refresh_manual_runs_source_with_progress(team_name=manual_team_name, years=manual_years)

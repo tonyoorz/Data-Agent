@@ -24,9 +24,23 @@ nvm use 24.14.0
 
 建议在仓库根目录准备 Python 3.9+ 虚拟环境，并安装：
 
+如果你在公司网络环境下需要通过临时代理下载 Python 依赖，请先在当前 PowerShell 会话设置（只对当前窗口生效）：
+
+```powershell
+$env:HTTPS_PROXY = "http://<user>:<password>@proxychina.bmwgroup.net:8080"
+$env:HTTP_PROXY = "http://<user>:<password>@proxychina.bmwgroup.net:8080"
+```
+
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+```
+
+安装完成后可按需清理代理环境变量：
+
+```powershell
+Remove-Item Env:HTTPS_PROXY -ErrorAction SilentlyContinue
+Remove-Item Env:HTTP_PROXY -ErrorAction SilentlyContinue
 ```
 
 如果不使用仓库内 `.venv`，请设置：
@@ -186,6 +200,13 @@ python -m backend.analytics_cli backfill-projects --db-path ..\TPMDashbaord\qgat
 如果你要在当前仓库手动更新缺陷、history、manual runs，并且保持现在 `database/source/qgate_raw.db` 的表结构不变，推荐直接复制下面的命令执行。
 
 下面的示例按当前 Windows PowerShell 环境写，统一使用 `py -3.11`。
+
+如果你所在网络环境访问外部依赖或接口需要代理，也可以先在当前 PowerShell 会话临时设置：
+
+```powershell
+$env:HTTPS_PROXY = "http://<user>:<password>@proxychina.bmwgroup.net:8080"
+$env:HTTP_PROXY = "http://<user>:<password>@proxychina.bmwgroup.net:8080"
+```
 
 最常用的一键串行刷新：
 

@@ -234,7 +234,33 @@ def test_analytics_cli_refresh_all_sources_runs_steps_in_order(
 
     def fake_refresh_legacy_qgate_source_incremental(**kwargs):
         calls.append(("legacy", kwargs))
-        return {"defect_refresh": {"team_summaries": []}, "history_refresh": {"team_summaries": []}}
+        return {
+            "defect_refresh": {
+                "team_summaries": [
+                    {
+                        "team": "DTSV_China",
+                        "refreshed_defects": 3,
+                        "year_summaries": [
+                            {
+                                "year": 2026,
+                                "comments_refreshed": 2,
+                                "comments_reused": 1,
+                            }
+                        ],
+                    }
+                ]
+            },
+            "history_resume": {
+                "team_summaries": [
+                    {
+                        "team": "DTSV_China",
+                        "queued_defects": 4,
+                        "processed_defects": 4,
+                        "failed_defects": 0,
+                    }
+                ]
+            },
+        }
 
     def fake_build_default_octane_client() -> str:
         calls.append(("build_client", None))
@@ -301,6 +327,7 @@ def test_analytics_cli_refresh_all_sources_runs_steps_in_order(
     ]
     assert "Starting combined source refresh" in stdout
     assert "Step 1/3: refreshing incremental defect/history source..." in stdout
+    assert "Step 1/3 summary: defects=3 comments_refreshed=2 comments_reused=1 history_queued=4 history_processed=4 history_failed=0" in stdout
     assert "Step 2/3: refreshing manual runs source..." in stdout
     assert "manual progress line" in stdout
     assert "Step 3/3: refreshing full-picture outcomes..." in stdout

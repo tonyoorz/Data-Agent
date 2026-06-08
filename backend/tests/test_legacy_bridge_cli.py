@@ -701,6 +701,143 @@ def test_run_legacy_qgate_defect_source_incremental_groups_payloads_by_year(monk
     ]
 
 
+def test_run_legacy_qgate_defect_source_incremental_reuses_comments_for_unchanged_defects(monkeypatch, tmp_path: Path) -> None:
+    captured: dict[str, object] = {
+        "comment_fetch_calls": 0,
+        "saved_comments": [],
+    }
+    legacy_root = tmp_path / "TPMDashbaord"
+    legacy_root.mkdir(parents=True)
+    source_db = tmp_path / "database" / "source" / "qgate_raw.db"
+    source_db.parent.mkdir(parents=True, exist_ok=True)
+
+    store = OctaneSourceStore(source_db)
+    store.create_tables()
+    store.upsert_defects(
+        [
+            {
+                "id": "AT-2026-1",
+                "name": "Existing defect",
+                "year": 2026,
+                "creation_time": "2026-05-31T00:00:00Z",
+                "last_modified": "2026-05-31T09:00:00Z",
+                "comments": [{"id": "C-OLD", "text": "old"}],
+                "problem_finder_team_udf": {"name": "[AT]CoC_EI_IuK"},
+            }
+        ],
+        team="[AT]CoC_EI_IuK",
+        year=2026,
+    )
+    store.close()
+
+    conn = sqlite3.connect(str(source_db))
+    try:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS octane_defect_comment_refresh_state (
+                defect_id TEXT PRIMARY KEY,
+                last_defect_modified TEXT NOT NULL,
+                last_synced_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO octane_defect_comment_refresh_state(defect_id, last_defect_modified, last_synced_at)
+            VALUES (?, ?, ?)
+            """,
+            ("AT-2026-1", "2026-05-31T09:00:00Z", "2026-06-08T00:00:00Z"),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    cookie_file = tmp_path / "cookie.txt"
+    cookie_file.write_text("COOKIE=1", encoding="utf-8")
+
+    @contextmanager
+    def fake_legacy_environment(_legacy_root: Path):
+        yield
+
+    class FakeSession:
+        def close(self) -> None:
+            return None
+
+    class FakeStore:
+        def close(self) -> None:
+            return None
+
+    class FakeD6:
+        EP_DEFECT = "defects"
+        DEFAULT_F_DEFECT_MAIN = ("id", "name", "creation_time", "last_modified")
+
+        @staticmethod
+        def get_authenticated_session(_auth_method: str, cookie_file_path: str | None = None):
+            captured["cookie_file_path"] = cookie_file_path
+            return FakeSession()
+
+        @staticmethod
+        def fetch_octane_data_parallel(session, endpoint, fields, query, order_by, limit_per_page, max_workers):
+            return [
+                {
+                    "id": "AT-2026-1",
+                    "name": "Existing defect",
+                    "year": 2026,
+                    "creation_time": "2026-05-31T00:00:00Z",
+                    "last_modified": "2026-05-31T09:00:00Z",
+                }
+            ]
+
+        @staticmethod
+        def fetch_comments_for_defects(session, defect_ids, batch_size, max_workers):
+            captured["comment_fetch_calls"] = int(captured["comment_fetch_calls"]) + 1
+            return [{"owner_work_item": {"id": defect_ids[0]}, "id": f"C-{defect_ids[0]}", "text": "new"}]
+
+        @staticmethod
+        def _html_to_text(value: str) -> str:
+            return value
+
+    class FakeModule:
+        d6 = FakeD6()
+
+        @staticmethod
+        def fetch_team_name_to_id(_session):
+            return {"[AT]CoC_EI_IuK": "TEAM-1"}
+
+        @staticmethod
+        def slugify_team_name(value: str) -> str:
+            return value.replace(" ", "_")
+
+        @staticmethod
+        def initialize_qgate_store(db_path: str, defer_history_events: bool = True):
+            return FakeStore()
+
+        @staticmethod
+        def save_defect_batch(defect_data_list, **kwargs):
+            captured["saved_comments"].append(defect_data_list[0].get("comments"))
+            return {str(row["id"]) for row in defect_data_list}
+
+    monkeypatch.setattr(legacy_bridge, "resolve_legacy_repo_root", lambda: legacy_root)
+    monkeypatch.setattr(legacy_bridge, "get_full_picture_source_db_path", lambda: source_db)
+    monkeypatch.setattr(legacy_bridge, "_legacy_environment", fake_legacy_environment)
+    monkeypatch.setattr(legacy_bridge, "_load_incremental_defect_windows_by_team_year", lambda **kwargs: {
+        ("[AT]CoC_EI_IuK", 2026): {"start_date": "2026-05-29", "end_date": "2026-06-01", "mode": "incremental"},
+    })
+    monkeypatch.setattr(legacy_bridge.importlib, "import_module", lambda name: FakeModule())
+
+    summary = legacy_bridge.run_legacy_qgate_defect_source_incremental(
+        teams=("[AT]CoC_EI_IuK",),
+        years=(2026,),
+        include_comments=True,
+        save_files=False,
+        cookie_file=str(cookie_file),
+    )
+
+    assert summary["bridge"] == "qgate-defect-incremental"
+    assert captured["comment_fetch_calls"] == 0
+    assert captured["saved_comments"][0] == [{"id": "C-OLD", "text": "old"}]
+
+
 def test_refresh_legacy_qgate_source_incremental_uses_incremental_defect_refresh(monkeypatch) -> None:
     captured: dict[str, object] = {}
 
@@ -718,15 +855,17 @@ def test_refresh_legacy_qgate_source_incremental_uses_incremental_defect_refresh
             "source_db_path": "source.db",
             "cookie_file": cookie_file,
             "team_summaries": [{"team": "DTSV_China", "refreshed_defects": 2}],
+            "refreshed_defect_ids_by_team": {"DTSV_China": ["D-1", "D-2"]},
         }
 
-    def fake_resume_incremental_legacy_qgate_history_source(*, teams, years, history_max_workers, save_files, cookie_file):
+    def fake_resume_incremental_legacy_qgate_history_source(*, teams, years, history_max_workers, save_files, cookie_file, defect_ids_by_team=None):
         captured["history"] = {
             "teams": teams,
             "years": years,
             "history_max_workers": history_max_workers,
             "save_files": save_files,
             "cookie_file": cookie_file,
+            "defect_ids_by_team": defect_ids_by_team,
         }
         return {
             "bridge": "qgate-history-incremental",
@@ -761,6 +900,7 @@ def test_refresh_legacy_qgate_source_incremental_uses_incremental_defect_refresh
             "history_max_workers": 8,
             "save_files": False,
             "cookie_file": None,
+            "defect_ids_by_team": {"DTSV_China": ["D-1", "D-2"]},
         },
     }
     assert summary["bridge"] == "qgate-incremental"
@@ -782,6 +922,48 @@ def test_sync_octane_auth_from_legacy_copies_cookie_into_current_repo(monkeypatc
     assert summary["login_synced"] is True
     assert (workspace_root / "cookie.txt").read_text(encoding="utf-8") == "LEGACY_COOKIE=1"
     assert json.loads((workspace_root / "login_info.txt").read_text(encoding="utf-8")) == {"username": "q1", "password": "pw"}
+
+
+def test_refresh_octane_cookie_via_legacy_passes_headless_flag(monkeypatch, tmp_path: Path) -> None:
+    captured: dict[str, object] = {}
+    legacy_root = tmp_path / "TPMDashbaord"
+    legacy_root.mkdir(parents=True)
+    (legacy_root / "playwright_cookie_manager.py").write_text("", encoding="utf-8")
+
+    def fake_subprocess_run(argv, cwd, check):
+        captured["argv"] = list(argv)
+        captured["cwd"] = cwd
+        captured["check"] = check
+
+        class Result:
+            returncode = 0
+
+        return Result()
+
+    monkeypatch.setattr(legacy_bridge, "resolve_legacy_repo_root", lambda: legacy_root)
+    monkeypatch.setattr(legacy_bridge.subprocess, "run", fake_subprocess_run)
+    monkeypatch.setattr(
+        legacy_bridge,
+        "sync_octane_auth_from_legacy",
+        lambda *, sync_login: {"cookie_synced": True, "login_synced": sync_login},
+    )
+
+    summary = legacy_bridge.refresh_octane_cookie(
+        prefer_legacy=True,
+        sync_login=False,
+        headless=True,
+    )
+
+    assert summary["mode"] == "legacy-playwright"
+    assert summary["headless_requested"] is True
+    assert captured["argv"] == [
+        sys.executable,
+        str(legacy_root / "playwright_cookie_manager.py"),
+        "--refresh",
+        "--headless",
+    ]
+    assert captured["cwd"] == legacy_root
+    assert captured["check"] is False
 
 
 def test_analytics_cli_refresh_octane_cookie_invokes_cookie_refresh(monkeypatch, capsys) -> None:
