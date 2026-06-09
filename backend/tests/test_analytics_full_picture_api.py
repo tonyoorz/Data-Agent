@@ -593,6 +593,35 @@ def test_full_picture_tickets_return_top_topic_priority_rows_ignoring_creation_t
     ]
 
 
+def test_filter_priority_rows_keeps_in_scope_top_topic_rows_pinned() -> None:
+    candidate_rows = [
+        {
+            "ticket_id": "D-TOP-IN-SCOPE",
+            "ticket_name": "Top topic already matched current page",
+            "requirement": "Top Topic | DOC_PreCon_A",
+            "requirement_names": ["Top Topic", "DOC_PreCon_A"],
+            "classification": "Showstopper_Candidate",
+        },
+        {
+            "ticket_id": "D-NORMAL",
+            "ticket_name": "Normal page row",
+            "requirement": "DOC_PreCon_A",
+            "requirement_names": ["DOC_PreCon_A"],
+            "classification": "Showstopper_Candidate",
+        },
+    ]
+
+    priority_rows = read_models._filter_priority_rows(
+        candidate_rows,
+        search="",
+        sort_by="classification",
+        sort_order="desc",
+        excluded_ticket_ids={"D-TOP-IN-SCOPE"},
+    )
+
+    assert [row["ticket_id"] for row in priority_rows] == ["D-TOP-IN-SCOPE"]
+
+
 def test_full_picture_tickets_hide_top_topic_priority_rows_after_first_page(tmp_path, monkeypatch):
     db_path = tmp_path / "qgate_data.db"
     hot_db_path = _default_hot_db_path(tmp_path)

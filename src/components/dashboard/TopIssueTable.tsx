@@ -1,16 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
-
-const issues = [
-  { id: "DEF-1024", title: "ESP 传感器信号间歇性丢失", severity: "Showstopper", project: "BR513", status: "In Analysis", age: 45 },
-  { id: "DEF-0987", title: "BCM 模块通信超时", severity: "Critical", project: "CD762", status: "In Progress", age: 32 },
-  { id: "DEF-1102", title: "HMI 显示异常 - 仪表盘黑屏", severity: "Showstopper", project: "BR513", status: "In Testing", age: 28 },
-  { id: "DEF-0856", title: "ADAS 摄像头标定偏移", severity: "Critical", project: "EV401", status: "In Analysis", age: 21 },
-  { id: "DEF-1198", title: "OTA 升级中断后无法恢复", severity: "Critical", project: "CD762", status: "New", age: 14 },
-  { id: "DEF-0934", title: "电池管理系统温度阈值报警", severity: "Major", project: "EV401", status: "In Progress", age: 12 },
-  { id: "DEF-1056", title: "车窗防夹功能失效", severity: "Showstopper", project: "BR513", status: "In Testing", age: 8 },
-];
+import type { TopIssueRow } from "@/components/dashboard/top-issue/topIssueTypes";
 
 const severityStyles: Record<string, string> = {
   Showstopper: "bg-destructive/10 text-destructive border-0",
@@ -25,7 +16,12 @@ const statusStyles: Record<string, string> = {
   New: "bg-warning/10 text-warning",
 };
 
-const TopIssueTable = () => {
+type TopIssueTableProps = {
+  issues: TopIssueRow[];
+  isLoading?: boolean;
+};
+
+const TopIssueTable = ({ issues, isLoading = false }: TopIssueTableProps) => {
   return (
     <div className="dashboard-card">
       <div className="flex items-center justify-between border-b border-border px-5 py-4">
@@ -39,6 +35,11 @@ const TopIssueTable = () => {
         </Button>
       </div>
       <div className="overflow-x-auto">
+        {isLoading ? (
+          <div className="px-5 py-8 text-sm text-muted-foreground">正在加载 Top Issue 数据...</div>
+        ) : issues.length === 0 ? (
+          <div className="px-5 py-8 text-sm text-muted-foreground">当前筛选条件下暂无 Top Issue 数据。</div>
+        ) : (
         <table className="w-full">
           <thead>
             <tr className="border-b border-border text-left">
@@ -53,28 +54,29 @@ const TopIssueTable = () => {
           <tbody>
             {issues.map((issue, i) => (
               <tr
-                key={issue.id}
+                key={issue.ticketId}
                 className="border-b border-border/50 transition-colors hover:bg-muted/30 animate-fade-in"
                 style={{ animationDelay: `${i * 50}ms` }}
               >
-                <td className="px-5 py-3.5 text-sm font-mono font-medium text-primary">{issue.id}</td>
-                <td className="px-5 py-3.5 text-sm text-foreground">{issue.title}</td>
+                <td className="px-5 py-3.5 text-sm font-mono font-medium text-primary">{issue.ticketId}</td>
+                <td className="px-5 py-3.5 text-sm text-foreground">{issue.ticketName}</td>
                 <td className="px-5 py-3.5">
-                  <Badge className={severityStyles[issue.severity]}>{issue.severity}</Badge>
+                  <Badge className={severityStyles[issue.severity] ?? "bg-muted text-muted-foreground border-0"}>{issue.severity || "Unknown"}</Badge>
                 </td>
-                <td className="px-5 py-3.5 text-sm text-muted-foreground">{issue.project}</td>
+                <td className="px-5 py-3.5 text-sm text-muted-foreground">{issue.project || "-"}</td>
                 <td className="px-5 py-3.5">
-                  <Badge variant="secondary" className={statusStyles[issue.status]}>{issue.status}</Badge>
+                  <Badge variant="secondary" className={statusStyles[issue.status] ?? "bg-muted text-muted-foreground"}>{issue.status || "Unknown"}</Badge>
                 </td>
                 <td className="px-5 py-3.5 text-right">
-                  <span className={`text-sm font-semibold ${issue.age > 30 ? "text-destructive" : issue.age > 14 ? "text-warning" : "text-foreground"}`}>
-                    {issue.age}d
+                  <span className={`text-sm font-semibold ${issue.ageDays > 30 ? "text-destructive" : issue.ageDays > 14 ? "text-warning" : "text-foreground"}`}>
+                    {issue.ageDays}d
                   </span>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
+        )}
       </div>
     </div>
   );

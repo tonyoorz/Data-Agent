@@ -928,7 +928,10 @@ def test_refresh_octane_cookie_via_legacy_passes_headless_flag(monkeypatch, tmp_
     captured: dict[str, object] = {}
     legacy_root = tmp_path / "TPMDashbaord"
     legacy_root.mkdir(parents=True)
-    (legacy_root / "playwright_cookie_manager.py").write_text("", encoding="utf-8")
+    (legacy_root / "playwright_cookie_manager.py").write_text(
+        'parser.add_argument("--headless", action="store_true")\n',
+        encoding="utf-8",
+    )
 
     def fake_subprocess_run(argv, cwd, check):
         captured["argv"] = list(argv)
@@ -961,6 +964,53 @@ def test_refresh_octane_cookie_via_legacy_passes_headless_flag(monkeypatch, tmp_
         str(legacy_root / "playwright_cookie_manager.py"),
         "--refresh",
         "--headless",
+    ]
+    assert captured["cwd"] == legacy_root
+    assert captured["check"] is False
+
+
+def test_refresh_octane_cookie_via_legacy_omits_headless_when_legacy_script_lacks_flag(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    captured: dict[str, object] = {}
+    legacy_root = tmp_path / "TPMDashbaord"
+    legacy_root.mkdir(parents=True)
+    (legacy_root / "playwright_cookie_manager.py").write_text(
+        'parser.add_argument("--refresh", action="store_true")\n',
+        encoding="utf-8",
+    )
+
+    def fake_subprocess_run(argv, cwd, check):
+        captured["argv"] = list(argv)
+        captured["cwd"] = cwd
+        captured["check"] = check
+
+        class Result:
+            returncode = 0
+
+        return Result()
+
+    monkeypatch.setattr(legacy_bridge, "resolve_legacy_repo_root", lambda: legacy_root)
+    monkeypatch.setattr(legacy_bridge.subprocess, "run", fake_subprocess_run)
+    monkeypatch.setattr(
+        legacy_bridge,
+        "sync_octane_auth_from_legacy",
+        lambda *, sync_login: {"cookie_synced": True, "login_synced": sync_login},
+    )
+
+    summary = legacy_bridge.refresh_octane_cookie(
+        prefer_legacy=True,
+        sync_login=False,
+        headless=True,
+    )
+
+    assert summary["mode"] == "legacy-playwright"
+    assert summary["headless_requested"] is True
+    assert captured["argv"] == [
+        sys.executable,
+        str(legacy_root / "playwright_cookie_manager.py"),
+        "--refresh",
     ]
     assert captured["cwd"] == legacy_root
     assert captured["check"] is False

@@ -67,6 +67,8 @@ describe("fetchCoverageAnalysisPageData", () => {
             top_aida: "AIDA-1",
             project: "IDCEVO",
             pu: "PU1",
+            fvp: "Voice Experience",
+            fv: "Speech",
             tester: "Tester-A",
             count: 1,
           },

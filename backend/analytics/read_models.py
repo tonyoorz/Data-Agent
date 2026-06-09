@@ -1838,6 +1838,152 @@ def _build_full_picture_dataset(
     return generated_from, ticket_rows
 
 
+def _top_issue_severity_label(row: dict[str, Any]) -> str:
+    return str(row.get("problem_severity") or row.get("classification") or "").strip()
+
+
+def _top_issue_severity_rank(row: dict[str, Any]) -> int:
+    severity_text = _top_issue_severity_label(row).casefold()
+    for keyword, rank in (
+        ("showstopper", 5),
+        ("critical", 4),
+        ("major", 3),
+        ("medium", 2),
+        ("minor", 1),
+        ("low", 0),
+    ):
+        if keyword in severity_text:
+            return rank
+    return -1
+
+
+def _is_closed_ticket_row(row: dict[str, Any]) -> bool:
+    phase_code = _extract_phase_code(row.get("phase") or row.get("status"))
+    if phase_code in {"06", "08", "09"}:
+        return True
+
+    status_text = str(row.get("status") or "").casefold()
+    return any(
+        keyword in status_text
+        for keyword in ("closed", "resolved", "rejected", "delivered", "ready for test")
+    )
+
+
+def _top_issue_age_days(row: dict[str, Any]) -> int:
+    creation_date = _normalize_filter_date_value(row.get("creation_time"))
+    end_date = _normalize_filter_date_value(row.get("ticket_date")) or creation_date
+    if not creation_date or not end_date:
+        return 0
+
+    try:
+        creation_value = datetime.fromisoformat(creation_date)
+        end_value = datetime.fromisoformat(end_date)
+    except ValueError:
+        return 0
+
+    return max((end_value - creation_value).days, 0)
+
+
+def _normalize_top_issue_status(raw_status: Any) -> str:
+    status = str(raw_status or "").strip()
+    if not status:
+        return ""
+
+    return re.sub(r"_(?:Low|Medium|High)$", "", status, flags=re.IGNORECASE)
+
+
+def _build_top_issue_rows(ticket_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    ranked_rows = sorted(
+        ticket_rows,
+        key=lambda row: (
+            _top_issue_severity_rank(row),
+            _top_issue_age_days(row),
+            _sortable_value(row.get("ticket_id")),
+        ),
+        reverse=True,
+    )
+
+    return [
+        {
+            "ticket_id": str(row.get("ticket_id") or "").strip(),
+            "ticket_name": str(row.get("ticket_name") or "").strip(),
+            "severity": _top_issue_severity_label(row),
+            "project": str(row.get("project") or "").strip(),
+            "status": _normalize_top_issue_status(row.get("status")),
+            "age_days": _top_issue_age_days(row),
+            "creation_time": str(row.get("creation_time") or "").strip(),
+            "ticket_date": str(row.get("ticket_date") or "").strip(),
+            "classification": str(row.get("classification") or "").strip(),
+        }
+        for row in ranked_rows[:50]
+    ]
+
+
+def _build_status_distribution_rows(ticket_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    counts: dict[str, int] = {}
+    for row in ticket_rows:
+        status = _normalize_top_issue_status(row.get("status"))
+        if not status:
+            continue
+        counts[status] = counts.get(status, 0) + 1
+
+    return [
+        {"status": status, "count": counts[status]}
+        for status in sorted(counts)
+    ]
+
+
+def _build_defect_trend_rows(ticket_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    per_day: dict[str, dict[str, int]] = {}
+    for row in ticket_rows:
+        day = _normalize_filter_date_value(row.get("creation_time"))
+        if not day:
+            continue
+        bucket = per_day.setdefault(
+            day,
+            {"month": day, "new_count": 0, "closed_count": 0, "in_progress_count": 0},
+        )
+        bucket["new_count"] += 1
+        if _is_closed_ticket_row(row):
+            bucket["closed_count"] += 1
+        else:
+            bucket["in_progress_count"] += 1
+
+    return [per_day[day] for day in sorted(per_day)]
+
+
+def build_top_issue_analysis_payload(**kwargs: Any) -> dict[str, Any]:
+    query = normalize_query(**kwargs)
+    snapshot_metadata = _read_snapshot_metadata()
+    snapshot_version = _resolve_effective_snapshot_version(snapshot_metadata)
+
+    if snapshot_version:
+        if snapshot_version.startswith("live-"):
+            _materialize_snapshot_ticket_rows(snapshot_version)
+        snapshot_metadata = _read_snapshot_metadata()
+        if _resolve_effective_snapshot_version(snapshot_metadata) != snapshot_version:
+            raise FullPictureDashboardRequestError("Dashboard snapshot changed during request")
+        generated_from = _build_generated_from_payload(query)
+        ticket_rows = _load_materialized_ticket_rows(
+            snapshot_version=snapshot_version,
+            query=query,
+        )
+    else:
+        snapshot_metadata, generated_from, ticket_rows = _build_snapshot_bound_dataset(
+            query,
+            requested_snapshot_version=snapshot_version,
+        )
+
+    return {
+        "snapshot_version": snapshot_version,
+        "generated_from": generated_from,
+        "refresh_metadata": snapshot_metadata,
+        "top_issue_rows": _build_top_issue_rows(ticket_rows),
+        "status_distribution": _build_status_distribution_rows(ticket_rows),
+        "defect_trend": _build_defect_trend_rows(ticket_rows),
+    }
+
+
 def build_full_picture_summary_payload(**kwargs: Any) -> dict[str, Any]:
     query = normalize_query(**kwargs)
     snapshot_metadata = _read_snapshot_metadata()
@@ -1936,16 +2082,11 @@ def _filter_priority_rows(
 ) -> list[dict[str, Any]]:
     priority_rows = [row for row in candidate_rows if _is_top_topic_ticket_row(row)]
     priority_rows = _search_ticket_rows(priority_rows, search)
-    priority_rows = _sort_ticket_rows(
+    return _sort_ticket_rows(
         priority_rows,
         sort_by=sort_by,
         sort_order=sort_order,
     )
-    return [
-        row
-        for row in priority_rows
-        if str(row.get("ticket_id") or "").strip() not in excluded_ticket_ids
-    ]
 
 
 def _sort_ticket_rows(

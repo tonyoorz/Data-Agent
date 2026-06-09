@@ -126,12 +126,22 @@ def _optional_expr(alias: str, columns: set[str], *names: str) -> str:
     return f"COALESCE({', '.join(available)}, '')"
 
 
+def _coalesced_expr(*expressions: str) -> str:
+    available = [expression for expression in expressions if expression != "''"]
+    if not available:
+        return "''"
+    if len(available) == 1:
+        return available[0]
+    return f"COALESCE({', '.join(available)}, '')"
+
+
 def _feature_region_expr(manual_run_columns: set[str], defect_columns: set[str]) -> str:
     market_expr = _optional_expr("d", defect_columns, "market")
     solution_cluster_expr = _optional_expr("d", defect_columns, "solution_cluster")
-    feature_area_expr = _optional_expr("d", defect_columns, "top_aida", "product_areas")
-    if feature_area_expr == "''" and "product_areas" in manual_run_columns:
-        feature_area_expr = "COALESCE(CAST(mr.product_areas AS TEXT), '')"
+    feature_area_expr = _coalesced_expr(
+        _optional_expr("mr", manual_run_columns, "top_aida", "product_areas"),
+        _optional_expr("d", defect_columns, "top_aida", "product_areas"),
+    )
 
     return build_feature_region_sql_expr(
         feature_area_expr,
@@ -162,11 +172,10 @@ def _derive_testing_coverage_rows(
         elif "test_name" in testcase_columns:
             test_name_expr = f"COALESCE({test_name_expr}, CAST(tc.test_name AS TEXT), '')"
 
-        top_aida_expr = _optional_expr("d", defect_columns, "top_aida", "product_areas")
-        if top_aida_expr == "''" and "product_areas" in manual_run_columns:
-            top_aida_expr = "COALESCE(CAST(mr.product_areas AS TEXT), '')"
-        elif "product_areas" in manual_run_columns:
-            top_aida_expr = f"COALESCE({top_aida_expr}, CAST(mr.product_areas AS TEXT), '')"
+        top_aida_expr = _coalesced_expr(
+            _optional_expr("mr", manual_run_columns, "top_aida", "product_areas"),
+            _optional_expr("d", defect_columns, "top_aida", "product_areas"),
+        )
 
         test_week_expr = build_iso_test_week_sql_expr(
             finished_expr=_optional_expr("mr", manual_run_columns, "finished", "finished_udf"),
@@ -190,11 +199,11 @@ def _derive_testing_coverage_rows(
                 TRIM({year_expr}) AS year,
                 TRIM({test_week_expr}) AS test_week,
                 TRIM({project_expr}) AS project,
-                TRIM({_optional_expr("d", defect_columns, "pu")}) AS pu,
+                TRIM({_coalesced_expr(_optional_expr("mr", manual_run_columns, "pu"), _optional_expr("d", defect_columns, "pu"))}) AS pu,
                 TRIM({top_aida_expr}) AS top_aida,
                 {_feature_region_expr(manual_run_columns, defect_columns)} AS feature_region,
-                TRIM({_optional_expr("d", defect_columns, "fvp")}) AS fvp,
-                TRIM({_optional_expr("d", defect_columns, "fv")}) AS fv,
+                TRIM({_coalesced_expr(_optional_expr("mr", manual_run_columns, "fvp"), _optional_expr("d", defect_columns, "fvp"))}) AS fvp,
+                TRIM({_coalesced_expr(_optional_expr("mr", manual_run_columns, "fv"), _optional_expr("d", defect_columns, "fv"))}) AS fv,
                 TRIM({_optional_expr("mr", manual_run_columns, "tester", "run_by", "author", "author_name")}) AS tester
             FROM octane_manual_runs mr
             LEFT JOIN octane_defects d

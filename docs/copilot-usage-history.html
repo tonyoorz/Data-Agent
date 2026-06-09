@@ -1,0 +1,2147 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Copilot Usage History</title>
+    <style>
+      :root {
+        --bg: #f3efe6;
+        --surface: rgba(255, 252, 247, 0.9);
+        --ink: #1f1a16;
+        --muted: #6e6258;
+        --line: rgba(31, 26, 22, 0.14);
+        --shadow: 0 20px 60px rgba(31, 26, 22, 0.12);
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: Georgia, "Times New Roman", serif;
+        color: var(--ink);
+        background: linear-gradient(180deg, #f9f5ec 0%, var(--bg) 100%);
+      }
+      main {
+        width: min(1200px, calc(100% - 32px));
+        margin: 0 auto;
+        padding: 48px 0 72px;
+      }
+      header {
+        margin-bottom: 28px;
+        padding: 28px;
+        border: 1px solid var(--line);
+        border-radius: 28px;
+        background: var(--surface);
+        box-shadow: var(--shadow);
+      }
+      h1, h2 { margin: 0; line-height: 1.1; }
+      h1 { font-size: clamp(2.2rem, 5vw, 4.4rem); }
+      h2 { font-size: 1.5rem; margin-bottom: 14px; }
+      p { color: var(--muted); line-height: 1.6; }
+      .cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+        gap: 14px;
+        margin: 28px 0;
+      }
+      .card, section {
+        border: 1px solid var(--line);
+        border-radius: 24px;
+        background: var(--surface);
+        box-shadow: var(--shadow);
+      }
+      .card { padding: 18px; }
+      .card-label { color: var(--muted); font-size: 0.95rem; }
+      .card-value { margin-top: 10px; font-size: 1.8rem; font-weight: 700; }
+      section { margin-top: 18px; padding: 22px; overflow: hidden; }
+      .section-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        align-items: flex-end;
+        margin-bottom: 14px;
+      }
+      .section-head p { margin: 8px 0 0; }
+      .section-metrics {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        justify-content: flex-end;
+        color: var(--muted);
+        font-size: 0.92rem;
+      }
+      .section-metrics span {
+        padding: 8px 12px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+      }
+      .filter-bar {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 12px;
+        margin-bottom: 16px;
+      }
+      .filter-label {
+        display: block;
+        color: var(--muted);
+        font-size: 0.82rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        margin-bottom: 6px;
+      }
+      .filter-control {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: rgba(255,255,255,0.7);
+        color: var(--ink);
+      }
+      .checkbox-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding-top: 24px;
+      }
+      .table-meta {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        color: var(--muted);
+        font-size: 0.92rem;
+        margin-bottom: 10px;
+      }
+      table { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
+      th, td { padding: 12px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+      th { color: var(--muted); font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.06em; }
+      tbody tr:last-child td { border-bottom: none; }
+      .fine-print { margin-top: 20px; font-size: 0.92rem; }
+      @media (max-width: 800px) {
+        main { width: min(100% - 20px, 1200px); padding-top: 24px; }
+        section { padding: 16px; }
+        .section-head, .table-meta { display: block; }
+        table { display: block; overflow-x: auto; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <p>Generated 2026-06-09T12:00:11.129Z</p>
+        <h1>Copilot Usage History</h1>
+        <p>Full retained local chat-session history across this machine, summarized into model usage, token volume, elapsed time, and estimated cost. All displayed event timestamps use UTC+8.</p>
+      </header>
+      <div class="cards">
+        <article class="card">
+          <div class="card-label">Sessions</div>
+          <div class="card-value">305</div>
+        </article>
+        <article class="card">
+          <div class="card-label">Requests</div>
+          <div class="card-value">2,187</div>
+        </article>
+        <article class="card">
+          <div class="card-label">Prompt Tokens</div>
+          <div class="card-value">19,001,593</div>
+        </article>
+        <article class="card">
+          <div class="card-label">Output Tokens</div>
+          <div class="card-value">153,867</div>
+        </article>
+        <article class="card">
+          <div class="card-label">Elapsed Time</div>
+          <div class="card-value">94h 11m 56s</div>
+        </article>
+        <article class="card">
+          <div class="card-label">Estimated Cost</div>
+          <div class="card-value">$1,094.759</div>
+        </article></div>
+      <section>
+        <div class="section-head">
+          <div>
+            <h2>Usage Events</h2>
+            <p>Simple event list in UTC+8. Filter by date range and time of day, for example activity after 18:00.</p>
+          </div>
+        </div>
+        <div class="filter-bar">
+          <label>
+            <span class="filter-label">Start Date</span>
+            <input id="start-date-filter" class="filter-control" type="date" />
+          </label>
+          <label>
+            <span class="filter-label">End Date</span>
+            <input id="end-date-filter" class="filter-control" type="date" />
+          </label>
+          <label>
+            <span class="filter-label">After Time</span>
+            <input id="after-time-filter" class="filter-control" type="time" value="18:00" />
+          </label>
+          <label class="checkbox-row">
+            <input id="after-hours-only-filter" type="checkbox" />
+            <span>Only after-hours</span>
+          </label>
+        </div>
+        <div class="table-meta">
+          <span id="usage-events-count"></span>
+          <span>Columns: Time, Model, Cost, Prompt Tokens, Elapsed</span>
+        </div>
+        <table>
+          <thead>
+            <tr><th>Time (UTC+8)</th><th>Model</th><th>Estimated Cost</th><th>Prompt Tokens</th><th>Elapsed</th></tr>
+          </thead>
+          <tbody id="usage-events-body"></tbody>
+        </table>
+      </section>
+      
+      <section>
+        <div class="section-head">
+          <div>
+            <h2>After-hours</h2>
+            <p>Computed in UTC+8. Workdays before 09:00 or after 18:00, plus weekends.</p>
+          </div>
+          <div class="section-metrics">
+            <span>55 events</span>
+            <span>1h 38m 32s</span>
+            <span>2026/06/09 19:57:08</span>
+          </div>
+        </div>
+        
+    <table>
+      <thead>
+        <tr><th>Day</th><th>Events</th><th>Elapsed</th><th>First Event</th><th>Last Event</th></tr>
+      </thead>
+      <tbody>
+        
+      <tr>
+        <td>2026-05-27</td>
+        <td>7</td>
+        <td>51m 19s</td>
+        <td>2026/05/27 06:05:51</td>
+        <td>2026/05/27 08:33:42</td>
+      </tr>
+      <tr>
+        <td>2026-05-26</td>
+        <td>9</td>
+        <td>41m 55s</td>
+        <td>2026/05/26 21:13:02</td>
+        <td>2026/05/26 23:41:04</td>
+      </tr>
+      <tr>
+        <td>2026-06-03</td>
+        <td>6</td>
+        <td>2m 52s</td>
+        <td>2026/06/03 19:11:01</td>
+        <td>2026/06/03 20:15:15</td>
+      </tr>
+      <tr>
+        <td>2026-06-09</td>
+        <td>4</td>
+        <td>32s</td>
+        <td>2026/06/09 18:02:41</td>
+        <td>2026/06/09 19:57:08</td>
+      </tr>
+      <tr>
+        <td>2026-04-09</td>
+        <td>1</td>
+        <td>26s</td>
+        <td>2026/04/09 18:25:40</td>
+        <td>2026/04/09 18:25:40</td>
+      </tr>
+      <tr>
+        <td>2026-03-16</td>
+        <td>1</td>
+        <td>25s</td>
+        <td>2026/03/16 18:25:01</td>
+        <td>2026/03/16 18:25:01</td>
+      </tr>
+      <tr>
+        <td>2026-05-12</td>
+        <td>3</td>
+        <td>25s</td>
+        <td>2026/05/12 18:52:04</td>
+        <td>2026/05/12 19:22:19</td>
+      </tr>
+      <tr>
+        <td>2026-05-28</td>
+        <td>1</td>
+        <td>11s</td>
+        <td>2026/05/28 19:34:11</td>
+        <td>2026/05/28 19:34:11</td>
+      </tr>
+      <tr>
+        <td>2026-06-02</td>
+        <td>2</td>
+        <td>10s</td>
+        <td>2026/06/02 18:13:31</td>
+        <td>2026/06/02 18:32:59</td>
+      </tr>
+      <tr>
+        <td>2026-02-28</td>
+        <td>1</td>
+        <td>9s</td>
+        <td>2026/02/28 16:02:45</td>
+        <td>2026/02/28 16:02:45</td>
+      </tr>
+      <tr>
+        <td>2026-05-21</td>
+        <td>3</td>
+        <td>4s</td>
+        <td>2026/05/21 19:59:24</td>
+        <td>2026/05/21 20:21:10</td>
+      </tr>
+      <tr>
+        <td>2026-03-09</td>
+        <td>3</td>
+        <td>0s</td>
+        <td>2026/03/09 18:09:11</td>
+        <td>2026/03/09 18:32:01</td>
+      </tr>
+      <tr>
+        <td>2026-06-08</td>
+        <td>2</td>
+        <td>0s</td>
+        <td>2026/06/08 20:38:13</td>
+        <td>2026/06/08 20:44:05</td>
+      </tr>
+      <tr>
+        <td>2026-06-04</td>
+        <td>1</td>
+        <td>0s</td>
+        <td>2026/06/04 18:04:04</td>
+        <td>2026/06/04 18:04:04</td>
+      </tr>
+      <tr>
+        <td>2026-05-25</td>
+        <td>1</td>
+        <td>0s</td>
+        <td>2026/05/25 23:12:05</td>
+        <td>2026/05/25 23:12:05</td>
+      </tr>
+      <tr>
+        <td>2026-05-19</td>
+        <td>1</td>
+        <td>0s</td>
+        <td>2026/05/19 19:19:24</td>
+        <td>2026/05/19 19:19:24</td>
+      </tr>
+      <tr>
+        <td>2026-05-11</td>
+        <td>1</td>
+        <td>0s</td>
+        <td>2026/05/11 18:25:12</td>
+        <td>2026/05/11 18:25:12</td>
+      </tr>
+      <tr>
+        <td>2026-05-09</td>
+        <td>1</td>
+        <td>0s</td>
+        <td>2026/05/09 11:47:09</td>
+        <td>2026/05/09 11:47:09</td>
+      </tr>
+      <tr>
+        <td>2026-04-29</td>
+        <td>1</td>
+        <td>0s</td>
+        <td>2026/04/29 18:00:49</td>
+        <td>2026/04/29 18:00:49</td>
+      </tr>
+      <tr>
+        <td>2026-04-28</td>
+        <td>1</td>
+        <td>0s</td>
+        <td>2026/04/28 18:38:02</td>
+        <td>2026/04/28 18:38:02</td>
+      </tr>
+      </tbody>
+    </table>
+      </section>
+      <section>
+        <h2>By Model</h2>
+        
+    <table>
+      <thead>
+        <tr><th>Model</th><th>Sessions</th><th>Requests</th><th>Prompt Tokens</th><th>Output Tokens</th><th>Elapsed</th><th>Estimated Cost</th></tr>
+      </thead>
+      <tbody>
+        
+      <tr>
+        <td>copilot/gpt-5.4</td>
+        <td>144</td>
+        <td>1,133</td>
+        <td>16,431,073</td>
+        <td>141,378</td>
+        <td>11h 42m 20s</td>
+        <td>$1,094.759</td>
+      </tr>
+      <tr>
+        <td>copilot/auto</td>
+        <td>70</td>
+        <td>619</td>
+        <td>2,025,144</td>
+        <td>7,074</td>
+        <td>3h 15m 39s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>copilot/claude-opus-4.6</td>
+        <td>13</td>
+        <td>33</td>
+        <td>386,471</td>
+        <td>4,814</td>
+        <td>33m 45s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>copilot/claude-sonnet-4.6</td>
+        <td>1</td>
+        <td>30</td>
+        <td>158,905</td>
+        <td>601</td>
+        <td>10m 26s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>copilot/gpt-5.3-codex</td>
+        <td>73</td>
+        <td>355</td>
+        <td>0</td>
+        <td>0</td>
+        <td>78h 18m 48s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>unknown</td>
+        <td>3</td>
+        <td>12</td>
+        <td>0</td>
+        <td>0</td>
+        <td>10m 55s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>copilot/gemini-2.5-pro</td>
+        <td>1</td>
+        <td>5</td>
+        <td>0</td>
+        <td>0</td>
+        <td>0s</td>
+        <td>$0.00</td>
+      </tr>
+      </tbody>
+    </table>
+      </section>
+      <section>
+        <h2>By Day</h2>
+        
+    <table>
+      <thead>
+        <tr><th>Day</th><th>Sessions</th><th>Requests</th><th>Prompt Tokens</th><th>Output Tokens</th><th>Estimated Cost</th></tr>
+      </thead>
+      <tbody>
+        
+      <tr>
+        <td>2025-12-12</td>
+        <td>1</td>
+        <td>1</td>
+        <td>0</td>
+        <td>0</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2025-12-30</td>
+        <td>1</td>
+        <td>1</td>
+        <td>0</td>
+        <td>0</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-02-04</td>
+        <td>1</td>
+        <td>11</td>
+        <td>0</td>
+        <td>0</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-02-27</td>
+        <td>2</td>
+        <td>10</td>
+        <td>0</td>
+        <td>0</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-02-28</td>
+        <td>1</td>
+        <td>1</td>
+        <td>0</td>
+        <td>0</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-03-03</td>
+        <td>4</td>
+        <td>40</td>
+        <td>0</td>
+        <td>0</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-03-05</td>
+        <td>1</td>
+        <td>5</td>
+        <td>0</td>
+        <td>0</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-03-09</td>
+        <td>10</td>
+        <td>14</td>
+        <td>0</td>
+        <td>0</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-03-10</td>
+        <td>5</td>
+        <td>11</td>
+        <td>0</td>
+        <td>0</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-03-11</td>
+        <td>2</td>
+        <td>22</td>
+        <td>0</td>
+        <td>0</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-03-12</td>
+        <td>3</td>
+        <td>11</td>
+        <td>0</td>
+        <td>0</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-03-13</td>
+        <td>4</td>
+        <td>25</td>
+        <td>0</td>
+        <td>0</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-03-16</td>
+        <td>6</td>
+        <td>19</td>
+        <td>0</td>
+        <td>0</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-03-17</td>
+        <td>9</td>
+        <td>56</td>
+        <td>0</td>
+        <td>0</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-03-18</td>
+        <td>2</td>
+        <td>10</td>
+        <td>0</td>
+        <td>0</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-03-23</td>
+        <td>5</td>
+        <td>30</td>
+        <td>0</td>
+        <td>0</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-03-24</td>
+        <td>4</td>
+        <td>22</td>
+        <td>0</td>
+        <td>0</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-03-25</td>
+        <td>2</td>
+        <td>15</td>
+        <td>0</td>
+        <td>0</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-03-26</td>
+        <td>1</td>
+        <td>22</td>
+        <td>0</td>
+        <td>0</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-03-27</td>
+        <td>4</td>
+        <td>27</td>
+        <td>0</td>
+        <td>0</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-03-30</td>
+        <td>11</td>
+        <td>65</td>
+        <td>0</td>
+        <td>0</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-03-31</td>
+        <td>8</td>
+        <td>27</td>
+        <td>0</td>
+        <td>0</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-04-01</td>
+        <td>9</td>
+        <td>43</td>
+        <td>0</td>
+        <td>0</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-04-02</td>
+        <td>3</td>
+        <td>28</td>
+        <td>0</td>
+        <td>0</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-04-03</td>
+        <td>6</td>
+        <td>44</td>
+        <td>0</td>
+        <td>0</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-04-07</td>
+        <td>4</td>
+        <td>10</td>
+        <td>0</td>
+        <td>0</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-04-08</td>
+        <td>8</td>
+        <td>36</td>
+        <td>0</td>
+        <td>0</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-04-09</td>
+        <td>3</td>
+        <td>2</td>
+        <td>0</td>
+        <td>0</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-04-10</td>
+        <td>7</td>
+        <td>31</td>
+        <td>0</td>
+        <td>0</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-04-13</td>
+        <td>2</td>
+        <td>10</td>
+        <td>0</td>
+        <td>0</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-04-14</td>
+        <td>3</td>
+        <td>24</td>
+        <td>0</td>
+        <td>0</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-04-15</td>
+        <td>1</td>
+        <td>13</td>
+        <td>0</td>
+        <td>0</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-04-16</td>
+        <td>4</td>
+        <td>2</td>
+        <td>0</td>
+        <td>0</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-04-17</td>
+        <td>7</td>
+        <td>93</td>
+        <td>0</td>
+        <td>0</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-04-20</td>
+        <td>3</td>
+        <td>5</td>
+        <td>0</td>
+        <td>0</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-04-21</td>
+        <td>3</td>
+        <td>2</td>
+        <td>0</td>
+        <td>0</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-04-22</td>
+        <td>8</td>
+        <td>23</td>
+        <td>84,613</td>
+        <td>806</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-04-23</td>
+        <td>1</td>
+        <td>30</td>
+        <td>158,905</td>
+        <td>601</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-04-24</td>
+        <td>4</td>
+        <td>7</td>
+        <td>84,419</td>
+        <td>645</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-04-27</td>
+        <td>2</td>
+        <td>34</td>
+        <td>156,689</td>
+        <td>1,674</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-04-28</td>
+        <td>6</td>
+        <td>26</td>
+        <td>180,669</td>
+        <td>2,386</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-04-29</td>
+        <td>1</td>
+        <td>17</td>
+        <td>78,150</td>
+        <td>76</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-05-07</td>
+        <td>1</td>
+        <td>0</td>
+        <td>0</td>
+        <td>0</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-05-08</td>
+        <td>6</td>
+        <td>7</td>
+        <td>0</td>
+        <td>0</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-05-11</td>
+        <td>5</td>
+        <td>35</td>
+        <td>44,833</td>
+        <td>247</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-05-12</td>
+        <td>7</td>
+        <td>85</td>
+        <td>258,439</td>
+        <td>5,586</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-05-13</td>
+        <td>2</td>
+        <td>30</td>
+        <td>111,089</td>
+        <td>385</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-05-18</td>
+        <td>2</td>
+        <td>29</td>
+        <td>84,414</td>
+        <td>934</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-05-19</td>
+        <td>6</td>
+        <td>123</td>
+        <td>466,196</td>
+        <td>4,466</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-05-20</td>
+        <td>4</td>
+        <td>106</td>
+        <td>453,224</td>
+        <td>2,672</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-05-21</td>
+        <td>8</td>
+        <td>28</td>
+        <td>491,768</td>
+        <td>5,902</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-05-22</td>
+        <td>9</td>
+        <td>41</td>
+        <td>714,467</td>
+        <td>7,259</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-05-25</td>
+        <td>9</td>
+        <td>127</td>
+        <td>8,291,888</td>
+        <td>74,763</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-05-26</td>
+        <td>4</td>
+        <td>71</td>
+        <td>167,156</td>
+        <td>522</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-05-27</td>
+        <td>8</td>
+        <td>12</td>
+        <td>478,126</td>
+        <td>3,593</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-05-28</td>
+        <td>9</td>
+        <td>172</td>
+        <td>999,960</td>
+        <td>4,460</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-05-29</td>
+        <td>7</td>
+        <td>23</td>
+        <td>560,347</td>
+        <td>7,707</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026-06-01</td>
+        <td>8</td>
+        <td>98</td>
+        <td>641,830</td>
+        <td>2,364</td>
+        <td>$102.799</td>
+      </tr>
+      <tr>
+        <td>2026-06-02</td>
+        <td>8</td>
+        <td>53</td>
+        <td>993,994</td>
+        <td>3,505</td>
+        <td>$233.6475</td>
+      </tr>
+      <tr>
+        <td>2026-06-03</td>
+        <td>8</td>
+        <td>26</td>
+        <td>724,330</td>
+        <td>6,327</td>
+        <td>$149.8128</td>
+      </tr>
+      <tr>
+        <td>2026-06-04</td>
+        <td>4</td>
+        <td>93</td>
+        <td>718,882</td>
+        <td>2,328</td>
+        <td>$94.998</td>
+      </tr>
+      <tr>
+        <td>2026-06-08</td>
+        <td>9</td>
+        <td>62</td>
+        <td>1,369,385</td>
+        <td>10,570</td>
+        <td>$335.4133</td>
+      </tr>
+      <tr>
+        <td>2026-06-09</td>
+        <td>9</td>
+        <td>41</td>
+        <td>687,820</td>
+        <td>4,089</td>
+        <td>$178.0885</td>
+      </tr>
+      </tbody>
+    </table>
+      </section>
+      <section>
+        <h2>Top Sessions</h2>
+        
+    <table>
+      <thead>
+        <tr><th>Title</th><th>Model</th><th>Started</th><th>Updated</th><th>Requests</th><th>Prompt Tokens</th><th>Output Tokens</th><th>Elapsed</th><th>Estimated Cost</th></tr>
+      </thead>
+      <tbody>
+        
+      <tr>
+        <td>Top issue分析接入真实数据</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-06-08T07:34:05.156Z</td>
+        <td>2026-06-09T02:44:42.143Z</td>
+        <td>11</td>
+        <td>333,865</td>
+        <td>367</td>
+        <td>2m 59s</td>
+        <td>$84.0168</td>
+      </tr>
+      <tr>
+        <td>测试覆盖率分析性能问题</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-06-02T06:31:31.125Z</td>
+        <td>2026-06-08T07:33:19.343Z</td>
+        <td>22</td>
+        <td>308,544</td>
+        <td>1,166</td>
+        <td>13m 0s</td>
+        <td>$78.885</td>
+      </tr>
+      <tr>
+        <td>Untitled session</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-06-08T10:32:06.240Z</td>
+        <td>2026-06-09T02:36:17.627Z</td>
+        <td>12</td>
+        <td>293,131</td>
+        <td>2,817</td>
+        <td>2m 10s</td>
+        <td>$77.5083</td>
+      </tr>
+      <tr>
+        <td>自动更新数据脚本问题</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-06-04T09:47:19.466Z</td>
+        <td>2026-06-08T12:38:13.019Z</td>
+        <td>7</td>
+        <td>286,203</td>
+        <td>1,041</td>
+        <td>1m 6s</td>
+        <td>$73.1123</td>
+      </tr>
+      <tr>
+        <td>优化glm5.1代理使用方式</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-06-09T03:44:21.708Z</td>
+        <td>2026-06-09T09:24:36.293Z</td>
+        <td>17</td>
+        <td>284,330</td>
+        <td>861</td>
+        <td>30s</td>
+        <td>$72.374</td>
+      </tr>
+      <tr>
+        <td>手动更新数据库脚本</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-06-08T02:39:05.585Z</td>
+        <td>2026-06-08T05:24:23.744Z</td>
+        <td>13</td>
+        <td>220,680</td>
+        <td>1,354</td>
+        <td>3m 24s</td>
+        <td>$57.201</td>
+      </tr>
+      <tr>
+        <td>看板启动问题</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-06-02T08:44:57.735Z</td>
+        <td>2026-06-02T10:32:59.542Z</td>
+        <td>8</td>
+        <td>191,502</td>
+        <td>708</td>
+        <td>1m 13s</td>
+        <td>$48.9375</td>
+      </tr>
+      <tr>
+        <td>Database size optimization建议</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-06-01T08:17:13.025Z</td>
+        <td>2026-06-01T09:29:58.212Z</td>
+        <td>1</td>
+        <td>190,126</td>
+        <td>510</td>
+        <td>28s</td>
+        <td>$48.2965</td>
+      </tr>
+      <tr>
+        <td>Duplicate search agent ticket info</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-06-01T06:13:03.927Z</td>
+        <td>2026-06-02T08:02:11.902Z</td>
+        <td>45</td>
+        <td>186,069</td>
+        <td>530</td>
+        <td>2m 9s</td>
+        <td>$47.3123</td>
+      </tr>
+      <tr>
+        <td>展示Top Topic的ticket</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-06-02T09:00:59.355Z</td>
+        <td>2026-06-02T10:13:31.455Z</td>
+        <td>1</td>
+        <td>188,000</td>
+        <td>188</td>
+        <td>10s</td>
+        <td>$47.282</td>
+      </tr>
+      <tr>
+        <td>夜间自动获取数据脚本操作</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-06-03T11:15:08.078Z</td>
+        <td>2026-06-03T11:53:30.311Z</td>
+        <td>9</td>
+        <td>172,404</td>
+        <td>830</td>
+        <td>9m 4s</td>
+        <td>$44.346</td>
+      </tr>
+      <tr>
+        <td>数据库数据下载脚本问题</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-06-02T08:34:35.065Z</td>
+        <td>2026-06-03T02:30:10.136Z</td>
+        <td>17</td>
+        <td>150,074</td>
+        <td>341</td>
+        <td>1m 56s</td>
+        <td>$38.03</td>
+      </tr>
+      <tr>
+        <td>置顶显示带top topic</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-06-03T10:31:26.879Z</td>
+        <td>2026-06-09T03:39:48.120Z</td>
+        <td>3</td>
+        <td>140,430</td>
+        <td>1,294</td>
+        <td>5m 50s</td>
+        <td>$37.0485</td>
+      </tr>
+      <tr>
+        <td>安装 PostgreSQL 扩展</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-06-08T02:35:38.105Z</td>
+        <td>2026-06-08T05:19:35.916Z</td>
+        <td>8</td>
+        <td>127,658</td>
+        <td>2,223</td>
+        <td>2m 9s</td>
+        <td>$35.249</td>
+      </tr>
+      <tr>
+        <td>Duplicate search agent updates</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-06-03T02:46:35.820Z</td>
+        <td>2026-06-03T07:24:55.365Z</td>
+        <td>3</td>
+        <td>124,668</td>
+        <td>2,182</td>
+        <td>1m 50s</td>
+        <td>$34.44</td>
+      </tr>
+      <tr>
+        <td>topissue tag 添加者查询</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-06-09T03:22:53.805Z</td>
+        <td>2026-06-09T03:23:04.756Z</td>
+        <td>1</td>
+        <td>127,399</td>
+        <td>1,235</td>
+        <td>5m 9s</td>
+        <td>$33.7023</td>
+      </tr>
+      <tr>
+        <td>夜间更新任务模拟执行</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-06-09T05:20:59.353Z</td>
+        <td>2026-06-09T11:57:08.036Z</td>
+        <td>8</td>
+        <td>128,014</td>
+        <td>788</td>
+        <td>48s</td>
+        <td>$33.1855</td>
+      </tr>
+      <tr>
+        <td>Codex Claude model version</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-06-09T09:21:11.791Z</td>
+        <td>2026-06-09T10:02:41.027Z</td>
+        <td>6</td>
+        <td>126,111</td>
+        <td>237</td>
+        <td>1m 11s</td>
+        <td>$31.8833</td>
+      </tr>
+      <tr>
+        <td>Duplicate search agent mode query</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-06-03T02:32:55.703Z</td>
+        <td>2026-06-03T02:46:05.061Z</td>
+        <td>2</td>
+        <td>98,150</td>
+        <td>541</td>
+        <td>5m 38s</td>
+        <td>$25.349</td>
+      </tr>
+      <tr>
+        <td>看板 hottopic 不显示</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-06-08T03:26:49.391Z</td>
+        <td>2026-06-08T03:27:36.544Z</td>
+        <td>1</td>
+        <td>90,325</td>
+        <td>1,218</td>
+        <td>2m 3s</td>
+        <td>$24.4083</td>
+      </tr>
+      <tr>
+        <td>Check glm5.1 compatibility</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-06-08T10:50:36.145Z</td>
+        <td>2026-06-09T03:44:17.687Z</td>
+        <td>7</td>
+        <td>92,629</td>
+        <td>568</td>
+        <td>2m 13s</td>
+        <td>$24.0093</td>
+      </tr>
+      <tr>
+        <td>GitHub project integration suggestions</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-06-04T06:46:27.080Z</td>
+        <td>2026-06-08T06:28:56.425Z</td>
+        <td>12</td>
+        <td>82,851</td>
+        <td>782</td>
+        <td>3m 27s</td>
+        <td>$21.8858</td>
+      </tr>
+      <tr>
+        <td>修改创建时间和分类展示</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-06-02T08:50:40.083Z</td>
+        <td>2026-06-02T08:51:31.457Z</td>
+        <td>1</td>
+        <td>77,270</td>
+        <td>797</td>
+        <td>4m 26s</td>
+        <td>$20.513</td>
+      </tr>
+      <tr>
+        <td>看板启动问题</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-06-08T13:46:41.875Z</td>
+        <td>2026-06-09T03:44:44.607Z</td>
+        <td>5</td>
+        <td>74,125</td>
+        <td>504</td>
+        <td>2m 0s</td>
+        <td>$19.2873</td>
+      </tr>
+      <tr>
+        <td>设备芯片存储信息位置</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-06-08T12:51:28.618Z</td>
+        <td>2026-06-09T02:26:56.446Z</td>
+        <td>2</td>
+        <td>49,930</td>
+        <td>834</td>
+        <td>41s</td>
+        <td>$13.7335</td>
+      </tr>
+      <tr>
+        <td>mock 无法打开</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-06-03T07:37:19.278Z</td>
+        <td>2026-06-03T07:37:19.412Z</td>
+        <td>1</td>
+        <td>30,617</td>
+        <td>650</td>
+        <td>41s</td>
+        <td>$8.6293</td>
+      </tr>
+      <tr>
+        <td>Check for new octane cli code</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-06-01T03:24:48.456Z</td>
+        <td>2026-06-01T03:25:10.677Z</td>
+        <td>1</td>
+        <td>26,445</td>
+        <td>386</td>
+        <td>1m 54s</td>
+        <td>$7.1903</td>
+      </tr>
+      <tr>
+        <td>本地项目部署建议</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-06-09T11:25:12.892Z</td>
+        <td>2026-06-09T11:29:47.490Z</td>
+        <td>1</td>
+        <td>21,966</td>
+        <td>968</td>
+        <td>32s</td>
+        <td>$6.9435</td>
+      </tr>
+      <tr>
+        <td>Duplicate search agent integration</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-25T02:38:57.928Z</td>
+        <td>2026-05-28T09:14:35.272Z</td>
+        <td>62</td>
+        <td>7,461,195</td>
+        <td>69,387</td>
+        <td>3h 44m 42s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>数据获取处理存储迁移建议</td>
+        <td>copilot/auto</td>
+        <td>2026-05-28T07:52:33.319Z</td>
+        <td>2026-06-03T11:51:24.708Z</td>
+        <td>153</td>
+        <td>404,059</td>
+        <td>791</td>
+        <td>35m 25s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>Full picture看板需求识别</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-20T02:21:37.267Z</td>
+        <td>2026-05-22T07:55:18.255Z</td>
+        <td>73</td>
+        <td>355,464</td>
+        <td>2,029</td>
+        <td>2h 16m 28s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>Run openhuman project with proxy</td>
+        <td>copilot/auto</td>
+        <td>2026-06-04T06:07:41.143Z</td>
+        <td>2026-06-08T12:44:05.222Z</td>
+        <td>74</td>
+        <td>349,828</td>
+        <td>505</td>
+        <td>13m 47s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>代码提交与同步到ccgithub</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-28T08:23:43.682Z</td>
+        <td>2026-05-28T09:12:53.333Z</td>
+        <td>2</td>
+        <td>244,021</td>
+        <td>887</td>
+        <td>16m 12s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>后端数据字段缺失分析</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-25T10:19:51.723Z</td>
+        <td>2026-05-27T03:48:32.505Z</td>
+        <td>2</td>
+        <td>225,886</td>
+        <td>688</td>
+        <td>30s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>Octane CLI backend capabilities</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-12T11:31:46.818Z</td>
+        <td>2026-05-18T09:56:12.833Z</td>
+        <td>57</td>
+        <td>221,201</td>
+        <td>5,512</td>
+        <td>29m 7s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>model scope 不痛原因</td>
+        <td>copilot/auto</td>
+        <td>2026-05-25T08:09:23.849Z</td>
+        <td>2026-05-27T03:46:24.512Z</td>
+        <td>25</td>
+        <td>196,984</td>
+        <td>265</td>
+        <td>1m 6s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>Database field confusion and filters</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-21T05:47:01.073Z</td>
+        <td>2026-05-21T07:48:33.952Z</td>
+        <td>13</td>
+        <td>177,684</td>
+        <td>375</td>
+        <td>28s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>修改图表布局建议</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-22T08:02:39.515Z</td>
+        <td>2026-05-22T09:11:26.313Z</td>
+        <td>8</td>
+        <td>175,927</td>
+        <td>247</td>
+        <td>7m 3s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>代码同步到ccgithub</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-22T10:00:07.007Z</td>
+        <td>2026-06-03T12:15:15.710Z</td>
+        <td>12</td>
+        <td>172,665</td>
+        <td>1,442</td>
+        <td>43s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>数据库设计优化建议</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-28T03:08:26.926Z</td>
+        <td>2026-05-28T03:30:32.169Z</td>
+        <td>6</td>
+        <td>171,061</td>
+        <td>642</td>
+        <td>48s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>数据同步日期动态更新</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-25T02:22:36.912Z</td>
+        <td>2026-05-25T02:54:23.955Z</td>
+        <td>3</td>
+        <td>160,102</td>
+        <td>1,519</td>
+        <td>2m 43s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>Agent设计的过度设计问题分析</td>
+        <td>copilot/claude-sonnet-4.6</td>
+        <td>2026-04-23T03:37:18.187Z</td>
+        <td>2026-04-24T06:54:07.415Z</td>
+        <td>30</td>
+        <td>158,905</td>
+        <td>601</td>
+        <td>10m 26s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>Duplicate detection techniques and architecture review</td>
+        <td>copilot/claude-opus-4.6</td>
+        <td>2026-04-27T07:37:38.745Z</td>
+        <td>2026-04-27T09:58:19.320Z</td>
+        <td>10</td>
+        <td>156,689</td>
+        <td>1,674</td>
+        <td>10m 10s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>Local server not running</td>
+        <td>copilot/auto</td>
+        <td>2026-06-01T03:18:17.298Z</td>
+        <td>2026-06-03T08:54:56.693Z</td>
+        <td>46</td>
+        <td>146,169</td>
+        <td>315</td>
+        <td>1m 6s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>提交代码到ccgithub新分支</td>
+        <td>copilot/auto</td>
+        <td>2026-05-21T11:15:41.608Z</td>
+        <td>2026-06-03T11:11:01.125Z</td>
+        <td>8</td>
+        <td>145,926</td>
+        <td>340</td>
+        <td>51s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>重构qgate kpi dashboard</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-19T03:17:08.844Z</td>
+        <td>2026-05-21T12:21:10.609Z</td>
+        <td>110</td>
+        <td>145,158</td>
+        <td>663</td>
+        <td>3m 51s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>qgate 后端数据库设计</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-25T02:47:31.035Z</td>
+        <td>2026-05-25T15:12:05.581Z</td>
+        <td>28</td>
+        <td>143,216</td>
+        <td>772</td>
+        <td>2m 23s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>pip download with temporary proxy</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-29T05:38:20.947Z</td>
+        <td>2026-05-29T07:38:50.794Z</td>
+        <td>1</td>
+        <td>136,420</td>
+        <td>465</td>
+        <td>12s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>Query test execution and coverage</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-27T08:04:47.461Z</td>
+        <td>2026-05-27T08:33:41.319Z</td>
+        <td>5</td>
+        <td>130,681</td>
+        <td>531</td>
+        <td>3m 5s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>内网网站访问问题</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-29T07:04:23.292Z</td>
+        <td>2026-05-29T07:34:33.968Z</td>
+        <td>5</td>
+        <td>126,231</td>
+        <td>1,247</td>
+        <td>52s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>Duplicate search agent技术方案探索</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-21T11:59:48.817Z</td>
+        <td>2026-05-21T12:20:50.992Z</td>
+        <td>3</td>
+        <td>120,232</td>
+        <td>4,022</td>
+        <td>1m 26s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>代码与昨日提交差异</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-29T08:07:41.411Z</td>
+        <td>2026-06-01T02:55:11.258Z</td>
+        <td>11</td>
+        <td>117,603</td>
+        <td>317</td>
+        <td>1m 31s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>优化主仪表板加载时间</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-27T09:36:48.662Z</td>
+        <td>2026-05-29T05:24:52.873Z</td>
+        <td>2</td>
+        <td>116,201</td>
+        <td>663</td>
+        <td>5m 26s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>接入full picture数据到标签页</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-22T05:10:29.979Z</td>
+        <td>2026-05-25T02:51:31.982Z</td>
+        <td>12</td>
+        <td>110,309</td>
+        <td>434</td>
+        <td>49s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>Ticket list pagination options</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-26T06:22:30.729Z</td>
+        <td>2026-05-26T14:00:45.296Z</td>
+        <td>3</td>
+        <td>101,877</td>
+        <td>157</td>
+        <td>2m 2s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>查询2026年DTSV China测试状态</td>
+        <td>copilot/auto</td>
+        <td>2026-06-01T02:53:59.596Z</td>
+        <td>2026-06-03T08:27:33.864Z</td>
+        <td>4</td>
+        <td>93,021</td>
+        <td>623</td>
+        <td>10m 15s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>缺失字段和处理周期计算</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-19T01:25:30.550Z</td>
+        <td>2026-05-19T01:25:58.008Z</td>
+        <td>1</td>
+        <td>90,071</td>
+        <td>436</td>
+        <td>6m 38s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>保存指定邮件附件</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-27T06:16:20.452Z</td>
+        <td>2026-05-27T06:47:11.042Z</td>
+        <td>1</td>
+        <td>89,733</td>
+        <td>273</td>
+        <td>8s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>看板数据来源问题</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-22T08:06:18.422Z</td>
+        <td>2026-05-22T08:09:23.953Z</td>
+        <td>2</td>
+        <td>87,457</td>
+        <td>1,790</td>
+        <td>2m 20s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>安装 graphify skill</td>
+        <td>copilot/auto</td>
+        <td>2026-06-08T06:20:14.144Z</td>
+        <td>2026-06-08T06:29:37.140Z</td>
+        <td>3</td>
+        <td>87,042</td>
+        <td>685</td>
+        <td>55s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>模型训练与响应速度的关系探讨</td>
+        <td>copilot/claude-opus-4.6</td>
+        <td>2026-04-28T10:15:40.286Z</td>
+        <td>2026-04-28T10:38:02.984Z</td>
+        <td>2</td>
+        <td>86,204</td>
+        <td>607</td>
+        <td>3m 19s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>Duplicate Detection Framework and Methodology Summary</td>
+        <td>copilot/auto</td>
+        <td>2026-04-24T07:10:23.830Z</td>
+        <td>2026-04-24T08:57:37.871Z</td>
+        <td>2</td>
+        <td>84,419</td>
+        <td>645</td>
+        <td>4m 15s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>OpenHarness agent framework usage</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-19T06:18:04.189Z</td>
+        <td>2026-05-19T06:57:58.598Z</td>
+        <td>7</td>
+        <td>83,584</td>
+        <td>2,190</td>
+        <td>35s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>内网访问地址查询</td>
+        <td>copilot/auto</td>
+        <td>2026-06-03T12:03:32.084Z</td>
+        <td>2026-06-08T07:54:47.027Z</td>
+        <td>6</td>
+        <td>80,486</td>
+        <td>406</td>
+        <td>4m 10s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>更新代码到 GitHub 分支</td>
+        <td>copilot/auto</td>
+        <td>2026-06-02T10:21:02.615Z</td>
+        <td>2026-06-04T10:04:04.134Z</td>
+        <td>2</td>
+        <td>78,604</td>
+        <td>305</td>
+        <td>2m 23s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>代码回退原因分析</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-19T02:45:49.070Z</td>
+        <td>2026-05-19T03:02:20.699Z</td>
+        <td>3</td>
+        <td>78,437</td>
+        <td>734</td>
+        <td>6m 51s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>本地重复搜索功能模型训练方法</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-04-29T05:24:22.904Z</td>
+        <td>2026-04-29T09:38:51.997Z</td>
+        <td>17</td>
+        <td>78,150</td>
+        <td>76</td>
+        <td>15m 6s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>Duplicate search agent design overview</td>
+        <td>copilot/auto</td>
+        <td>2026-06-03T12:09:25.167Z</td>
+        <td>2026-06-03T12:09:28.858Z</td>
+        <td>1</td>
+        <td>77,575</td>
+        <td>424</td>
+        <td>2m 52s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>DBeaver local glm proxy setup</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-28T05:47:02.214Z</td>
+        <td>2026-05-28T06:03:23.201Z</td>
+        <td>3</td>
+        <td>76,953</td>
+        <td>946</td>
+        <td>23s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>取消蓝线显示</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-20T07:19:04.740Z</td>
+        <td>2026-05-22T01:28:34.305Z</td>
+        <td>32</td>
+        <td>75,598</td>
+        <td>73</td>
+        <td>18m 39s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>查询DTSV 2026年测试数据</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-27T03:34:37.934Z</td>
+        <td>2026-05-27T08:07:53.006Z</td>
+        <td>1</td>
+        <td>73,937</td>
+        <td>871</td>
+        <td>17s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>提交未完成代码到 GitHub</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-13T09:41:26.608Z</td>
+        <td>2026-05-19T02:55:50.636Z</td>
+        <td>25</td>
+        <td>70,816</td>
+        <td>286</td>
+        <td>3m 2s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>数据库存储格式对比</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-19T08:09:18.390Z</td>
+        <td>2026-05-20T03:10:12.498Z</td>
+        <td>1</td>
+        <td>68,946</td>
+        <td>443</td>
+        <td>20s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>Embedding模型API性能比较</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-29T07:39:41.809Z</td>
+        <td>2026-05-29T07:54:05.637Z</td>
+        <td>3</td>
+        <td>65,365</td>
+        <td>2,135</td>
+        <td>1m 49s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>数据库优化建议</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-26T08:16:48.707Z</td>
+        <td>2026-05-28T02:38:06.915Z</td>
+        <td>66</td>
+        <td>65,279</td>
+        <td>365</td>
+        <td>1m 2s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>移除品牌标识并修改文字</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-28T09:23:49.197Z</td>
+        <td>2026-05-29T08:30:32.951Z</td>
+        <td>3</td>
+        <td>65,093</td>
+        <td>830</td>
+        <td>4m 48s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>云端部署最佳实践</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-29T05:40:56.971Z</td>
+        <td>2026-05-29T05:57:50.670Z</td>
+        <td>2</td>
+        <td>59,475</td>
+        <td>2,434</td>
+        <td>1m 5s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>Installing Next Level Builder Skill</td>
+        <td>copilot/claude-opus-4.6</td>
+        <td>2026-04-28T08:43:13.455Z</td>
+        <td>2026-04-28T09:04:08.747Z</td>
+        <td>3</td>
+        <td>58,965</td>
+        <td>1,727</td>
+        <td>45s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>manual test字段的testcase country</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-22T08:39:29.182Z</td>
+        <td>2026-05-22T08:51:45.701Z</td>
+        <td>2</td>
+        <td>57,196</td>
+        <td>1,047</td>
+        <td>31s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>项目Readme更新状态</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-29T05:43:29.280Z</td>
+        <td>2026-05-29T05:43:52.685Z</td>
+        <td>1</td>
+        <td>55,253</td>
+        <td>1,109</td>
+        <td>1m 20s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>Openharness 支持飞书链接吗</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-22T09:07:08.302Z</td>
+        <td>2026-05-22T09:12:01.546Z</td>
+        <td>2</td>
+        <td>52,377</td>
+        <td>609</td>
+        <td>2m 25s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>qgatedownload update history events</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-21T03:18:25.141Z</td>
+        <td>2026-05-21T03:22:07.509Z</td>
+        <td>2</td>
+        <td>47,926</td>
+        <td>1,165</td>
+        <td>43s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>Octane CLI cookie expiration update</td>
+        <td>copilot/auto</td>
+        <td>2026-05-18T02:01:18.186Z</td>
+        <td>2026-05-19T07:27:59.384Z</td>
+        <td>5</td>
+        <td>47,837</td>
+        <td>342</td>
+        <td>8s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>2026年4月测试用例执行分析</td>
+        <td>copilot/claude-opus-4.6</td>
+        <td>2026-04-22T07:59:17.077Z</td>
+        <td>2026-04-22T08:00:20.405Z</td>
+        <td>1</td>
+        <td>45,985</td>
+        <td>519</td>
+        <td>6m 56s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>查看GitHub代码解决方案</td>
+        <td>copilot/auto</td>
+        <td>2026-05-11T03:15:15.912Z</td>
+        <td>2026-05-12T03:22:21.857Z</td>
+        <td>2</td>
+        <td>44,833</td>
+        <td>247</td>
+        <td>4m 38s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>移除浮动窗口功能</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-25T03:43:56.616Z</td>
+        <td>2026-05-25T03:44:32.521Z</td>
+        <td>1</td>
+        <td>43,783</td>
+        <td>739</td>
+        <td>5m 3s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>使用.env存储access token</td>
+        <td>copilot/auto</td>
+        <td>2026-05-13T02:07:05.636Z</td>
+        <td>2026-05-19T03:43:56.282Z</td>
+        <td>5</td>
+        <td>40,273</td>
+        <td>99</td>
+        <td>20s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>Untitled session</td>
+        <td>copilot/auto</td>
+        <td>2026-05-28T02:17:38.583Z</td>
+        <td>2026-05-28T03:03:41.996Z</td>
+        <td>4</td>
+        <td>38,773</td>
+        <td>364</td>
+        <td>58s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>Agent design analysis and improvement suggestions</td>
+        <td>copilot/claude-opus-4.6</td>
+        <td>2026-04-22T05:35:54.843Z</td>
+        <td>2026-04-22T07:59:07.460Z</td>
+        <td>7</td>
+        <td>38,628</td>
+        <td>287</td>
+        <td>4m 45s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>更新 CC GitHub 仓库</td>
+        <td>copilot/auto</td>
+        <td>2026-05-12T11:30:50.146Z</td>
+        <td>2026-05-18T02:00:40.148Z</td>
+        <td>4</td>
+        <td>37,238</td>
+        <td>74</td>
+        <td>23s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>Octane CLI 查询数据功能</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-27T03:28:24.933Z</td>
+        <td>2026-05-27T03:30:14.179Z</td>
+        <td>1</td>
+        <td>36,599</td>
+        <td>960</td>
+        <td>45s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>openwebui 启动问题</td>
+        <td>copilot/auto</td>
+        <td>2026-05-18T10:28:50.298Z</td>
+        <td>2026-05-19T06:41:23.103Z</td>
+        <td>24</td>
+        <td>36,577</td>
+        <td>592</td>
+        <td>6m 49s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>选择默认模型为qwen3.5</td>
+        <td>copilot/auto</td>
+        <td>2026-04-28T08:12:55.632Z</td>
+        <td>2026-04-28T08:16:31.055Z</td>
+        <td>1</td>
+        <td>35,500</td>
+        <td>52</td>
+        <td>43s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>agent 启动状态查询</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-25T02:34:19.212Z</td>
+        <td>2026-05-25T07:56:00.389Z</td>
+        <td>4</td>
+        <td>32,724</td>
+        <td>693</td>
+        <td>38s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>查看页面效果</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-22T01:37:43.866Z</td>
+        <td>2026-05-22T07:55:58.067Z</td>
+        <td>1</td>
+        <td>32,414</td>
+        <td>508</td>
+        <td>21s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>查询DTSV 2026年测试数据</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-27T03:31:45.399Z</td>
+        <td>2026-05-27T03:32:20.363Z</td>
+        <td>1</td>
+        <td>30,975</td>
+        <td>295</td>
+        <td>1m 31s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>电脑卡顿原因分析</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-25T07:51:12.320Z</td>
+        <td>2026-05-25T07:56:19.004Z</td>
+        <td>2</td>
+        <td>27,998</td>
+        <td>700</td>
+        <td>49s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>内网用户访问看板性能问题</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-22T08:23:15.117Z</td>
+        <td>2026-05-22T08:30:00.651Z</td>
+        <td>2</td>
+        <td>26,122</td>
+        <td>1,182</td>
+        <td>25s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>datahub 启动方法</td>
+        <td>copilot/gpt-5.4</td>
+        <td>2026-05-20T05:26:41.646Z</td>
+        <td>2026-05-20T05:30:11.762Z</td>
+        <td>1</td>
+        <td>22,162</td>
+        <td>570</td>
+        <td>12s</td>
+        <td>$0.00</td>
+      </tr>
+      <tr>
+        <td>Untitled session</td>
+        <td>copilot/gpt-5.3-codex</td>
+        <td>2025-12-30T09:13:48.168Z</td>
+        <td>2025-12-30T09:26:43.526Z</td>
+        <td>1</td>
+        <td>0</td>
+        <td>0</td>
+        <td>0s</td>
+        <td>$0.00</td>
+      </tr>
+      </tbody>
+    </table>
+      </section>
+      <section>
+        <h2>Methodology</h2>
+        <p class="fine-print">Estimated Cost is derived from the pricing metadata stored inside retained local chat session files. This is a local reconstruction of retained history, not an official GitHub Copilot billing statement.</p>
+      </section>
+      
+    </main>
+    <script id="usage-events-data" type="application/json">[{"timestamp":1781006228036,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":250,"outputCost":1500},"estimatedCost":0,"localTime":"2026/06/09 19:57:08","day":"2026-06-09","timeOfDay":"19:57","isAfterHours":true,"sessionId":"aef453d6-fb90-4fe9-a1c4-bf94b5fe4bf2","title":"夜间更新任务模拟执行"},{"timestamp":1781006178738,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":2374,"elapsedMs":0,"pricing":{"inputCost":250,"outputCost":1500},"estimatedCost":0,"localTime":"2026/06/09 19:56:18","day":"2026-06-09","timeOfDay":"19:56","isAfterHours":true,"sessionId":"d3ff714a-a940-4dfd-bdca-0a899153a1fb","title":"Enable agent debug logs in Copilot"},{"timestamp":1781004587490,"model":"copilot/gpt-5.4","promptTokens":21966,"outputTokens":968,"completionTokens":1506,"elapsedMs":32487,"pricing":{"inputCost":250,"outputCost":1500},"estimatedCost":6.9435,"localTime":"2026/06/09 19:29:47","day":"2026-06-09","timeOfDay":"19:29","isAfterHours":true,"sessionId":"8455545b-7386-4dc8-bee2-55d38e51840e","title":"本地项目部署建议"},{"timestamp":1780999361027,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":250,"outputCost":1500},"estimatedCost":0,"localTime":"2026/06/09 18:02:41","day":"2026-06-09","timeOfDay":"18:02","isAfterHours":true,"sessionId":"3c716e35-7a3b-43c5-8963-bada4ac446ff","title":"Codex Claude model version"},{"timestamp":1780997076293,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":250,"outputCost":1500},"estimatedCost":0,"localTime":"2026/06/09 17:24:36","day":"2026-06-09","timeOfDay":"17:24","isAfterHours":false,"sessionId":"b176bb4b-6756-4987-8dc7-4b0176460783","title":"优化glm5.1代理使用方式"},{"timestamp":1780997054850,"model":"copilot/gpt-5.4","promptTokens":141887,"outputTokens":459,"completionTokens":459,"elapsedMs":21442,"pricing":{"inputCost":250,"outputCost":1500},"estimatedCost":36.16025,"localTime":"2026/06/09 17:24:14","day":"2026-06-09","timeOfDay":"17:24","isAfterHours":false,"sessionId":"b176bb4b-6756-4987-8dc7-4b0176460783","title":"优化glm5.1代理使用方式"},{"timestamp":1780981887351,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":2743,"elapsedMs":141749,"pricing":{"inputCost":250,"outputCost":1500},"estimatedCost":0,"localTime":"2026/06/09 13:11:27","day":"2026-06-09","timeOfDay":"13:11","isAfterHours":false,"sessionId":"c9a2867f-7d86-4908-9748-998c20577550","title":"Node.exe not recognized error"},{"timestamp":1780976684607,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":250,"outputCost":1500},"estimatedCost":0,"localTime":"2026/06/09 11:44:44","day":"2026-06-09","timeOfDay":"11:44","isAfterHours":false,"sessionId":"72401585-a393-4cfd-ba6b-b897669e9a6e","title":"看板启动问题"},{"timestamp":1780976657687,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":661,"elapsedMs":0,"pricing":{"inputCost":250,"outputCost":1500},"estimatedCost":0,"localTime":"2026/06/09 11:44:17","day":"2026-06-09","timeOfDay":"11:44","isAfterHours":false,"sessionId":"944c878a-b494-4b89-9a4d-0be1b3313bd0","title":"Check glm5.1 compatibility"},{"timestamp":1780976388120,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":250,"outputCost":1500},"estimatedCost":0,"localTime":"2026/06/09 11:39:48","day":"2026-06-09","timeOfDay":"11:39","isAfterHours":false,"sessionId":"8fc44344-ef66-4995-9f0c-f83da212c9c0","title":"置顶显示带top topic"},{"timestamp":1780975384756,"model":"copilot/gpt-5.4","promptTokens":127399,"outputTokens":1235,"completionTokens":13730,"elapsedMs":309838,"pricing":{"inputCost":250,"outputCost":1500},"estimatedCost":33.70225,"localTime":"2026/06/09 11:23:04","day":"2026-06-09","timeOfDay":"11:23","isAfterHours":false,"sessionId":"bd5056d7-db64-470d-b45b-e832d1ef25df","title":"topissue tag 添加者查询"},{"timestamp":1780973082143,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":250,"outputCost":1500},"estimatedCost":0,"localTime":"2026/06/09 10:44:42","day":"2026-06-09","timeOfDay":"10:44","isAfterHours":false,"sessionId":"0e302c2f-7123-4638-91e5-d8e9d2944716","title":"Top issue分析接入真实数据"},{"timestamp":1780972577627,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":250,"outputCost":1500},"estimatedCost":0,"localTime":"2026/06/09 10:36:17","day":"2026-06-09","timeOfDay":"10:36","isAfterHours":false,"sessionId":"29139215-389c-4dfc-8c62-bdc0d2925d19","title":"Untitled session"},{"timestamp":1780972016446,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":250,"outputCost":1500},"estimatedCost":0,"localTime":"2026/06/09 10:26:56","day":"2026-06-09","timeOfDay":"10:26","isAfterHours":false,"sessionId":"cc302420-28c7-481e-be52-dc23b6b7f1e8","title":"设备芯片存储信息位置"},{"timestamp":1780922645222,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/06/08 20:44:05","day":"2026-06-08","timeOfDay":"20:44","isAfterHours":true,"sessionId":"4f3c442d-bec9-416f-99fe-895ed2def036","title":"Run openhuman project with proxy"},{"timestamp":1780922293019,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":250,"outputCost":1500},"estimatedCost":0,"localTime":"2026/06/08 20:38:13","day":"2026-06-08","timeOfDay":"20:38","isAfterHours":true,"sessionId":"6f111e4f-f410-4e52-bee4-95418cb16a29","title":"自动更新数据脚本问题"},{"timestamp":1780905287027,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":497,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/06/08 15:54:47","day":"2026-06-08","timeOfDay":"15:54","isAfterHours":false,"sessionId":"d6f63c59-9c66-4d12-92ac-c31bddabfb6c","title":"内网访问地址查询"},{"timestamp":1780903999343,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":250,"outputCost":1500},"estimatedCost":0,"localTime":"2026/06/08 15:33:19","day":"2026-06-08","timeOfDay":"15:33","isAfterHours":false,"sessionId":"bea98211-00b2-4c01-8809-2098e5e0ebca","title":"测试覆盖率分析性能问题"},{"timestamp":1780900177140,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":356,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/06/08 14:29:37","day":"2026-06-08","timeOfDay":"14:29","isAfterHours":false,"sessionId":"cc7805e3-e7d9-47d9-a18b-5aadf8fbef37","title":"安装 graphify skill"},{"timestamp":1780900136425,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":250,"outputCost":1500},"estimatedCost":0,"localTime":"2026/06/08 14:28:56","day":"2026-06-08","timeOfDay":"14:28","isAfterHours":false,"sessionId":"95340e84-f88f-4340-9491-13a396381074","title":"GitHub project integration suggestions"},{"timestamp":1780896263744,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":250,"outputCost":1500},"estimatedCost":0,"localTime":"2026/06/08 13:24:23","day":"2026-06-08","timeOfDay":"13:24","isAfterHours":false,"sessionId":"ec660961-caf3-442f-a414-a5e924d70979","title":"手动更新数据库脚本"},{"timestamp":1780895975916,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":250,"outputCost":1500},"estimatedCost":0,"localTime":"2026/06/08 13:19:35","day":"2026-06-08","timeOfDay":"13:19","isAfterHours":false,"sessionId":"4fd19700-15ef-4d71-a1d7-4168f5c63d5a","title":"安装 PostgreSQL 扩展"},{"timestamp":1780889256544,"model":"copilot/gpt-5.4","promptTokens":90325,"outputTokens":1218,"completionTokens":5652,"elapsedMs":123043,"pricing":{"inputCost":250,"outputCost":1500},"estimatedCost":24.40825,"localTime":"2026/06/08 11:27:36","day":"2026-06-08","timeOfDay":"11:27","isAfterHours":false,"sessionId":"67b70eae-d841-48fb-bc26-d29c7c5e81f8","title":"看板 hottopic 不显示"},{"timestamp":1780567444134,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/06/04 18:04:04","day":"2026-06-04","timeOfDay":"18:04","isAfterHours":true,"sessionId":"65f79816-b4eb-4e36-8521-1448e293dfc7","title":"更新代码到 GitHub 分支"},{"timestamp":1780537294934,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/06/04 09:41:34","day":"2026-06-04","timeOfDay":"09:41","isAfterHours":false,"sessionId":"26be8df9-391c-4b74-aca5-a962b09a82c3","title":"pip download with temporary proxy"},{"timestamp":1780488915710,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/06/03 20:15:15","day":"2026-06-03","timeOfDay":"20:15","isAfterHours":true,"sessionId":"88b76466-c74a-4ddf-9842-0ec827c94f88","title":"代码同步到ccgithub"},{"timestamp":1780488568858,"model":"copilot/auto","promptTokens":77575,"outputTokens":424,"completionTokens":10616,"elapsedMs":172428,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/06/03 20:09:28","day":"2026-06-03","timeOfDay":"20:09","isAfterHours":true,"sessionId":"618ea966-5c43-4af8-a992-136ae48df352","title":"Duplicate search agent design overview"},{"timestamp":1780487610311,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":250,"outputCost":1500},"estimatedCost":0,"localTime":"2026/06/03 19:53:30","day":"2026-06-03","timeOfDay":"19:53","isAfterHours":true,"sessionId":"72265ad3-987a-432c-b78c-e041ad515314","title":"夜间自动获取数据脚本操作"},{"timestamp":1780487484708,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":782,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/06/03 19:51:24","day":"2026-06-03","timeOfDay":"19:51","isAfterHours":true,"sessionId":"26d0383e-43d2-4f29-9f4e-cbc11781daf4","title":"数据获取处理存储迁移建议"},{"timestamp":1780485181481,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/06/03 19:13:01","day":"2026-06-03","timeOfDay":"19:13","isAfterHours":true,"sessionId":"f928fb73-8a3c-42f7-8c8b-862d61abff62","title":"看板未启动问题"},{"timestamp":1780485061125,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/06/03 19:11:01","day":"2026-06-03","timeOfDay":"19:11","isAfterHours":true,"sessionId":"d9443438-da73-494f-b119-10a8c78408ed","title":"提交代码到ccgithub新分支"},{"timestamp":1780476896693,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/06/03 16:54:56","day":"2026-06-03","timeOfDay":"16:54","isAfterHours":false,"sessionId":"960a6128-5cc3-4665-b603-25a0f9822764","title":"Local server not running"},{"timestamp":1780475253864,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/06/03 16:27:33","day":"2026-06-03","timeOfDay":"16:27","isAfterHours":false,"sessionId":"89c53cd1-9ae9-4e62-935d-fef6369ee264","title":"查询2026年DTSV China测试状态"},{"timestamp":1780472239412,"model":"copilot/gpt-5.4","promptTokens":30617,"outputTokens":650,"completionTokens":1615,"elapsedMs":41224,"pricing":{"inputCost":250,"outputCost":1500},"estimatedCost":8.62925,"localTime":"2026/06/03 15:37:19","day":"2026-06-03","timeOfDay":"15:37","isAfterHours":false,"sessionId":"66f4a6de-5354-4b72-86f9-672bf8a51658","title":"mock 无法打开"},{"timestamp":1780472232711,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":5530,"pricing":{"inputCost":250,"outputCost":1500},"estimatedCost":0,"localTime":"2026/06/03 15:37:12","day":"2026-06-03","timeOfDay":"15:37","isAfterHours":false,"sessionId":"1255969f-b27e-4a62-a130-e1fb46b6932e","title":"filter 全选问题"},{"timestamp":1780471495365,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":250,"outputCost":1500},"estimatedCost":0,"localTime":"2026/06/03 15:24:55","day":"2026-06-03","timeOfDay":"15:24","isAfterHours":false,"sessionId":"fa1767e2-9967-432e-9074-899f3132765f","title":"Duplicate search agent updates"},{"timestamp":1780454765061,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":393,"elapsedMs":0,"pricing":{"inputCost":250,"outputCost":1500},"estimatedCost":0,"localTime":"2026/06/03 10:46:05","day":"2026-06-03","timeOfDay":"10:46","isAfterHours":false,"sessionId":"301ac934-aa40-4937-b8e3-3a6bb558bf59","title":"Duplicate search agent mode query"},{"timestamp":1780453810136,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":250,"outputCost":1500},"estimatedCost":0,"localTime":"2026/06/03 10:30:10","day":"2026-06-03","timeOfDay":"10:30","isAfterHours":false,"sessionId":"50abadc8-1987-4138-8c80-8e02bb0956ab","title":"数据库数据下载脚本问题"},{"timestamp":1780396379542,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":250,"outputCost":1500},"estimatedCost":0,"localTime":"2026/06/02 18:32:59","day":"2026-06-02","timeOfDay":"18:32","isAfterHours":true,"sessionId":"90dd0190-babd-45fc-bf44-b5ac1838af6a","title":"看板启动问题"},{"timestamp":1780395211455,"model":"copilot/gpt-5.4","promptTokens":188000,"outputTokens":188,"completionTokens":188,"elapsedMs":10107,"pricing":{"inputCost":250,"outputCost":1500},"estimatedCost":47.282,"localTime":"2026/06/02 18:13:31","day":"2026-06-02","timeOfDay":"18:13","isAfterHours":true,"sessionId":"461903f7-290e-49b4-bd73-803f2401cdab","title":"展示Top Topic的ticket"},{"timestamp":1780390291457,"model":"copilot/gpt-5.4","promptTokens":77270,"outputTokens":797,"completionTokens":10146,"elapsedMs":266123,"pricing":{"inputCost":250,"outputCost":1500},"estimatedCost":20.513,"localTime":"2026/06/02 16:51:31","day":"2026-06-02","timeOfDay":"16:51","isAfterHours":false,"sessionId":"e8eae79e-7e97-417c-9f0b-bc352327e9b3","title":"修改创建时间和分类展示"},{"timestamp":1780387331902,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":447,"elapsedMs":0,"pricing":{"inputCost":250,"outputCost":1500},"estimatedCost":0,"localTime":"2026/06/02 16:02:11","day":"2026-06-02","timeOfDay":"16:02","isAfterHours":false,"sessionId":"d06d8177-c749-42a5-b542-413c784e7bef","title":"Duplicate search agent ticket info"},{"timestamp":1780367762628,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":640,"elapsedMs":17274,"pricing":{"inputCost":250,"outputCost":1500},"estimatedCost":0,"localTime":"2026/06/02 10:36:02","day":"2026-06-02","timeOfDay":"10:36","isAfterHours":false,"sessionId":"9545287a-8c41-4a86-a434-7a310dab6b11","title":"测试覆盖率分析与集成"},{"timestamp":1780306198212,"model":"copilot/gpt-5.4","promptTokens":190126,"outputTokens":510,"completionTokens":987,"elapsedMs":28420,"pricing":{"inputCost":250,"outputCost":1500},"estimatedCost":48.2965,"localTime":"2026/06/01 17:29:58","day":"2026-06-01","timeOfDay":"17:29","isAfterHours":false,"sessionId":"93a104f9-29b1-411b-b55e-4c351fd93774","title":"Database size optimization建议"},{"timestamp":1780284310677,"model":"copilot/gpt-5.4","promptTokens":26445,"outputTokens":386,"completionTokens":2583,"elapsedMs":114742,"pricing":{"inputCost":250,"outputCost":1500},"estimatedCost":7.19025,"localTime":"2026/06/01 11:25:10","day":"2026-06-01","timeOfDay":"11:25","isAfterHours":false,"sessionId":"833317ef-1839-4705-8307-75f393a86b81","title":"Check for new octane cli code"},{"timestamp":1780282511258,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/06/01 10:55:11","day":"2026-06-01","timeOfDay":"10:55","isAfterHours":false,"sessionId":"caaff81e-61ed-48b9-b43e-4e88067f456d","title":"代码与昨日提交差异"},{"timestamp":1780282398781,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/06/01 10:53:18","day":"2026-06-01","timeOfDay":"10:53","isAfterHours":false,"sessionId":"84e156d0-e389-4a84-9ed8-9acf1b6d5661","title":"status和phase字段讨论"},{"timestamp":1780282398747,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/06/01 10:53:18","day":"2026-06-01","timeOfDay":"10:53","isAfterHours":false,"sessionId":"4a92e3eb-d569-4df2-a354-af54a9142c9d","title":"Pip temporary proxy setup"},{"timestamp":1780043432951,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":1167,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/29 16:30:32","day":"2026-05-29","timeOfDay":"16:30","isAfterHours":false,"sessionId":"4002e9f8-1c9d-4bba-927a-8d0ae4f3938f","title":"移除品牌标识并修改文字"},{"timestamp":1780041245637,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":801,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/29 15:54:05","day":"2026-05-29","timeOfDay":"15:54","isAfterHours":false,"sessionId":"5c2c8c97-c822-4131-9eb4-fbf38842edd1","title":"Embedding模型API性能比较"},{"timestamp":1780040330794,"model":"copilot/gpt-5.4","promptTokens":136420,"outputTokens":465,"completionTokens":465,"elapsedMs":12559,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/29 15:38:50","day":"2026-05-29","timeOfDay":"15:38","isAfterHours":false,"sessionId":"33966ec6-ff7d-4278-a02a-9860ffe322f8","title":"pip download with temporary proxy"},{"timestamp":1780040073968,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/29 15:34:33","day":"2026-05-29","timeOfDay":"15:34","isAfterHours":false,"sessionId":"2c62a8b6-7c0f-45bc-a527-f9cdbbe68f6c","title":"内网网站访问问题"},{"timestamp":1780034270670,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":966,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/29 13:57:50","day":"2026-05-29","timeOfDay":"13:57","isAfterHours":false,"sessionId":"ad04c73b-b328-4658-8e84-e3142291c300","title":"云端部署最佳实践"},{"timestamp":1780033432685,"model":"copilot/gpt-5.4","promptTokens":55253,"outputTokens":1109,"completionTokens":3602,"elapsedMs":80884,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/29 13:43:52","day":"2026-05-29","timeOfDay":"13:43","isAfterHours":false,"sessionId":"300e54b6-791a-4f47-b338-8e6b09a8f77d","title":"项目Readme更新状态"},{"timestamp":1780032292873,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/29 13:24:52","day":"2026-05-29","timeOfDay":"13:24","isAfterHours":false,"sessionId":"16d69cfe-5a0b-40c3-9e46-0e17d8039b61","title":"优化主仪表板加载时间"},{"timestamp":1779968051369,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":11364,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/28 19:34:11","day":"2026-05-28","timeOfDay":"19:34","isAfterHours":true,"sessionId":"4d4910a5-d57b-44e5-a35b-e47ff25cd7ac","title":"filter增加month选项"},{"timestamp":1779959675272,"model":"copilot/gpt-5.4","promptTokens":184273,"outputTokens":263,"completionTokens":7751,"elapsedMs":247305,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/28 17:14:35","day":"2026-05-28","timeOfDay":"17:14","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779959573333,"model":"copilot/gpt-5.4","promptTokens":121575,"outputTokens":182,"completionTokens":0,"elapsedMs":952670,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/28 17:12:53","day":"2026-05-28","timeOfDay":"17:12","isAfterHours":false,"sessionId":"b4919528-e762-4dd0-974a-60c04c8df471","title":"代码提交与同步到ccgithub"},{"timestamp":1779948203201,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/28 14:03:23","day":"2026-05-28","timeOfDay":"14:03","isAfterHours":false,"sessionId":"77d7280c-0f81-4854-82db-a0df944587c4","title":"DBeaver local glm proxy setup"},{"timestamp":1779939032169,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/28 11:30:32","day":"2026-05-28","timeOfDay":"11:30","isAfterHours":false,"sessionId":"df309bdb-30f7-406e-a4a7-917a00618ee8","title":"数据库设计优化建议"},{"timestamp":1779937421996,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/28 11:03:41","day":"2026-05-28","timeOfDay":"11:03","isAfterHours":false,"sessionId":"883b4840-b33d-40bd-853b-ba24821898a8","title":"Untitled session"},{"timestamp":1779935886915,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":1096,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/28 10:38:06","day":"2026-05-28","timeOfDay":"10:38","isAfterHours":false,"sessionId":"86d7d8e8-5a1f-4802-bc1d-6f77fc2a7fc1","title":"数据库优化建议"},{"timestamp":1779870821319,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/27 16:33:41","day":"2026-05-27","timeOfDay":"16:33","isAfterHours":false,"sessionId":"d30fa06c-d109-440b-9db9-374c4d27bff6","title":"Query test execution and coverage"},{"timestamp":1779869273006,"model":"copilot/gpt-5.4","promptTokens":73937,"outputTokens":871,"completionTokens":871,"elapsedMs":17134,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/27 16:07:53","day":"2026-05-27","timeOfDay":"16:07","isAfterHours":false,"sessionId":"173df19c-47ff-4785-bb4a-ddc63387b50e","title":"查询DTSV 2026年测试数据"},{"timestamp":1779864431042,"model":"copilot/gpt-5.4","promptTokens":89733,"outputTokens":273,"completionTokens":273,"elapsedMs":8253,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/27 14:47:11","day":"2026-05-27","timeOfDay":"14:47","isAfterHours":false,"sessionId":"81dfe046-43ee-4b4b-b981-54579b1836f3","title":"保存指定邮件附件"},{"timestamp":1779857694531,"model":"copilot/gpt-5.4","promptTokens":140448,"outputTokens":737,"completionTokens":737,"elapsedMs":14822,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/27 12:54:54","day":"2026-05-27","timeOfDay":"12:54","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779857620412,"model":"copilot/gpt-5.4","promptTokens":139259,"outputTokens":1197,"completionTokens":1197,"elapsedMs":31881,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/27 12:53:40","day":"2026-05-27","timeOfDay":"12:53","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779853768373,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/27 11:49:28","day":"2026-05-27","timeOfDay":"11:49","isAfterHours":false,"sessionId":"721d8443-d8af-44c3-8e64-91a842c60bd3","title":"npm run dev no data issue"},{"timestamp":1779853712505,"model":"copilot/gpt-5.4","promptTokens":113752,"outputTokens":335,"completionTokens":335,"elapsedMs":15766,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/27 11:48:32","day":"2026-05-27","timeOfDay":"11:48","isAfterHours":false,"sessionId":"f6f8d616-4b6c-4150-bbb9-315bb562cbdd","title":"后端数据字段缺失分析"},{"timestamp":1779853698149,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":707,"elapsedMs":68481,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/27 11:48:18","day":"2026-05-27","timeOfDay":"11:48","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779853697804,"model":"copilot/gpt-5.4","promptTokens":112134,"outputTokens":353,"completionTokens":353,"elapsedMs":14699,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/27 11:48:17","day":"2026-05-27","timeOfDay":"11:48","isAfterHours":false,"sessionId":"f6f8d616-4b6c-4150-bbb9-315bb562cbdd","title":"后端数据字段缺失分析"},{"timestamp":1779853584512,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":621,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/27 11:46:24","day":"2026-05-27","timeOfDay":"11:46","isAfterHours":false,"sessionId":"ff770be2-5ba0-4683-8fcf-5b5eb18fe854","title":"model scope 不痛原因"},{"timestamp":1779852740363,"model":"copilot/gpt-5.4","promptTokens":30975,"outputTokens":295,"completionTokens":3007,"elapsedMs":91379,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/27 11:32:20","day":"2026-05-27","timeOfDay":"11:32","isAfterHours":false,"sessionId":"22b10ca0-2528-4f59-b1f8-92dbd873383a","title":"查询DTSV 2026年测试数据"},{"timestamp":1779852614179,"model":"copilot/gpt-5.4","promptTokens":36599,"outputTokens":960,"completionTokens":2218,"elapsedMs":45872,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/27 11:30:14","day":"2026-05-27","timeOfDay":"11:30","isAfterHours":false,"sessionId":"6db2fdf2-36a0-4202-b115-4389d3387f6c","title":"Octane CLI 查询数据功能"},{"timestamp":1779852464586,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/27 11:27:44","day":"2026-05-27","timeOfDay":"11:27","isAfterHours":false,"sessionId":"c994b783-8773-4f3e-9aad-ac5a65ff4a92","title":"使用Chromium浏览器替代Chrome插件问题"},{"timestamp":1779849061160,"model":"copilot/gpt-5.4","promptTokens":142308,"outputTokens":4828,"completionTokens":10974,"elapsedMs":187570,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/27 10:31:01","day":"2026-05-27","timeOfDay":"10:31","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779842022947,"model":"copilot/gpt-5.4","promptTokens":122360,"outputTokens":1080,"completionTokens":16370,"elapsedMs":617735,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/27 08:33:42","day":"2026-05-27","timeOfDay":"08:33","isAfterHours":true,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779841448416,"model":"copilot/gpt-5.4","promptTokens":71974,"outputTokens":853,"completionTokens":1637,"elapsedMs":63790,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/27 08:24:08","day":"2026-05-27","timeOfDay":"08:24","isAfterHours":true,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779840603260,"model":"copilot/gpt-5.4","promptTokens":74747,"outputTokens":1001,"completionTokens":22091,"elapsedMs":845154,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/27 08:10:03","day":"2026-05-27","timeOfDay":"08:10","isAfterHours":true,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779840366909,"model":"copilot/gpt-5.4","promptTokens":178281,"outputTokens":258,"completionTokens":3160,"elapsedMs":236349,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/27 08:06:06","day":"2026-05-27","timeOfDay":"08:06","isAfterHours":true,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779840037287,"model":"copilot/gpt-5.4","promptTokens":162233,"outputTokens":143,"completionTokens":10480,"elapsedMs":329621,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/27 08:00:37","day":"2026-05-27","timeOfDay":"08:00","isAfterHours":true,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779834189032,"model":"copilot/gpt-5.4","promptTokens":136524,"outputTokens":808,"completionTokens":1873,"elapsedMs":94730,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/27 06:23:09","day":"2026-05-27","timeOfDay":"06:23","isAfterHours":true,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779833151049,"model":"copilot/gpt-5.4","promptTokens":122579,"outputTokens":154,"completionTokens":14330,"elapsedMs":891995,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/27 06:05:51","day":"2026-05-27","timeOfDay":"06:05","isAfterHours":true,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779810064760,"model":"copilot/gpt-5.4","promptTokens":84910,"outputTokens":1808,"completionTokens":11154,"elapsedMs":481229,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/26 23:41:04","day":"2026-05-26","timeOfDay":"23:41","isAfterHours":true,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779809182884,"model":"copilot/gpt-5.4","promptTokens":64048,"outputTokens":2155,"completionTokens":19224,"elapsedMs":771090,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/26 23:26:22","day":"2026-05-26","timeOfDay":"23:26","isAfterHours":true,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779807781829,"model":"copilot/gpt-5.4","promptTokens":172845,"outputTokens":2041,"completionTokens":6568,"elapsedMs":136446,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/26 23:03:01","day":"2026-05-26","timeOfDay":"23:03","isAfterHours":true,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779806928322,"model":"copilot/gpt-5.4","promptTokens":168874,"outputTokens":3942,"completionTokens":10889,"elapsedMs":225590,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/26 22:48:48","day":"2026-05-26","timeOfDay":"22:48","isAfterHours":true,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779805278740,"model":"copilot/gpt-5.4","promptTokens":125612,"outputTokens":2021,"completionTokens":8104,"elapsedMs":216046,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/26 22:21:18","day":"2026-05-26","timeOfDay":"22:21","isAfterHours":true,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779804284497,"model":"copilot/gpt-5.4","promptTokens":92439,"outputTokens":492,"completionTokens":5591,"elapsedMs":297796,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/26 22:04:44","day":"2026-05-26","timeOfDay":"22:04","isAfterHours":true,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779804045296,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":638,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/26 22:00:45","day":"2026-05-26","timeOfDay":"22:00","isAfterHours":true,"sessionId":"657dd41a-49b6-48f6-861d-3c27f8fc4e4c","title":"Ticket list pagination options"},{"timestamp":1779802778942,"model":"copilot/gpt-5.4","promptTokens":70997,"outputTokens":794,"completionTokens":14107,"elapsedMs":318200,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/26 21:39:38","day":"2026-05-26","timeOfDay":"21:39","isAfterHours":true,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779801182274,"model":"copilot/gpt-5.4","promptTokens":45080,"outputTokens":1014,"completionTokens":3425,"elapsedMs":68963,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/26 21:13:02","day":"2026-05-26","timeOfDay":"21:13","isAfterHours":true,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779780269887,"model":"copilot/gpt-5.4","promptTokens":199432,"outputTokens":1480,"completionTokens":2048,"elapsedMs":51196,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/26 15:24:29","day":"2026-05-26","timeOfDay":"15:24","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779779613096,"model":"copilot/gpt-5.4","promptTokens":188218,"outputTokens":929,"completionTokens":929,"elapsedMs":26188,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/26 15:13:33","day":"2026-05-26","timeOfDay":"15:13","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779779546602,"model":"copilot/gpt-5.4","promptTokens":184213,"outputTokens":466,"completionTokens":466,"elapsedMs":27504,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/26 15:12:26","day":"2026-05-26","timeOfDay":"15:12","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779766934616,"model":"copilot/gpt-5.4","promptTokens":176677,"outputTokens":804,"completionTokens":804,"elapsedMs":27397,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/26 11:42:14","day":"2026-05-26","timeOfDay":"11:42","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779721925581,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":925,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/25 23:12:05","day":"2026-05-25","timeOfDay":"23:12","isAfterHours":true,"sessionId":"35f1f634-68a3-4ce5-8ced-66deb32b83cd","title":"qgate 后端数据库设计"},{"timestamp":1779698270237,"model":"copilot/gpt-5.4","promptTokens":163969,"outputTokens":596,"completionTokens":1189,"elapsedMs":26786,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/25 16:37:50","day":"2026-05-25","timeOfDay":"16:37","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779698236093,"model":"copilot/gpt-5.4","promptTokens":160080,"outputTokens":393,"completionTokens":393,"elapsedMs":15858,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/25 16:37:16","day":"2026-05-25","timeOfDay":"16:37","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779697689579,"model":"copilot/gpt-5.4","promptTokens":157147,"outputTokens":625,"completionTokens":4892,"elapsedMs":124012,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/25 16:28:09","day":"2026-05-25","timeOfDay":"16:28","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779697545346,"model":"copilot/gpt-5.4","promptTokens":148557,"outputTokens":681,"completionTokens":681,"elapsedMs":25909,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/25 16:25:45","day":"2026-05-25","timeOfDay":"16:25","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779697246067,"model":"copilot/gpt-5.4","promptTokens":141857,"outputTokens":514,"completionTokens":10232,"elapsedMs":299276,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/25 16:20:46","day":"2026-05-25","timeOfDay":"16:20","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779697137867,"model":"copilot/gpt-5.4","promptTokens":113306,"outputTokens":994,"completionTokens":994,"elapsedMs":16319,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/25 16:18:57","day":"2026-05-25","timeOfDay":"16:18","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779697034020,"model":"copilot/gpt-5.4","promptTokens":112466,"outputTokens":741,"completionTokens":1485,"elapsedMs":28406,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/25 16:17:14","day":"2026-05-25","timeOfDay":"16:17","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779696858056,"model":"copilot/gpt-5.4","promptTokens":104837,"outputTokens":873,"completionTokens":2469,"elapsedMs":54630,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/25 16:14:18","day":"2026-05-25","timeOfDay":"16:14","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779695953561,"model":"copilot/gpt-5.4","promptTokens":96203,"outputTokens":794,"completionTokens":12359,"elapsedMs":581211,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/25 15:59:13","day":"2026-05-25","timeOfDay":"15:59","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779695779004,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/25 15:56:19","day":"2026-05-25","timeOfDay":"15:56","isAfterHours":false,"sessionId":"7705887c-30f7-4d8b-8c5b-ddc6e337ee1b","title":"电脑卡顿原因分析"},{"timestamp":1779695760389,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/25 15:56:00","day":"2026-05-25","timeOfDay":"15:56","isAfterHours":false,"sessionId":"497ae4f3-8e09-4029-afa9-d7efb842062b","title":"agent 启动状态查询"},{"timestamp":1779695033864,"model":"copilot/gpt-5.4","promptTokens":58993,"outputTokens":678,"completionTokens":6173,"elapsedMs":719515,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/25 15:43:53","day":"2026-05-25","timeOfDay":"15:43","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779694935104,"model":"copilot/gpt-5.4","promptTokens":40079,"outputTokens":1536,"completionTokens":2396,"elapsedMs":46125,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/25 15:42:15","day":"2026-05-25","timeOfDay":"15:42","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779694502909,"model":"copilot/gpt-5.4","promptTokens":32035,"outputTokens":350,"completionTokens":12768,"elapsedMs":432195,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/25 15:35:02","day":"2026-05-25","timeOfDay":"15:35","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779694282753,"model":"copilot/gpt-5.4","promptTokens":165228,"outputTokens":1626,"completionTokens":1626,"elapsedMs":41299,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/25 15:31:22","day":"2026-05-25","timeOfDay":"15:31","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779693997075,"model":"copilot/gpt-5.4","promptTokens":163303,"outputTokens":2640,"completionTokens":5019,"elapsedMs":100819,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/25 15:26:37","day":"2026-05-25","timeOfDay":"15:26","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779693834983,"model":"copilot/gpt-5.4","promptTokens":157207,"outputTokens":1120,"completionTokens":1860,"elapsedMs":49862,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/25 15:23:54","day":"2026-05-25","timeOfDay":"15:23","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779693315697,"model":"copilot/gpt-5.4","promptTokens":149975,"outputTokens":3797,"completionTokens":7953,"elapsedMs":305199,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/25 15:15:15","day":"2026-05-25","timeOfDay":"15:15","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779692718276,"model":"copilot/gpt-5.4","promptTokens":104128,"outputTokens":1025,"completionTokens":17873,"elapsedMs":475266,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/25 15:05:18","day":"2026-05-25","timeOfDay":"15:05","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779692280473,"model":"copilot/gpt-5.4","promptTokens":64418,"outputTokens":4406,"completionTokens":6732,"elapsedMs":125891,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/25 14:58:00","day":"2026-05-25","timeOfDay":"14:58","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779690653649,"model":"copilot/gpt-5.4","promptTokens":42217,"outputTokens":786,"completionTokens":14862,"elapsedMs":479736,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/25 14:30:53","day":"2026-05-25","timeOfDay":"14:30","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779690095522,"model":"copilot/gpt-5.4","promptTokens":179050,"outputTokens":358,"completionTokens":9445,"elapsedMs":180730,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/25 14:21:35","day":"2026-05-25","timeOfDay":"14:21","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779689873738,"model":"copilot/gpt-5.4","promptTokens":159899,"outputTokens":1045,"completionTokens":3825,"elapsedMs":75304,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/25 14:17:53","day":"2026-05-25","timeOfDay":"14:17","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779689568648,"model":"copilot/gpt-5.4","promptTokens":146673,"outputTokens":410,"completionTokens":4386,"elapsedMs":131534,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/25 14:12:48","day":"2026-05-25","timeOfDay":"14:12","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779689323947,"model":"copilot/gpt-5.4","promptTokens":141334,"outputTokens":321,"completionTokens":7966,"elapsedMs":217784,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/25 14:08:43","day":"2026-05-25","timeOfDay":"14:08","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779687774681,"model":"copilot/gpt-5.4","promptTokens":125422,"outputTokens":1885,"completionTokens":2611,"elapsedMs":50211,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/25 13:42:54","day":"2026-05-25","timeOfDay":"13:42","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779687075441,"model":"copilot/gpt-5.4","promptTokens":123597,"outputTokens":586,"completionTokens":3974,"elapsedMs":103199,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/25 13:31:15","day":"2026-05-25","timeOfDay":"13:31","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779686572612,"model":"copilot/gpt-5.4","promptTokens":118101,"outputTokens":914,"completionTokens":6489,"elapsedMs":214362,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/25 13:22:52","day":"2026-05-25","timeOfDay":"13:22","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779686406195,"model":"copilot/gpt-5.4","promptTokens":107792,"outputTokens":154,"completionTokens":4589,"elapsedMs":166416,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/25 13:20:06","day":"2026-05-25","timeOfDay":"13:20","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779680832049,"model":"copilot/gpt-5.4","promptTokens":92325,"outputTokens":927,"completionTokens":2324,"elapsedMs":42378,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/25 11:47:12","day":"2026-05-25","timeOfDay":"11:47","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779680672521,"model":"copilot/gpt-5.4","promptTokens":43783,"outputTokens":739,"completionTokens":6734,"elapsedMs":303216,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/25 11:44:32","day":"2026-05-25","timeOfDay":"11:44","isAfterHours":false,"sessionId":"627a2c84-c282-4395-9304-37d0267ee426","title":"移除浮动窗口功能"},{"timestamp":1779680444384,"model":"copilot/gpt-5.4","promptTokens":87172,"outputTokens":830,"completionTokens":7321,"elapsedMs":261359,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/25 11:40:44","day":"2026-05-25","timeOfDay":"11:40","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779680184237,"model":"copilot/gpt-5.4","promptTokens":59680,"outputTokens":763,"completionTokens":2051,"elapsedMs":45112,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/25 11:36:24","day":"2026-05-25","timeOfDay":"11:36","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779679738347,"model":"copilot/gpt-5.4","promptTokens":44809,"outputTokens":681,"completionTokens":13002,"elapsedMs":445889,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/25 11:28:58","day":"2026-05-25","timeOfDay":"11:28","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779679348610,"model":"copilot/gpt-5.4","promptTokens":161089,"outputTokens":1328,"completionTokens":1328,"elapsedMs":30326,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/25 11:22:28","day":"2026-05-25","timeOfDay":"11:22","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779679009713,"model":"copilot/gpt-5.4","promptTokens":160578,"outputTokens":977,"completionTokens":7230,"elapsedMs":233479,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/25 11:16:49","day":"2026-05-25","timeOfDay":"11:16","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779678804296,"model":"copilot/gpt-5.4","promptTokens":146261,"outputTokens":1018,"completionTokens":1680,"elapsedMs":31389,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/25 11:13:24","day":"2026-05-25","timeOfDay":"11:13","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779678638833,"model":"copilot/gpt-5.4","promptTokens":132409,"outputTokens":195,"completionTokens":4122,"elapsedMs":165460,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/25 11:10:38","day":"2026-05-25","timeOfDay":"11:10","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779677663955,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/25 10:54:23","day":"2026-05-25","timeOfDay":"10:54","isAfterHours":false,"sessionId":"8b3c186d-0dca-42b9-8425-e99b15e42530","title":"数据同步日期动态更新"},{"timestamp":1779677491982,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":760,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/25 10:51:31","day":"2026-05-25","timeOfDay":"10:51","isAfterHours":false,"sessionId":"8805b239-1bd9-4cb0-bca2-3b2c6fd89b07","title":"接入full picture数据到标签页"},{"timestamp":1779677470575,"model":"copilot/gpt-5.4","promptTokens":133315,"outputTokens":1226,"completionTokens":37532,"elapsedMs":728775,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/25 10:51:10","day":"2026-05-25","timeOfDay":"10:51","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779677362514,"model":"copilot/gpt-5.4","promptTokens":61452,"outputTokens":1452,"completionTokens":2152,"elapsedMs":42347,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/25 10:49:22","day":"2026-05-25","timeOfDay":"10:49","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779677220647,"model":"copilot/gpt-5.4","promptTokens":55901,"outputTokens":874,"completionTokens":5420,"elapsedMs":91120,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/25 10:47:00","day":"2026-05-25","timeOfDay":"10:47","isAfterHours":false,"sessionId":"ff00c45e-ff3d-482c-8c71-abf14980ffb9","title":"Duplicate search agent integration"},{"timestamp":1779441121546,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/22 17:12:01","day":"2026-05-22","timeOfDay":"17:12","isAfterHours":false,"sessionId":"fa0c3e7d-ac9f-4495-997f-0db19f2354b7","title":"Openharness 支持飞书链接吗"},{"timestamp":1779441086313,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/22 17:11:26","day":"2026-05-22","timeOfDay":"17:11","isAfterHours":false,"sessionId":"a9bc62a4-f7b9-4919-84a4-d687e3c9aa5d","title":"修改图表布局建议"},{"timestamp":1779439905701,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":606,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/22 16:51:45","day":"2026-05-22","timeOfDay":"16:51","isAfterHours":false,"sessionId":"5ff9e0d8-bf58-4ee1-a6ef-1768e44cf12e","title":"manual test字段的testcase country"},{"timestamp":1779438600651,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/22 16:30:00","day":"2026-05-22","timeOfDay":"16:30","isAfterHours":false,"sessionId":"009da411-f37b-47a3-9e2b-f1188e71c599","title":"内网用户访问看板性能问题"},{"timestamp":1779437363953,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":769,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/22 16:09:23","day":"2026-05-22","timeOfDay":"16:09","isAfterHours":false,"sessionId":"61dcf378-6feb-4e8a-99b7-de42e71fdbdb","title":"看板数据来源问题"},{"timestamp":1779436558067,"model":"copilot/gpt-5.4","promptTokens":32414,"outputTokens":508,"completionTokens":985,"elapsedMs":21201,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/22 15:55:58","day":"2026-05-22","timeOfDay":"15:55","isAfterHours":false,"sessionId":"6c8c112a-4d72-418e-92e8-93e13cee67ce","title":"查看页面效果"},{"timestamp":1779436518255,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/22 15:55:18","day":"2026-05-22","timeOfDay":"15:55","isAfterHours":false,"sessionId":"798d0b51-2d0d-4807-9ffd-4243a7d5f890","title":"Full picture看板需求识别"},{"timestamp":1779413314305,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/22 09:28:34","day":"2026-05-22","timeOfDay":"09:28","isAfterHours":false,"sessionId":"81e40489-8bc1-4c2d-ba00-90d53860d59a","title":"取消蓝线显示"},{"timestamp":1779413314165,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/22 09:28:34","day":"2026-05-22","timeOfDay":"09:28","isAfterHours":false,"sessionId":"1dd34b6a-f5a5-40b9-9288-06b07d77202a","title":"如何运行这个"},{"timestamp":1779366070609,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/21 20:21:10","day":"2026-05-21","timeOfDay":"20:21","isAfterHours":true,"sessionId":"160643d2-eeda-4140-b07b-f328ec7a4756","title":"重构qgate kpi dashboard"},{"timestamp":1779366050992,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/21 20:20:50","day":"2026-05-21","timeOfDay":"20:20","isAfterHours":true,"sessionId":"3fbf0a73-5a91-454a-8df8-1d57c43abd01","title":"Duplicate search agent技术方案探索"},{"timestamp":1779364764053,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":4889,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/21 19:59:24","day":"2026-05-21","timeOfDay":"19:59","isAfterHours":true,"sessionId":"ad6b66ce-5b74-4fac-95cc-78747dc0aa2c","title":"llm和embedding模型问题"},{"timestamp":1779349713952,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/21 15:48:33","day":"2026-05-21","timeOfDay":"15:48","isAfterHours":false,"sessionId":"01564680-b65a-47ab-81e1-7f18a924dc8d","title":"Database field confusion and filters"},{"timestamp":1779333727509,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/21 11:22:07","day":"2026-05-21","timeOfDay":"11:22","isAfterHours":false,"sessionId":"3fa75931-2918-45b2-9410-44dfdef91cf9","title":"qgatedownload update history events"},{"timestamp":1779255011762,"model":"copilot/gpt-5.4","promptTokens":22162,"outputTokens":570,"completionTokens":570,"elapsedMs":12664,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/20 13:30:11","day":"2026-05-20","timeOfDay":"13:30","isAfterHours":false,"sessionId":"4189d111-5d0b-4ea5-8640-e900d9c0984f","title":"datahub 启动方法"},{"timestamp":1779246612498,"model":"copilot/gpt-5.4","promptTokens":68946,"outputTokens":443,"completionTokens":629,"elapsedMs":20713,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/20 11:10:12","day":"2026-05-20","timeOfDay":"11:10","isAfterHours":false,"sessionId":"ed01c024-5611-4ea6-a9f5-b1d1ce3f9103","title":"数据库存储格式对比"},{"timestamp":1779189564776,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/19 19:19:24","day":"2026-05-19","timeOfDay":"19:19","isAfterHours":true,"sessionId":"07ece5a3-f6a7-47ee-a8c1-77ac51158df5","title":"获取和写入octane数据"},{"timestamp":1779175679384,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/19 15:27:59","day":"2026-05-19","timeOfDay":"15:27","isAfterHours":false,"sessionId":"07b421c0-1986-4eca-8203-4badda2139b3","title":"Octane CLI cookie expiration update"},{"timestamp":1779173878598,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/19 14:57:58","day":"2026-05-19","timeOfDay":"14:57","isAfterHours":false,"sessionId":"c4e6b7f1-459d-437f-8252-a43ebd83b643","title":"OpenHarness agent framework usage"},{"timestamp":1779172883103,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/19 14:41:23","day":"2026-05-19","timeOfDay":"14:41","isAfterHours":false,"sessionId":"79ad9282-3ecf-43c5-ab8a-4e632f7a0a54","title":"openwebui 启动问题"},{"timestamp":1779162236282,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/19 11:43:56","day":"2026-05-19","timeOfDay":"11:43","isAfterHours":false,"sessionId":"bbac6f2c-b2a4-4c97-82c2-7c0f8509c329","title":"使用.env存储access token"},{"timestamp":1779159740699,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":2635,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/19 11:02:20","day":"2026-05-19","timeOfDay":"11:02","isAfterHours":false,"sessionId":"07989888-f348-4232-bc73-2221dfaab12f","title":"代码回退原因分析"},{"timestamp":1779159350636,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":712,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/19 10:55:50","day":"2026-05-19","timeOfDay":"10:55","isAfterHours":false,"sessionId":"c2c49c5d-2918-47fc-82f7-b1dd980faef8","title":"提交未完成代码到 GitHub"},{"timestamp":1779153958008,"model":"copilot/gpt-5.4","promptTokens":90071,"outputTokens":436,"completionTokens":13928,"elapsedMs":398631,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/19 09:25:58","day":"2026-05-19","timeOfDay":"09:25","isAfterHours":false,"sessionId":"a885bdb2-e2bf-404d-816a-4a63a089147e","title":"缺失字段和处理周期计算"},{"timestamp":1779098172833,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":775,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/18 17:56:12","day":"2026-05-18","timeOfDay":"17:56","isAfterHours":false,"sessionId":"f1fe0d24-1267-4a1e-a134-bc7f7adbc142","title":"Octane CLI backend capabilities"},{"timestamp":1779069640148,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":303,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/18 10:00:40","day":"2026-05-18","timeOfDay":"10:00","isAfterHours":false,"sessionId":"3e255294-3ed3-4701-bda4-e4b5bc8f1943","title":"更新 CC GitHub 仓库"},{"timestamp":1778584939713,"model":"copilot/claude-opus-4.6","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/12 19:22:19","day":"2026-05-12","timeOfDay":"19:22","isAfterHours":true,"sessionId":"65c3df4a-1445-4c65-a3b5-8d7497dc16d6","title":"Octane CLI packaging suggestion"},{"timestamp":1778584891397,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":410,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/12 19:21:31","day":"2026-05-12","timeOfDay":"19:21","isAfterHours":true,"sessionId":"d033605b-06a7-45f8-bc40-27e64da11557","title":"更新代码到最新分支"},{"timestamp":1778583124338,"model":"copilot/claude-opus-4.6","promptTokens":0,"outputTokens":0,"completionTokens":519,"elapsedMs":25181,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/12 18:52:04","day":"2026-05-12","timeOfDay":"18:52","isAfterHours":true,"sessionId":"fd0a2841-6b1e-4a59-8e6f-13e05267b310","title":"选择开源对话代理建议"},{"timestamp":1778578722377,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/12 17:38:42","day":"2026-05-12","timeOfDay":"17:38","isAfterHours":false,"sessionId":"ccf03059-3dca-4617-9b80-70c1a6dfc32d","title":"QGate skill report enhancement"},{"timestamp":1778556981970,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":2406,"elapsedMs":50336,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/12 11:36:21","day":"2026-05-12","timeOfDay":"11:36","isAfterHours":false,"sessionId":"b6e36f4b-6aad-4287-9578-2ae89cbc5509","title":"Octane CLI 使用指南"},{"timestamp":1778556912367,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/12 11:35:12","day":"2026-05-12","timeOfDay":"11:35","isAfterHours":false,"sessionId":"2187afc7-7d72-4117-9ec4-11373150887c","title":"Octane CLI design evaluation"},{"timestamp":1778556141857,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/12 11:22:21","day":"2026-05-12","timeOfDay":"11:22","isAfterHours":false,"sessionId":"8842b5f3-b32b-4094-920a-9576032b3714","title":"查看GitHub代码解决方案"},{"timestamp":1778495112476,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/11 18:25:12","day":"2026-05-11","timeOfDay":"18:25","isAfterHours":true,"sessionId":"aff50ab4-bbcd-445f-95b3-271c5a730951","title":"duplicate search agent improvement suggestions"},{"timestamp":1778485962593,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/11 15:52:42","day":"2026-05-11","timeOfDay":"15:52","isAfterHours":false,"sessionId":"b58796a4-d89d-471a-8b7d-cf88cf8ab046","title":"Missing defect data in download"},{"timestamp":1778470166502,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/11 11:29:26","day":"2026-05-11","timeOfDay":"11:29","isAfterHours":false,"sessionId":"bb7ac8f6-0d1d-45cb-acd2-6705723149f1","title":"Branch changes review request"},{"timestamp":1778298429889,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/05/09 11:47:09","day":"2026-05-09","timeOfDay":"11:47","isAfterHours":true,"sessionId":"0274cf76-9b51-4e0d-a7a1-62a5a822debe","title":"数据看板设计思路"},{"timestamp":1777456849880,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/29 18:00:49","day":"2026-04-29","timeOfDay":"18:00","isAfterHours":true,"sessionId":"5c270f2c-55ff-487d-90cb-a5195e1b8d77","title":"更新项目到 GitHub 的步骤"},{"timestamp":1777455531997,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/29 17:38:51","day":"2026-04-29","timeOfDay":"17:38","isAfterHours":false,"sessionId":"a84d8f20-5a82-43a3-bd9c-b8514a426f17","title":"本地重复搜索功能模型训练方法"},{"timestamp":1777372682984,"model":"copilot/claude-opus-4.6","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/28 18:38:02","day":"2026-04-28","timeOfDay":"18:38","isAfterHours":true,"sessionId":"16b3f274-9c27-41f7-8dc7-25d858c596bd","title":"模型训练与响应速度的关系探讨"},{"timestamp":1777370115955,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/28 17:55:15","day":"2026-04-28","timeOfDay":"17:55","isAfterHours":false,"sessionId":"b4714f2c-defa-43f8-8532-662c02b894f3","title":"Embedding model loading and database lock issues"},{"timestamp":1777367048747,"model":"copilot/claude-opus-4.6","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/28 17:04:08","day":"2026-04-28","timeOfDay":"17:04","isAfterHours":false,"sessionId":"d3c8f825-bd6d-4683-8f9b-2bad39c0a9d3","title":"Installing Next Level Builder Skill"},{"timestamp":1777365209947,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/28 16:33:29","day":"2026-04-28","timeOfDay":"16:33","isAfterHours":false,"sessionId":"bb00c122-326f-4d36-9fe6-1c3dccea74d6","title":"Agent识别重复的技术框架分析"},{"timestamp":1777365068923,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/28 16:31:08","day":"2026-04-28","timeOfDay":"16:31","isAfterHours":false,"sessionId":"f0a0f4d8-d4e2-44bc-b624-63b0e54552a5","title":"Duplicate search and ticket embedding clarification"},{"timestamp":1777364191055,"model":"copilot/auto","promptTokens":35500,"outputTokens":52,"completionTokens":0,"elapsedMs":43074,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/28 16:16:31","day":"2026-04-28","timeOfDay":"16:16","isAfterHours":false,"sessionId":"3a8b69d2-9616-4ab0-ab09-aec10ab89a4d","title":"选择默认模型为qwen3.5"},{"timestamp":1777359457221,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/28 14:57:37","day":"2026-04-28","timeOfDay":"14:57","isAfterHours":false,"sessionId":"eeb11b74-3443-4d33-8554-ac5d49b39223","title":"Duplicate search issue and data annotation symbols"},{"timestamp":1777345740927,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/28 11:09:00","day":"2026-04-28","timeOfDay":"11:09","isAfterHours":false,"sessionId":"2b1879eb-db4d-4100-8979-aa0e4e8230ec","title":"内网访问地址查询"},{"timestamp":1777283899320,"model":"copilot/claude-opus-4.6","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/27 17:58:19","day":"2026-04-27","timeOfDay":"17:58","isAfterHours":false,"sessionId":"cb4fc551-9cf0-485c-a8b1-6c427908e935","title":"Duplicate detection techniques and architecture review"},{"timestamp":1777021057871,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/24 16:57:37","day":"2026-04-24","timeOfDay":"16:57","isAfterHours":false,"sessionId":"13d41737-3cbe-4442-807c-ac4a39303ace","title":"Duplicate Detection Framework and Methodology Summary"},{"timestamp":1777013647415,"model":"copilot/claude-sonnet-4.6","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/24 14:54:07","day":"2026-04-24","timeOfDay":"14:54","isAfterHours":false,"sessionId":"f388d915-7ffd-4a7a-8c25-988b8eb11e9e","title":"Agent设计的过度设计问题分析"},{"timestamp":1777010510235,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/24 14:01:50","day":"2026-04-24","timeOfDay":"14:01","isAfterHours":false,"sessionId":"604d347d-2758-4bc8-a24a-2036eccb4018","title":"Agent对话停止功能缺失问题"},{"timestamp":1776997025917,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":231706,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/24 10:17:05","day":"2026-04-24","timeOfDay":"10:17","isAfterHours":false,"sessionId":"50c35739-a4bb-4822-ad7f-21e07c8424f6","title":"Error with initial data loading in Python script"},{"timestamp":1776844820405,"model":"copilot/claude-opus-4.6","promptTokens":45985,"outputTokens":519,"completionTokens":0,"elapsedMs":416888,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/22 16:00:20","day":"2026-04-22","timeOfDay":"16:00","isAfterHours":false,"sessionId":"755ca59b-4aaf-4cfa-9331-fb8d8252ba64","title":"2026年4月测试用例执行分析"},{"timestamp":1776844747460,"model":"copilot/claude-opus-4.6","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/22 15:59:07","day":"2026-04-22","timeOfDay":"15:59","isAfterHours":false,"sessionId":"3ef4c65f-7189-4190-a014-36a0e691f318","title":"Agent design analysis and improvement suggestions"},{"timestamp":1776837939151,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/22 14:05:39","day":"2026-04-22","timeOfDay":"14:05","isAfterHours":false,"sessionId":"e1f565ae-f768-47b9-b9fc-715f67a37594","title":"项目缺陷与测试情况对比分析"},{"timestamp":1776825098255,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":247087,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/22 10:31:38","day":"2026-04-22","timeOfDay":"10:31","isAfterHours":false,"sessionId":"b530ef64-7bf8-46e4-b053-1548a271178b","title":"Uvicorn module not found error"},{"timestamp":1776767666774,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/21 18:34:26","day":"2026-04-21","timeOfDay":"18:34","isAfterHours":true,"sessionId":"1908c191-4c7c-478c-a077-cdac2065f527","title":"本地代码未提交导致的10K+提交问题"},{"timestamp":1776764803367,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/21 17:46:43","day":"2026-04-21","timeOfDay":"17:46","isAfterHours":false,"sessionId":"a338ea4a-ae81-4002-90db-7ded3f8ce94a","title":"Reviewing GitHub agent design improvements"},{"timestamp":1776741114703,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/21 11:11:54","day":"2026-04-21","timeOfDay":"11:11","isAfterHours":false,"sessionId":"03178d82-e4bf-4e51-a7e0-d62c5531ac5c","title":"GLM Proxy Codex Plugin Installation in VS Code"},{"timestamp":1776655448449,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/20 11:24:08","day":"2026-04-20","timeOfDay":"11:24","isAfterHours":false,"sessionId":"d1326626-4c61-42fc-99d1-926bb9cefbf5","title":"GLM proxy connection error troubleshooting"},{"timestamp":1776654081767,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/20 11:01:21","day":"2026-04-20","timeOfDay":"11:01","isAfterHours":false,"sessionId":"37adcef1-e1bf-45ff-86e5-be94c76b5eb1","title":"GLM model failure and alternative options request"},{"timestamp":1776653614871,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":87320,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/20 10:53:34","day":"2026-04-20","timeOfDay":"10:53","isAfterHours":false,"sessionId":"247e03d1-1672-4199-a566-e6c44ee0e3d2","title":"ValueError in FastAPI middleware stack"},{"timestamp":1776418276977,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/17 17:31:16","day":"2026-04-17","timeOfDay":"17:31","isAfterHours":false,"sessionId":"d24919b1-fda8-4bcb-86bb-7c414688d97f","title":"Adding sandbox capabilities for data analysis agent"},{"timestamp":1776409190018,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/17 14:59:50","day":"2026-04-17","timeOfDay":"14:59","isAfterHours":false,"sessionId":"163dd8e3-b188-4213-b8df-a32e357d4a9f","title":"Data analysis request for HTML file"},{"timestamp":1776404863619,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":59375,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/17 13:47:43","day":"2026-04-17","timeOfDay":"13:47","isAfterHours":false,"sessionId":"f87093af-803d-443e-96b0-966de728a512","title":"提交代码到CC GitHub仓库"},{"timestamp":1776402562633,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":49519,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/17 13:09:22","day":"2026-04-17","timeOfDay":"13:09","isAfterHours":false,"sessionId":"b866dade-4bbf-4c82-ad5d-35f71f04dee3","title":"Uvicorn server startup issue inquiry"},{"timestamp":1776327737349,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/16 16:22:17","day":"2026-04-16","timeOfDay":"16:22","isAfterHours":false,"sessionId":"a3351c5f-74e1-4ea9-9e77-d1d951c2e7a6","title":"Defect ticket mapping for team allocation"},{"timestamp":1776323644605,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/16 15:14:04","day":"2026-04-16","timeOfDay":"15:14","isAfterHours":false,"sessionId":"0fba4a55-d064-4a3e-a8f4-b89660141ea9","title":"Ticket transfer time report request"},{"timestamp":1776308121513,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":515833,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/16 10:55:21","day":"2026-04-16","timeOfDay":"10:55","isAfterHours":false,"sessionId":"f47efd43-7865-49c9-9934-40ef45671aa7","title":"Data synchronization failure troubleshooting"},{"timestamp":1776139067358,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/14 11:57:47","day":"2026-04-14","timeOfDay":"11:57","isAfterHours":false,"sessionId":"33948543-0b9b-4efc-8fea-e4d9dac73c7f","title":"GLM proxy connection error troubleshooting"},{"timestamp":1776138953895,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":206613,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/14 11:55:53","day":"2026-04-14","timeOfDay":"11:55","isAfterHours":false,"sessionId":"eeb345e7-5d69-4099-b7b5-8166246a78a7","title":"前端设计技能安装指导"},{"timestamp":1776137959104,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":59683,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/14 11:39:19","day":"2026-04-14","timeOfDay":"11:39","isAfterHours":false,"sessionId":"b887d548-0333-42b5-8f21-227e994c6f14","title":"Codex CLI Configuration Review and Update"},{"timestamp":1776064699637,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/13 15:18:19","day":"2026-04-13","timeOfDay":"15:18","isAfterHours":false,"sessionId":"a4f8d891-1fea-4fd9-b32d-6fdb817c4aa3","title":"Codex installation modification guidance"},{"timestamp":1776062070163,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/13 14:34:30","day":"2026-04-13","timeOfDay":"14:34","isAfterHours":false,"sessionId":"9f8ece4e-b0f5-4b7e-b389-71466cdb9573","title":"Proxy configuration and pip installation error"},{"timestamp":1776059840732,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/13 13:57:20","day":"2026-04-13","timeOfDay":"13:57","isAfterHours":false,"sessionId":"ace757de-5a9e-4e96-baa2-af2ade8516b0","title":"Using ModelScope API for chatbot interactions"},{"timestamp":1775814682897,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/10 17:51:22","day":"2026-04-10","timeOfDay":"17:51","isAfterHours":false,"sessionId":"519f214a-0564-4170-a58c-ee0a57bb6e57","title":"API Key Inquiry"},{"timestamp":1775810521811,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/10 16:42:01","day":"2026-04-10","timeOfDay":"16:42","isAfterHours":false,"sessionId":"401e4025-2ad7-4dec-a5a2-45d163844974","title":"Octane API request and data download guide"},{"timestamp":1775808521576,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":92582,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/10 16:08:41","day":"2026-04-10","timeOfDay":"16:08","isAfterHours":false,"sessionId":"930cfef2-3b16-474a-a9c2-8e998e4001e1","title":"本地未提交代码数量问题"},{"timestamp":1775802515451,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/10 14:28:35","day":"2026-04-10","timeOfDay":"14:28","isAfterHours":false,"sessionId":"fa536737-5f1e-44ce-9bb4-158b73a9e9f5","title":"导出OneNote笔记到Obsidian的方法"},{"timestamp":1775788939631,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":208106,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/10 10:42:19","day":"2026-04-10","timeOfDay":"10:42","isAfterHours":false,"sessionId":"e60aef61-7608-441c-8827-4dde340267a1","title":"项目代理搭建框架与技术架构讨论"},{"timestamp":1775730340832,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":26440,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/09 18:25:40","day":"2026-04-09","timeOfDay":"18:25","isAfterHours":true,"sessionId":"1299c317-0df0-48f4-a36c-ce3ce0bf6b07","title":"问题原因分析"},{"timestamp":1775716660926,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/09 14:37:40","day":"2026-04-09","timeOfDay":"14:37","isAfterHours":false,"sessionId":"b5d084a2-7587-45cb-800d-416de93b3e53","title":"更新qgate技能生成新报告请求"},{"timestamp":1775716153985,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/09 14:29:13","day":"2026-04-09","timeOfDay":"14:29","isAfterHours":false,"sessionId":"2729ceec-77d9-4a8c-a313-00fd0cf598fa","title":"生成静态HTML网页的缺陷分析工具"},{"timestamp":1775636860686,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/08 16:27:40","day":"2026-04-08","timeOfDay":"16:27","isAfterHours":false,"sessionId":"f95fcb4a-0da8-4a3f-b8e3-9e5b64ea91d0","title":"qgate 数据下载与引用问题"},{"timestamp":1775636489516,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/08 16:21:29","day":"2026-04-08","timeOfDay":"16:21","isAfterHours":false,"sessionId":"3de40460-7f07-4e67-8459-c0b9d98c5ea2","title":"测试状态分析中的失败率问题"},{"timestamp":1775636246765,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/08 16:17:26","day":"2026-04-08","timeOfDay":"16:17","isAfterHours":false,"sessionId":"fb370eb6-7ee9-47fc-b307-d148766e61ea","title":"数据库字段理解与SQL生成审查"},{"timestamp":1775629589381,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/08 14:26:29","day":"2026-04-08","timeOfDay":"14:26","isAfterHours":false,"sessionId":"da0c60c0-3cc4-4d2f-92ad-ba318bc6e210","title":"Team Test Case Status Analysis"},{"timestamp":1775615687140,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":495828,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/08 10:34:47","day":"2026-04-08","timeOfDay":"10:34","isAfterHours":false,"sessionId":"969bd302-9c16-49d1-ae23-46ca5aac182c","title":"请求查看完整数据结果"},{"timestamp":1775613088484,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":501183,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/08 09:51:28","day":"2026-04-08","timeOfDay":"09:51","isAfterHours":false,"sessionId":"b2a4c27d-bcf2-431a-8c00-6badc3c35cf1","title":"测试团队效率与缺陷分析"},{"timestamp":1775551699495,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/07 16:48:19","day":"2026-04-07","timeOfDay":"16:48","isAfterHours":false,"sessionId":"757868c8-5cb2-4d0c-8e36-6eda537c240a","title":"移除流式块逻辑与背景思考问题"},{"timestamp":1775547831483,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":319640,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/07 15:43:51","day":"2026-04-07","timeOfDay":"15:43","isAfterHours":false,"sessionId":"89cece76-9202-4e77-969a-db531ac04a74","title":"深度分析报告与优化建议"},{"timestamp":1775547676482,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/07 15:41:16","day":"2026-04-07","timeOfDay":"15:41","isAfterHours":false,"sessionId":"aa8c0cc8-0ed0-45ad-a809-47630d6c55d9","title":"Understanding Machine Learning Algorithms"},{"timestamp":1775210722700,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/03 18:05:22","day":"2026-04-03","timeOfDay":"18:05","isAfterHours":true,"sessionId":"b9779375-1b28-40bb-bab9-263cdb4178e4","title":"Improving defect trends and testing efficiency"},{"timestamp":1775201178437,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/03 15:26:18","day":"2026-04-03","timeOfDay":"15:26","isAfterHours":false,"sessionId":"2346c2fc-b929-466f-a6a0-8ee1de814b52","title":"Agent execution and error handling insights needed"},{"timestamp":1775195538641,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/03 13:52:18","day":"2026-04-03","timeOfDay":"13:52","isAfterHours":false,"sessionId":"82590171-f2fe-42cc-9fed-9ef8d82fc3be","title":"Bun Local Download Confirmation"},{"timestamp":1775186150078,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":277694,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/03 11:15:50","day":"2026-04-03","timeOfDay":"11:15","isAfterHours":false,"sessionId":"59ea83ee-0b8a-46c8-b4e1-1bdc16068d36","title":"Debugging startup errors in Python application"},{"timestamp":1775183878204,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":144589,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/03 10:37:58","day":"2026-04-03","timeOfDay":"10:37","isAfterHours":false,"sessionId":"e401b496-e056-43dc-ab5e-50504ac314cc","title":"Uvicorn ASGI application error troubleshooting"},{"timestamp":1775122099389,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":290586,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/02 17:28:19","day":"2026-04-02","timeOfDay":"17:28","isAfterHours":false,"sessionId":"6b03637f-7ccd-4082-8862-a499e8a3d008","title":"Git clone command failure troubleshooting"},{"timestamp":1775116230171,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":19960,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/02 15:50:30","day":"2026-04-02","timeOfDay":"15:50","isAfterHours":false,"sessionId":"479699cd-4e22-44b1-a00f-5aad45cdb99b","title":"更新代码到 GitHub 和 Gittee"},{"timestamp":1775035146022,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":445428,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/01 17:19:06","day":"2026-04-01","timeOfDay":"17:19","isAfterHours":false,"sessionId":"a769afd6-4e20-4e35-994e-503f372d8eb1","title":"更新Obsidian笔记中的Copilot对话记录"},{"timestamp":1775034941044,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/01 17:15:41","day":"2026-04-01","timeOfDay":"17:15","isAfterHours":false,"sessionId":"b9eb2281-e51d-4d48-b27a-014890b917ad","title":"Downloading Superpower Skill"},{"timestamp":1775034539584,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/01 17:08:59","day":"2026-04-01","timeOfDay":"17:08","isAfterHours":false,"sessionId":"a6a15b23-afad-4c36-b52b-b28f3a683043","title":"测试用例执行情况数据源问题"},{"timestamp":1775030307009,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/01 15:58:27","day":"2026-04-01","timeOfDay":"15:58","isAfterHours":false,"sessionId":"9ecf07aa-df16-4fb6-8ddc-b789a29a5c8c","title":"Code analysis and agent enhancement suggestions"},{"timestamp":1775023882747,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/01 14:11:22","day":"2026-04-01","timeOfDay":"14:11","isAfterHours":false,"sessionId":"1732c517-c813-4dcc-b355-66b9144cb5ae","title":"提交新分支到 GitHub 代码库"},{"timestamp":1775022140846,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/01 13:42:20","day":"2026-04-01","timeOfDay":"13:42","isAfterHours":false,"sessionId":"e06dbf91-1f82-4cce-ae0a-1ca020a07c1e","title":"优化设计与工程实践的反馈请求"},{"timestamp":1775013448078,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/01 11:17:28","day":"2026-04-01","timeOfDay":"11:17","isAfterHours":false,"sessionId":"28d1b054-c4c6-4b0f-949e-a6f4219e048b","title":"Local error troubleshooting for AI model"},{"timestamp":1775009106555,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":309989,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/04/01 10:05:06","day":"2026-04-01","timeOfDay":"10:05","isAfterHours":false,"sessionId":"09807666-772f-4107-ac8f-e3b2985a20b4","title":"Agent design analysis in Codex environment"},{"timestamp":1774948824537,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/31 17:20:24","day":"2026-03-31","timeOfDay":"17:20","isAfterHours":false,"sessionId":"dc0ca1f1-f113-4fe7-a129-e14a6c11ac5c","title":"Agent Design Improvement Suggestions"},{"timestamp":1774942447593,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":22880,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/31 15:34:07","day":"2026-03-31","timeOfDay":"15:34","isAfterHours":false,"sessionId":"60be59bc-ca9a-460b-b633-94bb2161da7d","title":"代码更新到GitHub仓库请求"},{"timestamp":1774941421898,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/31 15:17:01","day":"2026-03-31","timeOfDay":"15:17","isAfterHours":false,"sessionId":"87959a04-6140-4f01-9686-6a97e98282ff","title":"Missing GLM_PROXY_API_KEY Environment Variable"},{"timestamp":1774940914300,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/31 15:08:34","day":"2026-03-31","timeOfDay":"15:08","isAfterHours":false,"sessionId":"2d25d431-c3b0-489e-9068-4fc6e9105b43","title":"PostHog network error troubleshooting in IDE"},{"timestamp":1774935639957,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":533787,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/31 13:40:39","day":"2026-03-31","timeOfDay":"13:40","isAfterHours":false,"sessionId":"dda1e849-2e6f-4bba-981e-99e34c81f04c","title":"缺陷趋势与测试效率改进建议请求"},{"timestamp":1774935392248,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":33018,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/31 13:36:32","day":"2026-03-31","timeOfDay":"13:36","isAfterHours":false,"sessionId":"fedf6a24-c70d-42e2-a5a1-ed7faf0560c5","title":"IDE插件部署后生效问题"},{"timestamp":1774926926566,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/31 11:15:26","day":"2026-03-31","timeOfDay":"11:15","isAfterHours":false,"sessionId":"666be424-3d2e-447a-883e-1f4f56f7462b","title":"Jira Agent Code Design and Data Querying"},{"timestamp":1774923680036,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":324742,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/31 10:21:20","day":"2026-03-31","timeOfDay":"10:21","isAfterHours":false,"sessionId":"0dcb0413-e2e9-4554-a468-c8adf5338379","title":"Historical Data Download Incomplete Analysis"},{"timestamp":1774922009629,"model":"copilot/gemini-2.5-pro","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/31 09:53:29","day":"2026-03-31","timeOfDay":"09:53","isAfterHours":false,"sessionId":"2a395a11-6e2a-4798-b0c6-e4d08c2c8a1a","title":"Setting up Claude chatbot environment"},{"timestamp":1774862931631,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":623335,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/30 17:28:51","day":"2026-03-30","timeOfDay":"17:28","isAfterHours":false,"sessionId":"501be94f-b65f-4f1d-b3b1-a5ff17d4cc82","title":"在本地opencode上使用continue设置"},{"timestamp":1774861622807,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":1271221,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/30 17:07:02","day":"2026-03-30","timeOfDay":"17:07","isAfterHours":false,"sessionId":"48dde8bc-7b79-47e8-a161-5f0f9d4d3a6f","title":"同步代码到GitHub新仓库GLM proxy"},{"timestamp":1774861025713,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/30 16:57:05","day":"2026-03-30","timeOfDay":"16:57","isAfterHours":false,"sessionId":"9d53c202-9b12-4085-9279-365f930987e6","title":"配置API密钥与本地Calude Code安装"},{"timestamp":1774860121159,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/30 16:42:01","day":"2026-03-30","timeOfDay":"16:42","isAfterHours":false,"sessionId":"e381128b-3a76-44d5-8dcf-dd66e46b70d3","title":"Reviewing AI tool updates for agent improvements"},{"timestamp":1774857622513,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":687698,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/30 16:00:22","day":"2026-03-30","timeOfDay":"16:00","isAfterHours":false,"sessionId":"b2510c20-1a29-4990-928d-a3f758be32e3","title":"缺陷趋势与测试效率分析建议"},{"timestamp":1774856066385,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/30 15:34:26","day":"2026-03-30","timeOfDay":"15:34","isAfterHours":false,"sessionId":"72ce8ea1-601f-4e81-8000-6e086f9e37cc","title":"展示工作流进展的对话框设计"},{"timestamp":1774855657559,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/30 15:27:37","day":"2026-03-30","timeOfDay":"15:27","isAfterHours":false,"sessionId":"0a59d36d-1c74-4d98-92e6-58cf00031b5c","title":"配置虚拟环境并下载依赖"},{"timestamp":1774841514546,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/30 11:31:54","day":"2026-03-30","timeOfDay":"11:31","isAfterHours":false,"sessionId":"74e85797-0d07-4548-a5c8-4db2b2042b59","title":"Calling company API in local OpenCode environment"},{"timestamp":1774840783268,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/30 11:19:43","day":"2026-03-30","timeOfDay":"11:19","isAfterHours":false,"sessionId":"4416f4b6-eff3-461e-8e09-52e6ca95fdf2","title":"Untitled session"},{"timestamp":1774840657703,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/30 11:17:37","day":"2026-03-30","timeOfDay":"11:17","isAfterHours":false,"sessionId":"ab315e6c-3c1d-4c3f-b9ab-761f1316758c","title":"Database defect field data storage issue"},{"timestamp":1774840240924,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":306184,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/30 11:10:40","day":"2026-03-30","timeOfDay":"11:10","isAfterHours":false,"sessionId":"0ffe9a71-0f0b-44c1-9e69-1941aa4260a7","title":"Pandas read_excel function error traceback"},{"timestamp":1774605714577,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/27 18:01:54","day":"2026-03-27","timeOfDay":"18:01","isAfterHours":true,"sessionId":"b5dda7e8-05b5-4742-a222-6dafaa022b3a","title":"Downloading Deer-Flow Project to Local Folder"},{"timestamp":1774598620995,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/27 16:03:40","day":"2026-03-27","timeOfDay":"16:03","isAfterHours":false,"sessionId":"99bd73e8-a314-45b7-bb3e-d686aafa10fe","title":"ByteDance Agent Design Insights from Deer-Flow"},{"timestamp":1774519041206,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/26 17:57:21","day":"2026-03-26","timeOfDay":"17:57","isAfterHours":false,"sessionId":"4c7c8414-2a13-472d-bebc-b372dc21e9a6","title":"Accessing Test Case Information from Octane API"},{"timestamp":1774491299366,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/26 10:14:59","day":"2026-03-26","timeOfDay":"10:14","isAfterHours":false,"sessionId":"0b933840-0147-4a4e-a12c-8deb91b8793e","title":"ATC Confluence DTSV 功能介绍"},{"timestamp":1774410692931,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/25 11:51:32","day":"2026-03-25","timeOfDay":"11:51","isAfterHours":false,"sessionId":"a7eb6411-22a0-4602-90f5-c8ddfb04186d","title":"Generating Test Report Skills for Dashboard Automation"},{"timestamp":1774348083451,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/24 18:28:03","day":"2026-03-24","timeOfDay":"18:28","isAfterHours":true,"sessionId":"59a36b06-fc00-451a-bd81-140987e119c2","title":"检查最新分支代码的优化情况"},{"timestamp":1774341691135,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/24 16:41:31","day":"2026-03-24","timeOfDay":"16:41","isAfterHours":false,"sessionId":"638539b0-bf32-4b53-ae7b-cfd881e63503","title":"Integrating Confluence with LLM for Agent Conversations"},{"timestamp":1774333588298,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/24 14:26:28","day":"2026-03-24","timeOfDay":"14:26","isAfterHours":false,"sessionId":"5ae71f13-8221-44c8-a24e-065bddf14cd9","title":"UI Design Optimization Suggestions"},{"timestamp":1774330290730,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/24 13:31:30","day":"2026-03-24","timeOfDay":"13:31","isAfterHours":false,"sessionId":"0b7f1957-9c6e-46ac-9d5b-083e2e9314a0","title":"优化项目数据缓存和加载速度方案"},{"timestamp":1774322467937,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":43922,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/24 11:21:07","day":"2026-03-24","timeOfDay":"11:21","isAfterHours":false,"sessionId":"3f011e0c-94f1-4ab1-985d-3bf4ca21dcb8","title":"Database Defect History Analysis Progress Update"},{"timestamp":1774316195867,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/24 09:36:35","day":"2026-03-24","timeOfDay":"09:36","isAfterHours":false,"sessionId":"0c2a9716-a5b9-4b6d-b785-e04708613419","title":"提票记录查询结果为零"},{"timestamp":1774258124047,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/23 17:28:44","day":"2026-03-23","timeOfDay":"17:28","isAfterHours":false,"sessionId":"827056af-d66c-4f24-9ed3-8b5221a16b23","title":"Integrating Dify Chatflow API with RAG Option"},{"timestamp":1774251433136,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/23 15:37:13","day":"2026-03-23","timeOfDay":"15:37","isAfterHours":false,"sessionId":"b11457be-075b-4972-9252-25d38e03a401","title":"内网访问测试覆盖率分析慢的问题"},{"timestamp":1774237439547,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/23 11:43:59","day":"2026-03-23","timeOfDay":"11:43","isAfterHours":false,"sessionId":"a2f3d52c-b13b-415a-ab7f-cd8a91fb77a6","title":"检查远程仓库分支代码优化情况"},{"timestamp":1773825762244,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/18 17:22:42","day":"2026-03-18","timeOfDay":"17:22","isAfterHours":false,"sessionId":"e0a627e8-fbb9-4210-9907-8e3d10dc6e7e","title":"Git commit error in VS Code"},{"timestamp":1773825465607,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/18 17:17:45","day":"2026-03-18","timeOfDay":"17:17","isAfterHours":false,"sessionId":"d80e68c3-a912-41f4-830e-02bcad1a8695","title":"Designing an SQL Agent for Automotive Data Analysis"},{"timestamp":1773824955755,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":41437,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/18 17:09:15","day":"2026-03-18","timeOfDay":"17:09","isAfterHours":false,"sessionId":"b344b0c1-3982-4334-a3e4-818d1c4c357b","title":"SyntaxError in f-string usage"},{"timestamp":1773744219669,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/17 18:43:39","day":"2026-03-17","timeOfDay":"18:43","isAfterHours":true,"sessionId":"9512523d-7d9c-479d-a0c7-9f03e980e531","title":"大模型调用失败原因分析"},{"timestamp":1773738242769,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/17 17:04:02","day":"2026-03-17","timeOfDay":"17:04","isAfterHours":false,"sessionId":"532f0cc5-1cf7-4385-982d-de23d793a23b","title":"Chat interface design for AI assistant integration"},{"timestamp":1773727671798,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":26555,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/17 14:07:51","day":"2026-03-17","timeOfDay":"14:07","isAfterHours":false,"sessionId":"b852d92a-f96d-4ba8-9e37-c8c4d5806723","title":"搭建数据分析智能体的建议"},{"timestamp":1773726184328,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/17 13:43:04","day":"2026-03-17","timeOfDay":"13:43","isAfterHours":false,"sessionId":"ba0f2366-3120-41dc-888e-41e507bbad96","title":"测试人员和项目失败率分析"},{"timestamp":1773722758264,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":56486,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/17 12:45:58","day":"2026-03-17","timeOfDay":"12:45","isAfterHours":false,"sessionId":"16901b69-8164-46cf-8d75-fef5a1a574ea","title":"Dash application error handling issue"},{"timestamp":1773721817431,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":6818,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/17 12:30:17","day":"2026-03-17","timeOfDay":"12:30","isAfterHours":false,"sessionId":"af73bf95-b5b1-428a-9d2c-2b67e27c900c","title":"数据分析项目流程概述"},{"timestamp":1773717466250,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/17 11:17:46","day":"2026-03-17","timeOfDay":"11:17","isAfterHours":false,"sessionId":"d790beb5-c6ae-48e7-8aab-8ce8a9d2a935","title":"实时查询数据库的智能代理设计"},{"timestamp":1773714214721,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":84117,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/17 10:23:34","day":"2026-03-17","timeOfDay":"10:23","isAfterHours":false,"sessionId":"c0508cc6-db65-4b96-990f-e47056b19583","title":"Git commit to testagent branch request"},{"timestamp":1773710727889,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":246771,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/17 09:25:27","day":"2026-03-17","timeOfDay":"09:25","isAfterHours":false,"sessionId":"0445074a-cb59-4e4c-9fb9-8663e1f6c995","title":"本地数据库表使用情况与优化建议"},{"timestamp":1773656701456,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":25496,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/16 18:25:01","day":"2026-03-16","timeOfDay":"18:25","isAfterHours":true,"sessionId":"1b6d560f-f481-4092-aad1-d342445e523d","title":"内网看板并发用户性能优化问题"},{"timestamp":1773653454235,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":11763,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/16 17:30:54","day":"2026-03-16","timeOfDay":"17:30","isAfterHours":false,"sessionId":"eccd153a-6543-45a0-bbea-2776fe79571f","title":"Automating Octane Data Loading for Defect Explore"},{"timestamp":1773650473418,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":156689,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/16 16:41:13","day":"2026-03-16","timeOfDay":"16:41","isAfterHours":false,"sessionId":"1fadcde5-8898-4bdb-81ad-8335df14c477","title":"更新模型至 DeepSsek v3.2 的请求"},{"timestamp":1773649440876,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/16 16:24:00","day":"2026-03-16","timeOfDay":"16:24","isAfterHours":false,"sessionId":"05ef4914-9198-4772-8d7c-ec00955cb76f","title":"Octane downloader database update inquiry"},{"timestamp":1773629581834,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/16 10:53:01","day":"2026-03-16","timeOfDay":"10:53","isAfterHours":false,"sessionId":"e1d5b3c0-cbb8-4eb6-a41a-66228dce904b","title":"Comparing defect_explore and defect_explore7 functionality"},{"timestamp":1773392772590,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/13 17:06:12","day":"2026-03-13","timeOfDay":"17:06","isAfterHours":false,"sessionId":"2872780a-c193-44ee-a3e2-3f1345986d43","title":"Default Database Reading in Defect Explore7"},{"timestamp":1773391472580,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/13 16:44:32","day":"2026-03-13","timeOfDay":"16:44","isAfterHours":false,"sessionId":"a7580d2d-57e9-4714-a94f-e008f77166b6","title":"Accessing Dify workflows via Dify API"},{"timestamp":1773384611746,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/13 14:50:11","day":"2026-03-13","timeOfDay":"14:50","isAfterHours":false,"sessionId":"2e2a8ff5-45e6-4672-a352-e6f52cfc4196","title":"Creating KPI Dashboard from qgate.py Data Analysis"},{"timestamp":1773372011495,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/13 11:20:11","day":"2026-03-13","timeOfDay":"11:20","isAfterHours":false,"sessionId":"fba41288-063f-41f8-b06f-6b3e300bf74e","title":"Data Dashboard Generation from Qgate Analysis Results"},{"timestamp":1773306660890,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/12 17:11:00","day":"2026-03-12","timeOfDay":"17:11","isAfterHours":false,"sessionId":"d7b85d5a-3935-4f6f-9b62-d0cfb881bbd4","title":"优化内网访问体验的建议"},{"timestamp":1773298247052,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/12 14:50:47","day":"2026-03-12","timeOfDay":"14:50","isAfterHours":false,"sessionId":"96af7bb9-36c0-4cf4-8c33-3facde192da9","title":"上传TPMDashboard文件到空仓库"},{"timestamp":1773295057643,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/12 13:57:37","day":"2026-03-12","timeOfDay":"13:57","isAfterHours":false,"sessionId":"0ee38597-85b7-44d1-a532-adf88f8dffc8","title":"Matrix display issue in filter settings"},{"timestamp":1773211174331,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/11 14:39:34","day":"2026-03-11","timeOfDay":"14:39","isAfterHours":false,"sessionId":"bb73f7f4-2e27-4111-a333-a01394290a49","title":"Untitled session"},{"timestamp":1773136319822,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/10 17:51:59","day":"2026-03-10","timeOfDay":"17:51","isAfterHours":false,"sessionId":"266a706b-8ff0-4f9e-9cac-09be3f87b1f5","title":"Organizing project files and directories"},{"timestamp":1773128386384,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":248237,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/10 15:39:46","day":"2026-03-10","timeOfDay":"15:39","isAfterHours":false,"sessionId":"f75be331-1bb2-4559-8029-3b49d58b0554","title":"Optimizing data loading for project filters"},{"timestamp":1773127333387,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/10 15:22:13","day":"2026-03-10","timeOfDay":"15:22","isAfterHours":false,"sessionId":"d562cc89-7c1e-470e-9b4c-c4e8451ace34","title":"Update API call from R1 to V3.2"},{"timestamp":1773127304905,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":21200,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/10 15:21:44","day":"2026-03-10","timeOfDay":"15:21","isAfterHours":false,"sessionId":"d562cc89-7c1e-470e-9b4c-c4e8451ace34","title":"Update API call from R1 to V3.2"},{"timestamp":1773113754101,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":217072,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/10 11:35:54","day":"2026-03-10","timeOfDay":"11:35","isAfterHours":false,"sessionId":"7d1ba3be-8257-4790-9aab-046d6a50e41a","title":"Project cache logic review and improvement suggestions"},{"timestamp":1773109051933,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/10 10:17:31","day":"2026-03-10","timeOfDay":"10:17","isAfterHours":false,"sessionId":"ebda2bb9-8284-44ac-aa7f-f728e4572307","title":"Octane session cookie validation failure troubleshooting"},{"timestamp":1773052321637,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/09 18:32:01","day":"2026-03-09","timeOfDay":"18:32","isAfterHours":true,"sessionId":"350c0e44-5c21-40a7-ae43-18a5eca4c29d","title":"Adding year option to octane_downloader.py"},{"timestamp":1773051547023,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/09 18:19:07","day":"2026-03-09","timeOfDay":"18:19","isAfterHours":true,"sessionId":"2abfc61f-6167-42e9-9450-232996b8446b","title":"Playwright navigation error troubleshooting"},{"timestamp":1773050951249,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/09 18:09:11","day":"2026-03-09","timeOfDay":"18:09","isAfterHours":true,"sessionId":"9268dad7-bbad-461c-833c-9bf488490e03","title":"Error during JSON data processing"},{"timestamp":1773049827314,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/09 17:50:27","day":"2026-03-09","timeOfDay":"17:50","isAfterHours":false,"sessionId":"38bc5af2-26c2-4354-9a08-1700ab2078a0","title":"Untitled session"},{"timestamp":1773047344371,"model":"copilot/gpt-5.4","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/09 17:09:04","day":"2026-03-09","timeOfDay":"17:09","isAfterHours":false,"sessionId":"90d946a4-6c49-4a34-a131-495bd7178c78","title":"Playwright cookie management troubleshooting"},{"timestamp":1772698821900,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/05 16:20:21","day":"2026-03-05","timeOfDay":"16:20","isAfterHours":false,"sessionId":"7b0cd97f-6cfa-49c6-87c0-e1230b9bcb23","title":"下载2024年缺陷MR和历史数据请求"},{"timestamp":1772678385777,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":18599,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/05 10:39:45","day":"2026-03-05","timeOfDay":"10:39","isAfterHours":false,"sessionId":"fbd80050-0786-4c10-ad34-095fd328a95a","title":"Automating ticket creation in Octane system"},{"timestamp":1772530803433,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/03 17:40:03","day":"2026-03-03","timeOfDay":"17:40","isAfterHours":false,"sessionId":"8d494788-a1b6-4a3a-9256-239d3feb6d57","title":"Automating Octane Login and Cookie Storage Script"},{"timestamp":1772519194813,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/03 14:26:34","day":"2026-03-03","timeOfDay":"14:26","isAfterHours":false,"sessionId":"b4b14bf9-e1fa-41e8-ad79-f7a49335afaf","title":"Automating Octane Login and Cookie Storage"},{"timestamp":1772516229181,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/03/03 13:37:09","day":"2026-03-03","timeOfDay":"13:37","isAfterHours":false,"sessionId":"b35bd5a2-fbdb-4734-a089-f1890aba1f3b","title":"AI Chat Performance and Data Loading Issues"},{"timestamp":1772265765006,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":9650,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/02/28 16:02:45","day":"2026-02-28","timeOfDay":"16:02","isAfterHours":true,"sessionId":"f2a4d38f-f6d1-4965-90b4-ae763deb5f8f","title":"识别重复问题的agent机制"},{"timestamp":1772184803335,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":179450,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/02/27 17:33:23","day":"2026-02-27","timeOfDay":"17:33","isAfterHours":false,"sessionId":"4774902e-2516-4121-9354-ddbd7b04e1ac","title":"Python script import issue on Windows"},{"timestamp":1772184457844,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":83181,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/02/27 17:27:37","day":"2026-02-27","timeOfDay":"17:27","isAfterHours":false,"sessionId":"4774902e-2516-4121-9354-ddbd7b04e1ac","title":"Python script import issue on Windows"},{"timestamp":1772184010654,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":33388,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/02/27 17:20:10","day":"2026-02-27","timeOfDay":"17:20","isAfterHours":false,"sessionId":"4774902e-2516-4121-9354-ddbd7b04e1ac","title":"Python script import issue on Windows"},{"timestamp":1772183924043,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":35208,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/02/27 17:18:44","day":"2026-02-27","timeOfDay":"17:18","isAfterHours":false,"sessionId":"4774902e-2516-4121-9354-ddbd7b04e1ac","title":"Python script import issue on Windows"},{"timestamp":1772183210744,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":144377,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/02/27 17:06:50","day":"2026-02-27","timeOfDay":"17:06","isAfterHours":false,"sessionId":"4774902e-2516-4121-9354-ddbd7b04e1ac","title":"Python script import issue on Windows"},{"timestamp":1772183020579,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":99249,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/02/27 17:03:40","day":"2026-02-27","timeOfDay":"17:03","isAfterHours":false,"sessionId":"4774902e-2516-4121-9354-ddbd7b04e1ac","title":"Python script import issue on Windows"},{"timestamp":1772179249152,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":41059,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/02/27 16:00:49","day":"2026-02-27","timeOfDay":"16:00","isAfterHours":false,"sessionId":"4774902e-2516-4121-9354-ddbd7b04e1ac","title":"Python script import issue on Windows"},{"timestamp":1772178637994,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":450359,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/02/27 15:50:37","day":"2026-02-27","timeOfDay":"15:50","isAfterHours":false,"sessionId":"4774902e-2516-4121-9354-ddbd7b04e1ac","title":"Python script import issue on Windows"},{"timestamp":1772177977137,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":114167,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/02/27 15:39:37","day":"2026-02-27","timeOfDay":"15:39","isAfterHours":false,"sessionId":"4774902e-2516-4121-9354-ddbd7b04e1ac","title":"Python script import issue on Windows"},{"timestamp":1772177450005,"model":"copilot/auto","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":33408,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/02/27 15:30:50","day":"2026-02-27","timeOfDay":"15:30","isAfterHours":false,"sessionId":"4774902e-2516-4121-9354-ddbd7b04e1ac","title":"Python script import issue on Windows"},{"timestamp":1770274653864,"model":"unknown","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":21307,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/02/05 14:57:33","day":"2026-02-05","timeOfDay":"14:57","isAfterHours":false,"sessionId":"0146032c-779e-424e-a74e-3ea5e21ef5bd","title":"Downloading data from integrate.bmwgroup.net API"},{"timestamp":1770274506519,"model":"unknown","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":27571,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/02/05 14:55:06","day":"2026-02-05","timeOfDay":"14:55","isAfterHours":false,"sessionId":"0146032c-779e-424e-a74e-3ea5e21ef5bd","title":"Downloading data from integrate.bmwgroup.net API"},{"timestamp":1770274412606,"model":"unknown","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":52137,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/02/05 14:53:32","day":"2026-02-05","timeOfDay":"14:53","isAfterHours":false,"sessionId":"0146032c-779e-424e-a74e-3ea5e21ef5bd","title":"Downloading data from integrate.bmwgroup.net API"},{"timestamp":1770274315258,"model":"unknown","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":94921,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/02/05 14:51:55","day":"2026-02-05","timeOfDay":"14:51","isAfterHours":false,"sessionId":"0146032c-779e-424e-a74e-3ea5e21ef5bd","title":"Downloading data from integrate.bmwgroup.net API"},{"timestamp":1770273949427,"model":"unknown","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":123489,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/02/05 14:45:49","day":"2026-02-05","timeOfDay":"14:45","isAfterHours":false,"sessionId":"0146032c-779e-424e-a74e-3ea5e21ef5bd","title":"Downloading data from integrate.bmwgroup.net API"},{"timestamp":1770273853099,"model":"unknown","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":66378,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/02/05 14:44:13","day":"2026-02-05","timeOfDay":"14:44","isAfterHours":false,"sessionId":"0146032c-779e-424e-a74e-3ea5e21ef5bd","title":"Downloading data from integrate.bmwgroup.net API"},{"timestamp":1770273827555,"model":"unknown","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":23487,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/02/05 14:43:47","day":"2026-02-05","timeOfDay":"14:43","isAfterHours":false,"sessionId":"0146032c-779e-424e-a74e-3ea5e21ef5bd","title":"Downloading data from integrate.bmwgroup.net API"},{"timestamp":1770273644179,"model":"unknown","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":23126,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/02/05 14:40:44","day":"2026-02-05","timeOfDay":"14:40","isAfterHours":false,"sessionId":"0146032c-779e-424e-a74e-3ea5e21ef5bd","title":"Downloading data from integrate.bmwgroup.net API"},{"timestamp":1770273615015,"model":"unknown","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":23487,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/02/05 14:40:15","day":"2026-02-05","timeOfDay":"14:40","isAfterHours":false,"sessionId":"0146032c-779e-424e-a74e-3ea5e21ef5bd","title":"Downloading data from integrate.bmwgroup.net API"},{"timestamp":1770273584504,"model":"unknown","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":22931,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/02/05 14:39:44","day":"2026-02-05","timeOfDay":"14:39","isAfterHours":false,"sessionId":"0146032c-779e-424e-a74e-3ea5e21ef5bd","title":"Downloading data from integrate.bmwgroup.net API"},{"timestamp":1770272595500,"model":"unknown","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":176713,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2026/02/05 14:23:15","day":"2026-02-05","timeOfDay":"14:23","isAfterHours":false,"sessionId":"0146032c-779e-424e-a74e-3ea5e21ef5bd","title":"Downloading data from integrate.bmwgroup.net API"},{"timestamp":1767086803526,"model":"copilot/gpt-5.3-codex","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2025/12/30 17:26:43","day":"2025-12-30","timeOfDay":"17:26","isAfterHours":false,"sessionId":"06f7be78-ef34-41df-bff6-1dbe01496697","title":"Untitled session"},{"timestamp":1765533504651,"model":"unknown","promptTokens":0,"outputTokens":0,"completionTokens":0,"elapsedMs":0,"pricing":{"inputCost":0,"outputCost":0},"estimatedCost":0,"localTime":"2025/12/12 17:58:24","day":"2025-12-12","timeOfDay":"17:58","isAfterHours":false,"sessionId":"4af73394-e6e4-4475-bc0b-eb16bb0864da","title":"Untitled session"}]</script>
+    <script>
+      const usageEvents = JSON.parse(document.getElementById("usage-events-data").textContent);
+      const eventsBody = document.getElementById("usage-events-body");
+      const countLabel = document.getElementById("usage-events-count");
+      const startDateInput = document.getElementById("start-date-filter");
+      const endDateInput = document.getElementById("end-date-filter");
+      const afterTimeInput = document.getElementById("after-time-filter");
+      const afterHoursOnlyInput = document.getElementById("after-hours-only-filter");
+
+      function escapeText(value) {
+        return String(value ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
+      }
+
+      function formatElapsed(ms) {
+        const totalMs = Number(ms || 0);
+        const totalSeconds = Math.floor(totalMs / 1000);
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        const seconds = totalSeconds % 60;
+
+        if (hours > 0) {
+          return hours + "h " + minutes + "m " + seconds + "s";
+        }
+
+        if (minutes > 0) {
+          return minutes + "m " + seconds + "s";
+        }
+
+        return seconds + "s";
+      }
+
+      function renderUsageEvents() {
+        const startDate = startDateInput.value;
+        const endDate = endDateInput.value;
+        const afterTime = afterTimeInput.value;
+        const afterHoursOnly = afterHoursOnlyInput.checked;
+
+        const filtered = usageEvents.filter((event) => {
+          if (startDate && event.day < startDate) {
+            return false;
+          }
+          if (endDate && event.day > endDate) {
+            return false;
+          }
+          if (afterTime && event.timeOfDay < afterTime) {
+            return false;
+          }
+          if (afterHoursOnly && !event.isAfterHours) {
+            return false;
+          }
+          return true;
+        });
+
+        const limited = filtered.slice(0, 500);
+
+        countLabel.textContent = limited.length + " events shown / " + usageEvents.length + " total timestamped events";
+        eventsBody.innerHTML = limited.map((event) => {
+          return "<tr>"
+            + "<td>" + escapeText(event.localTime) + "</td>"
+            + "<td>" + escapeText(event.model) + "</td>"
+            + "<td>$" + Number(event.estimatedCost || 0).toFixed(4) + "</td>"
+            + "<td>" + Number(event.promptTokens || 0).toLocaleString("en-US") + "</td>"
+            + "<td>" + escapeText(formatElapsed(event.elapsedMs || 0)) + "</td>"
+            + "</tr>";
+        }).join("");
+      }
+
+      [startDateInput, endDateInput, afterTimeInput, afterHoursOnlyInput].forEach((input) => {
+        input.addEventListener("input", renderUsageEvents);
+        input.addEventListener("change", renderUsageEvents);
+      });
+
+      renderUsageEvents();
+    </script>
+  </body>
+</html>

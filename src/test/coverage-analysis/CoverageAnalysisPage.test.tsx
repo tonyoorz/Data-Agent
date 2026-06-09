@@ -74,7 +74,7 @@ vi.mock("recharts", async () => {
       onClick,
     }: {
       name?: string;
-      data?: Array<{ selectionValue?: string }>;
+      data?: Array<{ selectionValue?: string; tooltipTitle?: string }>;
       onClick?: (value: { payload?: { selectionValue?: string } }) => void;
     }) => {
       const firstRow = data?.[0];
@@ -86,6 +86,7 @@ vi.mock("recharts", async () => {
       return (
         <button
           type="button"
+          title={firstRow.tooltipTitle}
           onClick={() => onClick?.({ payload: { selectionValue: firstRow.selectionValue } })}
         >
           {`Select ${firstRow.selectionValue} for ${name ?? "scatter"}`}
@@ -179,6 +180,8 @@ function createCoverageAnalysisFetchMock() {
           top_aida: "Use Speech operation [01.04.02.01.01.05]",
           project: "IDCEVO",
           pu: "PU1",
+          fvp: "Voice Experience",
+          fv: "Speech",
           tester: "Tester-A",
           count: 1,
         },
@@ -213,7 +216,8 @@ describe("CoverageAnalysis page", () => {
     expect(screen.getByText("图表 2: 按 Top AIDA 和测试周分类的状态")).toBeInTheDocument();
     expect(screen.getByText("图表 3: 按测试用例和测试周分类的状态")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Reset coverage filters" })).toHaveTextContent("清空筛选");
-    expect(screen.getAllByTestId("recharts-scatter-chart")).toHaveLength(2);
+    expect(screen.getByTestId("coverage-analysis-filter-grid").className).toContain("lg:grid-cols-5");
+    expect(screen.getAllByTestId("recharts-scatter-chart")).toHaveLength(3);
   });
 
   it("defaults the Year filter to the current TPMDashboard year when available", async () => {
@@ -237,6 +241,30 @@ describe("CoverageAnalysis page", () => {
       .filter((url) => url.includes("/api/testing/coverage-analysis/testcase-detail"));
     testcaseDetailUrls.forEach((url) => {
       expect(url).toContain("limit=500");
+    });
+  });
+
+  it("defers filter refresh until the user applies multi-select changes", async () => {
+    const fetchMock = createCoverageAnalysisFetchMock();
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderCoverageAnalysis();
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("FV filter")).toHaveTextContent("全部");
+      expect(fetchMock).toHaveBeenCalledTimes(5);
+    });
+
+    fireEvent.click(screen.getByLabelText("FV filter"));
+    fireEvent.click(await screen.findByLabelText("FV Media"));
+
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+
+    fireEvent.click(screen.getByRole("button", { name: "应用筛选" }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("FV filter")).toHaveTextContent("Media");
+      expect(fetchMock).toHaveBeenCalledTimes(9);
     });
   });
 
@@ -425,18 +453,26 @@ describe("CoverageAnalysis page", () => {
           top_aida: "Use Speech operation [01.04.02.01.01.05]",
           project: "IDCEVO",
           pu: "PU1",
+          fvp: "Voice Experience",
+          fv: "Speech",
           tester: "Tester-A",
           count: 1,
         },
       ]),
     );
 
-    expect((await screen.findAllByText("Wake word test")).length).toBeGreaterThan(0);
+    await waitFor(() => {
+      expect(screen.getAllByTestId("recharts-scatter-chart")).toHaveLength(3);
+    });
+    expect(screen.getByRole("button", { name: "导出Excel" })).toBeInTheDocument();
   });
 
-  it("renders the chart-3 testcase execution matrix with week columns and summary stats", async () => {
+  it("renders chart 3 as a testcase bubble scatter without the legacy detail table", async () => {
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+
+      const longTestName =
+        "Wake word test with an intentionally very long testcase name that should stay fully visible in hover";
 
       if (url.includes("/api/testing/coverage-analysis/filters")) {
         return createJsonResponse({
@@ -492,12 +528,14 @@ describe("CoverageAnalysis page", () => {
         return createJsonResponse([
           {
             test_id: "T-1",
-            test_name: "Wake word test",
+            test_name: longTestName,
             test_week: "2026-CW20",
             status: "Passed",
             top_aida: "Use Speech operation [01.04.02.01.01.05]",
             project: "IDCEVO",
             pu: "PU1",
+            fvp: "Voice Experience",
+            fv: "Speech",
             tester: "Tester-A",
             count: 1,
           },
@@ -509,6 +547,8 @@ describe("CoverageAnalysis page", () => {
             top_aida: "Use Speech operation [01.04.02.01.01.05]",
             project: "IDCEVO",
             pu: "PU1",
+            fvp: "Voice Experience",
+            fv: "Speech",
             tester: "Tester-A",
             count: 1,
           },
@@ -520,6 +560,8 @@ describe("CoverageAnalysis page", () => {
             top_aida: "Use Speech operation [01.04.02.01.01.05]",
             project: "IDCEVO",
             pu: "PU1",
+            fvp: "Voice Experience",
+            fv: "Speech",
             tester: "Tester-B",
             count: 1,
           },
@@ -532,11 +574,86 @@ describe("CoverageAnalysis page", () => {
 
     renderCoverageAnalysis();
 
-    expect(await screen.findByRole("columnheader", { name: "2026-CW20" })).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "2026-CW21" })).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "Test Frequency" })).toBeInTheDocument();
-    expect(screen.getByRole("columnheader", { name: "Pass Rate" })).toBeInTheDocument();
-    expect(screen.getAllByText("Wake word test").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("50%").length).toBeGreaterThan(0);
+    await waitFor(() => {
+      expect(screen.getAllByTestId("recharts-scatter-chart")).toHaveLength(3);
+    });
+
+    expect(screen.queryByRole("columnheader", { name: "Test Frequency" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "Pass Rate" })).not.toBeInTheDocument();
+    expect(screen.queryByText("执行明细")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "导出Excel" })).toBeInTheDocument();
+    expect(
+      screen.getByTitle(/Wake word test with an intentionally very long testcase name that should stay fully visible in hover/),
+    ).toBeInTheDocument();
+  });
+
+  it("paginates chart 3 testcase labels after 100 entries", async () => {
+    const testcaseRows = Array.from({ length: 130 }, (_, index) => ({
+      test_id: `T-${index + 1}`,
+      test_name: `Testcase ${index + 1}`,
+      test_week: "2026-CW21",
+      status: index % 3 === 0 ? "Failed" : "Passed",
+      top_aida: `AIDA-${(index % 5) + 1}`,
+      project: "IDCEVO",
+      pu: "PU1",
+      fvp: "Voice Experience",
+      fv: "Speech",
+      tester: `Tester-${index + 1}`,
+      count: 1,
+    }));
+
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+
+      if (url.includes("/api/testing/coverage-analysis/filters")) {
+        return createJsonResponse({
+          years: ["2026"],
+          projects: ["IDCEVO"],
+          test_weeks: ["2026-CW21"],
+          pus: ["PU1"],
+          aidas: ["AIDA-1", "AIDA-2", "AIDA-3", "AIDA-4", "AIDA-5"],
+          statuses: ["Passed", "Failed"],
+          feature_regions: ["China Specific"],
+          fvps: ["Voice Experience"],
+          fvs: ["Speech"],
+        });
+      }
+
+      if (url.includes("/api/testing/coverage-analysis/project-status")) {
+        return createJsonResponse([
+          {
+            test_week: "2026-CW21",
+            fv: "Speech",
+            fvp: "Voice Experience",
+            status: "Passed",
+            count: 130,
+          },
+        ]);
+      }
+
+      if (url.includes("/api/testing/coverage-analysis/aida-status")) {
+        return createJsonResponse([
+          {
+            test_week: "2026-CW21",
+            top_aida: "AIDA-1",
+            status: "Passed",
+            count: 26,
+          },
+        ]);
+      }
+
+      if (url.includes("/api/testing/coverage-analysis/testcase-detail")) {
+        return createJsonResponse(testcaseRows);
+      }
+
+      throw new Error(`Unhandled fetch URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderCoverageAnalysis();
+
+    expect(await screen.findByText("Page 1 of 2")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Next page" }));
+    expect(await screen.findByText("Page 2 of 2")).toBeInTheDocument();
   });
 });

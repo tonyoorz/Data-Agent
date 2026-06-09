@@ -598,6 +598,8 @@ def build_testcase_detail_rows(query_params: Any) -> list[dict[str, object]]:
             "top_aida",
             "project",
             "pu",
+            "fvp",
+            "fv",
             "tester",
         ),
         order_columns=(
@@ -608,6 +610,8 @@ def build_testcase_detail_rows(query_params: Any) -> list[dict[str, object]]:
             "top_aida",
             "project",
             "pu",
+            "fvp",
+            "fv",
             "tester",
         ),
         limit=_get_positive_int_query_param(query_params, "limit"),

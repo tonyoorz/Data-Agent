@@ -15,6 +15,7 @@ from backend.analytics.read_models import (
     build_filter_metadata,
     build_full_picture_payload,
     build_full_picture_summary_payload,
+    build_top_issue_analysis_payload,
     build_testing_summary,
     list_full_picture_ticket_rows,
     list_runs,
@@ -88,6 +89,21 @@ def full_picture_dashboard_summary(request: Request) -> JSONResponse:
 def full_picture_dashboard_tickets(request: Request) -> JSONResponse:
     try:
         payload = list_full_picture_ticket_rows(**_full_picture_query_params(request))
+    except FullPictureDashboardDataError:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "analytics database not initialized"},
+        )
+    except FullPictureDashboardRequestError as exc:
+        status_code = 409 if "snapshot" in str(exc).lower() else 400
+        return JSONResponse(status_code=status_code, content={"error": str(exc)})
+    return JSONResponse(status_code=200, content=payload)
+
+
+@app.get("/api/full-picture/top-issue-analysis")
+def full_picture_top_issue_analysis(request: Request) -> JSONResponse:
+    try:
+        payload = build_top_issue_analysis_payload(**_full_picture_query_params(request))
     except FullPictureDashboardDataError:
         return JSONResponse(
             status_code=503,

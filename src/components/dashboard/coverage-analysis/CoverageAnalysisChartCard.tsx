@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 import {
   CartesianGrid,
   Legend,
@@ -10,14 +12,16 @@ import {
   ZAxis,
 } from "recharts";
 
-const chartPalette = [
-  "hsl(210 70% 52%)",
-  "hsl(152 60% 40%)",
-  "hsl(32 92% 54%)",
-  "hsl(350 78% 60%)",
-  "hsl(262 65% 58%)",
-  "hsl(188 72% 42%)",
-];
+const statusColors: Record<string, string> = {
+  Passed: "#98ee99",
+  Failed: "#a42c35",
+  Blocked: "#f4b16e",
+  "Requires Attention": "#f4b16e",
+  "In Progress": "#55d3e8",
+  Planned: "#cbd5e1",
+  Skipped: "#d4d4d8",
+  Unknown: "#94a3b8",
+};
 
 export type CoverageAnalysisChartDatum = {
   xValue: string;
@@ -26,6 +30,11 @@ export type CoverageAnalysisChartDatum = {
   status: string;
   count: number;
   seriesLabel?: string;
+  tooltipTitle?: string;
+  tooltipFields?: Array<{
+    label: string;
+    value: string | number;
+  }>;
 };
 
 type CoverageAnalysisChartCardProps = {
@@ -36,18 +45,26 @@ type CoverageAnalysisChartCardProps = {
   densityNote?: string;
   emptyMessage: string;
   onSelectValue?: (value: string) => void;
+  actions?: ReactNode;
+  variant?: "overview" | "detail";
+  yAxisOrder?: string[];
+  footer?: ReactNode;
 };
 
-function truncateTickLabel(value: string) {
-  if (value.length <= 28) {
+function truncateTickLabel(value: string, maxLength: number) {
+  if (value.length <= maxLength) {
     return value;
   }
 
-  return `${value.slice(0, 27)}...`;
+  return `${value.slice(0, Math.max(maxLength - 1, 1))}...`;
 }
 
-function getChartHeight(rowCount: number) {
-  return Math.min(Math.max(rowCount * 42, 320), 620);
+function getChartHeight(rowCount: number, variant: "overview" | "detail") {
+  if (variant === "detail") {
+    return Math.min(Math.max(rowCount * 22 + 180, 640), 1280);
+  }
+
+  return Math.min(Math.max(rowCount * 34 + 140, 420), 840);
 }
 
 function parseTestWeekSortKey(testWeek: string) {
@@ -77,23 +94,42 @@ function compareTestWeek(left: string, right: string) {
   return left.localeCompare(right);
 }
 
+function resolveStatusColor(status: string) {
+  return statusColors[status] ?? statusColors.Unknown;
+}
+
 type CoverageAnalysisScatterPoint = CoverageAnalysisChartDatum & {
   xIndex: number;
   yIndex: number;
 };
 
-function buildScatterRows(rows: CoverageAnalysisChartDatum[]) {
+type CoverageAnalysisAxisTickProps = {
+  x?: number;
+  y?: number;
+  payload?: {
+    value?: number;
+  };
+  fullLabel: string;
+  truncatedLabel: string;
+  fontSize: number;
+};
+
+function buildScatterRows(rows: CoverageAnalysisChartDatum[], yAxisOrder?: string[]) {
   const xValues = Array.from(new Set(rows.map((row) => row.xValue))).sort(compareTestWeek);
-  const categoryTotals = new Map<string, number>();
+  const yValues = yAxisOrder?.length
+    ? yAxisOrder.filter((value) => rows.some((row) => row.yValue === value))
+    : (() => {
+        const categoryTotals = new Map<string, number>();
 
-  rows.forEach((row) => {
-    categoryTotals.set(row.yValue, (categoryTotals.get(row.yValue) ?? 0) + row.count);
-  });
+        rows.forEach((row) => {
+          categoryTotals.set(row.yValue, (categoryTotals.get(row.yValue) ?? 0) + row.count);
+        });
 
-  const yValues = Array.from(categoryTotals.entries())
-    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
-    .map(([category]) => category)
-    .reverse();
+        return Array.from(categoryTotals.entries())
+          .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+          .map(([category]) => category)
+          .reverse();
+      })();
 
   const xIndexMap = new Map(xValues.map((value, index) => [value, index]));
   const yIndexMap = new Map(yValues.map((value, index) => [value, index]));
@@ -120,14 +156,42 @@ function CoverageAnalysisTooltip({
   }
 
   return (
-    <div className="rounded-xl border border-border/80 bg-background px-3 py-2 text-xs shadow-lg">
-      <div className="font-medium text-foreground">{point.yValue}</div>
+    <div className="rounded-xl border border-slate-300/90 bg-white px-3 py-2 text-xs shadow-lg">
+      <div className="font-medium text-slate-900">{point.tooltipTitle ?? point.yValue}</div>
       <div className="mt-1 space-y-1 text-muted-foreground">
         <div>测试周: {point.xValue}</div>
         <div>状态: {point.status}</div>
         <div>数量: {point.count}</div>
+        {point.tooltipFields?.map((field) => (
+          <div key={`${field.label}-${field.value}`}>{field.label}: {field.value}</div>
+        ))}
       </div>
     </div>
+  );
+}
+
+function CoverageAnalysisYAxisTick({
+  x = 0,
+  y = 0,
+  fullLabel,
+  truncatedLabel,
+  fontSize,
+}: CoverageAnalysisAxisTickProps) {
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <title>{fullLabel}</title>
+      <text
+        x={0}
+        y={0}
+        dx={-10}
+        dy={4}
+        textAnchor="end"
+        fill="#334155"
+        fontSize={fontSize}
+      >
+        {truncatedLabel}
+      </text>
+    </g>
   );
 }
 
@@ -139,39 +203,58 @@ const CoverageAnalysisChartCard = ({
   densityNote,
   emptyMessage,
   onSelectValue,
+  actions,
+  variant = "overview",
+  yAxisOrder,
+  footer,
 }: CoverageAnalysisChartCardProps) => {
-  const { scatterRows, xValues, yValues } = buildScatterRows(rows);
-  const chartHeight = getChartHeight(yValues.length || 1);
+  const { scatterRows, xValues, yValues } = buildScatterRows(rows, yAxisOrder);
+  const chartHeight = getChartHeight(yValues.length || 1, variant);
+  const yAxisWidth = variant === "detail" ? 300 : 220;
+  const leftMargin = variant === "detail" ? 92 : 16;
+  const bottomMargin = variant === "detail" ? 58 : 54;
+  const zRange = variant === "detail" ? [40, 260] : [120, 520];
+  const tickMaxLength = variant === "detail" ? 42 : 28;
+  const yTickFontSize = variant === "detail" ? 10 : 11;
+  const scrollClassName = variant === "detail" ? "max-h-[1280px]" : "max-h-[840px]";
 
   return (
-    <section className="dashboard-card p-5">
-      <div className="mb-4 space-y-1 border-b border-border/70 pb-4">
-        <h2 className="text-sm font-semibold text-foreground">{title}</h2>
-        {description ? <p className="text-sm text-muted-foreground">{description}</p> : null}
-        {densityNote ? <p className="text-xs text-muted-foreground">{densityNote}</p> : null}
+    <section className="dashboard-card overflow-hidden">
+      <div className="flex flex-col gap-3 border-b border-border/70 px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="space-y-1">
+          <h2 className="text-base font-semibold text-foreground">{title}</h2>
+          {description ? <p className="text-sm leading-6 text-muted-foreground">{description}</p> : null}
+          {densityNote ? <p className="text-xs text-muted-foreground">{densityNote}</p> : null}
+        </div>
+        {actions ? <div className="shrink-0">{actions}</div> : null}
       </div>
 
       {rows.length === 0 ? (
-        <div className="flex h-48 items-center justify-center rounded-xl border border-dashed border-border/80 bg-muted/20 px-6 text-center text-sm text-muted-foreground">
+        <div className="m-5 flex h-48 items-center justify-center rounded-xl border border-dashed border-border/80 bg-muted/20 px-6 text-center text-sm text-muted-foreground">
           {emptyMessage}
         </div>
       ) : (
-        <div className="max-h-[620px] overflow-y-auto pr-1">
-          <div style={{ height: `${chartHeight}px` }}>
+        <div className={`overflow-y-auto px-5 py-4 pr-4 ${scrollClassName}`}>
+          <div
+            className="rounded-2xl border border-slate-200/80 bg-[linear-gradient(180deg,rgba(248,250,252,0.9),rgba(241,245,249,0.92))] p-3"
+            style={{ height: `${chartHeight}px` }}
+          >
             <ResponsiveContainer width="100%" height="100%">
-              <ScatterChart margin={{ top: 12, right: 20, bottom: 48, left: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 16% 90%)" />
+              <ScatterChart margin={{ top: 20, right: 24, bottom: bottomMargin, left: leftMargin }}>
+                <CartesianGrid stroke="rgba(148, 163, 184, 0.28)" />
                 <XAxis
                   type="number"
                   dataKey="xIndex"
                   ticks={xValues.map((_, index) => index)}
                   domain={[-0.5, Math.max(xValues.length - 0.5, 0.5)]}
                   allowDecimals={false}
-                  tick={{ fontSize: 11, fill: "hsl(220 10% 50%)" }}
+                  tick={{ fontSize: 11, fill: "#64748b" }}
                   tickFormatter={(value: number) => xValues[value] ?? ""}
-                  angle={-32}
+                  angle={-45}
                   textAnchor="end"
-                  height={64}
+                  height={72}
+                  tickLine={false}
+                  axisLine={{ stroke: "rgba(148, 163, 184, 0.55)" }}
                 />
                 <YAxis
                   type="number"
@@ -179,20 +262,35 @@ const CoverageAnalysisChartCard = ({
                   ticks={yValues.map((_, index) => index)}
                   domain={[-0.5, Math.max(yValues.length - 0.5, 0.5)]}
                   allowDecimals={false}
-                  width={220}
-                  tick={{ fontSize: 11, fill: "hsl(220 10% 50%)" }}
-                  tickFormatter={(value: number) => truncateTickLabel(yValues[value] ?? "")}
+                  width={yAxisWidth}
+                  tick={(tickProps) => {
+                    const fullLabel = yValues[tickProps.payload?.value ?? 0] ?? "";
+                    return (
+                      <CoverageAnalysisYAxisTick
+                        x={tickProps.x}
+                        y={tickProps.y}
+                        payload={tickProps.payload}
+                        fullLabel={fullLabel}
+                        truncatedLabel={truncateTickLabel(fullLabel, tickMaxLength)}
+                        fontSize={yTickFontSize}
+                      />
+                    );
+                  }}
+                  tickLine={false}
+                  axisLine={{ stroke: "rgba(148, 163, 184, 0.55)" }}
                 />
-                <ZAxis type="number" dataKey="count" range={[120, 520]} />
+                <ZAxis type="number" dataKey="count" range={zRange} />
                 <Tooltip content={<CoverageAnalysisTooltip />} />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Legend wrapperStyle={{ fontSize: 12, paddingBottom: 8 }} />
                 {statuses.map((status, index) => (
                   <Scatter
                     key={status}
                     name={status}
                     data={scatterRows.filter((row) => row.status === status)}
-                    fill={chartPalette[index % chartPalette.length]}
-                    fillOpacity={0.78}
+                    fill={resolveStatusColor(status)}
+                    stroke={index === 0 ? "rgba(15, 23, 42, 0.72)" : "rgba(15, 23, 42, 0.85)"}
+                    strokeWidth={1}
+                    fillOpacity={0.88}
                     cursor={onSelectValue ? "pointer" : "default"}
                     onClick={(data) => {
                       const selectionValue = (data as { payload?: { selectionValue?: string } } | undefined)?.payload?.selectionValue;
@@ -207,6 +305,8 @@ const CoverageAnalysisChartCard = ({
           </div>
         </div>
       )}
+
+      {footer ? <div className="border-t border-border/70 px-5 py-3">{footer}</div> : null}
     </section>
   );
 };

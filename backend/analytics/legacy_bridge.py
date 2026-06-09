@@ -145,10 +145,20 @@ def refresh_octane_cookie(*, prefer_legacy: bool, sync_login: bool, headless: bo
     return _refresh_octane_cookie_locally(sync_login=sync_login, headless=headless)
 
 
+def _legacy_playwright_supports_headless(script_path: Path) -> bool:
+    try:
+        script_text = script_path.read_text(encoding="utf-8")
+    except OSError:
+        return True
+
+    return "--headless" in script_text
+
+
 def _refresh_octane_cookie_via_legacy(*, sync_login: bool, headless: bool) -> dict[str, object]:
     legacy_root = resolve_legacy_repo_root()
-    argv = [sys.executable, str(legacy_root / "playwright_cookie_manager.py"), "--refresh"]
-    if headless:
+    script_path = legacy_root / "playwright_cookie_manager.py"
+    argv = [sys.executable, str(script_path), "--refresh"]
+    if headless and _legacy_playwright_supports_headless(script_path):
         argv.append("--headless")
     result = subprocess.run(
         argv,

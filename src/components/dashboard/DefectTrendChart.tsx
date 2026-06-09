@@ -8,28 +8,26 @@ import {
   YAxis,
 } from "recharts";
 
-const data = [
-  { month: "1月", 新增: 85, 关闭: 60, 进行中: 45 },
-  { month: "2月", 新增: 102, 关闭: 78, 进行中: 69 },
-  { month: "3月", 新增: 78, 关闭: 92, 进行中: 55 },
-  { month: "4月", 新增: 120, 关闭: 88, 进行中: 87 },
-  { month: "5月", 新增: 95, 关闭: 110, 进行中: 72 },
-  { month: "6月", 新增: 130, 关闭: 105, 进行中: 97 },
-  { month: "7月", 新增: 88, 关闭: 120, 进行中: 65 },
-  { month: "8月", 新增: 110, 关闭: 98, 进行中: 77 },
-  { month: "9月", 新增: 75, 关闭: 115, 进行中: 37 },
-  { month: "10月", 新增: 98, 关闭: 92, 进行中: 43 },
-  { month: "11月", 新增: 115, 关闭: 100, 进行中: 58 },
-  { month: "12月", 新增: 90, 关闭: 130, 进行中: 18 },
-];
+import type { TopIssueTrendRow } from "@/components/dashboard/top-issue/topIssueTypes";
 
-const DefectTrendChart = () => {
+type DefectTrendChartProps = {
+  data: TopIssueTrendRow[];
+};
+
+const DefectTrendChart = ({ data }: DefectTrendChartProps) => {
+  const chartData = data.map((row) => ({
+    month: row.month,
+    新增: row.newCount,
+    关闭: row.closedCount,
+    进行中: row.inProgressCount,
+  }));
+
   return (
     <div className="dashboard-card p-5">
       <div className="mb-5 flex items-center justify-between">
         <div>
           <h3 className="text-base font-semibold text-foreground">缺陷趋势</h3>
-          <p className="mt-0.5 text-xs text-muted-foreground">月度新增、关闭与进行中缺陷数</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">日度新增、关闭与进行中缺陷数</p>
         </div>
         <div className="flex items-center gap-4 text-xs">
           <span className="flex items-center gap-1.5">
@@ -46,8 +44,13 @@ const DefectTrendChart = () => {
           </span>
         </div>
       </div>
+      {chartData.length === 0 ? (
+        <div className="flex h-[280px] items-center justify-center text-sm text-muted-foreground">
+          当前筛选条件下暂无趋势数据。
+        </div>
+      ) : (
       <ResponsiveContainer width="100%" height={280}>
-        <AreaChart data={data}>
+        <AreaChart data={chartData}>
           <defs>
             <linearGradient id="colorNew" x1="0" y1="0" x2="0" y2="1">
               <stop offset="5%" stopColor="hsl(215, 70%, 48%)" stopOpacity={0.15} />
@@ -104,6 +107,7 @@ const DefectTrendChart = () => {
           />
         </AreaChart>
       </ResponsiveContainer>
+      )}
     </div>
   );
 };

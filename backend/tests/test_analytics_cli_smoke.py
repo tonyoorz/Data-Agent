@@ -5,6 +5,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 import backend.analytics_cli as analytics_cli
 from backend.analytics_cli import main
 from backend.analytics.dashboard_snapshot import read_active_snapshot_state
@@ -48,6 +50,49 @@ def test_analytics_cli_init_db_command_creates_database(tmp_path: Path) -> None:
     assert "octane_defects" in tables
     assert "octane_manual_runs" in tables
     assert "octane_testcases" in tables
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Nightly refresh wrapper is Windows-specific")
+def test_run_nightly_source_refresh_includes_comments_by_default(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[2]
+    log_path = tmp_path / "nightly.log"
+    stub_launcher = repo_root / "scripts" / "test-nightly-refresh-stub.cmd"
+
+    result = subprocess.run(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(repo_root / "scripts" / "run-nightly-source-refresh.ps1"),
+            "-PythonLauncher",
+            str(stub_launcher),
+            "-PythonVersion",
+            "-3.11",
+            "-Teams",
+            "DTSV_China",
+            "-Years",
+            "2026",
+            "-ManualRunYears",
+            "2026",
+            "-TeamName",
+            "DTSV_China",
+            "-HistoryMaxWorkers",
+            "2",
+            "-LogPath",
+            str(log_path),
+        ],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    log_text = log_path.read_text(encoding="utf-8")
+    assert "skip_comments=False" in log_text
+    assert "--skip-comments" not in log_text
 
 
 def test_analytics_cli_refresh_octane_source_invokes_repo_owned_pipeline(

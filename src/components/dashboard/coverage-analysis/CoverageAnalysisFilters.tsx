@@ -25,7 +25,7 @@ const coverageAnalysisFilterFields: Array<{
 type CoverageAnalysisFiltersProps = {
   filterOptions: CoverageAnalysisFilterOptions;
   selectedFilters: CoverageAnalysisFilters;
-  onToggleValue: (field: CoverageAnalysisFilterKey, value: string) => void;
+  onApplyValues: (field: CoverageAnalysisFilterKey, values: string[]) => void;
   onReset: () => void;
   isRefreshing?: boolean;
 };
@@ -37,15 +37,15 @@ function countActiveFilters(filters: CoverageAnalysisFilters) {
 const CoverageAnalysisFilters = ({
   filterOptions,
   selectedFilters,
-  onToggleValue,
+  onApplyValues,
   onReset,
   isRefreshing = false,
 }: CoverageAnalysisFiltersProps) => {
   const activeFilterCount = countActiveFilters(selectedFilters);
 
   return (
-    <section className="dashboard-card p-5">
-      <div className="mb-4 flex flex-col gap-3 border-b border-border/70 pb-4 sm:flex-row sm:items-start sm:justify-between">
+    <section className="dashboard-card p-4">
+      <div className="mb-3 flex flex-col gap-3 border-b border-border/70 pb-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="space-y-1">
           <p className="text-sm font-semibold text-foreground">筛选条件</p>
           <p className="text-sm text-muted-foreground">
@@ -70,14 +70,20 @@ const CoverageAnalysisFilters = ({
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <div
+        data-testid="coverage-analysis-filter-grid"
+        className="grid gap-x-3 gap-y-3 md:grid-cols-2 lg:grid-cols-5"
+      >
         {coverageAnalysisFilterFields.map(({ key, label, triggerAriaLabel }) => (
           <MultiSelectFilterField
             key={key}
             label={label}
             options={filterOptions[key]}
             selectedValues={selectedFilters[key]}
-            onToggleValue={(value) => onToggleValue(key, value)}
+            onToggleValue={() => undefined}
+            onApplyValues={(values) => onApplyValues(key, values)}
+            applyMode="deferred"
+            compact
             triggerAriaLabel={triggerAriaLabel}
             anyLabel="全部"
             noValuesLabel="暂无可选值"

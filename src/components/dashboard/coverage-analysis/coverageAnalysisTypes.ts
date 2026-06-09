@@ -52,6 +52,8 @@ export type CoverageAnalysisTestcaseDetailRow = {
   top_aida: string;
   project: string;
   pu: string;
+  fvp: string;
+  fv: string;
   tester: string;
   count: number;
 };

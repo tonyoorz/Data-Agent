@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dashboard Toolbar Refined</title>
+    <style>
+      :root {
+        --bg: #f5f7fb;
+        --panel: #ffffff;
+        --panel-soft: #f8fafc;
+        --border: #e2e8f0;
+        --text: #0f172a;
+        --muted: #64748b;
+        --primary: #2f6fe4;
+        --primary-soft: #ecf3ff;
+        --shadow: 0 14px 34px rgba(15, 23, 42, 0.06);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+        color: var(--text);
+        background:
+          radial-gradient(circle at top left, rgba(47, 111, 228, 0.06), transparent 26%),
+          linear-gradient(180deg, #fafbfd 0%, var(--bg) 100%);
+      }
+
+      .page {
+        max-width: 1480px;
+        margin: 0 auto;
+        padding: 28px;
+      }
+
+      h1 {
+        margin: 0 0 6px;
+        font-size: 28px;
+        letter-spacing: -0.03em;
+      }
+
+      .subtitle {
+        margin: 0 0 20px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .compare {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 20px;
+      }
+
+      .option {
+        border: 1px solid rgba(226, 232, 240, 0.94);
+        border-radius: 26px;
+        background: rgba(255, 255, 255, 0.94);
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }
+
+      .option-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 18px 22px 0;
+      }
+
+      .option-head h2 {
+        margin: 0;
+        font-size: 18px;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 34px;
+        height: 34px;
+        border-radius: 50%;
+        background: var(--primary-soft);
+        color: var(--primary);
+        font-weight: 700;
+      }
+
+      .toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 18px 22px;
+        border-bottom: 1px solid rgba(226, 232, 240, 0.82);
+      }
+
+      .toolbar-left,
+      .toolbar-right {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .toolbar-left {
+        min-width: 0;
+        flex: 1;
+      }
+
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        height: 40px;
+        padding: 0 14px;
+        border-radius: 999px;
+        border: 1px solid rgba(47, 111, 228, 0.16);
+        background: var(--primary-soft);
+        color: var(--primary);
+        font-size: 13px;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+
+      .chip .dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--primary);
+      }
+
+      .search {
+        position: relative;
+        width: min(430px, 100%);
+        min-width: 220px;
+      }
+
+      .search input {
+        width: 100%;
+        height: 40px;
+        border-radius: 14px;
+        border: 1px solid var(--border);
+        background: var(--panel);
+        color: var(--text);
+        padding: 0 14px 0 40px;
+        font-size: 14px;
+      }
+
+      .search svg {
+        position: absolute;
+        left: 14px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 15px;
+        height: 15px;
+        stroke: #94a3b8;
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        height: 40px;
+        padding: 0 15px;
+        border-radius: 14px;
+        border: 1px solid var(--border);
+        background: var(--panel);
+        color: var(--text);
+        font-size: 14px;
+        font-weight: 600;
+      }
+
+      .btn svg {
+        width: 15px;
+        height: 15px;
+        stroke: currentColor;
+      }
+
+      .btn.primary {
+        border-color: transparent;
+        background: var(--primary);
+        color: #fff;
+      }
+
+      .preset-area {
+        padding: 16px 22px 22px;
+        display: grid;
+        gap: 14px;
+        background: linear-gradient(180deg, rgba(248, 250, 252, 0.96), rgba(255, 255, 255, 0.96));
+      }
+
+      .preset-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 14px;
+        border: 1px solid rgba(226, 232, 240, 0.9);
+        border-radius: 18px;
+        background: var(--panel);
+      }
+
+      .preset-left,
+      .preset-right {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        height: 34px;
+        padding: 0 12px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: #fff;
+        font-size: 13px;
+        color: var(--text);
+      }
+
+      .pill.active {
+        border-color: rgba(47, 111, 228, 0.28);
+        background: var(--primary-soft);
+        color: var(--primary);
+        font-weight: 700;
+      }
+
+      .pill.subtle {
+        color: var(--muted);
+        background: var(--panel-soft);
+      }
+
+      .filters {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .field {
+        border: 1px solid rgba(226, 232, 240, 0.88);
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.98);
+        padding: 14px;
+      }
+
+      .field .label {
+        margin-bottom: 10px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        color: #94a3b8;
+        text-transform: uppercase;
+      }
+
+      .field .value {
+        font-size: 15px;
+        font-weight: 600;
+      }
+
+      .field .meta {
+        margin-top: 6px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .collapsed-note {
+        padding: 16px 22px 22px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      @media (max-width: 1180px) {
+        .compare {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 840px) {
+        .toolbar {
+          flex-direction: column;
+          align-items: stretch;
+        }
+
+        .toolbar-left,
+        .toolbar-right {
+          width: 100%;
+        }
+
+        .toolbar-right {
+          justify-content: flex-end;
+        }
+
+        .search {
+          width: 100%;
+        }
+
+        .filters {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <h1>Toolbar Direction</h1>
+      <p class="subtitle">Refined to match the current workbench style.</p>
+
+      <div class="compare">
+        <section class="option">
+          <div class="option-head">
+            <h2>Visible View State</h2>
+            <div class="badge">A</div>
+          </div>
+          <div class="toolbar">
+            <div class="toolbar-left">
+              <div class="chip"><span class="dot"></span>Top Topic</div>
+              <div class="search">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2">
+                  <circle cx="11" cy="11" r="7"></circle>
+                  <path d="m20 20-3.5-3.5"></path>
+                </svg>
+                <input value="hicar" aria-label="search a" />
+              </div>
+            </div>
+            <div class="toolbar-right">
+              <button class="btn primary">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2">
+                  <path d="M3 4h18"></path>
+                  <path d="M6 12h12"></path>
+                  <path d="M10 20h4"></path>
+                </svg>
+                Filters
+              </button>
+              <button class="btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2">
+                  <path d="M3 12a9 9 0 1 0 3-6.7"></path>
+                  <path d="M3 3v6h6"></path>
+                </svg>
+                Reset
+              </button>
+            </div>
+          </div>
+          <div class="preset-area">
+            <div class="preset-row">
+              <div class="preset-left">
+                <div class="pill active">Top Topic</div>
+                <div class="pill">All Selected</div>
+                <div class="pill">Hicar Focus</div>
+                <div class="pill subtle">Modified</div>
+              </div>
+              <div class="preset-right">
+                <button class="btn">Save as New</button>
+                <button class="btn">Save</button>
+              </div>
+            </div>
+            <div class="filters">
+              <div class="field">
+                <div class="label">Requirement</div>
+                <div class="value">Top Topic</div>
+                <div class="meta">System preset</div>
+              </div>
+              <div class="field">
+                <div class="label">Project</div>
+                <div class="value">IDCEVO + U12</div>
+                <div class="meta">Custom selection</div>
+              </div>
+              <div class="field">
+                <div class="label">Problem Finder Team</div>
+                <div class="value">Basis-FIT +6</div>
+                <div class="meta">Search and select all</div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="option">
+          <div class="option-head">
+            <h2>Minimal Top Bar</h2>
+            <div class="badge">B</div>
+          </div>
+          <div class="toolbar">
+            <div class="toolbar-left">
+              <div class="search" style="width:min(500px,100%);">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2">
+                  <circle cx="11" cy="11" r="7"></circle>
+                  <path d="m20 20-3.5-3.5"></path>
+                </svg>
+                <input value="hicar" aria-label="search b" />
+              </div>
+            </div>
+            <div class="toolbar-right">
+              <button class="btn primary">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2">
+                  <path d="M3 4h18"></path>
+                  <path d="M6 12h12"></path>
+                  <path d="M10 20h4"></path>
+                </svg>
+                Filters
+              </button>
+              <button class="btn">
+                <svg viewBox="0 0 24 24" fill="none" stroke-width="2">
+                  <path d="M3 12a9 9 0 1 0 3-6.7"></path>
+                  <path d="M3 3v6h6"></path>
+                </svg>
+                Reset
+              </button>
+            </div>
+          </div>
+          <div class="preset-area">
+            <div class="preset-row">
+              <div class="preset-left">
+                <div class="pill active">Top Topic</div>
+                <div class="pill">All Selected</div>
+                <div class="pill">Hicar Focus</div>
+              </div>
+              <div class="preset-right">
+                <div class="pill subtle">Shared</div>
+                <button class="btn">Save as New</button>
+              </div>
+            </div>
+            <div class="filters">
+              <div class="field">
+                <div class="label">Current View</div>
+                <div class="value">Top Topic</div>
+                <div class="meta">Only visible after expand</div>
+              </div>
+              <div class="field">
+                <div class="label">Reset</div>
+                <div class="value">Preset / All Selected</div>
+                <div class="meta">Grouped actions</div>
+              </div>
+              <div class="field">
+                <div class="label">Preset Actions</div>
+                <div class="value">Switch / Save / Copy</div>
+                <div class="meta">Kept inside filters</div>
+              </div>
+            </div>
+          </div>
+          <div class="collapsed-note">Collapsed state only shows search, Filters, and Reset.</div>
+        </section>
+      </div>
+    </div>
+  </body>
+</html>

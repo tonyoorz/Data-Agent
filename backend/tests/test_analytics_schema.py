@@ -659,6 +659,178 @@ def test_cli_refresh_testing_coverage_hot_uses_tpmdashboard_project_and_finished
     assert row == ("IDCEVO", "2026-CW22")
 
 
+def test_cli_refresh_testing_coverage_hot_prefers_manual_run_dimensions_when_defect_values_are_blank(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    database_root = tmp_path / "database"
+    source_db = database_root / "source" / "qgate_raw.db"
+    hot_db = database_root / "hot" / "vizion_serving.db"
+    source_db.parent.mkdir(parents=True, exist_ok=True)
+
+    conn = sqlite3.connect(source_db)
+    try:
+        conn.executescript(
+            """
+            CREATE TABLE octane_defects (
+                defect_id TEXT PRIMARY KEY,
+                top_aida TEXT,
+                test_week TEXT,
+                project TEXT,
+                pu TEXT,
+                fv TEXT,
+                fvp TEXT,
+                team TEXT,
+                lead_model TEXT,
+                market TEXT,
+                raw_json TEXT,
+                fetched_at TEXT
+            );
+            CREATE TABLE octane_manual_runs (
+                mr_id TEXT PRIMARY KEY,
+                defect_id TEXT,
+                test_id TEXT,
+                test_name TEXT,
+                status TEXT,
+                run_by TEXT,
+                author TEXT,
+                tester TEXT,
+                year TEXT,
+                finished TEXT,
+                target_ecu_conf TEXT,
+                pu TEXT,
+                top_aida TEXT,
+                fv TEXT,
+                fvp TEXT,
+                raw_json TEXT,
+                fetched_at TEXT
+            );
+            CREATE TABLE octane_testcases (
+                test_id TEXT NOT NULL,
+                scope_team TEXT NOT NULL,
+                scope_release TEXT NOT NULL,
+                source TEXT NOT NULL,
+                test_name TEXT,
+                run_count INTEGER NOT NULL,
+                defect_ids_json TEXT NOT NULL,
+                feature_ids_json TEXT NOT NULL,
+                story_ids_json TEXT NOT NULL,
+                raw_json TEXT NOT NULL,
+                fetched_at TEXT NOT NULL,
+                PRIMARY KEY (test_id, scope_team, scope_release, source)
+            );
+            CREATE TABLE octane_defect_history_events (
+                defect_id TEXT,
+                field_name TEXT,
+                event_timestamp TEXT
+            );
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO octane_defects(
+                defect_id, top_aida, test_week, project, pu, fv, fvp, team, lead_model, market, raw_json, fetched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "D-HOT-MANUAL-DIMS-1",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "DTSV_China",
+                "NA5",
+                "CN",
+                "{}",
+                "2026-05-25T00:00:00Z",
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO octane_manual_runs(
+                mr_id, defect_id, test_id, test_name, status, run_by, author, tester, year, finished,
+                target_ecu_conf, pu, top_aida, fv, fvp, raw_json, fetched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "MR-HOT-MANUAL-DIMS-1",
+                "D-HOT-MANUAL-DIMS-1",
+                "T-HOT-MANUAL-DIMS-1",
+                "Wake test",
+                "Passed",
+                "Tester A",
+                "Author A",
+                "Tester From Manual Run",
+                "2026",
+                "2026-05-27T08:15:00Z",
+                "IDCEVO headunit",
+                "ICV",
+                "Use Speech operation [01.04.02.01.01.05]",
+                "Speech",
+                "Voice Experience",
+                "{}",
+                "2026-05-25T00:00:00Z",
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO octane_testcases(
+                test_id, scope_team, scope_release, source, test_name, run_count,
+                defect_ids_json, feature_ids_json, story_ids_json, raw_json, fetched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "T-HOT-MANUAL-DIMS-1",
+                "DTSV_China",
+                "ALL",
+                "runs",
+                "Wake test",
+                1,
+                '["D-HOT-MANUAL-DIMS-1"]',
+                '[]',
+                '[]',
+                "{}",
+                "2026-05-25T00:00:00Z",
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    monkeypatch.setenv("VIZION_DATABASE_ROOT", str(database_root))
+
+    exit_code = main(["refresh-testing-coverage-hot"])
+
+    assert exit_code == 0
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["row_count"] == 1
+
+    conn = sqlite3.connect(hot_db)
+    try:
+        row = conn.execute(
+            """
+            SELECT project, pu, top_aida, feature_region, fvp, fv, tester
+            FROM testing_coverage_runs
+            WHERE mr_id = 'MR-HOT-MANUAL-DIMS-1'
+            """
+        ).fetchone()
+    finally:
+        conn.close()
+
+    assert row == (
+        "IDCEVO",
+        "ICV",
+        "Use Speech operation [01.04.02.01.01.05]",
+        "China Specific",
+        "Voice Experience",
+        "Speech",
+        "Tester From Manual Run",
+    )
+
+
 def test_cli_stage_testing_source_imports_manual_runs_and_synthesizes_testcases(
     tmp_path,
     monkeypatch,

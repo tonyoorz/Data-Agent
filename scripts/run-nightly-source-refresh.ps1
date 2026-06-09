@@ -6,6 +6,7 @@ param(
   [string]$ManualRunYears = "",
   [string]$TeamName = "DTSV_China",
   [int]$HistoryMaxWorkers = 50,
+  [switch]$SkipComments,
   [string]$LogPath = "",
   [bool]$AutoRefreshCookieOnAuthFailure = $true,
   [bool]$CookieRefreshHeadless = $true
@@ -17,6 +18,8 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $repoRoot
 
 $latestLogPath = $null
+$logEncoding = New-Object System.Text.UTF8Encoding($false)
+$logWriteWarningShown = $false
 
 if ([string]::IsNullOrWhiteSpace($LogPath)) {
   $logDirectory = Join-Path $repoRoot "database\hot\logs"
@@ -34,10 +37,24 @@ function Write-LogLine {
     [switch]$NoConsole
   )
 
-  Add-Content -Path $LogPath -Value $Message -Encoding utf8
-  if ($latestLogPath) {
-    Add-Content -Path $latestLogPath -Value $Message -Encoding utf8
+  $lineText = $Message + [Environment]::NewLine
+
+  foreach ($targetPath in @($LogPath, $latestLogPath)) {
+    if ([string]::IsNullOrWhiteSpace($targetPath)) {
+      continue
+    }
+
+    try {
+      [System.IO.File]::AppendAllText($targetPath, $lineText, $logEncoding)
+    }
+    catch {
+      if (-not $logWriteWarningShown) {
+        $logWriteWarningShown = $true
+        Write-Warning ("Failed to append nightly refresh log to " + $targetPath + ": " + $_.Exception.Message)
+      }
+    }
   }
+
   if (-not $NoConsole) {
     Write-Host $Message
   }
@@ -46,7 +63,7 @@ function Write-LogLine {
 $startedAt = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 Write-LogLine -Message "[$startedAt] Starting refresh-all-sources"
 Write-LogLine -Message ("[$startedAt] Log file: " + $LogPath)
-Write-LogLine -Message ("[$startedAt] Runtime config teams=" + $Teams + " years=" + $Years + " manual_years=" + $ManualRunYears + " team_name=" + $TeamName + " history_max_workers=" + $HistoryMaxWorkers + " auto_refresh_cookie_on_auth_failure=" + $AutoRefreshCookieOnAuthFailure + " cookie_refresh_headless=" + $CookieRefreshHeadless)
+Write-LogLine -Message ("[$startedAt] Runtime config teams=" + $Teams + " years=" + $Years + " manual_years=" + $ManualRunYears + " team_name=" + $TeamName + " history_max_workers=" + $HistoryMaxWorkers + " skip_comments=" + $SkipComments + " auto_refresh_cookie_on_auth_failure=" + $AutoRefreshCookieOnAuthFailure + " cookie_refresh_headless=" + $CookieRefreshHeadless)
 
 if ([string]::IsNullOrWhiteSpace($ManualRunYears)) {
   $ManualRunYears = (Get-Date).Year.ToString()
@@ -154,6 +171,10 @@ $refreshArguments = @(
   "--history-max-workers",
   $HistoryMaxWorkers.ToString()
 )
+
+if ($SkipComments) {
+  $refreshArguments += "--skip-comments"
+}
 
 $refreshResult = Invoke-AnalyticsCli -CliArguments $refreshArguments -CommandId "nightly-refresh"
 
