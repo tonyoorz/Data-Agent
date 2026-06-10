@@ -10,6 +10,7 @@ import sqlite3
 from backend.analytics.config import (
     get_analytics_db_path,
     get_full_picture_hot_db_path,
+    get_full_picture_source_db_path,
 )
 from backend.analytics.db import connect
 from backend.analytics.testing_coverage_reference import (
@@ -75,7 +76,10 @@ def _resolve_testing_db_path() -> Path:
     configured = str(os.environ.get("VIZION_ANALYTICS_DB_PATH", "")).strip()
     if configured:
         return get_analytics_db_path()
-    return get_full_picture_hot_db_path()
+    hot_db_path = get_full_picture_hot_db_path()
+    if _is_ready_hot_testing_db(hot_db_path):
+        return hot_db_path
+    return get_full_picture_source_db_path()
 
 
 def _connect() -> sqlite3.Connection:
@@ -362,9 +366,6 @@ def _source_testing_dataset_query(conn: sqlite3.Connection) -> str:
 
 
 def _testing_dataset_query(conn: sqlite3.Connection) -> str | None:
-    if not str(os.environ.get("VIZION_ANALYTICS_DB_PATH", "")).strip():
-        return None
-
     if _table_exists(conn, HOT_TESTING_STORE_NAME):
         hot_columns = _table_columns(conn, HOT_TESTING_STORE_NAME)
         if set(REQUIRED_COVERAGE_FIELDS).issubset(hot_columns):
@@ -392,10 +393,8 @@ def _testing_dataset_query(conn: sqlite3.Connection) -> str | None:
 
 
 def _materialize_testing_runs(conn: sqlite3.Connection) -> str | None:
-    if not str(os.environ.get("VIZION_ANALYTICS_DB_PATH", "")).strip():
-        snapshot_version = _resolve_active_testing_snapshot_version(conn)
-        if not snapshot_version:
-            return None
+    snapshot_version = _resolve_active_testing_snapshot_version(conn)
+    if snapshot_version:
         conn.execute(f"DROP TABLE IF EXISTS {TEMP_TESTING_RUNS_NAME}")
         conn.execute(
             f"""

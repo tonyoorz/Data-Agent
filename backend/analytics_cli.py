@@ -6,6 +6,7 @@ import shutil
 import sqlite3
 import sys
 from collections.abc import Sequence
+from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -47,6 +48,11 @@ from backend.analytics.testing_coverage_hot import refresh_materialized_testing_
 
 HISTORY_SOURCE_REQUIRED_COLUMNS = frozenset({"defect_id", "field_name", "event_timestamp"})
 SOURCE_STAGE_REQUIRED_TABLES = frozenset({"octane_defects", "octane_defect_history_events"})
+TESTING_SOURCE_REQUIRED_TABLES = frozenset({"octane_manual_runs"})
+
+
+def _table_column_names(conn: sqlite3.Connection, table_name: str) -> list[str]:
+    return [str(row[1]).strip() for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()]
 def _parse_csv_values(raw_value: str | None) -> tuple[str, ...]:
     if raw_value is None:
         return ()
@@ -139,34 +145,30 @@ def _refresh_all_sources_with_progress(args: argparse.Namespace) -> dict[str, ob
         save_files=args.save_files,
         cookie_file=args.cookie_file,
     )
-    defect_team_summaries = list((legacy_summary.get("defect_refresh") or {}).get("team_summaries") or [])
-    history_team_summaries = list((legacy_summary.get("history_resume") or {}).get("team_summaries") or [])
-    refreshed_defects = sum(int(team.get("refreshed_defects") or 0) for team in defect_team_summaries if isinstance(team, dict))
+    defect_refresh = legacy_summary.get("defect_refresh", {}) if isinstance(legacy_summary, dict) else {}
+    defect_team_summaries = defect_refresh.get("team_summaries", []) if isinstance(defect_refresh, dict) else []
+    history_refresh = legacy_summary.get("history_resume") if isinstance(legacy_summary, dict) else None
+    if not isinstance(history_refresh, dict):
+        history_refresh = legacy_summary.get("history_refresh", {}) if isinstance(legacy_summary, dict) else {}
+    history_team_summaries = history_refresh.get("team_summaries", []) if isinstance(history_refresh, dict) else []
+    defects = sum(int(team.get("refreshed_defects", 0) or 0) for team in defect_team_summaries)
     comments_refreshed = sum(
-        int(year.get("comments_refreshed") or 0)
+        int(year_summary.get("comments_refreshed", 0) or 0)
         for team in defect_team_summaries
-        if isinstance(team, dict)
-        for year in list(team.get("year_summaries") or [])
-        if isinstance(year, dict)
+        for year_summary in team.get("year_summaries", [])
     )
     comments_reused = sum(
-        int(year.get("comments_reused") or 0)
+        int(year_summary.get("comments_reused", 0) or 0)
         for team in defect_team_summaries
-        if isinstance(team, dict)
-        for year in list(team.get("year_summaries") or [])
-        if isinstance(year, dict)
+        for year_summary in team.get("year_summaries", [])
     )
-    history_queued = sum(int(team.get("queued_defects") or 0) for team in history_team_summaries if isinstance(team, dict))
-    history_processed = sum(int(team.get("processed_defects") or 0) for team in history_team_summaries if isinstance(team, dict))
-    history_failed = sum(int(team.get("failed_defects") or 0) for team in history_team_summaries if isinstance(team, dict))
+    history_queued = sum(int(team.get("queued_defects", 0) or 0) for team in history_team_summaries)
+    history_processed = sum(int(team.get("processed_defects", 0) or 0) for team in history_team_summaries)
+    history_failed = sum(int(team.get("failed_defects", 0) or 0) for team in history_team_summaries)
     _emit_progress(
         "Step 1/3 summary: "
-        f"defects={refreshed_defects} "
-        f"comments_refreshed={comments_refreshed} "
-        f"comments_reused={comments_reused} "
-        f"history_queued={history_queued} "
-        f"history_processed={history_processed} "
-        f"history_failed={history_failed}"
+        f"defects={defects} comments_refreshed={comments_refreshed} comments_reused={comments_reused} "
+        f"history_queued={history_queued} history_processed={history_processed} history_failed={history_failed}"
     )
 
     _emit_progress("Step 2/3: refreshing manual runs source...")
@@ -273,6 +275,9 @@ def _require_valid_history_source_path(candidate: str | Path) -> Path:
 
 def _require_source_stage_input_path() -> Path:
     target_path = get_full_picture_source_db_path().resolve()
+    if _is_valid_source_stage_path(target_path):
+        return target_path
+
     first_valid: Path | None = None
     for candidate in get_full_picture_defect_db_candidates():
         resolved = Path(candidate)
@@ -341,6 +346,155 @@ def _stage_full_picture_source(source_db_path: Path | str) -> dict[str, object]:
         "source_db_path": str(resolved_source_path),
         "staged_db_path": str(target_path),
         "copied": resolved_source_path != target_path,
+    }
+
+
+def _is_valid_testing_source_path(candidate: Path) -> bool:
+    if not candidate.exists() or not candidate.is_file():
+        return False
+
+    try:
+        conn = sqlite3.connect(str(candidate))
+    except sqlite3.Error:
+        return False
+
+    try:
+        tables = {
+            str(row[0]).strip().lower()
+            for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+    except sqlite3.Error:
+        return False
+    finally:
+        conn.close()
+
+    return TESTING_SOURCE_REQUIRED_TABLES.issubset(tables)
+
+
+def _require_valid_testing_source_path(candidate: str | Path) -> Path:
+    resolved = Path(candidate)
+    if _is_valid_testing_source_path(resolved):
+        return resolved
+    raise SystemExit(f"Provided testing source database is invalid: {resolved}")
+
+
+def _first_non_blank(row: sqlite3.Row, *names: str) -> str:
+    for name in names:
+        try:
+            value = row[name]
+        except (IndexError, KeyError):
+            continue
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def _stage_testing_source(source_db_path: Path | str) -> dict[str, object]:
+    resolved_source_path = Path(source_db_path).resolve()
+    target_path = get_full_picture_source_db_path().resolve()
+    ensure_schema(target_path)
+
+    source_conn = sqlite3.connect(str(resolved_source_path))
+    source_conn.row_factory = sqlite3.Row
+    try:
+        source_rows = source_conn.execute(
+            "SELECT * FROM octane_manual_runs ORDER BY mr_id"
+        ).fetchall()
+    finally:
+        source_conn.close()
+
+    fetched_at_default = datetime.now(timezone.utc).isoformat()
+    manual_run_payloads: list[dict[str, object]] = []
+    grouped_rows: dict[str, list[dict[str, object]]] = defaultdict(list)
+    for row in source_rows:
+        payload = {
+            "mr_id": _first_non_blank(row, "mr_id"),
+            "defect_id": _first_non_blank(row, "defect_id"),
+            "test_id": _first_non_blank(row, "test_id"),
+            "test_name": _first_non_blank(row, "test_name", "name"),
+            "status": _first_non_blank(row, "status"),
+            "year": _first_non_blank(row, "year"),
+            "test_week": _first_non_blank(row, "test_week"),
+            "pu": _first_non_blank(row, "pu"),
+            "top_aida": _first_non_blank(row, "top_aida", "product_areas"),
+            "feature_region": _first_non_blank(row, "feature_region"),
+            "tester": _first_non_blank(row, "tester", "run_by", "author", "author_name"),
+            "project": _first_non_blank(row, "project"),
+            "fv": _first_non_blank(row, "fv"),
+            "fvp": _first_non_blank(row, "fvp"),
+            "team": _first_non_blank(row, "team"),
+            "lead_model": _first_non_blank(row, "lead_model"),
+            "raw_json": _first_non_blank(row, "raw_json") or "{}",
+            "fetched_at": _first_non_blank(row, "fetched_at") or fetched_at_default,
+        }
+        manual_run_payloads.append(payload)
+        test_id = str(payload["test_id"] or "").strip()
+        if test_id:
+            grouped_rows[test_id].append(payload)
+
+    testcase_payloads: list[dict[str, object]] = []
+    for test_id, rows in grouped_rows.items():
+        defect_ids = sorted({str(row["defect_id"]).strip() for row in rows if str(row["defect_id"]).strip()})
+        test_name = next((str(row["test_name"]).strip() for row in rows if str(row["test_name"]).strip()), "")
+        fetched_at = next((str(row["fetched_at"]).strip() for row in rows if str(row["fetched_at"]).strip()), fetched_at_default)
+        testcase_payloads.append(
+            {
+                "test_id": test_id,
+                "scope_team": "ALL",
+                "scope_release": "ALL",
+                "source": "stage-testing-source",
+                "test_name": test_name,
+                "test_subtype": "",
+                "run_count": len(rows),
+                "run_ids_json": "[]",
+                "run_status_distribution_json": "{}",
+                "defect_ids_json": json.dumps(defect_ids, ensure_ascii=False),
+                "manual_test_ids_json": "[]",
+                "feature_ids_json": "[]",
+                "story_ids_json": "[]",
+                "raw_json": "{}",
+                "fetched_at": fetched_at,
+            }
+        )
+
+    target_conn = sqlite3.connect(str(target_path))
+    try:
+        manual_run_columns = _table_column_names(target_conn, "octane_manual_runs")
+        testcase_columns = _table_column_names(target_conn, "octane_testcases")
+
+        target_conn.execute("DELETE FROM octane_manual_runs")
+        if "octane_testcase_relations" in {
+            str(row[0]).strip() for row in target_conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        }:
+            target_conn.execute("DELETE FROM octane_testcase_relations")
+        target_conn.execute("DELETE FROM octane_testcases")
+
+        if manual_run_payloads:
+            placeholders = ", ".join("?" for _ in manual_run_columns)
+            target_conn.executemany(
+                f"INSERT OR REPLACE INTO octane_manual_runs ({', '.join(manual_run_columns)}) VALUES ({placeholders})",
+                [[payload.get(column, "") for column in manual_run_columns] for payload in manual_run_payloads],
+            )
+
+        if testcase_payloads:
+            placeholders = ", ".join("?" for _ in testcase_columns)
+            target_conn.executemany(
+                f"INSERT OR REPLACE INTO octane_testcases ({', '.join(testcase_columns)}) VALUES ({placeholders})",
+                [[payload.get(column, "") for column in testcase_columns] for payload in testcase_payloads],
+            )
+
+        target_conn.commit()
+    finally:
+        target_conn.close()
+
+    return {
+        "source_db_path": str(resolved_source_path),
+        "staged_db_path": str(target_path),
+        "manual_run_row_count": len(manual_run_payloads),
+        "testcase_row_count": len(testcase_payloads),
     }
 
 
@@ -439,6 +593,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             else _require_source_stage_input_path()
         )
         summary = _stage_full_picture_source(source_db_path)
+        print(json.dumps(summary, ensure_ascii=False))
+        return 0
+    if args.command == "stage-testing-source":
+        source_db_path = _require_valid_testing_source_path(args.db_path)
+        summary = _stage_testing_source(source_db_path)
         print(json.dumps(summary, ensure_ascii=False))
         return 0
     if args.command == "archive-full-picture-cold":

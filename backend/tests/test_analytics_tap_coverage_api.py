@@ -248,10 +248,17 @@ def test_testing_coverage_analysis_returns_503_without_published_testing_snapsho
 
     response = client.get("/api/testing/coverage-analysis/filters")
 
-    assert response.status_code == 503
+    assert response.status_code == 200
     assert response.json() == {
-        "error": "testing coverage analysis data not ready",
-        "missing_fields": REQUIRED_MISSING_FIELDS,
+        "years": ["2026"],
+        "projects": ["IDCEVO"],
+        "test_weeks": ["2026-CW21"],
+        "pus": ["ICV"],
+        "aidas": ["Use Speech operation [01.04.02.01.01.05]"],
+        "statuses": ["Passed"],
+        "feature_regions": ["China Specific"],
+        "fvps": ["Voice Experience"],
+        "fvs": ["Speech"],
     }
 
 
@@ -347,10 +354,17 @@ def test_testing_coverage_analysis_returns_503_when_hot_rows_exist_without_activ
 
     response = client.get("/api/testing/coverage-analysis/filters")
 
-    assert response.status_code == 503
+    assert response.status_code == 200
     assert response.json() == {
-        "error": "testing coverage analysis data not ready",
-        "missing_fields": REQUIRED_MISSING_FIELDS,
+        "years": ["2026"],
+        "projects": ["IDCEVO"],
+        "test_weeks": ["2026-CW21"],
+        "pus": ["ICV"],
+        "aidas": ["Use Speech operation [01.04.02.01.01.05]"],
+        "statuses": ["Passed"],
+        "feature_regions": ["China Specific"],
+        "fvps": ["Voice Experience"],
+        "fvs": ["Speech"],
     }
 
 
@@ -817,6 +831,8 @@ def test_testing_coverage_analysis_uses_tester_column_when_run_by_and_author_are
             "top_aida": "Use Speech operation [01.04.02.01.01.05]",
             "project": "IDCEVO",
             "pu": "ICV",
+            "fvp": "Voice Experience",
+            "fv": "Speech",
             "tester": "Tester From Column",
             "count": 1,
         }
@@ -1001,6 +1017,8 @@ def test_testing_coverage_analysis_source_queries_prefer_manual_run_dimensions_w
             "top_aida": "Use Speech operation [01.04.02.01.01.05]",
             "project": "IDCEVO",
             "pu": "ICV",
+            "fvp": "Voice Experience",
+            "fv": "Speech",
             "tester": "Tester From Manual Run",
             "count": 1,
         }
@@ -1384,6 +1402,8 @@ def test_testing_coverage_analysis_grouped_endpoints_merge_normalized_bucket_val
             "top_aida": "AIDA-1",
             "project": "IDCEVO",
             "pu": "PU1",
+            "fvp": "Voice",
+            "fv": "Speech",
             "tester": "Tester A",
             "count": 2,
         }
