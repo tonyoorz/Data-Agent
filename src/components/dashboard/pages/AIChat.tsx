@@ -312,8 +312,8 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
           setInput((prev) => (prev.trim() ? `${prev}${prev.endsWith("\n") ? "" : "\n"}${transcript}` : transcript));
           setVoiceError("");
           setTimeout(() => taRef.current?.focus(), 0);
-        } catch {
-          setVoiceError("语音转写失败，请重试。");
+        } catch (error) {
+          setVoiceError(error instanceof Error && error.message ? error.message : "语音转写失败，请重试。");
         } finally {
           setTranscribing(false);
         }
@@ -367,6 +367,34 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
     });
 
   const buildDuplicateFallbackSummary = (result: DuplicateSearchResult) => {
+    const normalizeText = (value: string | undefined, maxLength = 120) =>
+      String(value || "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, maxLength);
+
+    const buildConfidenceLevel = (score: number | undefined) => {
+      const numeric = Number(score || 0);
+      if (numeric >= 8) {
+        return "高置信";
+      }
+      if (numeric >= 6) {
+        return "中等置信";
+      }
+      if (numeric >= 4) {
+        return "低置信";
+      }
+      return "弱相关";
+    };
+
+    const collectEvidence = (candidate: DuplicateSearchResult["candidates"][number]) =>
+      Array.isArray(candidate.evidenceSnippets)
+        ? candidate.evidenceSnippets
+            .map((item) => normalizeText(item, 100))
+            .filter(Boolean)
+            .slice(0, 2)
+        : [];
+
     const head = [
       `检索完成：返回 ${result.candidates.length} 条候选`,
       `模型阶段：${result.modelPhase}`,
@@ -377,13 +405,21 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
       return `${head.join(" · ")}\n\n未找到足够相似的问题，请补充项目、PU、现象关键词后重试。`;
     }
 
-    const top = result.candidates.slice(0, 3).map((item, index) => {
-      const title = item.name || "Untitled";
-      const ticket = item.ticketId || "N/A";
-      return `${index + 1}. [${ticket}] ${title} (评分 ${item.score1to10}/10)`;
-    });
+    const topCandidate = result.candidates[0];
+    const topEvidence = collectEvidence(topCandidate);
+    const topSnippet = normalizeText(topCandidate.snippet, 120);
+    const topConfidenceLevel = buildConfidenceLevel(topCandidate.score1to10);
 
-    return `${head.join(" · ")}\n\n${top.join("\n")}`;
+    return [
+      head.join(" · "),
+      "",
+      `最可能重复票: ${topCandidate.ticketId || "N/A"}。标题“${topCandidate.name || "Untitled"}”，置信度: ${topConfidenceLevel}。`,
+      topSnippet ? `现象匹配: ${topSnippet}` : "现象匹配: 当前候选缺少足够摘要信息。",
+      topEvidence.length
+        ? `评论分析: ${topEvidence.join("；")}`
+        : "评论分析: 当前候选缺少足够 comments 证据。",
+      "建议: 优先核对标题、comments 分析过程和关键日志是否一致。",
+    ].join("\n");
   };
 
   const runStream = async (history: Msg[], assistantMsgId: string) => {

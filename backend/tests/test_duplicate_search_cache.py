@@ -56,6 +56,50 @@ def test_index_cache_hit_does_not_rebuild_when_filtered_row_count_changes():
     assert second_metadata["index_rebuilt"] is False
 
 
+def test_disk_snapshot_reuses_built_index_after_memory_cache_is_cleared(monkeypatch, tmp_path):
+    duplicate_issue_finder._INDEX_CACHE.clear()
+    monkeypatch.setattr(duplicate_issue_finder, "_INDEX_SNAPSHOT_DIR", str(tmp_path / "snapshots"))
+
+    df = pd.DataFrame(
+        [
+            {
+                "id": "1",
+                "name": "kept row",
+                "description": "kept row description",
+                "project": "IDCEVO",
+                "pu": "27-07",
+                "status_phase": "03-In Analysis_Medium",
+            }
+        ]
+    )
+
+    first_index, first_metadata = duplicate_issue_finder.get_or_build_index_with_metadata(
+        cache_key="snapshot-key",
+        df=df,
+    )
+
+    assert first_index.ready is True
+    assert first_metadata["index_rebuilt"] is True
+    assert first_metadata["index_disk_cache_hit"] is False
+
+    duplicate_issue_finder._INDEX_CACHE.clear()
+
+    def fail_build_from_df(self, _df):
+        raise AssertionError("build_from_df should not be called when a disk snapshot is available")
+
+    monkeypatch.setattr(duplicate_issue_finder.DuplicateIssueIndex, "build_from_df", fail_build_from_df)
+
+    second_index, second_metadata = duplicate_issue_finder.get_or_build_index_with_metadata(
+        cache_key="snapshot-key",
+        df=df,
+    )
+
+    assert second_index.ready is True
+    assert second_metadata["index_cache_hit"] is False
+    assert second_metadata["index_disk_cache_hit"] is True
+    assert second_metadata["index_rebuilt"] is True
+
+
 def test_search_reuses_loaded_defect_df_when_source_is_unchanged(monkeypatch, tmp_path):
     bridge = _load_duplicate_search_bridge_module()
 

@@ -71,6 +71,287 @@ def _flatten_comments(value: Any) -> str:
     return _strip_html(str(parsed))
 
 
+_WORKFLOW_COMMENT_PATTERNS = (
+    re.compile(r'\bstatus changed\b', re.IGNORECASE),
+    re.compile(r'\bphase changed\b', re.IGNORECASE),
+    re.compile(r'\bassigned to\b', re.IGNORECASE),
+    re.compile(r'\bowner changed\b', re.IGNORECASE),
+    re.compile(r'\btransitioned from\b', re.IGNORECASE),
+    re.compile(r'\bcomment edited\b', re.IGNORECASE),
+    re.compile(r'\battachment added\b', re.IGNORECASE),
+    re.compile(r'\bduplicates?\s+to\b', re.IGNORECASE),
+    re.compile(r'\bissue created by stability tracedb analysis team\b', re.IGNORECASE),
+    re.compile(r'\badded the following attachments\b', re.IGNORECASE),
+    re.compile(r'\bautomated performance analys', re.IGNORECASE),
+    re.compile(r'\bno attachments added\b', re.IGNORECASE),
+    re.compile(r'\bi-step deleted\b', re.IGNORECASE),
+    re.compile(r'\boctane-id\b', re.IGNORECASE),
+    re.compile(r'\bticket quality\b', re.IGNORECASE),
+    re.compile(r'\bacceptance check\b', re.IGNORECASE),
+)
+
+_ANALYSIS_COMMENT_PATTERNS = (
+    re.compile(r'\broot cause\b', re.IGNORECASE),
+    re.compile(r'\banalysis\b', re.IGNORECASE),
+    re.compile(r'\binvestigation\b', re.IGNORECASE),
+    re.compile(r'\bfix candidate\b', re.IGNORECASE),
+    re.compile(r'\bworkaround\b', re.IGNORECASE),
+    re.compile(r'\bsummary\b', re.IGNORECASE),
+    re.compile(r'\bproblem statement\b', re.IGNORECASE),
+    re.compile(r'\bjoint analysis\b', re.IGNORECASE),
+    re.compile(r'\binitial finding\b', re.IGNORECASE),
+    re.compile(r'\bno anrs detected\b', re.IGNORECASE),
+    re.compile(r'\bno relevant coredump\b', re.IGNORECASE),
+)
+
+_EVIDENCE_COMMENT_PATTERNS = (
+    re.compile(r'\brepro\w*\b', re.IGNORECASE),
+    re.compile(r'\blogs?\b', re.IGNORECASE),
+    re.compile(r'\btrace\b', re.IGNORECASE),
+    re.compile(r'\btimeout\b', re.IGNORECASE),
+    re.compile(r'\berror\b', re.IGNORECASE),
+    re.compile(r'\bfail\w*\b', re.IGNORECASE),
+    re.compile(r'\bhandshake\b', re.IGNORECASE),
+)
+
+_FOLLOW_UP_COMMENT_PATTERNS = (
+    re.compile(r'^need\b', re.IGNORECASE),
+    re.compile(r'^please\b', re.IGNORECASE),
+    re.compile(r'\bnext (?:reproduction|attempt|run|validation|step)\b', re.IGNORECASE),
+    re.compile(r'\b(?:collect|provide|share|attach|upload|coordinate)\b', re.IGNORECASE),
+)
+
+_HARD_WORKFLOW_COMMENT_PATTERNS = (
+    re.compile(r'\bissue created by stability tracedb analysis team\b', re.IGNORECASE),
+    re.compile(r'\badded the following attachments\b', re.IGNORECASE),
+    re.compile(r'\bautomated performance analys', re.IGNORECASE),
+    re.compile(r'\bautomated pattern detection\b', re.IGNORECASE),
+    re.compile(r'#bughunter_stability_preanalysis\b', re.IGNORECASE),
+    re.compile(r'#bughunter_preanalysis\b', re.IGNORECASE),
+    re.compile(r'#performance pattern detection pre(?: |-)?analysis\b', re.IGNORECASE),
+    re.compile(r'#system performance graphics generator\b', re.IGNORECASE),
+    re.compile(r'#system performance graphics generator_retry\b', re.IGNORECASE),
+)
+
+_COMMENT_PREFIX_PATTERNS = (
+    re.compile(r'^supplier comment:\s*cc_jira\b[^:]{0,120}:\s*', re.IGNORECASE),
+    re.compile(r'^supplier comment:\s*', re.IGNORECASE),
+)
+
+_COMMENT_INLINE_NOISE_PATTERNS = (
+    re.compile(r'\[\^[^\]]+\]'),
+    re.compile(r'\[~[^\]]+\]'),
+    re.compile(r'\{code(?::[^}]*)?\}', re.IGNORECASE),
+)
+
+_LOG_ENTRY_SPLIT_PATTERN = re.compile(
+    r'(?=\b\d{5,}\s+\d{4}/\d{2}/\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?)'
+)
+
+_LOG_ENTRY_START_PATTERN = re.compile(
+    r'^\d{5,}\s+\d{4}/\d{2}/\d{2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?\b'
+)
+
+_EVIDENCE_EXCLUSION_PATTERNS = (
+    re.compile(r'\bduplicates?\s+to\b', re.IGNORECASE),
+    re.compile(r'\bissue created by stability tracedb analysis team\b', re.IGNORECASE),
+    re.compile(r'\badded the following attachments\b', re.IGNORECASE),
+    re.compile(r'\bautomated performance analys', re.IGNORECASE),
+)
+
+
+def _normalize_comment_segment(segment: str) -> str:
+    text = _strip_html(str(segment or ''))
+    if not text:
+        return ''
+
+    for pattern in _COMMENT_PREFIX_PATTERNS:
+        text = pattern.sub('', text)
+    for pattern in _COMMENT_INLINE_NOISE_PATTERNS:
+        text = pattern.sub(' ', text)
+
+    text = re.sub(r'\s+', ' ', text).strip(' -:')
+    return text
+
+
+def _split_dense_comment_segment(segment: str) -> List[str]:
+    normalized = _normalize_comment_segment(segment)
+    if not normalized:
+        return []
+
+    parts = _LOG_ENTRY_SPLIT_PATTERN.split(normalized)
+    return [part.strip() for part in parts if part.strip()]
+
+
+def _split_comment_segments(comments: str) -> List[str]:
+    if not comments:
+        return []
+
+    segments: List[str] = []
+    for part in re.split(r'[\r\n]+', comments):
+        segments.extend(_split_dense_comment_segment(part))
+    return segments
+
+
+def _classify_comment_segment(segment: str) -> str:
+    if not segment:
+        return 'empty'
+
+    has_hard_workflow = any(pattern.search(segment) for pattern in _HARD_WORKFLOW_COMMENT_PATTERNS)
+    has_workflow = any(pattern.search(segment) for pattern in _WORKFLOW_COMMENT_PATTERNS)
+    has_analysis = any(pattern.search(segment) for pattern in _ANALYSIS_COMMENT_PATTERNS)
+    has_evidence = any(pattern.search(segment) for pattern in _EVIDENCE_COMMENT_PATTERNS)
+
+    if has_hard_workflow:
+        return 'workflow'
+
+    if has_analysis:
+        return 'analysis'
+
+    if has_workflow:
+        return 'workflow'
+
+    if has_evidence:
+        return 'evidence'
+
+    return 'context'
+
+
+def _is_log_entry_segment(segment: str) -> bool:
+    return bool(segment and _LOG_ENTRY_START_PATTERN.search(segment))
+
+
+def _looks_like_scorecard_segment(segment: str) -> bool:
+    return bool(segment and segment.count('|') >= 4)
+
+
+def _score_comment_segment(segment: str, classification: str) -> int:
+    if not segment:
+        return 0
+
+    base_scores = {
+        'workflow': -10,
+        'analysis': 9,
+        'evidence': 6,
+        'context': 2,
+    }
+    score = base_scores.get(classification, 0)
+
+    keyword_hits = 0
+    for pattern in (*_ANALYSIS_COMMENT_PATTERNS, *_EVIDENCE_COMMENT_PATTERNS):
+        if pattern.search(segment):
+            keyword_hits += 1
+    score += min(keyword_hits, 3)
+
+    length = len(segment)
+    if 24 <= length <= 180:
+        score += 1
+    elif length < 16:
+        score -= 2
+    elif length > 260:
+        score -= 1
+
+    if _is_log_entry_segment(segment):
+        score -= 4
+    if _looks_like_scorecard_segment(segment):
+        score -= 6
+
+    return score
+
+
+def _is_follow_up_only_segment(segment: str) -> bool:
+    if not segment:
+        return False
+    return any(pattern.search(segment) for pattern in _FOLLOW_UP_COMMENT_PATTERNS)
+
+
+def _is_excluded_evidence_segment(segment: str) -> bool:
+    if not segment:
+        return False
+    return _is_log_entry_segment(segment) or any(
+        pattern.search(segment) for pattern in _EVIDENCE_EXCLUSION_PATTERNS
+    )
+
+
+def _truncate_comment_segment(segment: str, max_chars: int = 160) -> str:
+    text = re.sub(r'\s+', ' ', segment).strip()
+    if max_chars <= 3:
+        return text[:max_chars]
+    if len(text) <= max_chars:
+        return text
+    return text[: max_chars - 3].rstrip() + '...'
+
+
+def _build_comment_views(comments: Any) -> Dict[str, Any]:
+    if isinstance(comments, str):
+        flattened = comments.strip()
+    else:
+        flattened = _flatten_comments(comments)
+    if not flattened:
+        return {'search_comments': '', 'evidence_snippets': []}
+
+    ranked_segments: List[tuple[int, int, str, bool, str]] = []
+    seen: set[str] = set()
+    for index, segment in enumerate(_split_comment_segments(flattened)):
+        key = segment.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+
+        classification = _classify_comment_segment(segment)
+        score = _score_comment_segment(segment, classification)
+        if classification == 'workflow' or _looks_like_scorecard_segment(segment) or score <= 0:
+            continue
+        evidence_eligible = (
+            classification in {'analysis', 'evidence'}
+            and not _is_follow_up_only_segment(segment)
+            and not _is_excluded_evidence_segment(segment)
+        )
+        ranked_segments.append((score, index, classification, evidence_eligible, segment))
+
+    ranked_segments.sort(key=lambda item: (-item[0], item[1]))
+
+    selected_segments: List[str] = []
+    char_count = 0
+    log_segments_selected = 0
+    for _, _, _, _, segment in ranked_segments:
+        if len(selected_segments) >= 4:
+            break
+        is_log_segment = _is_log_entry_segment(segment)
+        max_log_segments = 1 if selected_segments else 2
+        if is_log_segment and log_segments_selected >= max_log_segments:
+            continue
+        separator_length = 1 if selected_segments else 0
+        remaining_chars = 700 - char_count - separator_length
+        if remaining_chars <= 0:
+            break
+        segment_char_limit = min(remaining_chars, 220) if is_log_segment else remaining_chars
+        if len(segment) > segment_char_limit:
+            selected_segment = _truncate_comment_segment(segment, segment_char_limit)
+            if not selected_segment:
+                break
+            selected_segments.append(selected_segment)
+            char_count += len(selected_segment) + separator_length
+            if is_log_segment:
+                log_segments_selected += 1
+            break
+        selected_segments.append(segment)
+        char_count += len(segment) + separator_length
+        if is_log_segment:
+            log_segments_selected += 1
+
+    evidence_snippets = [
+        _truncate_comment_segment(segment)
+        for _, _, _, evidence_eligible, segment in ranked_segments
+        if evidence_eligible
+    ][:2]
+
+    return {
+        'search_comments': '\n'.join(selected_segments),
+        'evidence_snippets': evidence_snippets,
+    }
+
+
 def _pick_scalar(value: Any) -> Optional[str]:
     if value is None:
         return None
@@ -108,6 +389,7 @@ def _rows_from_defect_file(file_path: Path) -> List[Dict[str, Any]]:
         title = str(raw.get('name') or '').strip()
         description = _strip_html(str(raw.get('description') or ''))
         comments = _flatten_comments(raw.get('comments'))
+        comment_views = _build_comment_views(comments)
 
         hint_text = ' '.join(
             [
@@ -138,6 +420,8 @@ def _rows_from_defect_file(file_path: Path) -> List[Dict[str, Any]]:
                 'lead_model': hints.lead_model,
                 'status_phase': phase,
                 'comments': comments,
+                'search_comments': comment_views['search_comments'],
+                'evidence_snippets': comment_views['evidence_snippets'],
             }
         )
     return rows
@@ -192,6 +476,7 @@ def _rows_from_octane_defects(sqlite_path: Path) -> List[Dict[str, Any]]:
         title = str(raw.get('name') or '').strip()
         description = _strip_html(str(raw.get('description') or ''))
         comments = _flatten_comments(raw.get('comments'))
+        comment_views = _build_comment_views(comments)
 
         hint_text = ' '.join(
             [
@@ -216,6 +501,8 @@ def _rows_from_octane_defects(sqlite_path: Path) -> List[Dict[str, Any]]:
                 'lead_model': _pick_scalar(raw.get('lead_model')) or hints.lead_model,
                 'status_phase': _pick_scalar(raw.get('status_phase')),
                 'comments': comments,
+                'search_comments': comment_views['search_comments'],
+                'evidence_snippets': comment_views['evidence_snippets'],
             }
         )
     return rows
@@ -339,6 +626,7 @@ def _search(payload: Dict[str, Any], repo_root: Path) -> Dict[str, Any]:
                 'pu': getattr(candidate, 'pu', None),
                 'statusPhase': getattr(candidate, 'status_phase', None),
                 'snippet': str(getattr(candidate, 'snippet', '') or ''),
+                'evidenceSnippets': list(getattr(candidate, 'evidence_snippets', []) or []),
             }
         )
 

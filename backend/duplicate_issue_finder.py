@@ -2,6 +2,7 @@ import re
 import hashlib
 import glob
 import os
+import pickle
 import sqlite3
 import time
 import logging
@@ -10,6 +11,11 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
+
+try:
+    import httpx
+except Exception:  # pragma: no cover
+    httpx = None
 
 logger = logging.getLogger(__name__)
 
@@ -51,12 +57,19 @@ _DEFAULT_EMBEDDING_MODEL = os.getenv(
     "DUPLICATE_EMBEDDING_MODEL",
     _discover_local_embedding_model() or _DEFAULT_EMBEDDING_MODEL_ID,
 )
+_REMOTE_EMBEDDING_URL = os.getenv("DUPLICATE_REMOTE_EMBEDDING_URL", "").strip()
+_REMOTE_EMBEDDING_MODEL = os.getenv("DUPLICATE_REMOTE_EMBEDDING_MODEL", "qwen3-embedding-8b").strip()
+_REMOTE_EMBEDDING_AUTHORIZATION = os.getenv("DUPLICATE_REMOTE_EMBEDDING_AUTHORIZATION", "").strip()
+_REMOTE_EMBEDDING_TIMEOUT_SECONDS = float(
+    os.getenv("DUPLICATE_REMOTE_EMBEDDING_TIMEOUT_SECONDS", "15").strip() or "15"
+)
+_RRF_K = 60
 
 try:
     from sentence_transformers import SentenceTransformer
 
     SENTENCE_TRANSFORMER_AVAILABLE = True
-except ImportError:
+except Exception:
     SentenceTransformer = None
     SENTENCE_TRANSFORMER_AVAILABLE = False
 
@@ -115,12 +128,79 @@ def _get_st_model() -> Any:
         return None
 
 
+def _get_remote_embedding_config() -> Optional[Dict[str, Any]]:
+    if not httpx or not _REMOTE_EMBEDDING_URL or not _REMOTE_EMBEDDING_AUTHORIZATION or not _REMOTE_EMBEDDING_MODEL:
+        return None
+    return {
+        "url": _REMOTE_EMBEDDING_URL,
+        "authorization": _REMOTE_EMBEDDING_AUTHORIZATION,
+        "model": _REMOTE_EMBEDDING_MODEL,
+        "timeout": _REMOTE_EMBEDDING_TIMEOUT_SECONDS,
+    }
+
+
+def _extract_remote_embeddings(payload: Any) -> List[np.ndarray]:
+    if not isinstance(payload, dict):
+        raise RuntimeError("remote embedding response is not a JSON object")
+
+    candidates = payload.get("data")
+    if isinstance(candidates, list):
+        vectors: List[np.ndarray] = []
+        for item in candidates:
+            if isinstance(item, dict) and isinstance(item.get("embedding"), list):
+                vectors.append(np.asarray(item["embedding"], dtype=np.float32))
+        if vectors:
+            return vectors
+    if isinstance(candidates, dict) and isinstance(candidates.get("embedding"), list):
+        return [np.asarray(candidates["embedding"], dtype=np.float32)]
+    if isinstance(payload.get("embedding"), list):
+        return [np.asarray(payload["embedding"], dtype=np.float32)]
+
+    raise RuntimeError("remote embedding response does not contain embeddings")
+
+
+def _encode_remote_embeddings(texts: Sequence[str], model_name: Optional[str] = None) -> np.ndarray:
+    config = _get_remote_embedding_config()
+    if not config:
+        raise RuntimeError("remote embedding is not configured")
+    if not texts:
+        return np.empty((0, 0), dtype=np.float32)
+
+    vectors: List[np.ndarray] = []
+    with httpx.Client(timeout=float(config["timeout"])) as client:
+        for text in texts:
+            response = client.post(
+                str(config["url"]),
+                headers={
+                    "accept": "application/json",
+                    "Authorization": str(config["authorization"]),
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": model_name or str(config["model"]),
+                    "input": str(text),
+                },
+            )
+            response.raise_for_status()
+            batch_vectors = _extract_remote_embeddings(response.json())
+            if len(batch_vectors) != 1:
+                raise RuntimeError("remote embedding returned an unexpected batch size")
+            vectors.append(batch_vectors[0])
+
+    return np.vstack(vectors).astype(np.float32)
+
+
 # ---------------------------------------------------------------------------
 # SQLite embedding cache
 # ---------------------------------------------------------------------------
 _DEFAULT_EMBEDDING_DB = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "database", "ticket_embeddings.db"
 )
+_INDEX_SNAPSHOT_DIR = os.getenv(
+    "DUPLICATE_INDEX_SNAPSHOT_DIR",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "cache", "index_snapshots"),
+)
+_INDEX_SNAPSHOT_VERSION = "v1"
 
 _DDL = """
 CREATE TABLE IF NOT EXISTS ticket_embeddings (
@@ -207,7 +287,7 @@ def _get_embedding_cache() -> _EmbeddingCache:
 
 
 DEFAULT_EXCLUDED_PHASE_PREFIXES = ("00-", "06-", "09-")
-DEFAULT_TEXT_FIELDS = ("name", "description", "comments", "project", "pu", "ecu", "top_aida", "fv", "team", "fvp", "lead_model")
+DEFAULT_TEXT_FIELDS = ("name", "description", "search_comments", "comments", "project", "pu", "ecu", "top_aida", "fv", "team", "fvp", "lead_model")
 
 
 @dataclass(frozen=True)
@@ -228,6 +308,7 @@ class DuplicateCandidate:
     pu: Optional[str]
     status_phase: Optional[str]
     snippet: str
+    evidence_snippets: List[str]
 
 
 def _normalize_project(value: Any) -> Optional[str]:
@@ -390,12 +471,48 @@ def _normalize_text(value: Any) -> str:
     return s.strip()
 
 
+def _normalize_evidence_snippets(value: Any) -> List[str]:
+    if value is None:
+        return []
+    if isinstance(value, float) and pd.isna(value):
+        return []
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        snippets = [_normalize_text(item) for item in value]
+        return [snippet for snippet in snippets if snippet]
+    text = _normalize_text(value)
+    return [text] if text else []
+
+
+def _has_field(source: Any, field_name: str) -> bool:
+    if isinstance(source, pd.Series):
+        return field_name in source.index
+    if isinstance(source, dict):
+        return field_name in source
+    return False
+
+
+def _searchable_comment_text(source: Any) -> str:
+    if _has_field(source, "search_comments"):
+        return _normalize_text(source.get("search_comments"))
+    return _normalize_text(source.get("comments"))
+
+
 def _build_document(row: pd.Series, fields: Sequence[str]) -> str:
     parts: List[str] = []
+    include_search_comments = "search_comments" in fields
+    search_comments = _searchable_comment_text(row)
+    comments = _normalize_text(row.get("comments"))
     for f in fields:
-        if f not in row:
-            continue
-        v = _normalize_text(row.get(f))
+        if f == "search_comments":
+            v = search_comments
+        elif f == "comments":
+            if include_search_comments:
+                continue
+            v = comments
+        else:
+            if f not in row:
+                continue
+            v = _normalize_text(row.get(f))
         if not v:
             continue
         parts.append(v)
@@ -433,8 +550,18 @@ def _safe_snippet(text: Any, max_len: int = 240) -> str:
     return s[: max_len - 1] + "…"
 
 
+def _first_evidence_snippet(meta: Dict[str, Any]) -> str:
+    snippets = _normalize_evidence_snippets(meta.get("evidence_snippets"))
+    return snippets[0] if snippets else ""
+
+
 def _candidate_snippet(meta: Dict[str, Any]) -> str:
-    return _safe_snippet(meta.get("description") or meta.get("comments") or "")
+    return _safe_snippet(
+        meta.get("description")
+        or _first_evidence_snippet(meta)
+        or _searchable_comment_text(meta)
+        or ""
+    )
 
 
 class DuplicateIssueIndex:
@@ -451,6 +578,8 @@ class DuplicateIssueIndex:
         # Embedding backend (preferred)
         self._embedding_matrix: Optional[np.ndarray] = None
         self._use_embeddings = False
+        self._embedding_backend: Optional[str] = None
+        self._embedding_model_name: Optional[str] = None
         # Shared
         self._meta: List[Dict[str, Any]] = []
         self._documents: List[str] = []
@@ -469,6 +598,8 @@ class DuplicateIssueIndex:
             self._matrix = None
             self._embedding_matrix = None
             self._use_embeddings = False
+            self._embedding_backend = None
+            self._embedding_model_name = None
             self._meta = []
             self._documents = []
             self._built_at = time.time()
@@ -490,37 +621,72 @@ class DuplicateIssueIndex:
         self._meta = []
         for i in range(len(work)):
             row = work.iloc[i]
-            self._meta.append(
-                {
-                    "ticket_id": _normalize_text(row.get("id")) or _normalize_text(row.get("defect_id")) or None,
-                    "name": _normalize_text(row.get("name")) or _normalize_text(row.get("title")) or "",
-                    "project": _normalize_text(row.get("project")) or None,
-                    "pu": _normalize_text(row.get("pu")) or None,
-                    "ecu": _normalize_text(row.get("ecu")) or None,
-                    "lead_model": _normalize_text(row.get("lead_model")) or None,
-                    "status_phase": _normalize_text(row.get("status_phase")) or None,
-                    "description": _normalize_text(row.get("description")) or "",
-                    "comments": _normalize_text(row.get("comments")) or "",
-                }
-            )
+            meta = {
+                "ticket_id": _normalize_text(row.get("id")) or _normalize_text(row.get("defect_id")) or None,
+                "name": _normalize_text(row.get("name")) or _normalize_text(row.get("title")) or "",
+                "project": _normalize_text(row.get("project")) or None,
+                "pu": _normalize_text(row.get("pu")) or None,
+                "ecu": _normalize_text(row.get("ecu")) or None,
+                "lead_model": _normalize_text(row.get("lead_model")) or None,
+                "status_phase": _normalize_text(row.get("status_phase")) or None,
+                "description": _normalize_text(row.get("description")) or "",
+                "comments": _normalize_text(row.get("comments")) or "",
+                "evidence_snippets": _normalize_evidence_snippets(row.get("evidence_snippets")),
+            }
+            if "search_comments" in work.columns:
+                meta["search_comments"] = _normalize_text(row.get("search_comments"))
+            self._meta.append(meta)
+
+        embedding_built = False
 
         # --- Try sentence-transformer embeddings first ---
         st_model = _get_st_model()
         if st_model is not None:
             try:
-                self._build_embedding_index(st_model, documents)
+                model_name = _resolve_embedding_model_name() or _DEFAULT_EMBEDDING_MODEL
+                self._build_embedding_index(
+                    documents,
+                    model_name=model_name,
+                    encoder=lambda values: st_model.encode(
+                        list(values),
+                        batch_size=64,
+                        show_progress_bar=False,
+                        normalize_embeddings=True,
+                    ),
+                    backend_name="local",
+                )
                 logger.info(
                     "Built embedding index: %d tickets, model=%s",
-                    len(documents), _DEFAULT_EMBEDDING_MODEL,
+                    len(documents), model_name,
                 )
-                self._built_at = time.time()
-                return self
+                embedding_built = True
             except Exception as exc:
-                logger.warning("Embedding index build failed, falling back to TF-IDF: %s", exc)
+                logger.warning("Embedding index build failed, continuing with sparse retrieval only: %s", exc)
 
-        # --- Fallback: TF-IDF ---
-        self._embedding_matrix = None
-        self._use_embeddings = False
+        remote_config = _get_remote_embedding_config()
+        if not embedding_built and remote_config is not None:
+            try:
+                model_name = str(remote_config["model"])
+                self._build_embedding_index(
+                    documents,
+                    model_name=model_name,
+                    encoder=lambda values: _encode_remote_embeddings(values, model_name=model_name),
+                    backend_name="remote",
+                )
+                logger.info(
+                    "Built remote embedding index: %d tickets, model=%s",
+                    len(documents), model_name,
+                )
+                embedding_built = True
+            except Exception as exc:
+                logger.warning("Remote embedding index build failed, continuing with sparse retrieval only: %s", exc)
+
+        # --- Sparse index for hybrid retrieval (and fallback when embeddings are unavailable) ---
+        if not embedding_built:
+            self._embedding_matrix = None
+            self._use_embeddings = False
+            self._embedding_backend = None
+            self._embedding_model_name = None
 
         if TfidfVectorizer is None or sklearn_cosine_similarity is None:
             self._vectorizer = None
@@ -539,10 +705,15 @@ class DuplicateIssueIndex:
         self._built_at = time.time()
         return self
 
-    def _build_embedding_index(self, st_model: Any, documents: List[str]) -> None:
+    def _build_embedding_index(
+        self,
+        documents: List[str],
+        model_name: str,
+        encoder: Any,
+        backend_name: str,
+    ) -> None:
         """Build numpy embedding matrix with SQLite cache for incremental updates."""
         cache = _get_embedding_cache()
-        model_name = _DEFAULT_EMBEDDING_MODEL
 
         # Gather ticket IDs and text hashes
         ticket_ids = [m.get("ticket_id") or f"__idx_{i}" for i, m in enumerate(self._meta)]
@@ -561,9 +732,7 @@ class DuplicateIssueIndex:
         # Encode missing/stale tickets
         if to_encode_indices:
             texts_to_encode = [documents[i] for i in to_encode_indices]
-            new_vecs = st_model.encode(
-                texts_to_encode, batch_size=64, show_progress_bar=False, normalize_embeddings=True,
-            )
+            new_vecs = encoder(texts_to_encode)
             # Persist to cache
             items = [
                 (ticket_ids[i], text_hashes[i], new_vecs[j])
@@ -582,6 +751,8 @@ class DuplicateIssueIndex:
         vecs = [cached[tid][1] for tid in ticket_ids]
         self._embedding_matrix = np.vstack(vecs).astype(np.float32)
         self._use_embeddings = True
+        self._embedding_backend = backend_name
+        self._embedding_model_name = model_name
 
     def _coarse_search(self, query: str, hints: Optional[DuplicateSearchHints], top_k: int) -> List[DuplicateCandidate]:
         q = _normalize_text(query)
@@ -591,17 +762,37 @@ class DuplicateIssueIndex:
             return self._keyword_fallback(q, hints=hints, top_k=top_k)
 
         try:
+            dense_ranked: List[Tuple[int, float]] = []
+            sparse_ranked: List[Tuple[int, float]] = []
+
             if self._use_embeddings and self._embedding_matrix is not None:
-                sims = self._embedding_search(q)
-            else:
+                dense_ranked = self._rank_similarities(self._embedding_search(q), hints=hints)
+            if self._vectorizer is not None and self._matrix is not None:
                 qv = self._vectorizer.transform([q])
-                sims = sklearn_cosine_similarity(self._matrix, qv).reshape(-1)
+                sparse_sims = sklearn_cosine_similarity(self._matrix, qv).reshape(-1)
+                sparse_ranked = self._rank_similarities(sparse_sims, hints=hints)
         except Exception as e:
             logger.warning(f"duplicate search failed, fallback to keyword: {e}")
             return self._keyword_fallback(q, hints=hints, top_k=top_k)
 
+        if dense_ranked and sparse_ranked:
+            ranked = self._fuse_ranked_lists_rrf(dense_ranked, sparse_ranked, top_k=max(50, int(top_k) * 5))
+        elif dense_ranked:
+            ranked = dense_ranked
+        elif sparse_ranked:
+            ranked = sparse_ranked
+        else:
+            return self._keyword_fallback(q, hints=hints, top_k=top_k)
+
+        return self._ranked_to_candidates(ranked, top_k=top_k)
+
+    def _rank_similarities(
+        self,
+        similarities: Sequence[float],
+        hints: Optional[DuplicateSearchHints],
+    ) -> List[Tuple[int, float]]:
         ranked: List[Tuple[int, float]] = []
-        for idx, raw_sim in enumerate(sims):
+        for idx, raw_sim in enumerate(similarities):
             meta = self._meta[idx]
             if hints:
                 if hints.project and not _hint_matches(meta.get("project"), hints.project, _normalize_project):
@@ -609,9 +800,33 @@ class DuplicateIssueIndex:
                 if hints.pu and not _hint_matches(meta.get("pu"), hints.pu, _normalize_pu):
                     continue
             ranked.append((idx, _apply_hint_boost(float(raw_sim), meta, hints)))
+        ranked.sort(key=lambda item: float(item[1]), reverse=True)
+        return ranked
 
-        ranked.sort(key=lambda x: float(x[1]), reverse=True)
-        return self._ranked_to_candidates(ranked, top_k=top_k)
+    def _fuse_ranked_lists_rrf(
+        self,
+        dense_ranked: Sequence[Tuple[int, float]],
+        sparse_ranked: Sequence[Tuple[int, float]],
+        top_k: int,
+        rrf_k: int = _RRF_K,
+    ) -> List[Tuple[int, float]]:
+        fused_scores: Dict[int, float] = {}
+        best_similarity: Dict[int, float] = {}
+
+        for ranked in (dense_ranked, sparse_ranked):
+            for rank, (idx, similarity) in enumerate(ranked[: max(1, int(top_k))], start=1):
+                fused_scores[idx] = fused_scores.get(idx, 0.0) + (1.0 / float(rrf_k + rank))
+                best_similarity[idx] = max(best_similarity.get(idx, float("-inf")), float(similarity))
+
+        ranked_indices = sorted(
+            fused_scores.items(),
+            key=lambda item: (float(item[1]), float(best_similarity.get(item[0], 0.0))),
+            reverse=True,
+        )
+        return [
+            (idx, float(best_similarity.get(idx, 0.0)))
+            for idx, _ in ranked_indices[: max(1, int(top_k))]
+        ]
 
     def _ranked_to_candidates(self, ranked: Sequence[Tuple[int, float]], top_k: int) -> List[DuplicateCandidate]:
         candidates: List[DuplicateCandidate] = []
@@ -627,6 +842,7 @@ class DuplicateIssueIndex:
                     pu=meta.get("pu"),
                     status_phase=meta.get("status_phase"),
                     snippet=_candidate_snippet(meta),
+                    evidence_snippets=_normalize_evidence_snippets(meta.get("evidence_snippets")),
                 )
             )
             if len(candidates) >= top_k:
@@ -676,12 +892,17 @@ class DuplicateIssueIndex:
 
     def _embedding_search(self, query_text: str) -> np.ndarray:
         """Encode query and compute cosine similarity against the embedding matrix."""
-        st_model = _get_st_model()
-        if st_model is None:
-            raise RuntimeError("sentence-transformer model not available")
-        qvec = st_model.encode(
-            [query_text], normalize_embeddings=True, show_progress_bar=False,
-        ).astype(np.float32)
+        if self._embedding_backend == "remote":
+            if not self._embedding_model_name:
+                raise RuntimeError("remote embedding model is not configured")
+            qvec = _encode_remote_embeddings([query_text], model_name=self._embedding_model_name)
+        else:
+            st_model = _get_st_model()
+            if st_model is None:
+                raise RuntimeError("sentence-transformer model not available")
+            qvec = st_model.encode(
+                [query_text], normalize_embeddings=True, show_progress_bar=False,
+            ).astype(np.float32)
         # dot product on L2-normalised vectors == cosine similarity
         return (self._embedding_matrix @ qvec.T).reshape(-1)
 
@@ -689,10 +910,11 @@ class DuplicateIssueIndex:
         query_l = query.lower()
         scored: List[Tuple[int, float]] = []
         for i, meta in enumerate(self._meta):
+            comment_text = _searchable_comment_text(meta)
             hay = (
                 f"{meta.get('name','')}\n"
                 f"{meta.get('description','')}\n"
-                f"{meta.get('comments','')}\n"
+                f"{comment_text}\n"
                 f"{meta.get('project','')}\n"
                 f"{meta.get('pu','')}\n"
                 f"{meta.get('ecu','')}\n"
@@ -724,12 +946,92 @@ class DuplicateIssueIndex:
                     pu=meta.get("pu"),
                     status_phase=meta.get("status_phase"),
                     snippet=_candidate_snippet(meta),
+                    evidence_snippets=_normalize_evidence_snippets(meta.get("evidence_snippets")),
                 )
             )
         return candidates
 
+    def snapshot_state(self) -> Dict[str, Any]:
+        return {
+            "snapshot_version": _INDEX_SNAPSHOT_VERSION,
+            "excluded_phase_prefixes": tuple(self.excluded_phase_prefixes),
+            "text_fields": tuple(self.text_fields),
+            "vectorizer": self._vectorizer,
+            "matrix": self._matrix,
+            "embedding_matrix": self._embedding_matrix,
+            "use_embeddings": bool(self._use_embeddings),
+            "embedding_backend": self._embedding_backend,
+            "embedding_model_name": self._embedding_model_name,
+            "meta": list(self._meta),
+            "documents": list(self._documents),
+            "built_at": float(self._built_at),
+            "row_count": int(self._row_count),
+        }
+
+    def load_snapshot_state(self, state: Dict[str, Any]) -> "DuplicateIssueIndex":
+        self.excluded_phase_prefixes = tuple(state.get("excluded_phase_prefixes") or self.excluded_phase_prefixes)
+        self.text_fields = tuple(state.get("text_fields") or self.text_fields)
+        self._vectorizer = state.get("vectorizer")
+        self._matrix = state.get("matrix")
+        self._embedding_matrix = state.get("embedding_matrix")
+        self._use_embeddings = bool(state.get("use_embeddings"))
+        self._embedding_backend = state.get("embedding_backend")
+        self._embedding_model_name = state.get("embedding_model_name")
+        self._meta = list(state.get("meta") or [])
+        self._documents = list(state.get("documents") or [])
+        self._built_at = float(state.get("built_at") or time.time())
+        self._row_count = int(state.get("row_count") or len(self._meta))
+        return self
+
 
 _INDEX_CACHE: Dict[str, DuplicateIssueIndex] = {}
+
+
+def _build_index_snapshot_path(
+    cache_key: str,
+    excluded_phase_prefixes: Sequence[str],
+    text_fields: Sequence[str],
+) -> str:
+    identity = "|".join(
+        [
+            _INDEX_SNAPSHOT_VERSION,
+            str(cache_key),
+            ",".join(excluded_phase_prefixes),
+            ",".join(text_fields),
+            str(_DEFAULT_EMBEDDING_MODEL or ""),
+            str(_REMOTE_EMBEDDING_URL or ""),
+            str(_REMOTE_EMBEDDING_MODEL or ""),
+        ]
+    )
+    file_name = f"{hashlib.md5(identity.encode('utf-8', errors='replace')).hexdigest()}.pkl"
+    return os.path.join(_INDEX_SNAPSHOT_DIR, file_name)
+
+
+def _load_index_snapshot(snapshot_path: str) -> Optional[Dict[str, Any]]:
+    if not snapshot_path or not os.path.isfile(snapshot_path):
+        return None
+    try:
+        with open(snapshot_path, "rb") as handle:
+            state = pickle.load(handle)
+    except Exception as exc:
+        logger.warning("Failed to load duplicate index snapshot %s: %s", snapshot_path, exc)
+        return None
+    if not isinstance(state, dict):
+        return None
+    if str(state.get("snapshot_version") or "") != _INDEX_SNAPSHOT_VERSION:
+        return None
+    return state
+
+
+def _save_index_snapshot(snapshot_path: str, index: DuplicateIssueIndex) -> None:
+    if not snapshot_path:
+        return
+    try:
+        os.makedirs(os.path.dirname(snapshot_path), exist_ok=True)
+        with open(snapshot_path, "wb") as handle:
+            pickle.dump(index.snapshot_state(), handle, protocol=pickle.HIGHEST_PROTOCOL)
+    except Exception as exc:
+        logger.warning("Failed to save duplicate index snapshot %s: %s", snapshot_path, exc)
 
 
 def get_or_build_index_with_metadata(
@@ -749,12 +1051,26 @@ def get_or_build_index_with_metadata(
         idx = DuplicateIssueIndex(excluded_phase_prefixes=excluded_phase_prefixes)
         _INDEX_CACHE[cache_key] = idx
 
+    snapshot_path = _build_index_snapshot_path(
+        cache_key=cache_key,
+        excluded_phase_prefixes=excluded_phase_prefixes,
+        text_fields=getattr(idx, "text_fields", DEFAULT_TEXT_FIELDS),
+    )
+    disk_cache_hit = False
+
     if needs_rebuild:
-        idx.build_from_df(df if isinstance(df, pd.DataFrame) else pd.DataFrame())
+        snapshot_state = _load_index_snapshot(snapshot_path)
+        if snapshot_state is not None:
+            idx.load_snapshot_state(snapshot_state)
+            disk_cache_hit = True
+        else:
+            idx.build_from_df(df if isinstance(df, pd.DataFrame) else pd.DataFrame())
+            _save_index_snapshot(snapshot_path, idx)
 
     return idx, {
         "cache_key": cache_key,
         "index_cache_hit": cache_hit,
+        "index_disk_cache_hit": disk_cache_hit,
         "index_rebuilt": needs_rebuild,
         "index_row_count": int(idx._row_count or 0),
     }

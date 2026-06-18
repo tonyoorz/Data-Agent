@@ -110,14 +110,28 @@ class FeatureReRanker:
         popularity_stats: Optional[Dict[str, Any]],
         rank_pos: Optional[int] = None,
     ) -> List[float]:
-        from duplicate_issue_finder import extract_hints
+        from duplicate_issue_finder import extract_hints, _searchable_comment_text
 
         hints = extract_hints(query_text)
         project = str(meta.get("project") or "").lower()
         pu = str(meta.get("pu") or "").lower()
         ecu = str(meta.get("ecu") or "").lower()
         lead_model = str(meta.get("lead_model") or "").lower()
-        overlap = _token_overlap(query_text, "\n".join(str(meta.get(key) or "") for key in ("name", "description", "comments", "project", "pu", "ecu", "lead_model")))
+        curated_comment_text = _searchable_comment_text(meta)
+        overlap = _token_overlap(
+            query_text,
+            "\n".join(
+                [
+                    str(meta.get("name") or ""),
+                    str(meta.get("description") or ""),
+                    curated_comment_text,
+                    str(meta.get("project") or ""),
+                    str(meta.get("pu") or ""),
+                    str(meta.get("ecu") or ""),
+                    str(meta.get("lead_model") or ""),
+                ]
+            ),
+        )
         popularity = popularity_stats or {}
         normalized_rank = 0.0 if rank_pos is None else min(1.0, max(0.0, float(rank_pos) / 50.0))
         return [

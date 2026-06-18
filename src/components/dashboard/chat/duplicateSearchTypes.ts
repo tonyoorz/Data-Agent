@@ -9,6 +9,7 @@ export interface DuplicateSearchCandidate {
   pu?: string;
   statusPhase?: string;
   snippet: string;
+  evidenceSnippets?: string[];
 }
 
 export interface DuplicateSearchResult {

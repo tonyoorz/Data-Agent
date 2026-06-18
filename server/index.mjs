@@ -65,6 +65,7 @@ async function handleAiChatRequest(body, response) {
 
       aiContext = await resolveAiDefectContext({
         runDuplicateBridge,
+        ensureDuplicateWarmup: () => duplicateWarmupManager.ensureWarm({ reason: "ai-chat-defect-context" }),
         messages: body?.messages,
         topK: 5,
       });
@@ -201,6 +202,7 @@ const server = http.createServer(async (request, response) => {
       const body = await readJsonBody(request);
       const aiContext = await resolveAiDefectContext({
         runDuplicateBridge,
+        ensureDuplicateWarmup: () => duplicateWarmupManager.ensureWarm({ reason: "ai-context-endpoint" }),
         messages: body?.messages,
         topK: 5,
       });
@@ -264,6 +266,8 @@ const server = http.createServer(async (request, response) => {
         sendJson(response, 400, { success: false, error: "query is required" });
         return;
       }
+
+      await duplicateWarmupManager.ensureWarm({ reason: "duplicate-search-request" });
 
       const result = await runDuplicateBridge({
         action: "search",

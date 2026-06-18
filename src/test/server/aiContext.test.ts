@@ -78,4 +78,82 @@ describe("resolveAiDefectContext", () => {
     );
     expect(second.timings.totalMs).toBeGreaterThanOrEqual(0);
   });
+
+  it("includes compact evidence snippets in formatted defect context", async () => {
+    const runDuplicateBridge = vi.fn().mockResolvedValue({
+      success: true,
+      result: {
+        candidates: [
+          {
+            ticketId: "2687001",
+            name: "Vehicle camera black screen",
+            score1to10: 9,
+            similarity: 0.93,
+            project: "IDCEVO",
+            pu: "26-07",
+            statusPhase: "03-In Analysis_Medium",
+            snippet: "Historical defect linked to camera startup failures.",
+            evidenceSnippets: [
+              "Log shows camera_service timeout after ignition ON during cold boot.",
+              "Repro: black screen appears after three rapid gear changes in parking mode.",
+              "Ignored extra detail that should not be rendered in the compact context block.",
+            ],
+          },
+        ],
+        modelPhase: "click_boost",
+        feedbackCount: 2,
+        dataset_size: 34717,
+      },
+    });
+
+    const resolved = await resolveAiDefectContext({
+      runDuplicateBridge,
+      messages: [{ role: "user", content: "Why is the camera black screen defect recurring?" }],
+      topK: 5,
+    });
+
+    expect(resolved.contextText).toContain("证据:");
+    expect(resolved.contextText).toContain("1) Log shows camera_service timeout after ignition ON during cold boot.");
+    expect(resolved.contextText).toContain("2) Repro: black screen appears after three rapid gear changes in parking mode.");
+    expect(resolved.contextText).not.toContain("Ignored extra detail that should not be rendered in the compact context block.");
+  });
+
+  it("waits for duplicate warmup before executing the bridge search", async () => {
+    const callOrder = [];
+    const ensureDuplicateWarmup = vi.fn().mockImplementation(async () => {
+      callOrder.push("warmup");
+    });
+    const runDuplicateBridge = vi.fn().mockImplementation(async () => {
+      callOrder.push("search");
+      return {
+        success: true,
+        result: {
+          candidates: [],
+          modelPhase: "baseline",
+          feedbackCount: 0,
+          dataset_size: 34717,
+          timings: {
+            total_ms: 100,
+          },
+        },
+      };
+    });
+
+    const resolved = await resolveAiDefectContext({
+      runDuplicateBridge,
+      ensureDuplicateWarmup,
+      messages: [{ role: "user", content: "请检查这个缺陷是否重复" }],
+      topK: 5,
+    });
+
+    expect(ensureDuplicateWarmup).toHaveBeenCalledTimes(1);
+    expect(runDuplicateBridge).toHaveBeenCalledTimes(1);
+    expect(callOrder).toEqual(["warmup", "search"]);
+    expect(resolved.timings).toEqual(
+      expect.objectContaining({
+        cacheHit: false,
+        warmupMs: expect.any(Number),
+      }),
+    );
+  });
 });

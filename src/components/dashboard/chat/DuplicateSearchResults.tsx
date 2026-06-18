@@ -19,6 +19,50 @@ function buildOctaneWorkItemUrl(ticketId: string) {
   return `${OCTANE_WORK_ITEM_URL_BASE}${encodeURIComponent(ticketId)}`;
 }
 
+const normalizeCompactText = (value: string | undefined, maxLength = 180) => {
+  const normalized = String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, maxLength - 3).trimEnd()}...`;
+};
+
+const buildConfidenceLevel = (score: number | undefined) => {
+  const numeric = Number(score || 0);
+  if (numeric >= 8) {
+    return "高置信";
+  }
+  if (numeric >= 6) {
+    return "中等置信";
+  }
+  if (numeric >= 4) {
+    return "低置信";
+  }
+  return "弱相关";
+};
+
+const buildCandidateMeta = (candidate: DuplicateSearchCandidate) =>
+  [candidate.project, candidate.pu, candidate.statusPhase]
+    .filter(Boolean)
+    .join(" · ");
+
+const buildCandidateInsight = (candidate: DuplicateSearchCandidate) => {
+  const evidence = Array.isArray(candidate.evidenceSnippets)
+    ? candidate.evidenceSnippets.map((item) => normalizeCompactText(item, 140)).filter(Boolean)
+    : [];
+
+  if (evidence.length) {
+    return `评论分析: ${evidence[0]}`;
+  }
+
+  const snippet = normalizeCompactText(candidate.snippet, 140);
+  return snippet ? `现象摘要: ${snippet}` : "现象摘要: 暂无可用摘要";
+};
+
 const DuplicateSearchResults = ({
   result,
   allowFeedback = true,
@@ -109,6 +153,7 @@ const DuplicateSearchResults = ({
           const negativeKey = `${candidate.ticketId}:negative`;
           const isPositiveLoading = loadingKey === positiveKey;
           const isNegativeLoading = loadingKey === negativeKey;
+          const confidenceLevel = buildConfidenceLevel(candidate.score1to10);
 
           return (
             <li
@@ -138,7 +183,7 @@ const DuplicateSearchResults = ({
                     {candidate.name || "Untitled issue"}
                   </span>
                   <span className="text-[11px] font-medium text-muted-foreground">
-                    评分 {candidate.score1to10}/10
+                    {confidenceLevel}
                   </span>
                   {feedback === "positive" ? (
                     <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-600">
@@ -151,20 +196,13 @@ const DuplicateSearchResults = ({
                     </span>
                   ) : null}
                 </div>
-                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                  {candidate.snippet || "No snippet available"}
+                <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+                  <span className="font-medium text-foreground/80">
+                    {buildCandidateMeta(candidate) || "元信息缺失"}
+                  </span>
+                  {" · "}
+                  <span>{buildCandidateInsight(candidate)}</span>
                 </p>
-                <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
-                  <span className="rounded-full bg-muted px-2 py-0.5">
-                    {candidate.project || "project: -"}
-                  </span>
-                  <span className="rounded-full bg-muted px-2 py-0.5">
-                    {candidate.pu || "pu: -"}
-                  </span>
-                  <span className="rounded-full bg-muted px-2 py-0.5">
-                    {`Phase ${candidate.statusPhase || "-"}`}
-                  </span>
-                </div>
               </div>
               {allowFeedback ? (
                 <div className="flex shrink-0 items-start gap-1.5">

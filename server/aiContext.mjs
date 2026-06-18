@@ -19,6 +19,30 @@ function normalizeTitle(title) {
   return String(title || "").replace(/\s+/g, " ").trim();
 }
 
+function truncateEvidenceSnippet(snippet, maxLength = 120) {
+  const normalized = normalizeSnippet(snippet);
+  if (!normalized) {
+    return "";
+  }
+
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, maxLength - 3).trimEnd()}...`;
+}
+
+function normalizeEvidenceSnippets(candidate) {
+  if (!Array.isArray(candidate?.evidenceSnippets)) {
+    return [];
+  }
+
+  return candidate.evidenceSnippets
+    .map((snippet) => truncateEvidenceSnippet(snippet))
+    .filter(Boolean)
+    .slice(0, 2);
+}
+
 function buildAiDefectContextCacheKey(queryText, topK) {
   return `${topK}:${String(queryText || "").trim().toLowerCase()}`;
 }
@@ -98,6 +122,13 @@ export function formatAiDefectContext(queryText, duplicateSearchResult) {
     const meta = [candidate.project, candidate.pu, candidate.statusPhase]
       .filter(Boolean)
       .join(" / ") || "-";
+    const evidenceSnippets = normalizeEvidenceSnippets(candidate);
+    const evidenceBlock = evidenceSnippets.length
+      ? [
+          "证据:",
+          ...evidenceSnippets.map((snippet, snippetIndex) => `${snippetIndex + 1}) ${snippet}`),
+        ]
+      : [];
 
     return [
       `${index + 1}. Ticket ${candidate.ticketId || "N/A"}`,
@@ -105,6 +136,7 @@ export function formatAiDefectContext(queryText, duplicateSearchResult) {
       `评分: ${candidate.score1to10}/10`,
       `元信息: ${meta}`,
       `摘要: ${normalizeSnippet(candidate.snippet) || "无"}`,
+      ...evidenceBlock,
     ].join("\n");
   });
 
@@ -121,7 +153,7 @@ export function formatAiDefectContext(queryText, duplicateSearchResult) {
   ].join("\n");
 }
 
-export async function resolveAiDefectContext({ runDuplicateBridge, messages, topK = 5 }) {
+export async function resolveAiDefectContext({ runDuplicateBridge, ensureDuplicateWarmup, messages, topK = 5 }) {
   const startedAt = nowMs();
   const queryText = extractLatestUserQuery(messages);
   if (!queryText) {
@@ -153,6 +185,12 @@ export async function resolveAiDefectContext({ runDuplicateBridge, messages, top
     };
   }
 
+  const warmupStartedAt = nowMs();
+  if (typeof ensureDuplicateWarmup === "function") {
+    await ensureDuplicateWarmup();
+  }
+  const warmupMs = roundMs(nowMs() - warmupStartedAt);
+
   const bridgeStartedAt = nowMs();
   const result = await runDuplicateBridge({
     action: "search",
@@ -169,6 +207,7 @@ export async function resolveAiDefectContext({ runDuplicateBridge, messages, top
       duplicateSearchResult: null,
       timings: {
         cacheHit: false,
+        warmupMs,
         bridgeMs,
         bridgeTimings,
         totalMs: roundMs(nowMs() - startedAt),
@@ -188,6 +227,7 @@ export async function resolveAiDefectContext({ runDuplicateBridge, messages, top
     ...resolvedValue,
     timings: {
       cacheHit: false,
+      warmupMs,
       bridgeMs,
       bridgeTimings,
       totalMs: roundMs(nowMs() - startedAt),

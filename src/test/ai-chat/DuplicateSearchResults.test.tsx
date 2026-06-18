@@ -62,6 +62,7 @@ describe("DuplicateSearchResults", () => {
               pu: "26-07",
               statusPhase: "03-In Analysis",
               snippet: "车辆冷启动后中控导航黑屏，需要重启恢复。",
+              evidenceSnippets: ["评论分析指出冷启动后 wake handshake 丢失，导致导航未成功拉起。"],
             },
             {
               ticketId: "DTV-2048",
@@ -80,7 +81,10 @@ describe("DuplicateSearchResults", () => {
 
     expect(screen.getByRole("list", { name: "候选缺陷列表" })).toBeInTheDocument();
     expect(screen.getAllByRole("listitem")).toHaveLength(2);
-    expect(screen.getByText("Phase 03-In Analysis")).toBeInTheDocument();
+    expect(screen.getByText(/IDCEVO · 26-07 · 03-In Analysis/)).toBeInTheDocument();
+    expect(screen.getByText(/评论分析: 评论分析指出冷启动后 wake handshake 丢失/)).toBeInTheDocument();
+    expect(screen.getByText("高置信")).toBeInTheDocument();
+    expect(screen.getByText("中等置信")).toBeInTheDocument();
     expect(container.querySelectorAll("article")).toHaveLength(0);
   });
 
