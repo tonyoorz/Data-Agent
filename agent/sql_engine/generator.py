@@ -24,6 +24,7 @@ from agent.understand.term_resolver import get_term_resolver
 from agent.understand.entity_extractor import EntityExtractor, get_entity_extractor, ExtractionResult
 from agent.understand.intent_detector import IntentDetector, get_intent_detector, QueryIntent, IntentResult
 from agent.sql_engine.examples import get_examples_by_intent, get_similar_examples
+from agent.sql_engine.validator import ResultValidator, get_result_validator
 
 
 @dataclass
@@ -46,6 +47,8 @@ class QueryResult:
     candidates: List[SQLCandidate] = field(default_factory=list)
     entities: ExtractionResult = None
     error: Optional[str] = None
+    validation_issues: List[Dict] = field(default_factory=list)   # MARS validation findings
+    validation_llm_verified: bool = False
 
 
 class SQLGenerator:
@@ -406,13 +409,14 @@ class NL2SQLEngine:
     def __init__(self, ontology: Optional[OntologyEngine] = None,
                  db_path: Optional[str] = None,
                  llm_call_fn: Optional = None,
-                 use_query_fixer: bool = True):
+                 use_query_fixer: bool = True,
+                 use_validator: bool = True):
         self.direct_gen = DirectGenerator(ontology, db_path)
         self.decomposed_gen = DecomposedGenerator(ontology, db_path)
         self.plan_gen = PlanBasedGenerator(ontology, db_path)
         self.db_path = db_path
         self.llm_call_fn = llm_call_fn
-        
+
         # Query Fixer (self-correction)
         self.use_query_fixer = use_query_fixer
         if use_query_fixer:
@@ -423,6 +427,16 @@ class NL2SQLEngine:
             )
         else:
             self.query_fixer = None
+
+        # Result Validator (MARS-style verification)
+        self.use_validator = use_validator
+        if use_validator:
+            self.validator = ResultValidator(
+                llm_call_fn=llm_call_fn,
+                enable_llm_validation=llm_call_fn is not None,
+            )
+        else:
+            self.validator = None
 
     def generate_candidates(self, question: str) -> List[SQLCandidate]:
         """Generate all SQL candidates via 3 paths"""
@@ -527,6 +541,7 @@ class NL2SQLEngine:
         2. Generate candidates
         3. Select best
         4. Execute with self-correction (Query Fixer)
+        5. Validate result (MARS-style Result Validator)
         """
         # Analyze
         entities, intent, context = self.direct_gen.analyze_question(question)
@@ -558,6 +573,26 @@ class NL2SQLEngine:
                 )
                 if exec_result.success:
                     result.data = exec_result.rows
+
+                    # MARS-style validation (post-execution)
+                    if self.validator:
+                        verdict = self.validator.validate(
+                            question=question,
+                            sql=best.sql,
+                            rows=exec_result.rows,
+                            intent=intent.primary.value,
+                            columns=exec_result.columns,
+                        )
+                        if not verdict.passed:
+                            # Store validation issues in metadata
+                            result.error = f"Validation: {verdict.primary_reason}"
+                            # Don't fail completely - return data with warning
+                            # The caller can decide whether to retry or accept
+                        result.validation_issues = [
+                            {"level": i.level.value, "check": i.check, "message": i.message}
+                            for i in verdict.issues
+                        ]
+                        result.validation_llm_verified = verdict.llm_verified
                 else:
                     result.error = exec_result.error
             else:
@@ -660,8 +695,9 @@ _engine: Optional[NL2SQLEngine] = None
 def get_nl2sql_engine(ontology: Optional[OntologyEngine] = None,
                       db_path: Optional[str] = None,
                       llm_call_fn: Optional = None,
-                      use_query_fixer: bool = True) -> NL2SQLEngine:
+                      use_query_fixer: bool = True,
+                      use_validator: bool = True) -> NL2SQLEngine:
     global _engine
     if _engine is None:
-        _engine = NL2SQLEngine(ontology, db_path, llm_call_fn, use_query_fixer)
+        _engine = NL2SQLEngine(ontology, db_path, llm_call_fn, use_query_fixer, use_validator)
     return _engine

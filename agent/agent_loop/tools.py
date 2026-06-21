@@ -84,7 +84,8 @@ class QueryDefectsTool(AgentTool):
     """
 
     def __init__(self, ontology: Optional[OntologyEngine] = None,
-                 db_path: Optional[str] = None):
+                 db_path: Optional[str] = None,
+                 llm_call_fn=None):
         self.name = "query_defects"
         self.description = (
             "查询缺陷数据。支持自然语言提问，自动生成SQL并执行。"
@@ -104,7 +105,7 @@ class QueryDefectsTool(AgentTool):
                 default=50
             ),
         ]
-        self.engine = NL2SQLEngine(ontology=ontology, db_path=db_path)
+        self.engine = NL2SQLEngine(ontology=ontology, db_path=db_path, llm_call_fn=llm_call_fn)
 
     def execute(self, question: str, limit: int = 50, **kwargs) -> ToolResult:
         """Execute NL→SQL query"""

@@ -86,9 +86,19 @@ class ReActAgent:
         if registry:
             self.registry = registry
         else:
+            # Get fixer_fn for NL2SQL self-correction
+            fixer_fn = None
+            if llm_call_fn:
+                # Adapt agent_fn to fixer_fn format (str -> str)
+                from agent.llm import get_llm_client
+                llm = get_llm_client()
+                if llm:
+                    fixer_fn = llm.as_fixer_fn()
+
             self.registry = build_default_registry(
                 ontology=self.ontology,
-                db_path=db_path
+                db_path=db_path,
+                llm_call_fn=fixer_fn,
             )
 
         self.nl2sql = NL2SQLEngine(ontology=ontology, db_path=db_path)

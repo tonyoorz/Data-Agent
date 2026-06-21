@@ -82,7 +82,8 @@ class ToolRegistry:
 def build_default_registry(
     ontology: Optional[OntologyEngine] = None,
     db_path: Optional[str] = None,
-    embedding_search_fn=None
+    embedding_search_fn=None,
+    llm_call_fn=None,
 ) -> ToolRegistry:
     """
     Build the default tool registry with all 6 core tools.
@@ -91,6 +92,7 @@ def build_default_registry(
         ontology: Ontology engine instance
         db_path: Path to SQLite database
         embedding_search_fn: Optional BGE embedding search function
+        llm_call_fn: Optional LLM callable for SQL fix/validate
 
     Returns:
         Configured ToolRegistry with all tools registered
@@ -103,7 +105,7 @@ def build_default_registry(
     ont = ontology or get_ontology_engine()
 
     registry = ToolRegistry()
-    registry.register(QueryDefectsTool(ontology=ont, db_path=db_path))
+    registry.register(QueryDefectsTool(ontology=ont, db_path=db_path, llm_call_fn=llm_call_fn))
     registry.register(QueryTrendTool(ontology=ont, db_path=db_path))
     registry.register(DistributionTool(ontology=ont, db_path=db_path))
     registry.register(RankingTool(ontology=ont, db_path=db_path))
