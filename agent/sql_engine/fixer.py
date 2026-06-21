@@ -120,10 +120,28 @@ class QueryFixer:
                 if result.success:
                     return result
 
-            except sqlite3.Error as e:
-                # SQL execution error
+                # Execution failed (syntax/table error)
+                # If no LLM, return error immediately on first attempt
                 if not self.llm_call_fn:
-                    # No LLM, return error immediately
+                    return result
+
+                # With LLM, try to fix
+                if result.error:
+                    fix = self._llm_fix(
+                        current_sql,
+                        result.error,
+                        question,
+                        schema_context
+                    )
+                    if fix.success and fix.fixed_sql:
+                        current_sql = fix.fixed_sql
+                        continue
+                    else:
+                        return result
+
+            except sqlite3.Error as e:
+                # SQL execution error (shouldn't reach here, _try_execute catches)
+                if not self.llm_call_fn:
                     return ExecutionResult(
                         success=False,
                         rows=[],
@@ -132,7 +150,6 @@ class QueryFixer:
                         rowcount=0
                     )
 
-                # Try LLM-based fix
                 fix = self._llm_fix(
                     current_sql,
                     str(e),
@@ -144,7 +161,6 @@ class QueryFixer:
                     current_sql = fix.fixed_sql
                     continue
                 else:
-                    # LLM couldn't fix it
                     return ExecutionResult(
                         success=False,
                         rows=[],

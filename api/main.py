@@ -27,6 +27,7 @@ import sys
 import json
 import time
 import asyncio
+import logging
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
@@ -34,6 +35,9 @@ from fastapi import FastAPI, HTTPException, Query as QueryParam
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger("data-agent")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
 
 # Ensure project root is importable
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -48,6 +52,7 @@ from agent.agent_loop.streaming import SSEEventStream
 from agent.learning import QueryMemory, FeedbackStore
 from agent.interpret.storyteller import DataStoryteller, StoryType
 from agent.data.adapter import resolve_data_db_path, execute_query
+from agent.llm import get_llm_client
 
 
 # ============================================================================
@@ -73,6 +78,7 @@ _agent = None
 _query_memory = None
 _feedback_store = None
 _storyteller = None
+_llm_client = None
 
 
 def get_ontology():
@@ -104,14 +110,35 @@ def get_storyteller() -> DataStoryteller:
     return _storyteller
 
 
+def get_llm():
+    """Get or create the LLM client singleton"""
+    global _llm_client
+    if _llm_client is None:
+        _llm_client = get_llm_client()
+    return _llm_client
+
+
 def get_data_agent():
     global _agent
     if _agent is None:
         ont = get_ontology()
+
+        # Determine mode from env
+        agent_mode = os.environ.get("AGENT_MODE", "llm")
+        llm = get_llm()
+
+        if agent_mode == "llm" and llm:
+            # LLM-powered mode
+            agent_fn = llm.as_agent_fn()
+            logger.info("Agent starting in LLM mode")
+        else:
+            agent_fn = None
+            logger.info("Agent starting in rule-based mode")
+
         _agent = get_agent(
             ontology=ont,
             db_path=DATA_DB_PATH or None,
-            llm_call_fn=None,  # rule-based mode
+            llm_call_fn=agent_fn,
         )
     return _agent
 
@@ -177,6 +204,12 @@ app.add_middleware(
 @app.get("/api/agent/health")
 async def health():
     """健康检查"""
+    # Check LLM status
+    llm = get_llm()
+    llm_status = "disabled"
+    if llm:
+        llm_status = f"{llm.provider}/{llm.model}"
+
     return {
         "status": "ok",
         "service": "data-agent",
@@ -187,7 +220,14 @@ async def health():
             "agent_loop": True,
             "learning": True,
             "storyteller": True,
+            "llm": llm is not None,
         },
+        "llm": {
+            "provider": llm.provider if llm else "none",
+            "model": llm.model if llm else "none",
+            "status": llm_status,
+        },
+        "mode": os.environ.get("AGENT_MODE", "llm"),
     }
 
 
@@ -416,6 +456,46 @@ async def examples(limit: int = QueryParam(30, ge=1, le=100)):
     return {
         "examples": data,
         "count": len(data),
+    }
+
+
+# ============================================================================
+# LLM Management
+# ============================================================================
+
+@app.get("/api/agent/llm/status")
+async def llm_status():
+    """查看 LLM 状态"""
+    llm = get_llm()
+    if llm is None:
+        return {
+            "enabled": False,
+            "provider": "none",
+            "model": "none",
+            "message": "LLM 未配置。设置 AGENT_LLM_PROVIDER 和 API key 启用。",
+        }
+    return {
+        "enabled": True,
+        "provider": llm.provider,
+        "model": llm.model,
+        "base_url": llm.base_url,
+        "agent_mode": os.environ.get("AGENT_MODE", "llm"),
+    }
+
+
+@app.post("/api/agent/llm/test")
+async def llm_test():
+    """测试 LLM 连通性"""
+    llm = get_llm()
+    if llm is None:
+        return {"success": False, "error": "LLM not configured"}
+
+    ok = llm.health_check()
+    return {
+        "success": ok,
+        "provider": llm.provider,
+        "model": llm.model,
+        "message": "LLM 响应正常" if ok else "LLM 无响应",
     }
 
 
