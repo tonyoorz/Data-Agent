@@ -499,6 +499,32 @@ async def llm_test():
     }
 
 
+@app.get("/api/agent/values/stats")
+async def value_stats():
+    """查看值索引统计"""
+    from agent.data.value_retriever import get_value_retriever
+    vr = get_value_retriever(db_path=DATA_DB_PATH or None, ontology=get_ontology())
+    return vr.stats()
+
+
+@app.get("/api/agent/values/search")
+async def value_search(
+    q: str = QueryParam(..., description="搜索文本"),
+    field: Optional[str] = QueryParam(None, description="限定字段"),
+):
+    """搜索数据库值 (Value Retrieval)"""
+    from agent.data.value_retriever import get_value_retriever
+    vr = get_value_retriever(db_path=DATA_DB_PATH or None, ontology=get_ontology())
+    r = vr.retrieve(q, field=field)
+    return {
+        "query": q,
+        "matches": [
+            {"value": m.value, "field": m.field, "score": m.score, "source": m.source}
+            for m in r.matches
+        ],
+    }
+
+
 # ============================================================================
 # Helpers
 # ============================================================================

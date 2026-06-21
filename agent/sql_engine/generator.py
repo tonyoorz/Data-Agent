@@ -64,6 +64,25 @@ class SQLGenerator:
         self.entity_extractor = get_entity_extractor(ontology)
         self.intent_detector = get_intent_detector()
         self.context_engine = ContextEngine(ontology=self.ontology, db_path=db_path)
+        self.db_path = db_path
+
+        # Value Retriever (lazy init)
+        self._value_retriever = None
+
+    @property
+    def value_retriever(self):
+        if self._value_retriever is None and self.db_path:
+            try:
+                from agent.data.value_retriever import ValueRetriever
+                self._value_retriever = ValueRetriever(
+                    db_path=self.db_path,
+                    ontology=self.ontology,
+                )
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(f"ValueRetriever init failed: {e}")
+                self._value_retriever = False  # Mark as failed
+        return self._value_retriever if self._value_retriever is not False else None
 
     def analyze_question(self, question: str) -> Tuple[ExtractionResult, IntentResult, str]:
         """
@@ -86,11 +105,34 @@ class SQLGenerator:
         return entities, intent, context
 
     def build_where_clause(self, entities: ExtractionResult,
-                           object_type: str = "Defect") -> str:
+                           object_type: str = "Defect",
+                           question: str = "") -> str:
         """
         Build WHERE clause from extracted entities.
+        Enhanced with ValueRetriever for dynamic value matching.
         """
         filters = self.entity_extractor.to_sql_filters(entities, object_type)
+
+        # Enhance with ValueRetriever if question provided
+        if question and self.value_retriever:
+            vr_hints = self.value_retriever.get_hints_for_question(question)
+
+            # Get fields already covered by entity extraction
+            covered_fields = set()
+            for e in entities.entities:
+                if e.field and not e.field.startswith("__"):
+                    covered_fields.add(e.field)
+
+            # Add VR hints for fields not yet covered
+            for field_name, hint in vr_hints.items():
+                if field_name not in covered_fields:
+                    values = hint["matches"]
+                    if len(values) == 1:
+                        filters.append(f"{field_name} = '{values[0]}'")
+                    elif len(values) > 1:
+                        in_clause = ", ".join(f"'{v}'" for v in values)
+                        filters.append(f"{field_name} IN ({in_clause})")
+
         if not filters:
             return "1=1"
         return " AND ".join(filters)
@@ -149,7 +191,7 @@ class DirectGenerator(SQLGenerator):
         )
 
         # Build SQL from template
-        where_clause = self.build_where_clause(entities)
+        where_clause = self.build_where_clause(entities, question=question)
         table = self.ontology.get_object("Defect").source_table
         group_field = self.resolve_group_field(question, entities)
         time_field = self.resolve_time_field(question)
@@ -204,7 +246,7 @@ class DecomposedGenerator(SQLGenerator):
         entities, intent, context = self.analyze_question(question)
 
         table = self.ontology.get_object("Defect").source_table
-        where_clause = self.build_where_clause(entities)
+        where_clause = self.build_where_clause(entities, question=question)
 
         # Identify multiple dimensions in the question
         dimensions = self._find_dimensions(question, entities)
@@ -303,7 +345,7 @@ class PlanBasedGenerator(SQLGenerator):
 
         table = self.ontology.get_object("Defect").source_table
         pk = self.ontology.get_object("Defect").primary_key
-        where_clause = self.build_where_clause(entities)
+        where_clause = self.build_where_clause(entities, question=question)
 
         # Build execution plan
         plan_steps = []
@@ -665,6 +707,17 @@ class NL2SQLEngine:
 
         entities_text = "\n".join(entity_lines) if entity_lines else "  (无特定实体)"
 
+        # Value Retrieval hints
+        value_hints_text = "  (无额外值匹配)"
+        vr = self.direct_gen.value_retriever
+        if vr:
+            vr_hints = vr.get_hints_for_question(question)
+            if vr_hints:
+                hint_lines = []
+                for field_name, hint in vr_hints.items():
+                    hint_lines.append(f"  - {field_name}: 匹配值 = {hint['matches']} (用户原文: '{hint['query']}')")
+                value_hints_text = "\n".join(hint_lines)
+
         return f"""# 查询分析
 
 ## 用户问题
@@ -679,6 +732,9 @@ class NL2SQLEngine:
 
 ## 提取的实体
 {entities_text}
+
+## 数据库值匹配 (Value Retrieval)
+{value_hints}
 
 ## 数据库语义上下文
 {context[:2000]}...
