@@ -49,6 +49,8 @@ class QueryResult:
     error: Optional[str] = None
     validation_issues: List[Dict] = field(default_factory=list)   # MARS validation findings
     validation_llm_verified: bool = False
+    multi_path_agreement: str = ""    # unanimous/majority/disagree/single
+    multi_path_confidence: float = 0.0
 
 
 class SQLGenerator:
@@ -480,6 +482,15 @@ class NL2SQLEngine:
         else:
             self.validator = None
 
+        # Multi-Path Executor (execution-guided selection)
+        self.multi_executor = None
+        if db_path:
+            from agent.sql_engine.multi_executor import MultiPathExecutor
+            self.multi_executor = MultiPathExecutor(
+                db_path=db_path,
+                llm_call_fn=llm_call_fn,
+            )
+
     def generate_candidates(self, question: str) -> List[SQLCandidate]:
         """Generate all SQL candidates via 3 paths"""
         candidates = []
@@ -580,18 +591,18 @@ class NL2SQLEngine:
         """
         Full NL→SQL pipeline:
         1. Analyze
-        2. Generate candidates
-        3. Select best
-        4. Execute with self-correction (Query Fixer)
+        2. Generate candidates (3 paths)
+        3. Multi-Path Execution: run all candidates, compare results
+        4. Self-Correction: fix best SQL if needed (Query Fixer)
         5. Validate result (MARS-style Result Validator)
         """
-        # Analyze
+        # 1. Analyze
         entities, intent, context = self.direct_gen.analyze_question(question)
 
-        # Generate candidates
+        # 2. Generate candidates
         candidates = self.generate_candidates(question)
 
-        # Select best
+        # 3. Select best (static scoring)
         best = self.select_best(question, candidates, entities, intent)
 
         result = QueryResult(
@@ -604,32 +615,70 @@ class NL2SQLEngine:
 
         # Execute if database available
         if self.db_path:
+            # === Multi-Path Execution (new) ===
+            if self.multi_executor and len(candidates) >= 2:
+                multi_result = self.multi_executor.execute_and_compare(
+                    candidates=candidates,
+                    question=question,
+                    intent=intent.primary.value,
+                )
+
+                # Use the multi-path winner
+                result.sql = multi_result.best_sql
+                result.data = multi_result.best_data
+
+                # If agreement is high, skip fixer (high confidence)
+                if multi_result.agreement.value in ("unanimous", "majority"):
+                    # Still run validator, but skip fixer
+                    if self.validator:
+                        verdict = self.validator.validate(
+                            question=question,
+                            sql=multi_result.best_sql,
+                            rows=multi_result.best_data,
+                            intent=intent.primary.value,
+                        )
+                        if not verdict.passed:
+                            result.error = f"Validation: {verdict.primary_reason}"
+                        result.validation_issues = [
+                            {"level": i.level.value, "check": i.check, "message": i.message}
+                            for i in verdict.issues
+                        ]
+                        result.validation_llm_verified = verdict.llm_verified
+
+                    result.multi_path_agreement = multi_result.agreement.value
+                    result.multi_path_confidence = multi_result.confidence
+                    return result
+
+                # If disagreement or single candidate, fall through to fixer
+                # for the multi-path winner
+                best_sql = multi_result.best_sql
+                best_data = multi_result.best_data
+            else:
+                best_sql = best.sql
+                best_data = None
+
+            # === Self-Correction (Query Fixer) ===
             if self.query_fixer:
-                # Use Query Fixer for self-correction
-                from agent.ontology import OntologyEngine
                 schema_ctx = self._get_schema_context()
                 exec_result = self.query_fixer.execute(
-                    best.sql,
+                    best_sql,
                     question=question,
                     schema_context=schema_ctx
                 )
                 if exec_result.success:
-                    result.data = exec_result.rows
+                    result.data = exec_result.rows if not best_data else best_data
 
-                    # MARS-style validation (post-execution)
+                    # MARS-style validation
                     if self.validator:
                         verdict = self.validator.validate(
                             question=question,
-                            sql=best.sql,
+                            sql=best_sql,
                             rows=exec_result.rows,
                             intent=intent.primary.value,
                             columns=exec_result.columns,
                         )
                         if not verdict.passed:
-                            # Store validation issues in metadata
                             result.error = f"Validation: {verdict.primary_reason}"
-                            # Don't fail completely - return data with warning
-                            # The caller can decide whether to retry or accept
                         result.validation_issues = [
                             {"level": i.level.value, "check": i.check, "message": i.message}
                             for i in verdict.issues
@@ -638,8 +687,8 @@ class NL2SQLEngine:
                 else:
                     result.error = exec_result.error
             else:
-                # Legacy execution path
-                data, error = self._execute_sql(best.sql)
+                # Legacy execution
+                data, error = self._execute_sql(best_sql)
                 if error:
                     result.error = error
                 else:
