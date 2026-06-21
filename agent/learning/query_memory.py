@@ -21,6 +21,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Tuple
 
+from agent.learning.semantic_matcher import SemanticMatcher
+
 
 @dataclass
 class QueryRecord:
@@ -160,6 +162,7 @@ class QueryMemory:
         self,
         db_path: Optional[str] = None,
         embedding_search_fn: Optional[Any] = None,
+        embedding_fn: Optional[Any] = None,
     ):
         self.db_path = db_path or ":memory:"
         self.embedding_search_fn = embedding_search_fn
@@ -167,7 +170,12 @@ class QueryMemory:
         if self.db_path == ":memory:":
             self._persistent_conn = sqlite3.connect(":memory:")
             self._persistent_conn.row_factory = sqlite3.Row
+
+        # Semantic matcher (TF-IDF + optional embedding)
+        self.semantic_matcher = SemanticMatcher(embedding_fn=embedding_fn)
+
         self._init_db()
+        self._fit_semantic_matcher()
 
     def _get_conn(self) -> sqlite3.Connection:
         if self._persistent_conn is not None:
@@ -254,6 +262,10 @@ class QueryMemory:
         ))
         conn.commit()
         self._close_if_file(conn)
+        
+        # Refit semantic matcher with new data
+        self._fit_semantic_matcher()
+        
         return record_id
 
     def record_feedback(
@@ -288,6 +300,15 @@ class QueryMemory:
         self._close_if_file(conn)
         return True
 
+    def _fit_semantic_matcher(self):
+        """Fit TF-IDF on existing stored questions"""
+        conn = self._get_conn()
+        rows = conn.execute("SELECT normalized_question FROM query_memory WHERE success = 1").fetchall()
+        self._close_if_file(conn)
+        documents = [row["normalized_question"] for row in rows]
+        if documents:
+            self.semantic_matcher.fit_corpus(documents)
+
     def retrieve_similar(
         self,
         question: str,
@@ -310,10 +331,18 @@ class QueryMemory:
         
         for row in rows:
             record = QueryRecord.from_row(row)
+            
+            # Semantic similarity (TF-IDF or embedding)
+            semantic_sim = self.semantic_matcher.similarity(question, record.question)
+            
+            # Legacy similarity (fallback)
             rec_keywords = _extract_keywords(record.normalized_question)
             kw_sim = _jaccard_similarity(query_keywords, rec_keywords)
             ed_sim = _edit_distance_ratio(normalized, record.normalized_question)
-            hybrid_sim = kw_sim * 0.6 + ed_sim * 0.4
+            legacy_sim = kw_sim * 0.6 + ed_sim * 0.4
+            
+            # Hybrid: prefer semantic, fall back to legacy
+            hybrid_sim = max(semantic_sim, legacy_sim)
             
             if normalized in record.normalized_question or record.normalized_question in normalized:
                 hybrid_sim = max(hybrid_sim, 0.7)
