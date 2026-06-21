@@ -103,6 +103,31 @@ class ReActAgent:
 
         self.nl2sql = NL2SQLEngine(ontology=ontology, db_path=db_path)
 
+        # Conversation context for multi-turn dialogue
+        from agent.conversation import ConversationContext
+        resolve_fn = None
+        if llm_call_fn:
+            from agent.llm import get_llm_client
+            llm_for_ctx = get_llm_client()
+            if llm_for_ctx:
+                # Adapt chat_text to ContextResolver's expected signature
+                # ContextResolver calls: fn(messages=[...], tools=[])
+                # chat_text expects: fn(prompt, system)
+                def resolve_adapter(messages, tools):
+                    prompt = ""
+                    system = ""
+                    for msg in messages:
+                        if msg.get("role") == "system":
+                            system = msg.get("content", "")
+                        elif msg.get("role") == "user":
+                            prompt = msg.get("content", "")
+                    try:
+                        return llm_for_ctx.chat_text(prompt=prompt, system=system)
+                    except Exception:
+                        return None
+                resolve_fn = resolve_adapter
+        self.conversation = ConversationContext(llm_call_fn=resolve_fn)
+
     def process(self, question: str) -> AgentResponse:
         """
         Process a user question through the ReAct loop.
@@ -118,13 +143,22 @@ class ReActAgent:
         tools_used: List[str] = []
         sql_executed: List[str] = []
 
+        # Resolve multi-turn context
+        turn_type = self.conversation.classify(question)
+        resolved_question = self.conversation.resolve(question)
+        if resolved_question != question:
+            steps.append(AgentStep(
+                step_type=StepType.THOUGHT,
+                content=f"上下文解析: '{question}' → '{resolved_question}' (类型: {turn_type.value})"
+            ))
+
         try:
             if self.llm_call_fn:
                 # LLM-based mode
-                response = self._process_with_llm(question, steps, tools_used, sql_executed)
+                response = self._process_with_llm(resolved_question, steps, tools_used, sql_executed)
             else:
                 # Rule-based mode
-                response = self._process_rule_based(question, steps, tools_used, sql_executed)
+                response = self._process_rule_based(resolved_question, steps, tools_used, sql_executed)
         except Exception as e:
             response = AgentResponse(
                 answer=f"处理问题时发生错误: {str(e)}",
@@ -140,6 +174,15 @@ class ReActAgent:
         response.tools_used = tools_used
         response.sql_executed = sql_executed
         response.total_time_ms = elapsed
+
+        # Record turn in conversation history
+        result_summary = response.answer[:200] if response.success else ""
+        self.conversation.add_turn(
+            question=question,
+            resolved_question=resolved_question,
+            sql=sql_executed[0] if sql_executed else "",
+            result_summary=result_summary,
+        )
 
         return response
 
@@ -497,6 +540,10 @@ class ReActAgent:
         tool_desc = self.registry.get_descriptions()
         schema_context = self.ontology.to_schema_context()[:2000]
 
+        # Inject conversation history if available
+        history_text = self.conversation.get_history_text(max_turns=3)
+        history_section = f"\n\n对话历史（用户可能参考之前的结果）:\n{history_text}" if history_text else ""
+
         return f"""你是一个汽车测试缺陷数据分析 Agent。
 
 你可以使用以下工具来回答用户的问题:
@@ -504,6 +551,7 @@ class ReActAgent:
 
 数据库语义:
 {schema_context}
+{history_section}
 
 规则:
 1. 先理解用户意图，选择最合适的工具
@@ -511,6 +559,7 @@ class ReActAgent:
 3. 用中文回答，数据要精确
 4. 对于趋势问题，说明上升/下降趋势
 5. 对于分布问题，说明TOP3
+6. 如果用户问的是跟进问题（如"按ECU分布呢"），参考对话历史
 """
 
     def _format_entities(self, entities) -> str:
