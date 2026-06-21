@@ -1,0 +1,307 @@
+# Defect Object Type
+# Semantic definition of Octane defects
+
+object_type: Defect
+description: "测试缺陷/问题记录"
+source_table: octane_defects
+primary_key: defect_id
+
+# Column definitions with semantic meaning
+properties:
+  defect_id:
+    type: string
+    meaning: "Octane 缺陷唯一ID"
+    examples: ["DEF-2026-0001", "DEF-2026-0002"]
+
+  name:
+    type: string
+    meaning: "缺陷标题/描述"
+
+  project:
+    type: enum
+    meaning: "项目代号"
+    values: [IDCEVO, IDC, MGU, RSU, App]
+    aliases:
+      IDCEVO: ["idcevo", "IDCEVO*", "CDE", "ENTRYEVO", "NBTEVO"]
+      IDC: ["idc", "IDC23", "HU-MGU_02_A"]
+      MGU: ["mgu", "MGU22", "BMWMGU"]
+      RSU: ["rsu", "Remote_Software_Update"]
+      App: ["app", "Application", "Phone_App"]
+    category_groups:
+      china: ["IDCEVO", "IDC", "MGU"]
+      global: ["RSU", "App"]
+
+  market:
+    type: string
+    meaning: "市场区域"
+    values: [CN, GLOBAL, APAC, EU, NA]
+    aliases:
+      CN: ["china", "中国", "cn"]
+      GLOBAL: ["global", "全球", "intl"]
+      APAC: ["apac", "亚太"]
+      EU: ["eu", "欧洲"]
+      NA: ["na", "北美"]
+
+  pu:
+    type: string
+    meaning: "产品单元"
+    examples: ["PU-A", "PU-B", "PU-Infotainment"]
+
+  fv:
+    type: string
+    meaning: "功能版本"
+    examples: ["FV-001", "FV-002"]
+
+  fvp:
+    type: string
+    meaning: "功能版本计划"
+    examples: ["FVP-001", "FVP-002"]
+
+  team:
+    type: string
+    meaning: "负责团队"
+    examples: ["CN Core UI", "CN Media", "CN Navigation"]
+
+  lead_model:
+    type: string
+    meaning: "主导车型"
+    examples: ["BMW iX", "BMW 5 Series", "MINI Countryman"]
+
+  # From raw_json fields
+  status_phase:
+    type: enum
+    meaning: "缺陷处理阶段"
+    values: [New, Open, "In Progress", Fixed, Closed, Rejected, Deferred]
+    lifecycle: "New → Open → In Progress → Fixed → Closed"
+    category_groups:
+      active: ["New", "Open", "In Progress"]
+      resolved: ["Fixed", "Closed"]
+      excluded: ["Rejected", "Deferred"]
+    semantics:
+      New: "新建缺陷，未开始处理"
+      Open: "已指派处理人，正在分析"
+      "In Progress": "正在修复或解决方案验证中"
+      Fixed: "已修复，等待验证"
+      Closed: "已验证通过，问题解决"
+      Rejected: "不符合缺陷定义，拒绝处理"
+      Deferred: "计划性延后处理"
+
+  severity:
+    type: enum
+    meaning: "严重程度"
+    values: [Critical, Major, Minor, Cosmetic]
+    semantics:
+      Critical: "安全相关/法规不满足/功能完全丧失，必须立即处理"
+      Major: "功能降级，影响用户使用体验"
+      Minor: "功能异常但可绕过，或体验问题"
+      Cosmetic: "外观/文案问题，不影响功能"
+    business_rules:
+      - "severity = Critical 且 status IN (New, Open, In Progress) 需要立即处理"
+      - "severity 不等于 matrix，matrix 是从 tags 提取的标签"
+
+  assigned_ecu:
+    type: string
+    meaning: "指派的电子控制单元"
+    examples: [BCM, VCU, MCU, BMS, ADAS, IHU]
+    aliases:
+      BCM: ["Body_Control_Module", "车身控制器", "车身模块"]
+      VCU: ["Vehicle_Control_Unit", "整车控制器"]
+      MCU: ["Motor_Control_Unit", "电机控制器"]
+      BMS: ["Battery_Management_System", "电池管理系统"]
+      ADAS: ["Advanced_Driver_Assistance_Systems", "高级驾驶辅助"]
+      IHU: ["In-Vehicle_Human_Machine_Interface", "车载人机交互"]
+
+  problem_finder_team:
+    type: string
+    meaning: "问题发现团队"
+
+  top_aida:
+    type: string
+    meaning: "AIDA 功能域（一级）"
+    examples: ["ent_and_con_cn", "cn_navigation", "cn_speech", "cn_media"]
+    aliases:
+      ent_and_con_cn: ["content", "内容", "娱乐"]
+      cn_navigation: ["navigation", "导航", "nav"]
+      cn_speech: ["speech", "语音"]
+      cn_media: ["media", "媒体"]
+
+  aida_english:
+    type: string
+    meaning: "AIDA 功能域英文名称"
+
+  aida_businesskey:
+    type: string
+    meaning: "AIDA 业务键"
+
+  phase:
+    type: string
+    meaning: "测试阶段"
+    category_groups:
+      q_gate: ["02", "07"]
+      integration: ["00", "01", "06", "08", "09"]
+      coc: ["03", "04", "05"]
+    semantics:
+      "00": "Development phase"
+      "01": "Early Integration"
+      "02": "Q-Gate 1"
+      "03": "CoC 1"
+      "04": "CoC 2"
+      "05": "CoC 3"
+      "06": "Q-Gate 2"
+      "07": "Q-Gate 3"
+      "08": "Pre-production"
+      "09": "Production"
+
+  solution_cluster:
+    type: string
+    meaning: "解决方案聚类"
+    examples: ["solution cluster:china product", "ipa cn", "speech cn", "navigation cn"]
+    category_groups:
+      china: ["solution cluster:china product", "ipa cn", "speech cn", "navigation cn",
+              "ent_and_con cn", "navigation twn", "etc jp"]
+
+  year:
+    type: string
+    meaning: "年份"
+    examples: ["2026", "2025", "2024"]
+
+  # JSON fields (from requirements_json)
+  requirement:
+    type: array
+    meaning: "关联的需求"
+    item_type: string
+
+  raw_json:
+    type: json
+    meaning: "Octane 原始 JSON 数据"
+
+  creation_time:
+    type: datetime
+    meaning: "缺陷创建时间（用于趋势分析）"
+
+  last_modified:
+    type: datetime
+    meaning: "最后修改时间"
+
+  fetched_at:
+    type: datetime
+    meaning: "数据抓取时间"
+
+# Relationships to other objects
+links:
+  - name: has_history
+    target: DefectHistory
+    type: one-to-many
+    join: defect.defect_id = history.defect_id
+    meaning: "缺陷历史变更记录"
+
+  - name: tested_in_manual_run
+    target: ManualRun
+    type: one-to-many
+    join: defect.defect_id = manual_run.defect_id
+    meaning: "在手动测试中被发现的缺陷"
+
+  - name: related_to_testcases
+    target: TestCase
+    type: many-to-many
+    via: octane_testcase_relations
+    join: defect.defect_id = relations.related_id AND relations.relation_type = 'defect'
+    meaning: "关联的测试用例"
+
+  - name: belongs_to_project
+    target: Project
+    type: many-to-one
+    join: defect.project = project.name
+    meaning: "所属项目"
+
+  - name: found_by_team
+    target: Team
+    type: many-to-one
+    join: defect.problem_finder_team = team.name
+    meaning: "发现问题的团队"
+
+# Pre-calculated metrics for frequent queries
+metrics:
+  active_defect_count:
+    definition: "COUNT(*) WHERE status_phase IN ('New', 'Open', 'In Progress')"
+    meaning: "活跃缺陷数（未关闭）"
+
+  critical_defect_count:
+    definition: "COUNT(*) WHERE severity = 'Critical' AND status_phase IN ('New', 'Open', 'In Progress')"
+    meaning: "未关闭的 Critical 缺陷数"
+
+  defect_density:
+    definition: "defect_count / test_case_count * 100"
+    meaning: "缺陷密度（每百用例缺陷数）"
+
+  china_defect_count:
+    definition: "COUNT(*) WHERE top_aida IN CHINA_SOLUTION_CLUSTERS OR market = 'CN'"
+    meaning: "中国区域缺陷数"
+
+  q_gate_defect_count:
+    definition: "COUNT(*) WHERE phase IN ('02', '07')"
+    meaning: "Q-Gate 阶段缺陷数"
+
+  coc_defect_count:
+    definition: "COUNT(*) WHERE phase IN ('03', '04', '05')"
+    meaning: "CoC 阶段缺陷数"
+
+# Business calibration rules - common misunderstandings
+calibration_rules:
+  - id: "cal_severity_not_matrix"
+    trigger: ["severity", "严重度", "critical", "严重"]
+    rule: "severity 是 Octane 原生字段（Critical/Major/Minor），matrix 是从 tags 提取的标签，不要混淆"
+
+  - id: "cal_trend_uses_creation_time"
+    trigger: ["趋势", "trend", "新增", "走势", "变化"]
+    rule: "趋势分析的时间维度用 creation_time（缺陷创建时间），不要用 last_modified"
+
+  - id: "cal_active_excludes_closed"
+    trigger: ["活跃", "active", "未关闭", "待处理"]
+    rule: "活跃缺陷 = status_phase IN ('New', 'Open', 'In Progress')，排除 Fixed/Closed/Rejected/Deferred"
+
+  - id: "cal_project_aliases"
+    trigger: ["项目", "project", "车型", "车系"]
+    rule: |
+      IDCEVO 包含: IDCEVO, ENTRYEVO, NBTEVO, CDE
+      IDC 包含: IDC, IDC23, HU-MGU_02_A
+      MGU 包含: MGU, MGU22, BMWMGU
+      China 项目: IDCEVO, IDC, MGU
+      Global 项目: RSU, App"
+
+  - id: "cal_ecu_aliases"
+    trigger: ["ecu", "电子控制", "模块", "控制器"]
+    rule: |
+      常见 ECU: BCM(车身), VCU(整车), MCU(电机), BMS(电池), ADAS(辅助驾驶), IHU(人机交互)
+      assigned_ecu 字段可能有多个 ECU，逗号分隔"
+
+  - id: "cal_china_scope"
+    trigger: ["china", "中国", "cn", "国产"]
+    rule: |
+      中国区域判断: market='CN' OR top_aida IN CHINA_SOLUTION_CLUSTERS
+      CHINA_SOLUTION_CLUSTERS = {ent_and_con_cn, ipa cn, speech cn, navigation cn, navigation twn, etc jp}"
+
+  - id: "cal_phase_classification"
+    trigger: ["phase", "阶段", "测试阶段"]
+    rule: |
+      Q-Gate: 02, 07
+      Integration: 00, 01, 06, 08, 09
+      CoC: 03, 04, 05
+      Other: 其他值"
+
+# Governance - what operations are allowed/disallowed
+governance:
+  allow_operations:
+    - read
+    - filter
+    - aggregate
+    - join
+  forbid_operations:
+    - update
+    - delete
+    - insert
+
+  sensitive_fields:
+    - raw_json
+
+  default_time_range: "90 days"

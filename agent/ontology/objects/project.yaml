@@ -1,0 +1,56 @@
+# Project Object Type
+# Project metadata
+
+object_type: Project
+description: "项目/车型"
+source_table: "derived"  # Derived from project values in other tables
+primary_key: name
+
+properties:
+  name:
+    type: string
+    meaning: "项目代号"
+    values: [IDCEVO, IDC, MGU, RSU, App]
+
+  category:
+    type: enum
+    values: [china, global]
+    meaning: "项目分类"
+    mapping:
+      IDCEVO: china
+      IDC: china
+      MGU: china
+      RSU: global
+      App: global
+
+  description:
+    type: string
+    meaning: "项目描述"
+    values:
+      IDCEVO: "中国专属信息娱乐系统"
+      IDC: "智联座舱 2.0"
+      MGU: "22 款 MGU 车型"
+      RSU: "远程软件更新"
+      App: "手机应用"
+
+links:
+  - name: has_defects
+    target: Defect
+    type: one-to-many
+    join: project.name = defect.project
+    meaning: "项目关联的缺陷"
+
+  - name: has_manual_runs
+    target: ManualRun
+    type: one-to-many
+    join: project.name = manual_run.project
+    meaning: "项目关联的手动测试"
+
+calibration_rules:
+  - id: "cal_china_projects"
+    trigger: ["china", "中国", "cn", "国产项目"]
+    rule: "China 项目: IDCEVO, IDC, MGU"
+
+  - id: "cal_global_projects"
+    trigger: ["global", "全球", "intl", "国际项目"]
+    rule: "Global 项目: RSU, App"

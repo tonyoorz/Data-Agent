@@ -1,0 +1,36 @@
+# Team Object Type
+# Team metadata
+
+object_type: Team
+description: "团队信息"
+source_table: "derived"
+primary_key: name
+
+properties:
+  name:
+    type: string
+    meaning: "团队名称"
+    examples: ["CN Core UI", "CN Media", "CN Navigation", "Global ADAS"]
+
+  category:
+    type: enum
+    values: [china, global]
+    meaning: "团队分类"
+
+  area:
+    type: string
+    meaning: "领域"
+    examples: ["UI", "Media", "Navigation", "Speech", "ADAS", "Vehicle"]
+
+links:
+  - name: finds_defects
+    target: Defect
+    type: one-to-many
+    join: team.name = defect.problem_finder_team
+    meaning: "团队发现的缺陷"
+
+  - name: owns_tests
+    target: TestCase
+    type: one-to-many
+    join: team.name = testcase.scope_team
+    meaning: "团队拥有的测试用例"

@@ -1,0 +1,138 @@
+# ManualRun Object Type
+# Manual test execution records
+
+object_type: ManualRun
+description: "手动测试执行记录"
+source_table: octane_manual_runs
+primary_key: mr_id
+
+properties:
+  mr_id:
+    type: string
+    meaning: "测试执行唯一ID"
+    examples: ["MR-2026-0001"]
+
+  defect_id:
+    type: string
+    meaning: "关联的缺陷ID（如有）"
+    foreign_key: Defect.defect_id
+
+  test_id:
+    type: string
+    meaning: "测试用例ID"
+    foreign_key: TestCase.test_id
+
+  test_name:
+    type: string
+    meaning: "测试用例名称"
+
+  status:
+    type: enum
+    meaning: "执行状态"
+    values: [Passed, Failed, Blocked, Not_Executed, "In Progress"]
+    semantics:
+      Passed: "测试通过"
+      Failed: "测试失败，发现缺陷"
+      Blocked: "被阻塞，无法执行"
+      Not_Executed: "未执行"
+      "In Progress": "执行中"
+
+  year:
+    type: string
+    meaning: "年份"
+    examples: ["2026", "2025"]
+
+  test_week:
+    type: string
+    meaning: "测试周次"
+    examples: ["2026-W20", "2026-W21"]
+
+  pu:
+    type: string
+    meaning: "产品单元"
+
+  top_aida:
+    type: string
+    meaning: "AIDA 功能域"
+
+  feature_region:
+    type: string
+    meaning: "特性区域"
+
+  tester:
+    type: string
+    meaning: "测试人员"
+
+  project:
+    type: enum
+    meaning: "项目代号"
+    values: [IDCEVO, IDC, MGU, RSU, App]
+    aliases:
+      IDCEVO: ["idcevo", "IDCEVO*", "CDE"]
+      IDC: ["idc", "IDC23"]
+      MGU: ["mgu", "MGU22", "BMWMGU"]
+
+  fv:
+    type: string
+    meaning: "功能版本"
+
+  fvp:
+    type: string
+    meaning: "功能版本计划"
+
+  team:
+    type: string
+    meaning: "负责团队"
+
+  lead_model:
+    type: string
+    meaning: "主导车型"
+
+  raw_json:
+    type: json
+    meaning: "Octane 原始 JSON 数据"
+
+  fetched_at:
+    type: datetime
+    meaning: "数据抓取时间"
+
+links:
+  - name: finds_defect
+    target: Defect
+    type: many-to-one
+    join: manual_run.defect_id = defect.defect_id
+    meaning: "测试执行发现的缺陷"
+
+  - name: executes_testcase
+    target: TestCase
+    type: many-to-one
+    join: manual_run.test_id = testcase.test_id
+    meaning: "执行的测试用例"
+
+  - name: belongs_to_project
+    target: Project
+    type: many-to-one
+    join: manual_run.project = project.name
+    meaning: "所属项目"
+
+metrics:
+  pass_rate:
+    definition: "COUNT(*) FILTER (WHERE status = 'Passed') / COUNT(*) * 100"
+    meaning: "测试通过率"
+
+  fail_rate:
+    definition: "COUNT(*) FILTER (WHERE status = 'Failed') / COUNT(*) * 100"
+    meaning: "测试失败率"
+
+  defect_detection_rate:
+    definition: "COUNT(*) FILTER (WHERE defect_id IS NOT NULL) / COUNT(*) * 100"
+    meaning: "缺陷检出率"
+
+calibration_rules:
+  - id: "cal_status_not_phase"
+    trigger: ["status", "状态", "passed", "failed"]
+    rule: "manual_run.status 是执行状态（Passed/Failed/Blocked），不是缺陷状态（status_phase）"
+
+  - id: "cal_defect_in_failed_runs"
+    trigger: ["defect", "缺陷", "发现缺陷"]
+    rule: "只有在 status = 'Failed' 的测试执行中才有 defect_id"

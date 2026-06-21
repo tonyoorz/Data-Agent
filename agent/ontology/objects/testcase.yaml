@@ -1,0 +1,80 @@
+# TestCase Object Type
+# Test case definitions
+
+object_type: TestCase
+description: "测试用例定义"
+source_table: octane_testcases
+primary_key: (test_id, scope_team, scope_release, source)
+
+properties:
+  test_id:
+    type: string
+    meaning: "测试用例ID"
+    examples: ["TC-2026-0001"]
+
+  scope_team:
+    type: string
+    meaning: "范围团队"
+
+  scope_release:
+    type: string
+    meaning: "范围发布版本"
+
+  source:
+    type: string
+    meaning: "数据来源"
+    examples: ["Octane", "Manual"]
+
+  test_name:
+    type: string
+    meaning: "测试用例名称"
+
+  run_count:
+    type: integer
+    meaning: "执行次数"
+
+  defect_ids_json:
+    type: array
+    meaning: "关联的缺陷ID列表（JSON）"
+    item_type: string
+
+  feature_ids_json:
+    type: array
+    meaning: "关联的功能ID列表（JSON）"
+    item_type: string
+
+  story_ids_json:
+    type: array
+    meaning: "关联的需求故事ID列表（JSON）"
+    item_type: string
+
+  raw_json:
+    type: json
+    meaning: "Octane 原始 JSON 数据"
+
+  fetched_at:
+    type: datetime
+    meaning: "数据抓取时间"
+
+links:
+  - name: finds_defects
+    target: Defect
+    type: many-to-many
+    via: defect_ids_json
+    meaning: "测试用例发现的缺陷"
+
+  - name: has_relations
+    target: TestCaseRelation
+    type: one-to-many
+    join: testcase.test_id = relations.test_id AND testcase.scope_team = relations.scope_team
+    meaning: "测试用例关联关系"
+
+metrics:
+  defect_detection_efficiency:
+    definition: "COUNT(DISTINCT defect_ids_json) / run_count"
+    meaning: "缺陷检测效率（每百次执行发现的缺陷数）"
+
+calibration_rules:
+  - id: "cal_json_arrays"
+    trigger: ["json", "array", "ids"]
+    rule: "defect_ids_json, feature_ids_json, story_ids_json 是 JSON 数组字符串，需要 JSON.parse() 解析"

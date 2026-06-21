@@ -1,0 +1,79 @@
+# DefectHistory Object Type
+# Defect state change history
+
+object_type: DefectHistory
+description: "缺陷状态变更历史事件"
+source_table: octane_defect_history_events
+primary_key: (defect_id, event_timestamp, field_name, entry_index, change_index)
+
+properties:
+  defect_id:
+    type: string
+    meaning: "缺陷ID"
+    foreign_key: Defect.defect_id
+
+  event_timestamp:
+    type: datetime
+    meaning: "变更发生时间"
+
+  field_name:
+    type: string
+    meaning: "变更的字段名"
+    examples: [status_phase, severity, assigned_ecu, solution_cluster]
+
+  entry_index:
+    type: integer
+    meaning: "事件条目索引"
+
+  change_index:
+    type: integer
+    meaning: "变更索引"
+
+  old_value:
+    type: string
+    meaning: "变更前的值"
+
+  new_value:
+    meaning: "变更后的值"
+    type: string
+
+  old_value_text:
+    type: string
+    meaning: "旧值的文本描述"
+
+  new_value_text:
+    type: string
+    meaning: "新值的文本描述"
+
+  fetched_at:
+    type: datetime
+    meaning: "数据抓取时间"
+
+links:
+  - name: belongs_to_defect
+    target: Defect
+    type: many-to-one
+    join: history.defect_id = defect.defect_id
+    meaning: "历史记录所属的缺陷"
+
+metrics:
+  status_change_count:
+    definition: "COUNT(*) WHERE field_name = 'status_phase'"
+    meaning: "状态变更次数"
+
+  severity_change_count:
+    definition: "COUNT(*) WHERE field_name = 'severity'"
+    meaning: "严重度变更次数"
+
+  avg_resolution_time_hours:
+    definition: "AVG(new_time - old_time) WHERE field_name = 'status_phase' AND new_value = 'Closed'"
+    meaning: "平均解决时长（小时）"
+
+calibration_rules:
+  - id: "cal_history_is_changes_not_defects"
+    trigger: ["history", "历史", "变更"]
+    rule: "history 表记录的是字段变更事件，不是独立的缺陷实体"
+
+  - id: "cal_timestamp_is_event_time"
+    trigger: ["时间", "timestamp", "event"]
+    rule: "event_timestamp 是变更发生时间，用于计算解决时长等指标"
