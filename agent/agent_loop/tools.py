@@ -7,11 +7,12 @@ Each tool wraps a specific capability:
 - RankingTool: TOP-N ranking queries
 - SearchSimilarTool: BGE semantic search for similar defects
 - DashboardTool: Summary metrics/KPIs
+- CodeInterpreterTool: Python code execution for complex analysis
 """
 
 import sqlite3
 import json
-from typing import Dict, List, Optional, Any, Tuple
+from typing import Dict, List, Optional, Any, Tuple, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from abc import ABC, abstractmethod
@@ -628,4 +629,78 @@ class DashboardTool(AgentTool):
             data=results,
             summary=summary,
             metadata={"project": project or "ALL"}
+        )
+
+
+class CodeInterpreterTool(AgentTool):
+    """
+    Python Code Interpreter Tool - generates and executes Python code
+    for complex analysis that SQL can't express.
+
+    Use cases: statistical tests, custom aggregations, anomaly detection,
+    data transformations, comparative analysis.
+    """
+
+    def __init__(
+        self,
+        ontology: Optional[OntologyEngine] = None,
+        db_path: Optional[str] = None,
+        llm_call_fn: Optional[Callable] = None,
+    ):
+        self.name = "analyze_data"
+        self.description = (
+            "用Python代码分析查询结果。适用于复杂统计、自定义计算、"
+            "异常检测、趋势对比等SQL无法表达的分析。"
+            "传入analysis描述和data（查询结果），返回分析结论。"
+        )
+        self.parameters = [
+            ToolParameter(
+                name="analysis",
+                type="string",
+                description="分析描述，如'计算各ECU的缺陷密度并排序'",
+                required=True,
+            ),
+            ToolParameter(
+                name="data",
+                type="array",
+                description="要分析的数据（查询结果，JSON数组）",
+                required=True,
+            ),
+        ]
+        self.ontology = ontology or get_ontology_engine()
+        self.db_path = db_path
+
+        from agent.interpret.code_interpreter import CodeInterpreter
+        self.interpreter = CodeInterpreter(
+            llm_call_fn=llm_call_fn,
+            timeout=5,
+        )
+
+    def execute(
+        self,
+        analysis: str = "",
+        data: Optional[list] = None,
+        **kwargs,
+    ) -> ToolResult:
+        """Execute Python code analysis"""
+        if not data:
+            return ToolResult(
+                success=False,
+                error="data参数为空，需要提供要分析的数据",
+            )
+
+        if not analysis:
+            return ToolResult(
+                success=False,
+                error="analysis参数为空，需要描述分析目标",
+            )
+
+        result = self.interpreter.execute(analysis, data)
+
+        return ToolResult(
+            success=result["success"],
+            data={"result": result["output"], "code": result["code"]},
+            summary=result["output"] if result["success"] else f"分析失败: {result.get('output', '')}",
+            error=result.get("error", ""),
+            metadata={"time_ms": result["time_ms"]},
         )

@@ -44,7 +44,7 @@ class TestToolRegistry:
         ontology = OntologyEngine(Path(__file__).parent.parent / "agent" / "ontology")
         registry = build_default_registry(ontology=ontology)
         schemas = registry.get_schemas()
-        assert len(schemas) == 6
+        assert len(schemas) == 7  # query_defects, query_trend, get_distribution, get_ranking, search_similar, get_dashboard, analyze_data
         for s in schemas:
             assert "name" in s
             assert "description" in s

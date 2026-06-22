@@ -99,7 +99,8 @@ def build_default_registry(
     """
     from agent.agent_loop.tools import (
         QueryDefectsTool, QueryTrendTool, DistributionTool,
-        RankingTool, SearchSimilarTool, DashboardTool
+        RankingTool, SearchSimilarTool, DashboardTool,
+        CodeInterpreterTool,
     )
 
     ont = ontology or get_ontology_engine()
@@ -113,5 +114,6 @@ def build_default_registry(
         ontology=ont, db_path=db_path, embedding_search_fn=embedding_search_fn
     ))
     registry.register(DashboardTool(ontology=ont, db_path=db_path))
+    registry.register(CodeInterpreterTool(ontology=ont, db_path=db_path, llm_call_fn=llm_call_fn))
 
     return registry

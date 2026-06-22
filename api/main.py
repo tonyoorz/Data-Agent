@@ -144,6 +144,63 @@ def get_data_agent():
 
 
 # ============================================================================
+# Session Manager Singleton
+# ============================================================================
+
+_session_manager = None
+_session_agents: Dict[str, Any] = {}  # session_id -> agent instance
+
+
+def get_session_manager():
+    global _session_manager
+    if _session_manager is None:
+        from agent.conversation import SessionManager
+        _session_manager = SessionManager()
+    return _session_manager
+
+
+def get_agent_for_session(session_id: Optional[str]):
+    """
+    Get or create agent for a session.
+    
+    Each session needs its own agent instance with independent
+    ConversationContext for multi-turn dialogue.
+    """
+    global _session_agents
+    
+    # If no session_id, use default agent (stateless, single-turn)
+    if not session_id:
+        return get_data_agent()
+    
+    # Check if we have an agent for this session
+    if session_id in _session_agents:
+        return _session_agents[session_id]
+    
+    # Create new agent for this session
+    ont = get_ontology()
+    agent_mode = os.environ.get("AGENT_MODE", "llm")
+    llm = get_llm()
+    
+    agent_fn = None
+    if agent_mode == "llm" and llm:
+        agent_fn = llm.as_agent_fn()
+    
+    # Create agent
+    agent = get_agent(
+        ontology=ont,
+        db_path=DATA_DB_PATH or None,
+        llm_call_fn=agent_fn,
+    )
+    
+    # Replace agent's conversation context with session-specific one
+    sess_mgr = get_session_manager()
+    agent.conversation = sess_mgr.get_session(session_id)
+    
+    _session_agents[session_id] = agent
+    return agent
+
+
+# ============================================================================
 # Request / Response Models
 # ============================================================================
 
@@ -151,6 +208,7 @@ class QueryRequest(BaseModel):
     question: str = Field(..., description="用户自然语言问题", min_length=1, max_length=500)
     use_memory: bool = Field(True, description="是否使用查询记忆")
     stream: bool = Field(False, description="是否流式返回")
+    session_id: Optional[str] = Field(None, description="会话 ID (多轮对话时传此值)")
 
 
 class QueryResponse(BaseModel):
@@ -161,6 +219,9 @@ class QueryResponse(BaseModel):
     sql_executed: List[str] = []
     story: Optional[Dict[str, Any]] = None
     memory_record_id: Optional[str] = None
+    session_id: Optional[str] = None
+    turn_type: Optional[str] = None
+    resolved_question: Optional[str] = None
     total_time_ms: float = 0
 
 
@@ -169,6 +230,16 @@ class FeedbackRequest(BaseModel):
     feedback: str = Field(..., description="'up' or 'down'")
     note: str = Field("", description="用户备注")
     correction: str = Field("", description="用户认为正确的方向")
+
+
+class SessionCreateRequest(BaseModel):
+    user_id: Optional[str] = Field(None, description="用户 ID")
+    session_id: Optional[str] = Field(None, description="指定会话 ID（可选，不指定则自动生成）")
+
+
+class SessionCreateResponse(BaseModel):
+    session_id: str
+    message: str
 
 
 class FeedbackResponse(BaseModel):
@@ -259,9 +330,26 @@ async def query(req: QueryRequest):
     """
     t0 = time.time()
 
+    # Get or create session-specific agent
+    agent = get_agent_for_session(req.session_id)
+
     try:
-        agent = get_data_agent()
         response = agent.process(req.question)
+        
+        # Extract turn type and resolved question from the agent
+        turn_type = None
+        resolved_question = None
+        if response.steps:
+            for step in response.steps:
+                if step.content and "上下文解析" in step.content:
+                    import re
+                    m = re.search(r"类型: (\w+)", step.content)
+                    if m:
+                        turn_type = m.group(1)
+                    m2 = re.search(r"→ '([^']+)'", step.content)
+                    if m2:
+                        resolved_question = m2.group(1)
+                    break
 
         # Build story if we have data
         story = None
@@ -336,6 +424,9 @@ async def query(req: QueryRequest):
             sql_executed=response.sql_executed,
             story=story,
             memory_record_id=memory_id,
+            session_id=req.session_id,
+            turn_type=turn_type,
+            resolved_question=resolved_question,
             total_time_ms=round(elapsed, 1),
         )
 
@@ -446,6 +537,69 @@ async def stats():
         "feedback": fb_stats,
         "weight_adjustments": fb.get_weight_adjustments(),
     }
+
+
+@app.post("/api/agent/session", response_model=SessionCreateResponse)
+async def create_session(req: SessionCreateRequest):
+    """创建新会话（多轮对话）"""
+    import uuid
+    session_id = req.session_id or str(uuid.uuid4())
+    
+    # Get or create session
+    sess_mgr = get_session_manager()
+    ctx = sess_mgr.get_session(session_id)
+    
+    return SessionCreateResponse(
+        session_id=session_id,
+        message=f"会话 {session_id} 已创建",
+    )
+
+
+@app.delete("/api/agent/session/{session_id}")
+async def delete_session(session_id: str):
+    """删除会话"""
+    sess_mgr = get_session_manager()
+    sess_mgr.remove_session(session_id)
+    
+    # Remove cached agent
+    global _session_agents
+    _session_agents.pop(session_id, None)
+    
+    return {"message": f"会话 {session_id} 已删除"}
+
+
+@app.get("/api/agent/sessions")
+async def list_sessions():
+    """列出活跃会话"""
+    sess_mgr = get_session_manager()
+    active = sess_mgr.get_active_sessions()
+    
+    # Get turn counts for each session
+    result = []
+    for sid in active:
+        ctx = sess_mgr.get_session(sid)
+        result.append({
+            "session_id": sid,
+            "turn_count": len(ctx.history),
+            "last_turn": ctx.history[-1]["question"] if ctx.history else None,
+        })
+    
+    return {"sessions": result, "count": len(result)}
+
+
+@app.get("/api/agent/session/{session_id}")
+async def get_session(session_id: str):
+    """获取会话详情"""
+    sess_mgr = get_session_manager()
+    try:
+        ctx = sess_mgr.get_session(session_id)
+        return {
+            "session_id": session_id,
+            "turn_count": len(ctx.history),
+            "history": ctx.history,
+        }
+    except Exception:
+        raise HTTPException(status_code=404, detail="会话不存在")
 
 
 @app.get("/api/agent/examples")
