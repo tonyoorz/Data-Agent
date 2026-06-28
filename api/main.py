@@ -36,6 +36,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel, Field
 
+# Auth imports
+from auth.routes import router as auth_router, tenant_router
+from auth.database import init_auth_db
+
 logger = logging.getLogger("data-agent")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
 
@@ -267,10 +271,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Register auth routers
+app.include_router(auth_router)
+app.include_router(tenant_router)
+
 
 # ============================================================================
 # Routes
 # ============================================================================
+
+@app.on_event("startup")
+async def _startup_auth():
+    """Initialize auth database tables on startup."""
+    await init_auth_db()
+    logger.info("Auth database initialized")
+
 
 @app.get("/api/agent/health")
 async def health():
