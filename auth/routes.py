@@ -164,9 +164,8 @@ def _extract_request_info(request: Request):
 # Auth Routes
 # ========================================================================
 
-@router.on_event("startup")
-async def _startup():
-    await init_auth_db()
+# NOTE: auth DB init is handled in main app startup, not here
+# (sub-router on_event doesn't fire)
 
 
 @router.post("/register", response_model=TokenResponse)

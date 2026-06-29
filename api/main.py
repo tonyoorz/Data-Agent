@@ -31,7 +31,7 @@ import logging
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
-from fastapi import FastAPI, HTTPException, Query as QueryParam
+from fastapi import FastAPI, HTTPException, Query as QueryParam, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel, Field
@@ -39,6 +39,9 @@ from pydantic import BaseModel, Field
 # Auth imports
 from auth.routes import router as auth_router, tenant_router
 from auth.database import init_auth_db
+from auth.deps import get_current_user, get_current_user_optional, get_current_tenant
+from auth.models import User, Tenant
+from auth.tenant_data import resolve_tenant_db_path, get_tenant_memory_db_path
 
 logger = logging.getLogger("data-agent")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
@@ -163,24 +166,55 @@ def get_session_manager():
     return _session_manager
 
 
-def get_agent_for_session(session_id: Optional[str]):
+def get_agent_for_session(
+    session_id: Optional[str],
+    data_db: Optional[str] = None,
+    memory_db: Optional[str] = None,
+):
     """
     Get or create agent for a session.
     
     Each session needs its own agent instance with independent
     ConversationContext for multi-turn dialogue.
+    Supports per-tenant DB paths for data isolation.
     """
     global _session_agents
     
+    # Use provided DB paths or defaults
+    effective_data_db = data_db or DATA_DB_PATH
+    effective_memory_db = memory_db or DB_PATH
+    
+    # Create cache key from session_id + DB paths (so different tenants get different agents)
+    cache_key = f"{session_id or 'default'}:{effective_data_db}"
+    
     # If no session_id, use default agent (stateless, single-turn)
     if not session_id:
+        # But check if we need a custom data DB (tenant-specific)
+        if effective_data_db != DATA_DB_PATH:
+            if cache_key in _session_agents:
+                return _session_agents[cache_key]
+            agent = _create_agent(effective_data_db)
+            _session_agents[cache_key] = agent
+            return agent
         return get_data_agent()
     
-    # Check if we have an agent for this session
-    if session_id in _session_agents:
-        return _session_agents[session_id]
+    # Check if we have an agent for this session+tenant combo
+    if cache_key in _session_agents:
+        return _session_agents[cache_key]
     
     # Create new agent for this session
+    agent = _create_agent(effective_data_db)
+    
+    # Replace agent's conversation context with session-specific one
+    sess_mgr = get_session_manager()
+    agent.conversation = sess_mgr.get_session(session_id)
+    
+    _session_agents[cache_key] = agent
+    return agent
+
+
+def _create_agent(data_db_path: str):
+    """Create a fresh agent instance with the given data DB path."""
     ont = get_ontology()
     agent_mode = os.environ.get("AGENT_MODE", "llm")
     llm = get_llm()
@@ -189,18 +223,11 @@ def get_agent_for_session(session_id: Optional[str]):
     if agent_mode == "llm" and llm:
         agent_fn = llm.as_agent_fn()
     
-    # Create agent
     agent = get_agent(
         ontology=ont,
-        db_path=DATA_DB_PATH or None,
+        db_path=data_db_path or None,
         llm_call_fn=agent_fn,
     )
-    
-    # Replace agent's conversation context with session-specific one
-    sess_mgr = get_session_manager()
-    agent.conversation = sess_mgr.get_session(session_id)
-    
-    _session_agents[session_id] = agent
     return agent
 
 
@@ -283,6 +310,7 @@ app.include_router(tenant_router)
 @app.on_event("startup")
 async def _startup_auth():
     """Initialize auth database tables on startup."""
+    from auth.database import init_auth_db
     await init_auth_db()
     logger.info("Auth database initialized")
 
@@ -333,7 +361,11 @@ async def list_tools():
 
 
 @app.post("/api/agent/query", response_model=QueryResponse)
-async def query(req: QueryRequest):
+async def query(
+    req: QueryRequest,
+    user: User = Depends(get_current_user),
+    tenant: Optional[Tenant] = Depends(get_current_tenant),
+):
     """
     同步查询接口
 
@@ -345,8 +377,12 @@ async def query(req: QueryRequest):
     """
     t0 = time.time()
 
+    # Resolve tenant-specific paths
+    data_db = resolve_tenant_db_path(tenant)
+    memory_db = get_tenant_memory_db_path(tenant)
+
     # Get or create session-specific agent
-    agent = get_agent_for_session(req.session_id)
+    agent = get_agent_for_session(req.session_id, data_db=data_db, memory_db=memory_db)
 
     try:
         response = agent.process(req.question)
@@ -498,15 +534,17 @@ async def stream_query(
 
 
 @app.post("/api/agent/feedback", response_model=FeedbackResponse)
-async def feedback(req: FeedbackRequest):
+async def feedback(
+    req: FeedbackRequest,
+    user: User = Depends(get_current_user),
+    tenant: Optional[Tenant] = Depends(get_current_tenant),
+):
     """用户反馈接口"""
     if req.feedback not in ("up", "down"):
         raise HTTPException(status_code=400, detail="feedback must be 'up' or 'down'")
 
     mem = get_query_memory()
     fb = get_feedback_store()
-
-    # Verify the query memory exists
     record = mem.get_by_id(req.query_memory_id)
     if not record:
         raise HTTPException(status_code=404, detail="Query memory record not found")
@@ -528,7 +566,10 @@ async def feedback(req: FeedbackRequest):
 
 
 @app.get("/api/agent/history")
-async def history(limit: int = QueryParam(20, ge=1, le=100)):
+async def history(
+    limit: int = QueryParam(20, ge=1, le=100),
+    user: User = Depends(get_current_user),
+):
     """查询历史记录"""
     mem = get_query_memory()
     records = mem.get_recent(limit=limit)
@@ -539,7 +580,9 @@ async def history(limit: int = QueryParam(20, ge=1, le=100)):
 
 
 @app.get("/api/agent/stats")
-async def stats():
+async def stats(
+    user: User = Depends(get_current_user),
+):
     """记忆和反馈统计"""
     mem = get_query_memory()
     fb = get_feedback_store()
@@ -555,7 +598,10 @@ async def stats():
 
 
 @app.post("/api/agent/session", response_model=SessionCreateResponse)
-async def create_session(req: SessionCreateRequest):
+async def create_session(
+    req: SessionCreateRequest,
+    user: User = Depends(get_current_user),
+):
     """创建新会话（多轮对话）"""
     import uuid
     session_id = req.session_id or str(uuid.uuid4())
@@ -571,7 +617,10 @@ async def create_session(req: SessionCreateRequest):
 
 
 @app.delete("/api/agent/session/{session_id}")
-async def delete_session(session_id: str):
+async def delete_session(
+    session_id: str,
+    user: User = Depends(get_current_user),
+):
     """删除会话"""
     sess_mgr = get_session_manager()
     sess_mgr.remove_session(session_id)
@@ -584,7 +633,9 @@ async def delete_session(session_id: str):
 
 
 @app.get("/api/agent/sessions")
-async def list_sessions():
+async def list_sessions(
+    user: User = Depends(get_current_user),
+):
     """列出活跃会话"""
     sess_mgr = get_session_manager()
     active = sess_mgr.get_active_sessions()
@@ -603,7 +654,10 @@ async def list_sessions():
 
 
 @app.get("/api/agent/session/{session_id}")
-async def get_session(session_id: str):
+async def get_session(
+    session_id: str,
+    user: User = Depends(get_current_user),
+):
     """获取会话详情"""
     sess_mgr = get_session_manager()
     try:
