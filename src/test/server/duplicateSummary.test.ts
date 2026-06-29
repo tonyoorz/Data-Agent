@@ -124,6 +124,57 @@ describe("summarizeDuplicateResults", () => {
     expect(summary.summaryText).toContain("评论分析: 当前候选缺少足够 comments 证据");
   });
 
+  it("falls back when the summary model exceeds the configured timeout", async () => {
+    const previousTimeout = process.env.DUPLICATE_SUMMARY_TIMEOUT_MS;
+    process.env.DUPLICATE_SUMMARY_TIMEOUT_MS = "10";
+    const fetchMock = vi.fn((_url: string, init?: RequestInit) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          const error = new Error("aborted");
+          error.name = "AbortError";
+          reject(error);
+        });
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const result = await Promise.race([
+        summarizeDuplicateResults(
+          "导航黄屏",
+          {
+            candidates: [
+              {
+                ticketId: "2686999",
+                name: "导航黄屏 related defect",
+                score1to10: 8,
+              },
+            ],
+            modelPhase: "click_boost",
+            feedbackCount: 0,
+          },
+          "mock-model",
+        ),
+        new Promise((resolve) => setTimeout(() => resolve("timed-out"), 1000)),
+      ]);
+
+      expect(result).not.toBe("timed-out");
+      expect(result).toEqual(
+        expect.objectContaining({
+          summarySource: "fallback",
+          answerModel: "Duplicate Search Agent",
+        }),
+      );
+      expect(fetchMock.mock.calls[0][1]?.signal).toBeTruthy();
+    } finally {
+      if (previousTimeout == null) {
+        delete process.env.DUPLICATE_SUMMARY_TIMEOUT_MS;
+      } else {
+        process.env.DUPLICATE_SUMMARY_TIMEOUT_MS = previousTimeout;
+      }
+    }
+  });
+
   it("anchors llm summary first line to the top-ranked candidate and score", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

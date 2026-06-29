@@ -60,4 +60,20 @@ describe("createDuplicateWarmupManager", () => {
       }),
     );
   });
+
+  it("can treat warmup failure as optional so foreground search can continue", async () => {
+    const runDuplicateBridge = vi.fn().mockRejectedValueOnce(new Error("bridge stuck"));
+    const manager = createDuplicateWarmupManager({ runDuplicateBridge });
+
+    const status = await manager.ensureWarm({ reason: "duplicate-search-request", optional: true });
+
+    expect(status).toEqual(
+      expect.objectContaining({
+        state: "failed",
+        lastReason: "duplicate-search-request",
+        error: "bridge stuck",
+      }),
+    );
+    expect(runDuplicateBridge).toHaveBeenCalledTimes(1);
+  });
 });

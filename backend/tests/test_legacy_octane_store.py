@@ -7,6 +7,7 @@ from pathlib import Path
 from backend.analytics.schema import ensure_schema
 from backend.analytics.legacy_octane_db import OctaneSQLiteStore
 from backend.analytics.ingest.source_store import OctaneSourceStore
+from backend.analytics.ingest.client import DEFECT_FIELDS
 
 
 def test_legacy_octane_store_writes_into_current_source_schema(tmp_path: Path) -> None:
@@ -308,7 +309,7 @@ def test_legacy_octane_store_preserves_unmanaged_columns_on_existing_rows(tmp_pa
     assert preserved == ("keep-defect", "keep-run", "keep-test")
 
 
-def test_source_store_history_writer_leaves_legacy_raw_columns_empty_when_present(tmp_path: Path) -> None:
+def test_source_store_history_writer_populates_legacy_raw_columns_when_present(tmp_path: Path) -> None:
     db_path = tmp_path / "qgate_raw.db"
 
     conn = sqlite3.connect(db_path)
@@ -328,8 +329,8 @@ def test_source_store_history_writer_leaves_legacy_raw_columns_empty_when_presen
                 new_value TEXT,
                 old_value_text TEXT,
                 new_value_text TEXT,
-                raw_event_json TEXT,
-                raw_change_json TEXT,
+                raw_event_json TEXT NOT NULL,
+                raw_change_json TEXT NOT NULL,
                 fetched_at TEXT NOT NULL,
                 PRIMARY KEY (defect_id, team, entry_index, change_index)
             );
@@ -378,8 +379,8 @@ def test_source_store_history_writer_leaves_legacy_raw_columns_empty_when_presen
     finally:
         conn.close()
 
-    assert row == (None, None)
-
+    assert json.loads(row[0])["action"] == "updated"
+    assert json.loads(row[1])["field_name"] == "phase"
 
 def test_legacy_octane_store_flushes_batched_history_writes_on_close(tmp_path: Path) -> None:
     db_path = tmp_path / "qgate_raw.db"
@@ -529,3 +530,66 @@ def test_octane_source_store_flattens_requirement_names_from_defect_payload(tmp_
         "DOC_PreCon_A | DOC_PreCon_B",
         '["DOC_PreCon_A", "DOC_PreCon_B"]',
     )
+
+
+def test_octane_source_store_flattens_dashboard_udf_fields_from_defect_payload(tmp_path: Path) -> None:
+    db_path = tmp_path / "qgate_raw.db"
+    ensure_schema(db_path)
+
+    store = OctaneSourceStore(db_path)
+    try:
+        store.create_tables()
+        count = store.upsert_defects(
+            [
+                {
+                    "id": "D-DASH-1",
+                    "name": "Dashboard-backed defect",
+                    "team": {"name": "DTSV_China"},
+                    "product_areas": {
+                        "total_count": 1,
+                        "data": [
+                            {
+                                "id": "PA-1",
+                                "name": "Use Speech operation [01.04.02.01.01.05]",
+                                "type": "product_area",
+                            }
+                        ],
+                    },
+                    "problem_category_udf": {"name": "CN Speech"},
+                    "reporting_class_udf": {"name": "Showstopper_Candidate"},
+                    "vin_udf": "VIN-1",
+                    "first_use_sop_of_function_udf": {"name": "PU-27"},
+                }
+            ],
+            team="DTSV_China",
+            year=2026,
+        )
+    finally:
+        store.close()
+
+    assert count == 1
+
+    conn = sqlite3.connect(db_path)
+    try:
+        stored = conn.execute(
+            "SELECT top_aida, product_areas, defect_category, reporting_class, vin, first_use_sop_of_function FROM octane_defects WHERE defect_id='D-DASH-1'"
+        ).fetchone()
+    finally:
+        conn.close()
+
+    assert stored == (
+        "Use Speech operation [01.04.02.01.01.05]",
+        "Use Speech operation [01.04.02.01.01.05]",
+        "CN Speech",
+        "Showstopper_Candidate",
+        "VIN-1",
+        "PU-27",
+    )
+
+
+def test_octane_defect_fields_include_main_dashboard_dimensions() -> None:
+    assert "requirements{name}" in DEFECT_FIELDS
+    assert "problem_category_udf{name}" in DEFECT_FIELDS
+    assert "reporting_class_udf{name}" in DEFECT_FIELDS
+    assert "vin_udf" in DEFECT_FIELDS
+    assert "first_use_sop_of_function_udf" in DEFECT_FIELDS

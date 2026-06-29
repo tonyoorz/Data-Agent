@@ -205,6 +205,18 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
     };
   }, []);
 
+  useEffect(() => {
+    if (interactionMode !== "duplicate-search") {
+      return;
+    }
+
+    void fetch("/api/duplicate-search/warmup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason: "duplicate-search-mode" }),
+    }).catch(() => undefined);
+  }, [interactionMode]);
+
   const sortedConvos = useMemo(() => {
     return [...conversations].sort((a, b) => {
       if (!!b.pinned !== !!a.pinned) return (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0);
@@ -997,16 +1009,6 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
                 数据分析智能体 · 可视化推理与工具调用
               </p>
             </div>
-            {interactionMode === "chat" ? (
-              <label className="ml-3 inline-flex items-center gap-2 rounded-lg border border-border bg-card px-2.5 py-1.5 text-xs text-muted-foreground">
-                <span className="font-medium text-foreground">缺陷上下文</span>
-                <Switch
-                  aria-label="缺陷上下文"
-                  checked={chatContextEnabled}
-                  onCheckedChange={setChatContextEnabled}
-                />
-              </label>
-            ) : null}
           </div>
           <select
             value={model}
@@ -1216,11 +1218,33 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
           <div className="mx-auto max-w-3xl">
             {/* context chip */}
             {moduleLabel && (
-              <div className="mb-2 flex items-center gap-1.5 text-[11px]">
-                <span className="inline-flex items-center gap-1 rounded-md border border-border bg-muted px-1.5 py-0.5 text-muted-foreground">
-                  <Sparkle className="h-2.5 w-2.5 text-primary" />
-                  上下文：<span className="font-medium text-foreground">{moduleLabel}</span>
-                </span>
+              <div className="mb-2 flex flex-wrap items-center gap-1.5 text-[11px]">
+                <div
+                  role="group"
+                  aria-label="输入上下文"
+                  className={`inline-flex items-center gap-1.5 rounded-md border px-1.5 py-0.5 transition-colors ${
+                    chatContextEnabled
+                      ? "border-primary/30 bg-primary/10 text-primary"
+                      : "border-border bg-muted text-muted-foreground"
+                  }`}
+                >
+                  <span className="inline-flex items-center gap-1">
+                    <Sparkle className="h-2.5 w-2.5 text-primary" />
+                    上下文：<span className="font-medium text-foreground">{moduleLabel}</span>
+                  </span>
+                  {interactionMode === "chat" ? (
+                    <label className="inline-flex items-center gap-1.5 pl-1 text-muted-foreground">
+                      <span className="h-3 w-px bg-border" aria-hidden="true" />
+                      <span className="font-medium text-foreground">缺陷上下文</span>
+                      <Switch
+                        aria-label="缺陷上下文"
+                        checked={chatContextEnabled}
+                        onCheckedChange={setChatContextEnabled}
+                        className="scale-75"
+                      />
+                    </label>
+                  ) : null}
+                </div>
               </div>
             )}
 

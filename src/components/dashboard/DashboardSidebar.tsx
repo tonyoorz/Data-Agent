@@ -29,6 +29,7 @@ const navItems = [
   { id: "coverage", label: "测试覆盖率分析", icon: ShieldCheck },
   { id: "test-status", label: "测试状态分析", icon: ListChecks },
   { id: "defect-status", label: "缺陷状态分析", icon: BarChart3 },
+  { id: "qgate-kpi-report", label: "QGate KPI Report", icon: BarChart3 },
   { id: "ai-chat", label: "AI Chat", icon: Sparkles, badge: "Beta" as const },
 ];
 

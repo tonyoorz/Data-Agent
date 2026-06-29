@@ -38,6 +38,9 @@ from backend.analytics.full_picture_outcomes import refresh_materialized_outcome
 from backend.analytics.ingest import client as ingest_client
 from backend.analytics.ingest import pipeline as ingest_pipeline
 from backend.analytics.processor import backfill_defect_projects, run_processor_pipeline, sync_dimension_fields
+from backend.analytics.qgate_kpi_compare_report import generate_qgate_kpi_compare_report
+from backend.analytics.qgate_kpi_dashboard_report import generate_qgate_kpi_dashboard_report
+from backend.analytics.qgate_kpi_report_common import build_timestamped_output_paths
 from backend.analytics.schema import ensure_schema
 from backend.analytics.testing_coverage_hot import refresh_materialized_testing_coverage
 
@@ -214,6 +217,24 @@ def _refresh_testing_coverage_hot_with_progress(*, force: bool) -> dict[str, obj
     )
     return summary
 
+def _prepare_duplicate_search_index() -> dict[str, object]:
+    from scripts.duplicate_search_bridge import warmup_duplicate_search
+
+    return warmup_duplicate_search()
+
+def _run_duplicate_search_eval(eval_cases_path: Path, top_k: int) -> dict[str, object]:
+    from backend.duplicate_search_eval import run_duplicate_search_eval
+
+    return run_duplicate_search_eval(eval_cases_path, top_k=top_k)
+
+def _export_duplicate_search_eval_cases(feedback_db_path: Path, output_path: Path) -> dict[str, object]:
+    from backend.duplicate_search_eval import export_duplicate_search_eval_cases
+
+    return export_duplicate_search_eval_cases(feedback_db_path, output_path)
+
+def sync_octane_auth_from_legacy(*, sync_login: bool = False) -> dict[str, object]:
+    return refresh_octane_cookie(sync_login=sync_login)
+
 
 def _refresh_all_sources_with_progress(args: argparse.Namespace) -> dict[str, object]:
     teams = tuple(part.strip() for part in str(args.teams or "").split(",") if part.strip()) or ("DTSV_China",)
@@ -237,6 +258,7 @@ def _refresh_all_sources_with_progress(args: argparse.Namespace) -> dict[str, ob
             include_testing=False,
             history_max_workers=int(args.history_max_workers or 1),
             team_max_workers=int(getattr(args, "team_max_workers", 1) or 1),
+            force_defect_refresh=bool(getattr(args, "force_defect_refresh", False)),
         ),
         client=ingest_client.build_default_octane_client(),
     )
@@ -257,12 +279,19 @@ def _refresh_all_sources_with_progress(args: argparse.Namespace) -> dict[str, ob
         force=args.force,
         defect_ids=source_defect_ids if "defect_ids" in source_summary else None,
     )
+    duplicate_index_summary: dict[str, object] | None = None
+    if getattr(args, "prepare_duplicate_index", False):
+        _emit_progress("Step 4/4: preparing duplicate-search index...")
+        duplicate_index_summary = _prepare_duplicate_search_index()
     _emit_progress("Combined source refresh finished")
-    return {
+    summary = {
         "source_refresh": source_summary,
         "manual_runs_refresh": manual_summary,
         "outcomes_refresh": outcomes_summary,
     }
+    if duplicate_index_summary is not None:
+        summary["duplicate_search_index"] = duplicate_index_summary
+    return summary
 
 
 def seed_testing_rows() -> None:
@@ -478,8 +507,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--teams")
     parser.add_argument("--years")
     parser.add_argument("--manual-years")
+    parser.add_argument("--eval-cases")
+    parser.add_argument("--feedback-db-path")
+    parser.add_argument("--output-path")
+    parser.add_argument("--output-root")
+    parser.add_argument("--top-k", type=int, default=10)
     parser.add_argument("--skip-history", action="store_true")
     parser.add_argument("--skip-comments", action="store_true")
+    parser.add_argument("--prepare-duplicate-index", action="store_true")
     parser.add_argument("--full-history", action="store_true")
     parser.add_argument("--save-files", action="store_true")
     parser.add_argument("--cookie-file")
@@ -491,6 +526,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--workitems-fallback-workers", type=int)
     parser.add_argument("--history-max-workers", type=int, default=50)
     parser.add_argument("--team-max-workers", type=int, default=1)
+    parser.add_argument("--force-defect-refresh", action="store_true")
     parser.add_argument("--refreshed-after")
     parser.add_argument("--headless", action="store_true")
     parser.add_argument("--sync-login", action="store_true")
@@ -510,6 +546,46 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "backfill-projects":
         summary = backfill_defect_projects(db_path, apply=args.apply)
+        print(json.dumps(summary, ensure_ascii=False))
+        return 0
+    if args.command == "generate-qgate-kpi-reports":
+        report_db_path = Path(args.db_path) if args.db_path else get_full_picture_source_db_path()
+        years = tuple(str(year).strip() for year in str(args.years or "2025,2026").split(",") if str(year).strip())
+        if len(years) != 2:
+            raise SystemExit("--years must contain exactly two comma-separated years")
+        output_root = args.output_root or str(Path("docs") / "qgate-reports" / "generated_runs")
+        dashboard_path, compare_path = build_timestamped_output_paths(
+            output_root,
+            (
+                "qgate_kpi_dashboard_{stamp}.html",
+                f"qgate_kpi_compare_{years[0]}_{years[1]}_{{stamp}}.html",
+            ),
+        )
+        generated_dashboard = generate_qgate_kpi_dashboard_report(
+            db_path=report_db_path,
+            output_path=dashboard_path,
+        )
+        generated_compare = generate_qgate_kpi_compare_report(
+            db_path=report_db_path,
+            output_path=compare_path,
+            years=years,
+        )
+        print(json.dumps({"dashboard": str(generated_dashboard), "compare": str(generated_compare)}, ensure_ascii=False))
+        return 0
+    if args.command == "prepare-duplicate-search-index":
+        summary = _prepare_duplicate_search_index()
+        print(json.dumps(summary, ensure_ascii=False))
+        return 0
+    if args.command == "evaluate-duplicate-search":
+        if not args.eval_cases:
+            raise SystemExit("--eval-cases is required")
+        summary = _run_duplicate_search_eval(Path(args.eval_cases), top_k=int(args.top_k or 10))
+        print(json.dumps(summary, ensure_ascii=False))
+        return 0
+    if args.command == "export-duplicate-search-eval-cases":
+        if not args.feedback_db_path or not args.output_path:
+            raise SystemExit("--feedback-db-path and --output-path are required")
+        summary = _export_duplicate_search_eval_cases(Path(args.feedback_db_path), Path(args.output_path))
         print(json.dumps(summary, ensure_ascii=False))
         return 0
     if args.command == "stage-full-picture-source":
@@ -557,6 +633,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             include_history=not args.skip_history,
             include_comments=not args.skip_comments,
             include_testing=True,
+            force_defect_refresh=bool(getattr(args, "force_defect_refresh", False)),
         )
         summary = ingest_pipeline.refresh_octane_source(
             request=request,
@@ -605,12 +682,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(json.dumps(summary, ensure_ascii=False))
         return 0 if bool(summary.get("cookie_validated")) else 1
     if args.command == "sync-octane-cookie":
-        summary = {
-            "cookie_synced": False,
-            "login_synced": False,
-            "mode": "local-only",
-            "message": "External repository cookie sync has been removed. Use refresh-octane-cookie.",
-        }
+        summary = sync_octane_auth_from_legacy(sync_login=args.sync_login)
         print(json.dumps(summary, ensure_ascii=False))
         return 0
 

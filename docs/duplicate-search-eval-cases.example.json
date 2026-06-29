@@ -1,0 +1,12 @@
+[
+  {
+    "query": "BT Phone can not connect after disconnect ACP",
+    "positive_ticket_ids": ["2635532"],
+    "negative_ticket_ids": []
+  },
+  {
+    "query": "Gateway wake CANoe trace timeout after KL15 on",
+    "positive_ticket_ids": ["DP-101"],
+    "negative_ticket_ids": []
+  }
+]

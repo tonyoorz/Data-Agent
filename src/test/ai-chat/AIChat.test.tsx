@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import AIChat from "@/components/dashboard/pages/AIChat";
@@ -92,8 +92,21 @@ describe("AIChat duplicate search integration", () => {
     expect(screen.getByRole("switch", { name: /缺陷上下文/i })).not.toBeChecked();
   });
 
-  it("does not request duplicate-search warmup when switching to duplicate-search mode", async () => {
-    const fetchMock = vi.fn();
+  it("keeps the defect context control inside the composer context chip", () => {
+    render(<AIChat moduleKey="ai-chat" moduleLabel="AI Chat" />);
+
+    const contextChip = screen.getByRole("group", { name: "输入上下文" });
+
+    expect(within(contextChip).getByText("上下文：")).toBeInTheDocument();
+    expect(within(contextChip).getByText("AI Chat")).toBeInTheDocument();
+    expect(within(contextChip).getByRole("switch", { name: /缺陷上下文/i })).not.toBeChecked();
+  });
+
+  it("requests duplicate-search warmup in the background when switching to duplicate-search mode", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ success: true }),
+    });
 
     vi.stubGlobal("fetch", fetchMock);
 
@@ -107,7 +120,12 @@ describe("AIChat duplicate search integration", () => {
       ).toBeInTheDocument();
     });
 
-    expect(fetchMock).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/duplicate-search/warmup",
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
   });
 
   it("submits duplicate search queries to the local API and renders candidates", async () => {

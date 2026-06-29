@@ -65,6 +65,27 @@ _REMOTE_EMBEDDING_TIMEOUT_SECONDS = float(
 )
 _RRF_K = 60
 
+def _retrieval_weights_for_query(query: str) -> Tuple[float, float]:
+    text = _normalize_text(query).lower()
+    if not text:
+        return 1.0, 1.0
+
+    identifier_score = 0
+    if re.search(r"\b\d{4}[-/]\d{2}[-/]\d{2}\b", text):
+        identifier_score += 2
+    if re.search(r"\b\d{2}:\d{2}:\d{2}(?:\.\d+)?\b", text):
+        identifier_score += 1
+    if re.search(r"\b[a-z][a-z0-9_.-]{1,40}\s*=\s*[^\s]+", text):
+        identifier_score += 2
+    if re.search(r"\b(?:dtc|trace|logs?|exception|timeout|payload|coredump)\b", text):
+        identifier_score += 1
+    if re.search(r"\b\d{2}\s*[/.-]\s*\d{2}\b|\b\d{2}w\d{2}(?:\.\d+)?\b", text):
+        identifier_score += 1
+
+    if identifier_score >= 2:
+        return 0.75, 2.0
+    return 1.0, 1.0
+
 try:
     from sentence_transformers import SentenceTransformer
 
@@ -309,6 +330,7 @@ class DuplicateCandidate:
     status_phase: Optional[str]
     snippet: str
     evidence_snippets: List[str]
+    ranking_signals: Dict[str, Any]
 
 
 def _normalize_project(value: Any) -> Optional[str]:
@@ -775,8 +797,23 @@ class DuplicateIssueIndex:
             logger.warning(f"duplicate search failed, fallback to keyword: {e}")
             return self._keyword_fallback(q, hints=hints, top_k=top_k)
 
+        rank_signals: Dict[int, Dict[str, Any]] = {}
         if dense_ranked and sparse_ranked:
-            ranked = self._fuse_ranked_lists_rrf(dense_ranked, sparse_ranked, top_k=max(50, int(top_k) * 5))
+            dense_weight, sparse_weight = _retrieval_weights_for_query(q)
+            rank_signals = self._build_rank_signals(
+                dense_ranked,
+                sparse_ranked,
+                dense_weight=dense_weight,
+                sparse_weight=sparse_weight,
+                top_k=max(50, int(top_k) * 5),
+            )
+            ranked = self._fuse_ranked_lists_rrf(
+                dense_ranked,
+                sparse_ranked,
+                top_k=max(50, int(top_k) * 5),
+                dense_weight=dense_weight,
+                sparse_weight=sparse_weight,
+            )
         elif dense_ranked:
             ranked = dense_ranked
         elif sparse_ranked:
@@ -784,7 +821,7 @@ class DuplicateIssueIndex:
         else:
             return self._keyword_fallback(q, hints=hints, top_k=top_k)
 
-        return self._ranked_to_candidates(ranked, top_k=top_k)
+        return self._ranked_to_candidates(ranked, top_k=top_k, rank_signals=rank_signals)
 
     def _rank_similarities(
         self,
@@ -809,13 +846,15 @@ class DuplicateIssueIndex:
         sparse_ranked: Sequence[Tuple[int, float]],
         top_k: int,
         rrf_k: int = _RRF_K,
+        dense_weight: float = 1.0,
+        sparse_weight: float = 1.0,
     ) -> List[Tuple[int, float]]:
         fused_scores: Dict[int, float] = {}
         best_similarity: Dict[int, float] = {}
 
-        for ranked in (dense_ranked, sparse_ranked):
+        for ranked, weight in ((dense_ranked, dense_weight), (sparse_ranked, sparse_weight)):
             for rank, (idx, similarity) in enumerate(ranked[: max(1, int(top_k))], start=1):
-                fused_scores[idx] = fused_scores.get(idx, 0.0) + (1.0 / float(rrf_k + rank))
+                fused_scores[idx] = fused_scores.get(idx, 0.0) + (float(weight) / float(rrf_k + rank))
                 best_similarity[idx] = max(best_similarity.get(idx, float("-inf")), float(similarity))
 
         ranked_indices = sorted(
@@ -828,7 +867,39 @@ class DuplicateIssueIndex:
             for idx, _ in ranked_indices[: max(1, int(top_k))]
         ]
 
-    def _ranked_to_candidates(self, ranked: Sequence[Tuple[int, float]], top_k: int) -> List[DuplicateCandidate]:
+    def _build_rank_signals(
+        self,
+        dense_ranked: Sequence[Tuple[int, float]],
+        sparse_ranked: Sequence[Tuple[int, float]],
+        dense_weight: float,
+        sparse_weight: float,
+        top_k: int,
+    ) -> Dict[int, Dict[str, Any]]:
+        signals: Dict[int, Dict[str, Any]] = {}
+        limit = max(1, int(top_k))
+        for source_name, ranked in (("dense", dense_ranked), ("sparse", sparse_ranked)):
+            for rank, (idx, score) in enumerate(ranked[:limit], start=1):
+                current = signals.setdefault(
+                    idx,
+                    {
+                        "dense_rank": None,
+                        "dense_score": None,
+                        "sparse_rank": None,
+                        "sparse_score": None,
+                        "dense_weight": float(dense_weight),
+                        "sparse_weight": float(sparse_weight),
+                    },
+                )
+                current[f"{source_name}_rank"] = int(rank)
+                current[f"{source_name}_score"] = float(score)
+        return signals
+
+    def _ranked_to_candidates(
+        self,
+        ranked: Sequence[Tuple[int, float]],
+        top_k: int,
+        rank_signals: Optional[Dict[int, Dict[str, Any]]] = None,
+    ) -> List[DuplicateCandidate]:
         candidates: List[DuplicateCandidate] = []
         for idx, sim in ranked[: max(1, int(top_k))]:
             meta = self._meta[idx]
@@ -843,6 +914,7 @@ class DuplicateIssueIndex:
                     status_phase=meta.get("status_phase"),
                     snippet=_candidate_snippet(meta),
                     evidence_snippets=_normalize_evidence_snippets(meta.get("evidence_snippets")),
+                    ranking_signals=dict((rank_signals or {}).get(idx) or {}),
                 )
             )
             if len(candidates) >= top_k:
@@ -947,6 +1019,7 @@ class DuplicateIssueIndex:
                     status_phase=meta.get("status_phase"),
                     snippet=_candidate_snippet(meta),
                     evidence_snippets=_normalize_evidence_snippets(meta.get("evidence_snippets")),
+                    ranking_signals={},
                 )
             )
         return candidates
@@ -1038,6 +1111,7 @@ def get_or_build_index_with_metadata(
     cache_key: str,
     df: pd.DataFrame,
     excluded_phase_prefixes: Sequence[str] = DEFAULT_EXCLUDED_PHASE_PREFIXES,
+    build_if_missing: bool = True,
 ) -> Tuple[DuplicateIssueIndex, Dict[str, Any]]:
     idx = _INDEX_CACHE.get(cache_key)
     cache_hit = bool(
@@ -1064,8 +1138,9 @@ def get_or_build_index_with_metadata(
             idx.load_snapshot_state(snapshot_state)
             disk_cache_hit = True
         else:
-            idx.build_from_df(df if isinstance(df, pd.DataFrame) else pd.DataFrame())
-            _save_index_snapshot(snapshot_path, idx)
+            if build_if_missing:
+                idx.build_from_df(df if isinstance(df, pd.DataFrame) else pd.DataFrame())
+                _save_index_snapshot(snapshot_path, idx)
 
     return idx, {
         "cache_key": cache_key,

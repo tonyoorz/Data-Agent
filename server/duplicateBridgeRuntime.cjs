@@ -45,9 +45,23 @@ function resolvePythonExecutable(repoRoot) {
   return process.platform === 'win32' ? 'python' : 'python3';
 }
 
+function resolveRequestTimeoutMs(options = {}, env = process.env) {
+  const raw = Number(options.requestTimeoutMs || env.DUPSEARCH_BRIDGE_REQUEST_TIMEOUT_MS || 45000);
+  if (!Number.isFinite(raw) || raw <= 0) {
+    return 45000;
+  }
+  return Math.max(100, Math.floor(raw));
+}
+
+function isRetryableBridgeError(error) {
+  const message = error instanceof Error ? error.message : String(error || '');
+  return /timed out|exited before responding|Bridge process failed|EPIPE|stdin/i.test(message);
+}
+
 class JsonLineBridgeClient {
   constructor(options) {
     this.options = { ...options };
+    this.requestTimeoutMs = resolveRequestTimeoutMs(options);
     this.proc = null;
     this.stdoutReader = null;
     this.pending = [];
@@ -57,9 +71,20 @@ class JsonLineBridgeClient {
   }
 
   request(payload) {
-    const run = () => this._send(payload);
+    const run = () => this._sendWithRetry(payload);
     this.requestChain = this.requestChain.then(run, run);
     return this.requestChain;
+  }
+
+  async _sendWithRetry(payload) {
+    try {
+      return await this._send(payload);
+    } catch (error) {
+      if (this.disposed || !isRetryableBridgeError(error)) {
+        throw error;
+      }
+      return this._send(payload);
+    }
   }
 
   dispose() {
@@ -75,7 +100,33 @@ class JsonLineBridgeClient {
     const proc = this._ensureProcess();
 
     return new Promise((resolve, reject) => {
-      this.pending.push({ resolve, reject });
+      let timer = null;
+      const pending = {
+        resolve: (value) => {
+          if (timer) {
+            clearTimeout(timer);
+          }
+          resolve(value);
+        },
+        reject: (error) => {
+          if (timer) {
+            clearTimeout(timer);
+          }
+          reject(error);
+        },
+      };
+
+      timer = setTimeout(() => {
+        const index = this.pending.indexOf(pending);
+        if (index >= 0) {
+          this.pending.splice(index, 1);
+        }
+        pending.reject(new Error(`Bridge request timed out after ${this.requestTimeoutMs}ms`));
+        this._teardownProcess(proc);
+      }, this.requestTimeoutMs);
+      timer.unref?.();
+
+      this.pending.push(pending);
       proc.stdin.write(`${JSON.stringify(payload)}\n`, 'utf8');
     });
   }
@@ -195,6 +246,7 @@ function getDuplicateBridgeClient() {
         ...process.env,
         PYTHONIOENCODING: 'utf-8',
       },
+      requestTimeoutMs: Number(process.env.DUPSEARCH_BRIDGE_REQUEST_TIMEOUT_MS || 45000),
     });
   }
 
@@ -218,7 +270,9 @@ module.exports = {
   JsonLineBridgeClient,
   createJsonLineBridgeClient,
   detectRepoRoot,
+  isRetryableBridgeError,
   resolvePythonExecutable,
+  resolveRequestTimeoutMs,
   runDuplicateBridge,
   stopDuplicateBridgeRuntime,
 };

@@ -30,6 +30,7 @@ def test_build_cookie_session_sets_header_and_cookie_jar(tmp_path: Path) -> None
 
     assert load_cookie_header(cookie_file) == "A=1; B=2"
     assert session.headers["Cookie"] == "A=1; B=2"
+    assert session.trust_env is False
     assert session.cookies.get("A") == "1"
     assert session.cookies.get("B") == "2"
 

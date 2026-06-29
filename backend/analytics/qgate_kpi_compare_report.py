@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from pathlib import Path
 import json
+import re
 import sqlite3
 
 from backend.analytics.qgate_kpi_report_common import (
@@ -55,6 +56,15 @@ def _extract_project_tokens(project_text: str) -> list[str]:
     return tokens or ["Unknown"]
 
 
+def _extract_defect_year(payload: dict[str, object]) -> str:
+    year_text = str(payload.get("year") or "").strip()
+    if year_text:
+        return year_text
+    creation_time = str(payload.get("creation_time") or "").strip()
+    match = re.search(r"(20\d{2})", creation_time)
+    return match.group(1) if match else ""
+
+
 def _counted_table_rows(counter: Counter[str]) -> str:
     if not counter:
         return '<tr><td colspan="2">No data</td></tr>'
@@ -99,6 +109,123 @@ def _build_yearly_defect_rows(stats_by_year: dict[str, dict[str, int]], years: t
     )
 
 
+def _comparison_value_rows(counters: dict[str, Counter[str]], years: tuple[str, str], *, limit: int = 15) -> str:
+    keys = sorted(
+        set(counters[years[0]]) | set(counters[years[1]]),
+        key=lambda key: counters[years[0]][key] + counters[years[1]][key],
+        reverse=True,
+    )[:limit]
+    if not keys:
+        return '<tr><td colspan="4">No data</td></tr>'
+    rows: list[str] = []
+    for key in keys:
+        left = counters[years[0]][key]
+        right = counters[years[1]][key]
+        rows.append(
+            f"<tr><td>{escape_html(key)}</td><td>{left}</td><td>{right}</td><td>{right - left:+d}</td></tr>"
+        )
+    return "".join(rows)
+
+
+def _matrix_bar_rows(counters: dict[str, Counter[str]], years: tuple[str, str], *, limit: int = 10) -> str:
+    keys = sorted(
+        set(counters[years[0]]) | set(counters[years[1]]),
+        key=lambda key: counters[years[0]][key] + counters[years[1]][key],
+        reverse=True,
+    )[:limit]
+    max_value = max([counters[year][key] for year in years for key in keys] or [1])
+    rows: list[str] = []
+    for key in keys:
+        left = counters[years[0]][key]
+        right = counters[years[1]][key]
+        rows.append(
+            "".join(
+                (
+                    '<div class="matrix-item">',
+                    f"<div>{escape_html(key)}</div>",
+                    '<div class="matrix-bar-bg">',
+                    f'<div class="matrix-bar-2024" style="width:{(left / max_value * 100.0) if max_value else 0:.1f}%"></div>',
+                    "</div>",
+                    f"<div>{escape_html(years[0])}: {left}</div>",
+                    '<div></div><div class="matrix-bar-bg">',
+                    f'<div class="matrix-bar-2025" style="width:{(right / max_value * 100.0) if max_value else 0:.1f}%"></div>',
+                    "</div>",
+                    f"<div>{escape_html(years[1])}: {right}</div>",
+                    "</div>",
+                )
+            )
+        )
+    return "".join(rows) if rows else '<div class="note">No data available</div>'
+
+
+def _release_trend_svg(run_stats: dict[str, dict[str, int]], years: tuple[str, str]) -> str:
+    bars: list[str] = []
+    labels: list[str] = []
+    width = 420
+    chart_top = 24
+    chart_bottom = 180
+    for index, year in enumerate(years):
+        stats = run_stats[year]
+        total = stats["total"]
+        pass_rate = stats["passed"] / total * 100.0 if total else 0.0
+        bar_height = (chart_bottom - chart_top) * pass_rate / 100.0
+        x = 90 + index * 150
+        y = chart_bottom - bar_height
+        bars.append(
+            f'<rect x="{x}" y="{y:.1f}" width="82" height="{bar_height:.1f}" rx="6" fill="#22c55e" opacity="0.9" />'
+        )
+        labels.append(
+            f'<text x="{x + 41}" y="{y - 8:.1f}" font-size="12" text-anchor="middle" fill="#0f172a">{pass_rate:.1f}%</text>'
+            f'<text x="{x + 41}" y="202" font-size="12" text-anchor="middle" fill="#334155">{escape_html(year)}</text>'
+            f'<text x="{x + 41}" y="218" font-size="11" text-anchor="middle" fill="#64748b">n={total}</text>'
+        )
+    return "".join(
+        (
+            '<svg viewBox="0 0 420 230" width="100%" height="230" role="img" aria-label="Release Trend pass rate">',
+            '<line x1="48" y1="180" x2="390" y2="180" stroke="#64748b" />',
+            '<line x1="48" y1="24" x2="48" y2="180" stroke="#64748b" />',
+            '<line x1="48" y1="39.6" x2="390" y2="39.6" stroke="#ef4444" stroke-dasharray="6 4" />',
+            '<text x="300" y="34" font-size="11" fill="#ef4444">Target 90%</text>',
+            '<text x="12" y="184" font-size="10" fill="#64748b">0%</text>',
+            '<text x="8" y="43" font-size="10" fill="#64748b">90%</text>',
+            "".join(bars),
+            "".join(labels),
+            "</svg>",
+        )
+    )
+
+
+def _color_stack(cluster_counts: Counter[str]) -> str:
+    total = sum(cluster_counts.values()) or 1
+    segments = [
+        ("Green", "green"),
+        ("Yellow", "yellow"),
+        ("Red", "red"),
+        ("Unknown", "other"),
+    ]
+    return "".join(
+        (
+            '<div class="stack-row"><div class="label">CWA Cluster</div><div class="stack">',
+            "".join(
+                f'<div class="{css_class}" title="{escape_html(name)} {cluster_counts[name]}" style="width:{cluster_counts[name] / total * 100.0:.1f}%"></div>'
+                for name, css_class in segments
+                if cluster_counts[name]
+            ),
+            "</div>",
+            f"<div>{total} defects</div></div>",
+        )
+    )
+
+
+def _team_bar_rows(counter: Counter[str], css_class: str) -> str:
+    rows = counter.most_common(12)
+    max_value = max([count for _team, count in rows] or [1])
+    return "".join(
+        f'<div class="team-row"><div>{escape_html(team)}</div><div class="team-bar-bg"><div class="{css_class}" style="width:{count / max_value * 100.0:.1f}%"></div></div><div>{count}</div></div>'
+        for team, count in rows
+    ) or '<div class="note">No data available</div>'
+
+
 def _build_comparison_tables(
     *,
     years: tuple[str, str],
@@ -115,6 +242,8 @@ def _build_comparison_tables(
     phase_09_team_counts: Counter[str],
 ) -> str:
     year_window = f"{years[0]} vs {years[1]}"
+    project_pair_counts = {year: project_counts[year] for year in years}
+    model_pair_counts = {year: model_counts[year] for year in years}
     return f"""<!doctype html>
 <html lang=\"en\">
 <head>
@@ -133,14 +262,36 @@ def _build_comparison_tables(
     section {{ background: #ffffff; border: 1px solid #d8e1f0; border-radius: 16px; padding: 20px; margin-top: 18px; box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06); }}
     h1 {{ margin: 0 0 8px; }}
     h2 {{ margin-bottom: 12px; }}
+        h3 {{ margin: 10px 0; font-size: 16px; color: #102542; }}
     p {{ margin: 8px 0 0; }}
     .summary {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; }}
     .card {{ background: #102542; color: #f8fbff; border-radius: 14px; padding: 16px; }}
     .metric {{ font-size: 28px; font-weight: 700; margin-top: 4px; }}
     .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }}
+        .chart-box {{ border: 1px solid #e5e7eb; border-radius: 10px; padding: 10px; background: #fcfcfd; }}
+        .split {{ display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }}
+        .stack-wrap {{ display: grid; gap: 10px; margin-top: 8px; }}
+        .stack-row {{ display: grid; grid-template-columns: 120px 1fr 110px; gap: 8px; align-items: center; font-size: 12px; }}
+        .stack {{ height: 18px; border-radius: 999px; overflow: hidden; display: flex; background: #f3f4f6; }}
+        .green {{ background: #16a34a; height: 100%; }}
+        .yellow {{ background: #eab308; height: 100%; }}
+        .red {{ background: #dc2626; height: 100%; }}
+        .other {{ background: #64748b; height: 100%; }}
+        .matrix-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }}
+        .matrix-item {{ display: grid; grid-template-columns: 120px 1fr 90px; gap: 8px; align-items: center; font-size: 12px; margin: 5px 0; }}
+        .matrix-bar-bg {{ height: 14px; background: #e5e7eb; border-radius: 999px; overflow: hidden; }}
+        .matrix-bar-2024 {{ height: 100%; background: #60a5fa; }}
+        .matrix-bar-2025 {{ height: 100%; background: #2563eb; }}
+        .team-chart-wrap {{ display: grid; gap: 8px; margin-top: 8px; }}
+        .team-row {{ display: grid; grid-template-columns: 190px 1fr 80px; gap: 8px; align-items: center; font-size: 12px; }}
+        .team-bar-bg {{ height: 14px; background: #e5e7eb; border-radius: 999px; overflow: hidden; }}
+        .team-bar-ss {{ height: 100%; background: #ef4444; }}
+        .team-bar-cwa {{ height: 100%; background: #f59e0b; }}
+        .note {{ font-size: 13px; color: #4b5563; margin-top: 8px; }}
     table {{ width: 100%; border-collapse: collapse; margin-top: 12px; }}
     th, td {{ padding: 10px 12px; border-bottom: 1px solid #e6ebf2; text-align: left; vertical-align: top; }}
     th {{ background: #f7f9fc; }}
+        @media (max-width: 1080px) {{ .split, .matrix-grid {{ grid-template-columns: 1fr; }} }}
   </style>
 </head>
 <body>
@@ -167,14 +318,31 @@ def _build_comparison_tables(
 
     <section class=\"grid\">
       <div>
-        <h2>A2. Project Coverage</h2>
-        <table><thead><tr><th>Project</th><th>Count</th></tr></thead><tbody>{_counted_table_rows(project_counts[years[0]] + project_counts[years[1]])}</tbody></table>
+                <h2>A2. Coverage Matrix</h2>
+                <table><thead><tr><th>Project</th><th>{escape_html(years[0])}</th><th>{escape_html(years[1])}</th><th>Delta</th></tr></thead><tbody>{_comparison_value_rows(project_pair_counts, years)}</tbody></table>
       </div>
       <div>
         <h2>A3. Model Coverage</h2>
-        <table><thead><tr><th>Model</th><th>Count</th></tr></thead><tbody>{_counted_table_rows(model_counts[years[0]] + model_counts[years[1]])}</tbody></table>
+                <table><thead><tr><th>Model</th><th>{escape_html(years[0])}</th><th>{escape_html(years[1])}</th><th>Delta</th></tr></thead><tbody>{_comparison_value_rows(model_pair_counts, years)}</tbody></table>
       </div>
     </section>
+
+        <section>
+            <h2>Release Trend</h2>
+            <div class=\"split\">
+                <div class=\"chart-box\">
+                    <h3>Pass Rate Trend</h3>
+                    {_release_trend_svg(run_stats, years)}
+                </div>
+                <div class=\"chart-box\">
+                    <h3>Project / Model Matrix Bars</h3>
+                    <div class=\"matrix-grid\">
+                        <div>{_matrix_bar_rows(project_pair_counts, years)}</div>
+                        <div>{_matrix_bar_rows(model_pair_counts, years)}</div>
+                    </div>
+                </div>
+            </div>
+        </section>
 
     <section>
       <h2>A4. Test Execution and Defect Linkage</h2>
@@ -202,7 +370,8 @@ def _build_comparison_tables(
       </div>
       <div>
         <h2>B3. CWA Three-Color Cluster</h2>
-        <table><thead><tr><th>Cluster</th><th>Count</th></tr></thead><tbody>{_counted_table_rows(color_cluster_counts)}</tbody></table>
+                <div class=\"stack-wrap\">{_color_stack(color_cluster_counts)}</div>
+                <table><thead><tr><th>Cluster</th><th>Count</th></tr></thead><tbody>{_counted_table_rows(color_cluster_counts)}</tbody></table>
       </div>
       <div>
         <h2>B4. Ticket Matrix Distribution</h2>
@@ -217,11 +386,13 @@ def _build_comparison_tables(
     <section class=\"grid\">
       <div>
         <h2>C1. Showstopper Confirmed</h2>
-        <table><thead><tr><th>Team</th><th>Count</th></tr></thead><tbody>{_counted_table_rows(showstopper_team_counts)}</tbody></table>
+                <div class=\"team-chart-wrap\">{_team_bar_rows(showstopper_team_counts, "team-bar-ss")}</div>
+                <table><thead><tr><th>Team</th><th>Count</th></tr></thead><tbody>{_counted_table_rows(showstopper_team_counts)}</tbody></table>
       </div>
       <div>
         <h2>C2. Phase 09 (CWA)</h2>
-        <table><thead><tr><th>Team</th><th>Count</th></tr></thead><tbody>{_counted_table_rows(phase_09_team_counts)}</tbody></table>
+                <div class=\"team-chart-wrap\">{_team_bar_rows(phase_09_team_counts, "team-bar-cwa")}</div>
+                <table><thead><tr><th>Team</th><th>Count</th></tr></thead><tbody>{_counted_table_rows(phase_09_team_counts)}</tbody></table>
       </div>
     </section>
   </main>
@@ -335,7 +506,7 @@ def generate_qgate_kpi_compare_report(
 
     for _defect_id, team, project, raw_json in defect_rows:
         payload = _parse_json(raw_json)
-        year_text = str(payload.get("year") or "").strip()
+        year_text = _extract_defect_year(payload)
         if year_text not in defect_stats:
             continue
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 import subprocess
 import sys
@@ -48,6 +49,59 @@ def test_analytics_cli_init_db_command_creates_database(tmp_path: Path) -> None:
     assert "octane_defects" in tables
     assert "octane_manual_runs" in tables
     assert "octane_testcases" in tables
+
+
+def test_analytics_cli_generate_qgate_kpi_reports_invokes_native_generators(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    db_path = tmp_path / "qgate_raw.db"
+    output_root = tmp_path / "qgate-reports"
+    dashboard_path = output_root / "20260611_120000" / "qgate_kpi_dashboard_20260611_120000.html"
+    compare_path = output_root / "20260611_120000" / "qgate_kpi_compare_2025_2026_20260611_120000.html"
+    captured: dict[str, object] = {}
+
+    def fake_build_timestamped_output_paths(root, file_names):
+        captured["output_root"] = root
+        captured["file_names"] = file_names
+        return dashboard_path, compare_path
+
+    def fake_generate_dashboard_report(*, db_path, output_path):
+        captured["dashboard"] = {"db_path": db_path, "output_path": output_path}
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(output_path).write_text("dashboard", encoding="utf-8")
+        return Path(output_path)
+
+    def fake_generate_compare_report(*, db_path, output_path, years):
+        captured["compare"] = {"db_path": db_path, "output_path": output_path, "years": years}
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(output_path).write_text("compare", encoding="utf-8")
+        return Path(output_path)
+
+    monkeypatch.setattr(analytics_cli, "build_timestamped_output_paths", fake_build_timestamped_output_paths, raising=False)
+    monkeypatch.setattr(analytics_cli, "generate_qgate_kpi_dashboard_report", fake_generate_dashboard_report, raising=False)
+    monkeypatch.setattr(analytics_cli, "generate_qgate_kpi_compare_report", fake_generate_compare_report, raising=False)
+
+    exit_code = main([
+        "generate-qgate-kpi-reports",
+        "--db-path",
+        str(db_path),
+        "--output-root",
+        str(output_root),
+        "--years",
+        "2025,2026",
+    ])
+
+    stdout = capsys.readouterr().out
+    assert exit_code == 0
+    assert captured["output_root"] == str(output_root)
+    assert "qgate_kpi_dashboard_{stamp}.html" in captured["file_names"]
+    assert "qgate_kpi_compare_2025_2026_{stamp}.html" in captured["file_names"]
+    assert captured["dashboard"] == {"db_path": db_path, "output_path": dashboard_path}
+    assert captured["compare"] == {"db_path": db_path, "output_path": compare_path, "years": ("2025", "2026")}
+    assert "qgate_kpi_dashboard_20260611_120000.html" in stdout
+    assert "qgate_kpi_compare_2025_2026_20260611_120000.html" in stdout
 
 
 def test_analytics_cli_refresh_octane_source_invokes_repo_owned_pipeline(
@@ -374,6 +428,175 @@ def test_analytics_cli_refresh_all_sources_runs_steps_in_order(
     assert calls[3][1]["years"] == (2026,)
     assert calls[4][1]["manual_run_ids"] is None
     assert calls[5][1]["defect_ids"] == ("D-1", "D-2")
+
+
+def test_analytics_cli_prepare_duplicate_search_index_invokes_bridge_warmup(
+    monkeypatch,
+    capsys,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_prepare_duplicate_search_index() -> dict[str, object]:
+        captured["called"] = True
+        return {
+            "success": True,
+            "result": {
+                "dataset_size": 42,
+                "index_ready": True,
+                "timings": {"total_ms": 12.3},
+            },
+        }
+
+    monkeypatch.setattr(analytics_cli, "_prepare_duplicate_search_index", fake_prepare_duplicate_search_index, raising=False)
+
+    exit_code = main(["prepare-duplicate-search-index"])
+
+    stdout = capsys.readouterr().out
+    assert exit_code == 0
+    assert captured["called"] is True
+    assert '"dataset_size": 42' in stdout
+    assert '"index_ready": true' in stdout
+
+
+def test_analytics_cli_evaluate_duplicate_search_invokes_eval_runner(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    eval_path = tmp_path / "eval_cases.json"
+    eval_path.write_text("[]", encoding="utf-8")
+    captured: dict[str, object] = {}
+
+    def fake_run_duplicate_search_eval(eval_cases_path: Path, top_k: int) -> dict[str, object]:
+        captured["eval_cases_path"] = eval_cases_path
+        captured["top_k"] = top_k
+        return {"case_count": 1, "recall_at_k": 1.0}
+
+    monkeypatch.setattr(analytics_cli, "_run_duplicate_search_eval", fake_run_duplicate_search_eval, raising=False)
+
+    exit_code = main([
+        "evaluate-duplicate-search",
+        "--eval-cases",
+        str(eval_path),
+        "--top-k",
+        "5",
+    ])
+
+    stdout = capsys.readouterr().out
+    assert exit_code == 0
+    assert captured == {"eval_cases_path": eval_path, "top_k": 5}
+    assert '"recall_at_k": 1.0' in stdout
+
+
+def test_analytics_cli_export_duplicate_search_eval_cases_writes_feedback_cases(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    feedback_db = tmp_path / "feedback.db"
+    output_path = tmp_path / "eval_cases.json"
+    captured: dict[str, object] = {}
+
+    def fake_export_duplicate_search_eval_cases(feedback_db_path: Path, output_path_arg: Path) -> dict[str, object]:
+        captured["feedback_db_path"] = feedback_db_path
+        captured["output_path"] = output_path_arg
+        output_path_arg.write_text(
+            json.dumps([{"query": "wake", "positive_ticket_ids": ["DP-101"], "negative_ticket_ids": []}]),
+            encoding="utf-8",
+        )
+        return {"case_count": 1, "output_path": str(output_path_arg)}
+
+    monkeypatch.setattr(analytics_cli, "_export_duplicate_search_eval_cases", fake_export_duplicate_search_eval_cases, raising=False)
+
+    exit_code = main([
+        "export-duplicate-search-eval-cases",
+        "--feedback-db-path",
+        str(feedback_db),
+        "--output-path",
+        str(output_path),
+    ])
+
+    stdout = capsys.readouterr().out
+    assert exit_code == 0
+    assert captured == {"feedback_db_path": feedback_db, "output_path": output_path}
+    assert '"case_count": 1' in stdout
+    assert output_path.exists()
+
+
+def test_analytics_cli_refresh_all_sources_can_prepare_duplicate_index_after_outcomes(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    database_root = tmp_path / "database"
+    monkeypatch.setenv("VIZION_DATABASE_ROOT", str(database_root))
+    calls: list[str] = []
+
+    def fake_build_default_octane_client() -> str:
+        calls.append("build_client")
+        return "fake-client"
+
+    def fake_refresh_octane_source(*, request, client) -> dict[str, object]:
+        calls.append("source")
+        return {
+            "defect_rows": 3,
+            "history_event_rows": 4,
+            "defect_ids": ["D-1", "D-2"],
+        }
+
+    def fake_refresh_octane_manual_runs_only(*, source_db_path, team_name, years, client, progress=None):
+        calls.append("manual_runs")
+        return {"manual_run_rows": 7}
+
+    def fake_run_processor_pipeline(db_path, *, asset_root=None, dry_run=False, report_path=None, manual_run_ids=None):
+        calls.append("processor")
+        return {"defect_updates": 2, "run_updates": 3}
+
+    def fake_refresh_materialized_outcomes(source_db_path, hot_db_path, force, defect_ids=None):
+        calls.append("outcomes")
+        return {"row_count": 11, "skipped": False, "source_signature": "sig-2"}
+
+    def fake_prepare_duplicate_search_index() -> dict[str, object]:
+        calls.append("duplicate_index")
+        return {"success": True, "result": {"dataset_size": 3, "index_ready": True}}
+
+    monkeypatch.setattr(ingest_pipeline, "refresh_octane_source", fake_refresh_octane_source)
+    monkeypatch.setattr(ingest_client, "build_default_octane_client", fake_build_default_octane_client)
+    monkeypatch.setattr(ingest_pipeline, "refresh_octane_manual_runs_only", fake_refresh_octane_manual_runs_only)
+    monkeypatch.setattr(analytics_cli, "run_processor_pipeline", fake_run_processor_pipeline)
+    monkeypatch.setattr(analytics_cli, "refresh_materialized_outcomes", fake_refresh_materialized_outcomes)
+    monkeypatch.setattr(analytics_cli, "build_full_picture_snapshot_version", lambda source_db_path: "snapshot-test")
+    monkeypatch.setattr(analytics_cli, "format_snapshot_source_mtime", lambda source_db_path: "mtime-test")
+    monkeypatch.setattr(analytics_cli, "record_snapshot_refresh", lambda *args, **kwargs: None)
+    monkeypatch.setattr(analytics_cli, "activate_snapshot_version", lambda *args, **kwargs: None)
+    monkeypatch.setattr(analytics_cli, "_prepare_duplicate_search_index", fake_prepare_duplicate_search_index, raising=False)
+
+    exit_code = main([
+        "refresh-all-sources",
+        "--teams",
+        "DTSV_China",
+        "--years",
+        "2026",
+        "--team-name",
+        "DTSV_China",
+        "--manual-years",
+        "2026",
+        "--prepare-duplicate-index",
+    ])
+
+    stdout = capsys.readouterr().out
+    assert exit_code == 0
+    assert calls == [
+        "build_client",
+        "source",
+        "build_client",
+        "manual_runs",
+        "processor",
+        "outcomes",
+        "duplicate_index",
+    ]
+    assert "Step 4/4: preparing duplicate-search index..." in stdout
+    assert '"duplicate_search_index"' in stdout
 
 
 def test_analytics_cli_audit_octane_dimensions_writes_report_under_hot_database(

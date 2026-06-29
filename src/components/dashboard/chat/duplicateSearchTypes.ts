@@ -1,4 +1,4 @@
-export type DuplicateFeedbackSignal = "positive" | "negative";
+export type DuplicateFeedbackSignal = "positive" | "negative" | "click";
 
 export interface DuplicateSearchCandidate {
   score1to10: number;
@@ -10,6 +10,14 @@ export interface DuplicateSearchCandidate {
   statusPhase?: string;
   snippet: string;
   evidenceSnippets?: string[];
+  rankingSignals?: {
+    denseRank?: number | null;
+    denseScore?: number | null;
+    sparseRank?: number | null;
+    sparseScore?: number | null;
+    denseWeight?: number | null;
+    sparseWeight?: number | null;
+  };
 }
 
 export interface DuplicateSearchResult {

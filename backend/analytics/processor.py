@@ -197,6 +197,29 @@ def _aida_dimension_map(rows: list[dict[str, str]]) -> dict[str, dict[str, str]]
     return mapping
 
 
+def _vin_market_map(rows: list[dict[str, str]]) -> dict[str, str]:
+    mapping: dict[str, str] = {}
+    for row in rows:
+        vin_prefix = _normalize_text(row.get("vin_prefix") or row.get("VIN"))
+        market = _normalize_text(row.get("market") or row.get("ISO Countrycode (INT)"))
+        if vin_prefix and market:
+            mapping[vin_prefix] = market
+    return mapping
+
+
+def _market_from_vin(value: object, mapping: dict[str, str]) -> str:
+    vin_text = _normalize_text(value)
+    if not vin_text or not mapping:
+        return ""
+    markets: list[str] = []
+    for vin in (part.strip() for part in re.split(r"[,;\s]+", vin_text) if part.strip()):
+        for vin_prefix, market in mapping.items():
+            if vin.startswith(vin_prefix) and market not in markets:
+                markets.append(market)
+                break
+    return ", ".join(markets)
+
+
 def _fvp_from_fv(value: object) -> str:
     fv = _normalize_text(value)
     if not fv:
@@ -303,6 +326,7 @@ def run_processor_pipeline(
 ) -> dict[str, int]:
     assets = load_mapping_assets(asset_root)
     aida_map = _aida_dimension_map(assets.aida_rows)
+    vin_market_map = _vin_market_map(assets.vin_project_rows)
 
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
@@ -311,11 +335,14 @@ def run_processor_pipeline(
         defect_select_parts = [
             "defect_id",
             "project",
+            "market" if "market" in defect_columns else "'' AS market",
             "top_aida" if "top_aida" in defect_columns else "'' AS top_aida",
             "pu" if "pu" in defect_columns else "'' AS pu",
+            "vin" if "vin" in defect_columns else "'' AS vin",
             "assigned_ecu" if "assigned_ecu" in defect_columns else "'' AS assigned_ecu",
             "software_version" if "software_version" in defect_columns else "'' AS software_version",
             "lead_model" if "lead_model" in defect_columns else "'' AS lead_model",
+            "first_use_sop_of_function" if "first_use_sop_of_function" in defect_columns else "'' AS first_use_sop_of_function",
             "product_areas" if "product_areas" in defect_columns else "'' AS product_areas",
             "solution_cluster" if "solution_cluster" in defect_columns else "'' AS solution_cluster",
             "ecu_to_modul" if "ecu_to_modul" in defect_columns else "'' AS ecu_to_modul",
@@ -337,6 +364,8 @@ def run_processor_pipeline(
             derived_project = str(mapped.get("project") or infer_defect_project(dict(row))).strip()
             derived_fv = str(mapped.get("fv") or "").strip()
             derived_fvp = str(mapped.get("fvp") or "").strip() or _fvp_from_fv(derived_fv)
+            derived_pu = str(row["first_use_sop_of_function"] or "").strip()
+            derived_market = _market_from_vin(row["vin"], vin_market_map)
             normalized_current_project = _normalize_project_name(row["project"])
             project = (
                 normalized_current_project
@@ -345,6 +374,8 @@ def run_processor_pipeline(
             )
             fv = str(row["fv"] or "").strip() if not _is_missing_dimension(row["fv"]) else derived_fv
             fvp = str(row["fvp"] or "").strip() if not _is_missing_dimension(row["fvp"]) else derived_fvp
+            pu = str(row["pu"] or "").strip() if not _is_missing_dimension(row["pu"]) else derived_pu
+            market = str(row["market"] or "").strip() if not _is_missing_dimension(row["market"]) else derived_market
 
             row_fillable: dict[str, str] = {}
             row_conflicts: dict[str, dict[str, str]] = {}
@@ -352,6 +383,8 @@ def run_processor_pipeline(
                 ("project", row["project"], project),
                 ("fv", row["fv"], derived_fv),
                 ("fvp", row["fvp"], derived_fvp),
+                ("pu", row["pu"], derived_pu),
+                ("market", row["market"], derived_market),
             ):
                 change_kind = _dimension_change_kind(current_value, derived_value)
                 if change_kind == "fillable":
@@ -372,15 +405,15 @@ def run_processor_pipeline(
                 "fv": fv,
                 "fvp": fvp,
                 "top_aida": top_aida,
-                "pu": str(row["pu"] or "").strip(),
+                "pu": pu,
             }
 
-            if project != str(row["project"] or "").strip() or fv != str(row["fv"] or "").strip() or fvp != str(row["fvp"] or "").strip():
-                defect_updates.append((project, fv, fvp, str(row["defect_id"])))
+            if project != str(row["project"] or "").strip() or fv != str(row["fv"] or "").strip() or fvp != str(row["fvp"] or "").strip() or pu != str(row["pu"] or "").strip() or market != str(row["market"] or "").strip():
+                defect_updates.append((project, market, fv, fvp, pu, str(row["defect_id"])))
 
         if defect_updates and not dry_run:
             conn.executemany(
-                "UPDATE octane_defects SET project=?, fv=?, fvp=? WHERE defect_id=?",
+                "UPDATE octane_defects SET project=?, market=?, fv=?, fvp=?, pu=? WHERE defect_id=?",
                 defect_updates,
             )
 

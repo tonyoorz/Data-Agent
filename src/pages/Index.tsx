@@ -1,5 +1,10 @@
 import { useState } from "react";
 import DashboardSidebar from "@/components/dashboard/DashboardSidebar";
+import FilterPanel from "@/components/dashboard/FilterPanel";
+import KPICards from "@/components/dashboard/KPICards";
+import DefectTrendChart from "@/components/dashboard/DefectTrendChart";
+import StatusDistributionChart from "@/components/dashboard/StatusDistributionChart";
+import TopIssueTable from "@/components/dashboard/TopIssueTable";
 import ProjectAnalysis from "@/components/dashboard/pages/ProjectAnalysis";
 import DefectHighFreq from "@/components/dashboard/pages/DefectHighFreq";
 import LongRunnerAnalysis from "@/components/dashboard/pages/LongRunnerAnalysis";
@@ -9,7 +14,7 @@ import TestStatusAnalysis from "@/components/dashboard/pages/TestStatusAnalysis"
 import DefectStatusAnalysis from "@/components/dashboard/pages/DefectStatusAnalysis";
 import AIChat from "@/components/dashboard/pages/AIChat";
 import MainDashboard from "@/components/dashboard/pages/MainDashboard";
-import TopIssueAnalysis from "@/components/dashboard/pages/TopIssueAnalysis";
+import QGateKpiReport from "@/components/dashboard/pages/QGateKpiReport";
 import { formatSyncTimestamp } from "@/lib/formatSyncTimestamp";
 
 const pageTitles: Record<string, { title: string; subtitle: string }> = {
@@ -25,6 +30,7 @@ const pageTitles: Record<string, { title: string; subtitle: string }> = {
   coverage: { title: "测试覆盖率分析", subtitle: "模块覆盖率监控与提升" },
   "test-status": { title: "测试状态分析", subtitle: "用例执行状态与通过率" },
   "defect-status": { title: "缺陷状态分析", subtitle: "缺陷生命周期与流转趋势" },
+  "qgate-kpi-report": { title: "QGate KPI Report", subtitle: "QGate KPI Dashboard 迁移视图" },
   "ai-chat": { title: "AI Chat", subtitle: "与 DTSV 智能体对话，获取分析洞察" },
 };
 
@@ -38,8 +44,6 @@ const Index = () => {
     switch (activeNav) {
       case "main-dashboard":
         return <MainDashboard onSyncDateChange={setMainDashboardSyncDate} />;
-      case "topissue":
-        return <TopIssueAnalysis onSyncDateChange={setMainDashboardSyncDate} />;
       case "project":
         return <ProjectAnalysis />;
       case "defect-high":
@@ -54,10 +58,26 @@ const Index = () => {
         return <TestStatusAnalysis />;
       case "defect-status":
         return <DefectStatusAnalysis />;
+      case "qgate-kpi-report":
+        return <QGateKpiReport />;
       case "ai-chat":
         return <AIChat moduleKey={activeNav} moduleLabel={info.title} />;
       default:
-        return <MainDashboard onSyncDateChange={setMainDashboardSyncDate} />;
+        return (
+          <>
+            <FilterPanel />
+            <KPICards />
+            <div className="grid gap-5 lg:grid-cols-5">
+              <div className="lg:col-span-3">
+                <DefectTrendChart />
+              </div>
+              <div className="lg:col-span-2">
+                <StatusDistributionChart />
+              </div>
+            </div>
+            <TopIssueTable />
+          </>
+        );
     }
   };
 

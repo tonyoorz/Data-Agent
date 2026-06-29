@@ -32,6 +32,7 @@ class IngestRequest:
     include_testing: bool
     history_max_workers: int = 1
     team_max_workers: int = 1
+    force_defect_refresh: bool = False
 
 
 @dataclass(frozen=True)
@@ -345,10 +346,14 @@ def refresh_octane_source(*, request: IngestRequest, client: Any) -> dict[str, i
         for team in _select_teams(request, client):
             team_id = str(team.get("id") or "").strip()
             team_name = str(team.get("name") or "").strip()
-            incremental_defect_since = _load_incremental_defect_since_by_year(
-                source_db_path=request.source_db_path,
-                team_name=team_name,
-                years=request.years,
+            incremental_defect_since = (
+                {int(year): None for year in request.years}
+                if request.force_defect_refresh
+                else _load_incremental_defect_since_by_year(
+                    source_db_path=request.source_db_path,
+                    team_name=team_name,
+                    years=request.years,
+                )
             )
             for year in request.years:
                 targets.append(

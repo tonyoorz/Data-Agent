@@ -225,6 +225,58 @@ def test_refresh_octane_source_passes_defect_modified_since_watermark(tmp_path: 
     ]
 
 
+def test_refresh_octane_source_force_defect_refresh_ignores_watermark(tmp_path: Path) -> None:
+    db_path = tmp_path / "qgate_raw.db"
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.executescript(
+            """
+            CREATE TABLE octane_defects (
+                defect_id TEXT PRIMARY KEY,
+                name TEXT,
+                project TEXT,
+                market TEXT,
+                pu TEXT,
+                fv TEXT,
+                fvp TEXT,
+                team TEXT,
+                lead_model TEXT,
+                raw_json TEXT NOT NULL,
+                fetched_at TEXT NOT NULL,
+                problem_finder_team TEXT,
+                year TEXT,
+                last_modified TEXT
+            );
+            INSERT INTO octane_defects(
+                defect_id, name, raw_json, fetched_at, problem_finder_team, year, last_modified
+            ) VALUES (
+                'D-EXISTING', 'Existing', '{}', '2026-06-12T00:00:00Z', 'DTSV_China', '2026', '2026-06-12T12:00:00Z'
+            );
+            """
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    client = FakeOctaneClient()
+    refresh_octane_source(
+        request=IngestRequest(
+            source_db_path=db_path,
+            teams=("DTSV_China",),
+            years=(2026,),
+            include_history=False,
+            include_comments=False,
+            include_testing=False,
+            force_defect_refresh=True,
+        ),
+        client=client,
+    )
+
+    assert client.defect_calls == [
+        {"team_id": "1", "year": 2026, "modified_since": None}
+    ]
+
+
 def test_refresh_octane_source_fetches_teams_with_limited_parallelism(tmp_path: Path) -> None:
     db_path = tmp_path / "qgate_raw.db"
 

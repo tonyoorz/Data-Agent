@@ -214,6 +214,60 @@ def test_rrf_fusion_combines_dense_and_sparse_rankings():
     assert fused[0][1] == 0.99
 
 
+def test_rrf_fusion_can_weight_sparse_rankings_for_identifier_heavy_queries():
+    index = duplicate_issue_finder.DuplicateIssueIndex()
+
+    fused = index._fuse_ranked_lists_rrf(
+        dense_ranked=[(0, 0.95), (1, 0.85), (2, 0.40)],
+        sparse_ranked=[(2, 0.99), (1, 0.50), (3, 0.30)],
+        top_k=4,
+        dense_weight=0.75,
+        sparse_weight=2.0,
+    )
+
+    assert [idx for idx, _ in fused][:3] == [2, 1, 3]
+    assert fused[0][1] == 0.99
+
+
+def test_query_retrieval_weights_raise_sparse_weight_for_log_like_queries():
+    assert duplicate_issue_finder._retrieval_weights_for_query(
+        "2026-06-09 05:31:57 reconnectPhone=false BT timeout",
+    ) == (0.75, 2.0)
+
+    assert duplicate_issue_finder._retrieval_weights_for_query(
+        "BT phone cannot reconnect after ACP disconnect",
+    ) == (1.0, 1.0)
+
+
+def test_build_rank_signals_reports_dense_sparse_ranks_and_weights():
+    index = duplicate_issue_finder.DuplicateIssueIndex()
+
+    signals = index._build_rank_signals(
+        dense_ranked=[(0, 0.95), (1, 0.85)],
+        sparse_ranked=[(1, 0.99), (2, 0.70)],
+        dense_weight=0.75,
+        sparse_weight=2.0,
+        top_k=3,
+    )
+
+    assert signals[0] == {
+        "dense_rank": 1,
+        "dense_score": 0.95,
+        "sparse_rank": None,
+        "sparse_score": None,
+        "dense_weight": 0.75,
+        "sparse_weight": 2.0,
+    }
+    assert signals[1] == {
+        "dense_rank": 2,
+        "dense_score": 0.85,
+        "sparse_rank": 1,
+        "sparse_score": 0.99,
+        "dense_weight": 0.75,
+        "sparse_weight": 2.0,
+    }
+
+
 def test_rows_from_octane_defects_flattens_comments_from_sqlite(tmp_path):
     bridge = _load_duplicate_search_bridge_module()
     db_path = tmp_path / "qgate_data.db"
@@ -610,6 +664,14 @@ def test_search_bridge_serializes_evidence_snippets_to_camel_case(monkeypatch):
             "Evidence: gateway misses the first wake handshake before trace collection.",
             "Need HU-H5 logs from the next reproduction attempt.",
         ],
+        ranking_signals={
+            "dense_rank": 2,
+            "dense_score": 0.72,
+            "sparse_rank": 1,
+            "sparse_score": 0.87,
+            "dense_weight": 0.75,
+            "sparse_weight": 2.0,
+        },
     )
 
     class StubIndex:
@@ -681,6 +743,14 @@ def test_search_bridge_serializes_evidence_snippets_to_camel_case(monkeypatch):
                 "Evidence: gateway misses the first wake handshake before trace collection.",
                 "Need HU-H5 logs from the next reproduction attempt.",
             ],
+            "rankingSignals": {
+                "denseRank": 2,
+                "denseScore": 0.72,
+                "sparseRank": 1,
+                "sparseScore": 0.87,
+                "denseWeight": 0.75,
+                "sparseWeight": 2.0,
+            },
         }
     ]
 
@@ -996,6 +1066,28 @@ def test_build_comment_views_excludes_automated_preanalysis_segments_from_search
 
     views = bridge._build_comment_views(
         "supplier comment: cc_jira Techuser APINEXT CI CD: #bughunter_preanalysis #Performance pattern detection pre analysis This is part of Bughunter Automated Pattern Detection for Performance Domain"
+    )
+
+    assert views["search_comments"] == ""
+    assert views["evidence_snippets"] == []
+
+
+def test_build_comment_views_excludes_automated_preanalysis_retry_segments():
+    bridge = _load_duplicate_search_bridge_module()
+
+    views = bridge._build_comment_views(
+        "#bughunter_preanalysis_retry No ANRs detected exceptions.txt: 17321 exceptions-fatal.txt: 0 exceptions-themeprovider.txt: 21"
+    )
+
+    assert views["search_comments"] == ""
+    assert views["evidence_snippets"] == []
+
+
+def test_build_comment_views_excludes_sherlog_preanalysis_routing_segments():
+    bridge = _load_duplicate_search_bridge_module()
+
+    views = bridge._build_comment_views(
+        "Wireless Services Defect Management Pre-Analysis. Sherlog Label: sherlog_wiServ_helpful Reason: Sherlog analysis offers useful data, but it does not describe the root cause. Sending bagheera based on AI Analysis. Thank you"
     )
 
     assert views["search_comments"] == ""

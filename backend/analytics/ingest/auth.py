@@ -17,6 +17,7 @@ def load_cookie_header(cookie_file: Path | str) -> str:
 def build_cookie_session(cookie_file: Path | str) -> requests.Session:
     header = load_cookie_header(cookie_file)
     session = requests.Session()
+    session.trust_env = False
     session.headers.update({"Cookie": header, "User-Agent": "Mozilla/5.0"})
     for part in header.split(";"):
         cookie_part = part.strip()

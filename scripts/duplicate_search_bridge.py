@@ -28,6 +28,79 @@ _DEFECT_DF_CACHE: Dict[str, Dict[str, Any]] = {}
 _DUPSEARCH_EXCLUDED_PHASE_PREFIXES = ('00-', '06-', '09-')
 
 
+def _configure_utf8_stdio() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, 'reconfigure', None)
+        if callable(reconfigure):
+            reconfigure(encoding='utf-8', errors='replace')
+
+
+def _prepared_index_manifest_path() -> Path:
+    configured = str(os.getenv('DUPSEARCH_INDEX_MANIFEST_PATH') or '').strip()
+    if configured:
+        return Path(configured)
+    snapshot_dir = Path(
+        os.getenv(
+            'DUPLICATE_INDEX_SNAPSHOT_DIR',
+            str(BACKEND_ROOT / 'cache' / 'index_snapshots'),
+        )
+    )
+    return snapshot_dir / 'duplicate_search_manifest.json'
+
+
+def _load_prepared_index_manifest(repo_root: Path) -> Optional[Dict[str, Any]]:
+    if Path(repo_root).resolve() != Path(REPO_ROOT).resolve():
+        return None
+    manifest_path = _prepared_index_manifest_path()
+    if not manifest_path.exists():
+        return None
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+    except Exception:
+        return None
+    if not isinstance(manifest, dict):
+        return None
+    if str(manifest.get('source_signature') or '') != _build_defect_source_signature(repo_root):
+        return None
+    if not str(manifest.get('cache_key') or '').strip():
+        return None
+    return manifest
+
+
+def _save_prepared_index_manifest(
+    repo_root: Path,
+    cache_key: str,
+    dataset_size: int,
+    index_ready: bool,
+    index_metadata: Dict[str, Any],
+) -> None:
+    manifest_path = _prepared_index_manifest_path()
+    payload = {
+        'source_signature': _build_defect_source_signature(repo_root),
+        'cache_key': cache_key,
+        'dataset_size': int(dataset_size),
+        'index_ready': bool(index_ready),
+        'index_row_count': int(index_metadata.get('index_row_count') or 0),
+        'created_at': time.time(),
+    }
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding='utf-8')
+
+
+def _try_load_prepared_index(repo_root: Path) -> Optional[tuple[Any, Dict[str, Any], Dict[str, Any]]]:
+    manifest = _load_prepared_index_manifest(repo_root)
+    if manifest is None:
+        return None
+    index, index_metadata = get_or_build_index_with_metadata(
+        cache_key=str(manifest['cache_key']),
+        df=pd.DataFrame(),
+        build_if_missing=False,
+    )
+    if not getattr(index, 'ready', False):
+        return None
+    return index, index_metadata, manifest
+
+
 def _elapsed_ms(started_at: float) -> float:
     return round((time.perf_counter() - started_at) * 1000, 1)
 
@@ -136,7 +209,11 @@ _HARD_WORKFLOW_COMMENT_PATTERNS = (
     re.compile(r'\bautomated pattern detection\b', re.IGNORECASE),
     re.compile(r'#bughunter_stability_preanalysis\b', re.IGNORECASE),
     re.compile(r'#bughunter_preanalysis\b', re.IGNORECASE),
+    re.compile(r'#bughunter_(?:stability_)?preanalysis_retry\b', re.IGNORECASE),
     re.compile(r'#performance pattern detection pre(?: |-)?analysis\b', re.IGNORECASE),
+    re.compile(r'\bwireless services defect management pre(?: |-)?analysis\b', re.IGNORECASE),
+    re.compile(r'\bsherlog label\b', re.IGNORECASE),
+    re.compile(r'\bsending\s+\w+\s+based on ai analysis\b', re.IGNORECASE),
     re.compile(r'#system performance graphics generator\b', re.IGNORECASE),
     re.compile(r'#system performance graphics generator_retry\b', re.IGNORECASE),
 )
@@ -165,6 +242,9 @@ _EVIDENCE_EXCLUSION_PATTERNS = (
     re.compile(r'\bissue created by stability tracedb analysis team\b', re.IGNORECASE),
     re.compile(r'\badded the following attachments\b', re.IGNORECASE),
     re.compile(r'\bautomated performance analys', re.IGNORECASE),
+    re.compile(r'#bughunter_(?:stability_)?preanalysis(?:_retry)?\b', re.IGNORECASE),
+    re.compile(r'\bsherlog label\b', re.IGNORECASE),
+    re.compile(r'\bwireless services defect management pre(?: |-)?analysis\b', re.IGNORECASE),
 )
 
 
@@ -574,7 +654,7 @@ def _build_defect_source_signature(repo_root: Path) -> str:
             continue
         stat = file_path.stat()
         parts.append(f"{file_path.name}:{stat.st_size}:{stat.st_mtime_ns}")
-    return f"json:{'|'.join(parts)}"
+    return f"json:{defect_dir.resolve()}:{'|'.join(parts)}"
 
 
 def _get_cached_defect_df(repo_root: Path) -> tuple[pd.DataFrame, str, bool]:
@@ -593,6 +673,20 @@ def _get_cached_defect_df(repo_root: Path) -> tuple[pd.DataFrame, str, bool]:
     return df, cache_key, False
 
 
+def _camel_case_ranking_signals(value: Any) -> Dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    mapping = {
+        'dense_rank': 'denseRank',
+        'dense_score': 'denseScore',
+        'sparse_rank': 'sparseRank',
+        'sparse_score': 'sparseScore',
+        'dense_weight': 'denseWeight',
+        'sparse_weight': 'sparseWeight',
+    }
+    return {camel: value.get(snake) for snake, camel in mapping.items() if snake in value}
+
+
 def _search(payload: Dict[str, Any], repo_root: Path) -> Dict[str, Any]:
     started_at = time.perf_counter()
     query = str(payload.get('query') or '').strip()
@@ -607,12 +701,29 @@ def _search(payload: Dict[str, Any], repo_root: Path) -> Dict[str, Any]:
         feedback_db_path = str(BACKEND_ROOT / 'database' / 'duplicate_feedback.db')
 
     load_df_started_at = time.perf_counter()
-    df, cache_key, defect_df_cache_hit = _get_cached_defect_df(repo_root)
-    load_defect_df_ms = _elapsed_ms(load_df_started_at)
+    prepared = _try_load_prepared_index(repo_root)
+    prepared_index_manifest_hit = prepared is not None
+    if prepared is not None:
+        index, index_metadata, manifest = prepared
+        defect_df_cache_hit = True
+        dataset_size = int(manifest.get('dataset_size') or index_metadata.get('index_row_count') or 0)
+        load_defect_df_ms = _elapsed_ms(load_df_started_at)
+        get_or_build_index_ms = 0.0
+    else:
+        df, cache_key, defect_df_cache_hit = _get_cached_defect_df(repo_root)
+        load_defect_df_ms = _elapsed_ms(load_df_started_at)
 
-    index_started_at = time.perf_counter()
-    index, index_metadata = get_or_build_index_with_metadata(cache_key=cache_key, df=df)
-    get_or_build_index_ms = _elapsed_ms(index_started_at)
+        index_started_at = time.perf_counter()
+        index, index_metadata = get_or_build_index_with_metadata(cache_key=cache_key, df=df)
+        get_or_build_index_ms = _elapsed_ms(index_started_at)
+        dataset_size = int(len(df))
+        _save_prepared_index_manifest(
+            repo_root,
+            cache_key=cache_key,
+            dataset_size=dataset_size,
+            index_ready=bool(getattr(index, 'ready', False)),
+            index_metadata=index_metadata,
+        )
 
     hints_started_at = time.perf_counter()
     hints = extract_hints(query)
@@ -642,6 +753,7 @@ def _search(payload: Dict[str, Any], repo_root: Path) -> Dict[str, Any]:
                 'statusPhase': getattr(candidate, 'status_phase', None),
                 'snippet': str(getattr(candidate, 'snippet', '') or ''),
                 'evidenceSnippets': list(getattr(candidate, 'evidence_snippets', []) or []),
+                'rankingSignals': _camel_case_ranking_signals(getattr(candidate, 'ranking_signals', None)),
             }
         )
 
@@ -659,9 +771,11 @@ def _search(payload: Dict[str, Any], repo_root: Path) -> Dict[str, Any]:
         'extract_hints_ms': extract_hints_ms,
         'search_with_metadata_ms': search_with_metadata_ms,
         'feedback_count_ms': feedback_count_ms,
+        'prepared_index_manifest_hit': prepared_index_manifest_hit,
         'index_cache_hit': bool(index_metadata.get('index_cache_hit')),
+        'index_disk_cache_hit': bool(index_metadata.get('index_disk_cache_hit')),
         'index_rebuilt': bool(index_metadata.get('index_rebuilt')),
-        'index_row_count': int(index_metadata.get('index_row_count') or len(df)),
+        'index_row_count': int(index_metadata.get('index_row_count') or dataset_size),
     }
 
     return {
@@ -672,7 +786,7 @@ def _search(payload: Dict[str, Any], repo_root: Path) -> Dict[str, Any]:
             'candidates': result_items,
             'modelPhase': metadata.get('model_phase', 'baseline'),
             'feedbackCount': feedback_count,
-            'dataset_size': int(len(df)),
+            'dataset_size': dataset_size,
             'timings': timings,
         },
     }
@@ -682,26 +796,45 @@ def _warmup(payload: Dict[str, Any], repo_root: Path) -> Dict[str, Any]:
     started_at = time.perf_counter()
 
     load_df_started_at = time.perf_counter()
-    df, cache_key, defect_df_cache_hit = _get_cached_defect_df(repo_root)
-    load_defect_df_ms = _elapsed_ms(load_df_started_at)
+    prepared = _try_load_prepared_index(repo_root)
+    prepared_index_manifest_hit = prepared is not None
+    if prepared is not None:
+        index, index_metadata, manifest = prepared
+        defect_df_cache_hit = True
+        dataset_size = int(manifest.get('dataset_size') or index_metadata.get('index_row_count') or 0)
+        load_defect_df_ms = _elapsed_ms(load_df_started_at)
+        get_or_build_index_ms = 0.0
+    else:
+        df, cache_key, defect_df_cache_hit = _get_cached_defect_df(repo_root)
+        load_defect_df_ms = _elapsed_ms(load_df_started_at)
 
-    index_started_at = time.perf_counter()
-    index, index_metadata = get_or_build_index_with_metadata(cache_key=cache_key, df=df)
-    get_or_build_index_ms = _elapsed_ms(index_started_at)
+        index_started_at = time.perf_counter()
+        index, index_metadata = get_or_build_index_with_metadata(cache_key=cache_key, df=df)
+        get_or_build_index_ms = _elapsed_ms(index_started_at)
+        dataset_size = int(len(df))
+        _save_prepared_index_manifest(
+            repo_root,
+            cache_key=cache_key,
+            dataset_size=dataset_size,
+            index_ready=bool(getattr(index, 'ready', False)),
+            index_metadata=index_metadata,
+        )
 
     return {
         'success': True,
         'result': {
-            'dataset_size': int(len(df)),
+            'dataset_size': dataset_size,
             'index_ready': bool(getattr(index, 'ready', False)),
             'timings': {
                 'total_ms': _elapsed_ms(started_at),
                 'load_defect_df_ms': load_defect_df_ms,
                 'load_defect_df_cache_hit': defect_df_cache_hit,
                 'get_or_build_index_ms': get_or_build_index_ms,
+                'prepared_index_manifest_hit': prepared_index_manifest_hit,
                 'index_cache_hit': bool(index_metadata.get('index_cache_hit')),
+                'index_disk_cache_hit': bool(index_metadata.get('index_disk_cache_hit')),
                 'index_rebuilt': bool(index_metadata.get('index_rebuilt')),
-                'index_row_count': int(index_metadata.get('index_row_count') or len(df)),
+                'index_row_count': int(index_metadata.get('index_row_count') or dataset_size),
             },
         },
     }
@@ -778,6 +911,7 @@ def run_server(
 
 
 def main() -> None:
+    _configure_utf8_stdio()
     repo_root = REPO_ROOT
     if '--server' in sys.argv[1:]:
         run_server(repo_root=repo_root)

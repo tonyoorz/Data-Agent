@@ -9,6 +9,11 @@ import { extractLatestUserQuery, resolveAiDefectContext } from "./aiContext.mjs"
 import { streamCompanyChatCompletion, writeSseEvent } from "./companyChat.mjs";
 import { summarizeDuplicateResults } from "./duplicateSummary.mjs";
 import { loadLocalEnv } from "./loadLocalEnv.mjs";
+import {
+  defaultQGateReportsRoot,
+  findLatestQGateDashboardReport,
+  resolveQGateDashboardHtmlPath,
+} from "./qgateReports.mjs";
 import { handleTranscribeRequest } from "./transcribe.mjs";
 
 const { runDuplicateBridge, stopDuplicateBridgeRuntime } = duplicateBridgeRuntime;
@@ -196,6 +201,24 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    if (request.method === "GET" && url.pathname === "/api/qgate-reports/latest-dashboard") {
+      sendJson(response, 200, findLatestQGateDashboardReport(defaultQGateReportsRoot));
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/qgate-reports/dashboard-html") {
+      const filePath = resolveQGateDashboardHtmlPath(
+        defaultQGateReportsRoot,
+        url.searchParams.get("run"),
+        url.searchParams.get("file"),
+      );
+      response.writeHead(200, {
+        "Content-Type": "text/html; charset=utf-8",
+      });
+      response.end(fs.readFileSync(filePath));
+      return;
+    }
+
     if (request.method === "POST" && url.pathname === "/api/ai/context") {
       const startedAt = nowMs();
       const requestId = buildRequestId("ai-context");
@@ -267,7 +290,10 @@ const server = http.createServer(async (request, response) => {
         return;
       }
 
-      await duplicateWarmupManager.ensureWarm({ reason: "duplicate-search-request" });
+      const warmupStatus = duplicateWarmupManager.getStatus();
+      if (warmupStatus.state === "warming") {
+        stopDuplicateBridgeRuntime();
+      }
 
       const result = await runDuplicateBridge({
         action: "search",

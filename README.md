@@ -268,6 +268,20 @@ Useful smaller refresh commands:
 .\.venv\Scripts\python.exe -m backend.analytics_cli refresh-full-picture-outcomes
 ```
 
+### Duplicate Search Evaluation
+
+Export confirmed duplicate-search feedback into an eval-case file:
+
+```powershell
+.\.venv\Scripts\python.exe -m backend.analytics_cli export-duplicate-search-eval-cases --feedback-db-path .\backend\database\duplicate_feedback.db --output-path .\docs\duplicate-search-eval-cases.generated.json
+```
+
+Run the offline duplicate-search evaluation:
+
+```powershell
+.\.venv\Scripts\python.exe -m backend.analytics_cli evaluate-duplicate-search --eval-cases .\docs\duplicate-search-eval-cases.generated.json --top-k 10
+```
+
 ### Nightly Refresh On Windows
 
 Manual run:
@@ -276,11 +290,15 @@ Manual run:
 powershell -ExecutionPolicy Bypass -File .\scripts\run-nightly-source-refresh.ps1
 ```
 
+Nightly refresh includes Octane comments by default. Comment loading is incremental: unchanged defects reuse cached comments, and only changed or missing comment snapshots are refreshed. Use `-CommentMode skip` only when you intentionally need a faster defect/history-only refresh.
+
 Register scheduled task:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\register-nightly-source-refresh-task.ps1
 ```
+
+The registered task also passes `-PrepareDuplicateIndex 1`, so duplicate search can use the prepared index manifest after the nightly data refresh.
 
 Logs are written under:
 

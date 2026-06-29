@@ -3,13 +3,25 @@ param(
   [string]$StartTime = "01:00",
   [string]$RunScriptPath = (Join-Path $PSScriptRoot "run-nightly-source-refresh.ps1"),
   [string]$RunAsUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().Name,
+  [int]$PrepareDuplicateIndex = 1,
+  [ValidateSet("include", "skip")]
+  [string]$CommentMode = "include",
+  [int]$PrintCommandOnly = 0,
   [switch]$InteractiveOnly
 )
 
 $ErrorActionPreference = "Stop"
 
 $resolvedRunScriptPath = (Resolve-Path $RunScriptPath).Path
-$taskCommand = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{0}"' -f $resolvedRunScriptPath
+$taskCommand = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{0}" -PrepareDuplicateIndex {1}' -f $resolvedRunScriptPath, [int]$PrepareDuplicateIndex
+if ($CommentMode -eq "skip") {
+  $taskCommand += ' -CommentMode skip'
+}
+
+if ([int]$PrintCommandOnly -ne 0) {
+  Write-Host $taskCommand
+  exit 0
+}
 
 $schtasksArguments = @(
   "/Create",

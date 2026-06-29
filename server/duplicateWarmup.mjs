@@ -25,13 +25,13 @@ export function createDuplicateWarmupManager({ runDuplicateBridge, logger = cons
 
   const getStatus = () => ({ ...status });
 
-  const ensureWarm = ({ reason = "manual" } = {}) => {
+  const ensureWarm = ({ reason = "manual", optional = false } = {}) => {
     if (status.state === "warm") {
       return Promise.resolve(getStatus());
     }
 
     if (inFlightWarmup) {
-      return inFlightWarmup;
+      return optional ? inFlightWarmup.catch(() => getStatus()) : inFlightWarmup;
     }
 
     const startedAt = Date.now();
@@ -73,7 +73,7 @@ export function createDuplicateWarmupManager({ runDuplicateBridge, logger = cons
         inFlightWarmup = null;
       });
 
-    return inFlightWarmup;
+    return optional ? inFlightWarmup.catch(() => getStatus()) : inFlightWarmup;
   };
 
   const triggerBackgroundWarmup = ({ reason = "startup" } = {}) => {

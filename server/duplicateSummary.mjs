@@ -1,5 +1,13 @@
 import { buildChatCompletionRequest, resolveChatModelConfig } from "./chatModelConfig.mjs";
 
+function resolveSummaryTimeoutMs(env = process.env) {
+  const raw = Number(env.DUPLICATE_SUMMARY_TIMEOUT_MS || 2500);
+  if (!Number.isFinite(raw) || raw <= 0) {
+    return 2500;
+  }
+  return Math.max(250, Math.floor(raw));
+}
+
 function normalizeEvidenceSnippet(value, maxLength = 180) {
   return String(value || "")
     .replace(/\s+/g, " ")
@@ -208,11 +216,19 @@ export async function summarizeDuplicateResults(query, result, selectedModel) {
   });
 
   try {
-    const response = await fetch(requestConfig.url, {
-      method: "POST",
-      headers: requestConfig.headers,
-      body: JSON.stringify(requestConfig.body),
-    });
+    const abortController = new AbortController();
+    const timeout = setTimeout(() => abortController.abort(), resolveSummaryTimeoutMs(process.env));
+    let response;
+    try {
+      response = await fetch(requestConfig.url, {
+        method: "POST",
+        headers: requestConfig.headers,
+        body: JSON.stringify(requestConfig.body),
+        signal: abortController.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
 
     if (!response.ok) {
       throw new Error(`summary request failed with ${response.status}`);

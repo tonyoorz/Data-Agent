@@ -1,6 +1,8 @@
 import sqlite3
+import json
 
-from backend.analytics.processor import backfill_defect_projects, sync_dimension_fields
+from backend.analytics.ingest.source_store import OctaneSourceStore
+from backend.analytics.processor import backfill_defect_projects, run_processor_pipeline, sync_dimension_fields
 from backend.analytics.schema import ensure_schema
 
 
@@ -61,6 +63,114 @@ def test_sync_dimension_fields_backfills_defects_and_runs(tmp_path):
 
     assert defect == ("IDCEVO", "CN", "PU1", "Speech", "Tony", "DTSV_China", "NA5")
     assert run == ("IDCEVO", "Speech", "Tony", "DTSV_China", "NA5")
+
+
+def test_run_processor_pipeline_backfills_defect_pu_from_first_use_sop(tmp_path):
+    db_path = tmp_path / "qgate_raw.db"
+    store = OctaneSourceStore(db_path)
+    try:
+        store.create_tables()
+    finally:
+        store.close()
+
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            """
+            INSERT INTO octane_defects(
+                defect_id, name, project, market, pu, fv, fvp, team, lead_model,
+                top_aida, first_use_sop_of_function, raw_json, fetched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "D-PU-1",
+                "PU issue",
+                "IDCEVO",
+                "",
+                "",
+                "",
+                "",
+                "DTSV_China",
+                "NA5",
+                "Use Speech operation [01.04.02.01.01.05]",
+                "PU-27",
+                "{}",
+                "2026-06-25T00:00:00Z",
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    summary = run_processor_pipeline(db_path)
+
+    conn = sqlite3.connect(db_path)
+    try:
+        row = conn.execute("SELECT pu FROM octane_defects WHERE defect_id='D-PU-1'").fetchone()
+    finally:
+        conn.close()
+
+    assert summary["defect_updates"] == 1
+    assert row == ("PU-27",)
+
+
+def test_run_processor_pipeline_backfills_defect_market_from_vin_mapping(tmp_path):
+    db_path = tmp_path / "qgate_raw.db"
+    asset_root = tmp_path / "assets"
+    asset_root.mkdir()
+    (asset_root / "top_aida_project_fv_mapping.json").write_text("[]", encoding="utf-8")
+    (asset_root / "mr_nonstandard_platform_ids.json").write_text("[]", encoding="utf-8")
+    (asset_root / "vin_project_mapping.json").write_text(
+        json.dumps([
+            {"vin_prefix": "VIN-CN", "project": "IDCEVO", "market": "CN"},
+        ]),
+        encoding="utf-8",
+    )
+
+    store = OctaneSourceStore(db_path)
+    try:
+        store.create_tables()
+    finally:
+        store.close()
+
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            """
+            INSERT INTO octane_defects(
+                defect_id, name, project, market, pu, fv, fvp, team, lead_model,
+                vin, raw_json, fetched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "D-MARKET-1",
+                "Market issue",
+                "IDCEVO",
+                "",
+                "PU-27",
+                "",
+                "",
+                "DTSV_China",
+                "NA5",
+                "VIN-CN-12345",
+                "{}",
+                "2026-06-25T00:00:00Z",
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    summary = run_processor_pipeline(db_path, asset_root=asset_root)
+
+    conn = sqlite3.connect(db_path)
+    try:
+        row = conn.execute("SELECT market FROM octane_defects WHERE defect_id='D-MARKET-1'").fetchone()
+    finally:
+        conn.close()
+
+    assert summary["defect_updates"] == 1
+    assert row == ("CN",)
 
 
 def test_backfill_defect_projects_updates_unknown_rows_from_signals(tmp_path):
