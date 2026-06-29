@@ -42,6 +42,7 @@ from auth.database import init_auth_db
 from auth.deps import get_current_user, get_current_user_optional, get_current_tenant
 from auth.models import User, Tenant
 from auth.tenant_data import resolve_tenant_db_path, get_tenant_memory_db_path
+from auth.ratelimit import RateLimitMiddleware
 
 logger = logging.getLogger("data-agent")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
@@ -297,6 +298,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Rate limiting
+app.add_middleware(RateLimitMiddleware)
 
 # Register auth routers
 app.include_router(auth_router)

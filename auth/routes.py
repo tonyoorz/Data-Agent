@@ -17,6 +17,11 @@ Endpoints:
     PUT    /auth/me                — Update profile
     GET    /auth/me/bindings       — List OAuth bindings
 
+    POST   /auth/password/forgot   — Request password reset code
+    POST   /auth/password/reset    — Reset password with code
+    POST   /auth/verify/send       — Send email verification code
+    POST   /auth/verify/confirm    — Confirm email verification
+
     POST   /tenants                — Create tenant
     GET    /tenants                — List my tenants
     POST   /tenants/{id}/switch    — Switch active tenant
@@ -44,6 +49,7 @@ from .service import (
     create_session, refresh_access_token,
     revoke_session, revoke_all_sessions,
     create_tenant, add_tenant_member, switch_active_tenant,
+    send_verification_code, verify_code_and_reset_password, verify_email,
 )
 from .oauth import get_auth_url
 from .deps import get_current_user, get_current_tenant, require_role
@@ -125,6 +131,24 @@ class CreateTenantRequest(BaseModel):
 class AddMemberRequest(BaseModel):
     user_id: str
     role: str = "member"  # viewer | member | admin | owner
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    email: EmailStr
+    code: str = Field(..., min_length=6, max_length=6)
+    new_password: str = Field(..., min_length=6, max_length=128)
+
+
+class SendVerificationRequest(BaseModel):
+    email: EmailStr
+
+
+class ConfirmVerificationRequest(BaseModel):
+    code: str = Field(..., min_length=6, max_length=6)
 
 
 class MemberInfo(BaseModel):
@@ -347,6 +371,78 @@ async def unbind_oauth(
         _handle_auth_error(e)
     await db.commit()
     return {"message": f"已解绑 {provider}"}
+
+
+# ========================================================================
+# Password Reset & Email Verification Routes
+# ========================================================================
+
+@router.post("/password/forgot")
+async def forgot_password(
+    body: ForgotPasswordRequest,
+    db: AsyncSession = Depends(db_session),
+):
+    """Request a password reset verification code (sent via email)."""
+    try:
+        code = await send_verification_code(db, body.email, purpose="reset")
+    except AuthError as e:
+        # Don't reveal whether email exists (security)
+        if e.code == "email_not_found":
+            return {"message": "如果该邮箱已注册，验证码已发送"}
+        _handle_auth_error(e)
+    await db.commit()
+    # Dev mode: return code directly. Production: send email, don't return code.
+    if os.getenv("AUTH_DEV_MODE", "1") == "1":
+        return {"message": "验证码已生成", "dev_code": code}
+    return {"message": "如果该邮箱已注册，验证码已发送"}
+
+
+@router.post("/password/reset")
+async def reset_password(
+    body: ResetPasswordRequest,
+    db: AsyncSession = Depends(db_session),
+):
+    """Reset password with verification code."""
+    try:
+        user = await verify_code_and_reset_password(db, body.email, body.code, body.new_password)
+    except AuthError as e:
+        _handle_auth_error(e)
+    await db.commit()
+    return {"message": "密码已重置，请重新登录"}
+
+
+@router.post("/verify/send")
+async def send_verification(
+    body: SendVerificationRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(db_session),
+):
+    """Send email verification code to current user's email."""
+    if not user.email:
+        raise HTTPException(400, "当前账号未绑定邮箱")
+    try:
+        code = await send_verification_code(db, user.email, purpose="verify")
+    except AuthError as e:
+        _handle_auth_error(e)
+    await db.commit()
+    if os.getenv("AUTH_DEV_MODE", "1") == "1":
+        return {"message": "验证码已发送", "dev_code": code}
+    return {"message": "验证码已发送至您的邮箱"}
+
+
+@router.post("/verify/confirm")
+async def confirm_verification(
+    body: ConfirmVerificationRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(db_session),
+):
+    """Confirm email verification with code."""
+    try:
+        user = await verify_email(db, user.id, body.code)
+    except AuthError as e:
+        _handle_auth_error(e)
+    await db.commit()
+    return {"message": "邮箱验证成功", "is_verified": user.is_verified}
 
 
 # ========================================================================

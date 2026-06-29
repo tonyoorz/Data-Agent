@@ -22,7 +22,7 @@ const App: React.FC = () => {
               path="/"
               element={
                 <ProtectedRoute>
-                  <div style={{ padding: 16, height: '100vh', background: '#f0f2f5' }}>
+                  <div style={{ height: '100vh', background: '#f0f2f5' }}>
                     <AIChatPage />
                   </div>
                 </ProtectedRoute>

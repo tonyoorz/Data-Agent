@@ -28,6 +28,7 @@ from auth.database import get_auth_engine, get_session_factory, init_auth_db, db
 from auth.service import (
     register_by_email, login_by_email,
     create_tenant, add_tenant_member, switch_active_tenant,
+    send_verification_code, verify_code_and_reset_password, verify_email,
     AuthError,
 )
 from auth.oauth import OAuthUserInfo
@@ -494,3 +495,110 @@ class TestModels:
         assert admin.is_admin_or_above is True
         assert member.is_admin_or_above is False
         assert viewer.is_admin_or_above is False
+
+
+# ========================================================================
+# Password Reset & Verification Tests
+# ========================================================================
+
+class TestPasswordReset:
+    @pytest_asyncio.fixture
+    async def db(self):
+        from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+
+        engine = create_async_engine("sqlite+aiosqlite://", echo=False)
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+        async with factory() as session:
+            yield session
+        await engine.dispose()
+
+    @pytest.mark.asyncio
+    async def test_send_verification_code(self, db):
+        """Test generating a verification code."""
+        user = await register_by_email(db, "reset@test.com", "oldpass", "resetter")
+        code = await send_verification_code(db, user.email, purpose="reset")
+        assert len(code) == 6
+        assert code.isdigit()
+
+    @pytest.mark.asyncio
+    async def test_send_code_nonexistent_email(self, db):
+        """Should fail for unregistered email."""
+        with pytest.raises(AuthError) as exc:
+            await send_verification_code(db, "nonexistent@test.com", purpose="reset")
+        assert exc.value.code == "email_not_found"
+
+    @pytest.mark.asyncio
+    async def test_reset_password_success(self, db):
+        """Full reset flow: register → get code → reset → login with new password."""
+        user = await register_by_email(db, "full@test.com", "oldpass", "fulluser")
+        code = await send_verification_code(db, user.email, purpose="reset")
+
+        # Reset
+        user = await verify_code_and_reset_password(db, user.email, code, "newpass123")
+        assert user.is_verified is True
+
+        # Can login with new password
+        user = await login_by_email(db, "full@test.com", "newpass123")
+        assert user is not None
+
+    @pytest.mark.asyncio
+    async def test_reset_password_wrong_code(self, db):
+        """Should fail with wrong code."""
+        await register_by_email(db, "wrong@test.com", "pass123", "u")
+        await send_verification_code(db, "wrong@test.com", purpose="reset")
+
+        with pytest.raises(AuthError) as exc:
+            await verify_code_and_reset_password(db, "wrong@test.com", "000000", "newpass")
+        assert exc.value.code == "code_invalid"
+
+    @pytest.mark.asyncio
+    async def test_reset_password_expired_code(self, db):
+        """Should fail with expired code."""
+        import time as time_mod
+        from auth.service import _verification_codes
+
+        await register_by_email(db, "expired@test.com", "pass123", "u")
+        code = await send_verification_code(db, "expired@test.com", purpose="reset")
+
+        # Simulate expiry
+        key = f"reset:expired@test.com"
+        stored_code, _ = _verification_codes[key]
+        _verification_codes[key] = (stored_code, time_mod.time() - 9999)
+
+        with pytest.raises(AuthError) as exc:
+            await verify_code_and_reset_password(db, "expired@test.com", code, "newpass")
+        assert exc.value.code == "code_expired"
+
+    @pytest.mark.asyncio
+    async def test_verify_email(self, db):
+        """Test email verification flow."""
+        user = await register_by_email(db, "verify@test.com", "pass123", "u")
+        assert user.is_verified is False
+
+        code = await send_verification_code(db, user.email, purpose="verify")
+        user = await verify_email(db, user.id, code)
+        assert user.is_verified is True
+
+
+# ========================================================================
+# Rate Limiting Tests
+# ========================================================================
+
+class TestRateLimit:
+    def test_check_and_record_within_limit(self):
+        from auth.ratelimit import _check_and_record
+        key = "test:within"
+        allowed, remaining = _check_and_record(key, window=60, max_count=5)
+        assert allowed is True
+        assert remaining == 4
+
+    def test_check_and_record_at_limit(self):
+        from auth.ratelimit import _check_and_record
+        key = "test:limit"
+        for _ in range(3):
+            _check_and_record(key, window=60, max_count=3)
+        allowed, remaining = _check_and_record(key, window=60, max_count=3)
+        assert allowed is False
+        assert remaining == 0

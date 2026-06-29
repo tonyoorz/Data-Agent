@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import secrets
+import time
 from typing import Optional
 from datetime import datetime
 
@@ -432,4 +433,120 @@ async def switch_active_tenant(
     user = await db.get(User, user_id)
     user.active_tenant_id = tenant_id
     await db.flush()
+    return user
+
+
+# ========================================================================
+# Password Reset & Email Verification
+# ========================================================================
+
+# In-memory verification code store (production: use Redis with TTL)
+_verification_codes: dict[str, tuple[str, float]] = {}
+_VERIFICATION_CODE_TTL = 600  # 10 minutes
+
+
+def _generate_code() -> str:
+    """Generate a 6-digit verification code."""
+    import random
+    return f"{random.randint(100000, 999999)}"
+
+
+async def send_verification_code(
+    db: AsyncSession,
+    email: str,
+    purpose: str = "reset",  # reset | verify
+) -> str:
+    """
+    Generate a verification code for email reset/verification.
+    Returns the code (for dev/testing — in production this goes via email).
+    """
+    # Check user exists
+    result = await db.execute(select(User).where(User.email == email))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise AuthError("该邮箱未注册", "email_not_found", 404)
+
+    code = _generate_code()
+    key = f"{purpose}:{email}"
+    _verification_codes[key] = (code, time.time())
+
+    # TODO: Send email via SMTP / SendGrid / etc.
+    # For now, return code so caller can display/log it (dev mode)
+    logger.info(f"Verification code for {email} ({purpose}): {code}")
+    return code
+
+
+async def verify_code_and_reset_password(
+    db: AsyncSession,
+    email: str,
+    code: str,
+    new_password: str,
+) -> User:
+    """Verify the reset code and set a new password."""
+    key = f"reset:{email}"
+    stored = _verification_codes.get(key)
+
+    if not stored:
+        raise AuthError("请先获取验证码", "code_not_sent", 400)
+
+    stored_code, created_at = stored
+    import time
+    if time.time() - created_at > _VERIFICATION_CODE_TTL:
+        del _verification_codes[key]
+        raise AuthError("验证码已过期，请重新获取", "code_expired", 400)
+
+    if stored_code != code:
+        raise AuthError("验证码错误", "code_invalid", 400)
+
+    # Success — reset password
+    result = await db.execute(select(User).where(User.email == email))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise AuthError("用户不存在", "user_not_found", 404)
+
+    user.password_hash = hash_password(new_password)
+    user.is_verified = True
+    await db.flush()
+
+    # Clean up code
+    del _verification_codes[key]
+
+    # Revoke all sessions (force re-login everywhere)
+    await revoke_all_sessions(db, user.id)
+
+    logger.info(f"Password reset for user {user.id} ({email})")
+    return user
+
+
+async def verify_email(
+    db: AsyncSession,
+    user_id: str,
+    code: str,
+) -> User:
+    """Verify a user's email with a verification code."""
+    user = await db.get(User, user_id)
+    if not user:
+        raise AuthError("用户不存在", "user_not_found", 404)
+    if not user.email:
+        raise AuthError("用户未设置邮箱", "no_email", 400)
+
+    key = f"verify:{user.email}"
+    stored = _verification_codes.get(key)
+
+    if not stored:
+        raise AuthError("请先获取验证码", "code_not_sent", 400)
+
+    stored_code, created_at = stored
+    import time
+    if time.time() - created_at > _VERIFICATION_CODE_TTL:
+        del _verification_codes[key]
+        raise AuthError("验证码已过期", "code_expired", 400)
+
+    if stored_code != code:
+        raise AuthError("验证码错误", "code_invalid", 400)
+
+    user.is_verified = True
+    await db.flush()
+    del _verification_codes[key]
+    logger.info(f"Email verified for user {user.id} ({user.email})")
     return user
