@@ -1,4 +1,6 @@
 import { buildChatCompletionRequest, resolveChatModelConfig } from "./chatModelConfig.mjs";
+import { expandMessagesWithDocumentText } from "./documentText.mjs";
+import { expandImageMessagesWithOcr } from "./imageOcr.mjs";
 
 const SYSTEM_PROMPT = `You are DTSV Intelligence — a senior data analyst embedded in a quality engineering dashboard.
 
@@ -68,7 +70,7 @@ function roundMs(value) {
   return Number(value.toFixed(1));
 }
 
-export async function requestCompanyChatCompletion({ messages, model, context }) {
+export async function requestCompanyChatCompletion({ messages, model, context, imageOcrRunner, documentTextRunner }) {
   const config = resolveChatModelConfig(model || "", process.env);
   if (!config.credential) {
     throw new Error(
@@ -76,7 +78,9 @@ export async function requestCompanyChatCompletion({ messages, model, context })
     );
   }
 
-  const mergedMessages = buildMergedMessages(messages, context);
+  const documentExpandedMessages = await expandMessagesWithDocumentText(messages, process.env, { documentTextRunner });
+  const preparedMessages = await expandImageMessagesWithOcr(documentExpandedMessages, process.env, { imageOcrRunner });
+  const mergedMessages = buildMergedMessages(preparedMessages, context);
 
   const requestConfig = buildChatCompletionRequest({
     selectedModel: config.model,
@@ -114,6 +118,8 @@ export async function streamCompanyChatCompletion({
   response,
   prefaceEvents = [],
   onMetrics,
+  imageOcrRunner,
+  documentTextRunner,
 }) {
   const startedAt = nowMs();
   const config = resolveChatModelConfig(model || "", process.env);
@@ -123,7 +129,9 @@ export async function streamCompanyChatCompletion({
     );
   }
 
-  const mergedMessages = buildMergedMessages(messages, context);
+  const documentExpandedMessages = await expandMessagesWithDocumentText(messages, process.env, { documentTextRunner });
+  const preparedMessages = await expandImageMessagesWithOcr(documentExpandedMessages, process.env, { imageOcrRunner });
+  const mergedMessages = buildMergedMessages(preparedMessages, context);
   const requestConfig = buildChatCompletionRequest({
     selectedModel: config.model,
     messages: mergedMessages,

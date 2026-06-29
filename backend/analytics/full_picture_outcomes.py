@@ -5,6 +5,7 @@ from pathlib import Path
 import json
 import re
 import sqlite3
+from typing import Sequence
 
 from backend.analytics.dashboard_snapshot import build_full_picture_snapshot_version
 
@@ -127,17 +128,50 @@ def _row_value(row: sqlite3.Row, key: str) -> object:
 	return row[key] if key in row.keys() else None
 
 
-def _derive_outcome_rows(source_db_path: Path | str, source_signature: str) -> list[tuple[object, ...]]:
+def _normalize_defect_ids(defect_ids: Sequence[str] | None) -> tuple[str, ...] | None:
+	if defect_ids is None:
+		return None
+	return tuple(sorted({str(defect_id).strip() for defect_id in defect_ids if str(defect_id).strip()}))
+
+
+def _derive_outcome_rows(
+	source_db_path: Path | str,
+	source_signature: str,
+	*,
+	defect_ids: Sequence[str] | None = None,
+) -> list[tuple[object, ...]]:
+	normalized_defect_ids = _normalize_defect_ids(defect_ids)
+	if normalized_defect_ids is not None and not normalized_defect_ids:
+		return []
+
 	conn = _open_read_only_connection(source_db_path)
 	try:
-		rows = conn.execute(
-			"""
-			SELECT *
-			FROM octane_defect_history_events
-			WHERE lower(COALESCE(field_name, '')) LIKE '%phase%'
-			ORDER BY defect_id, event_timestamp
-			"""
-		).fetchall()
+		if normalized_defect_ids is None:
+			rows = conn.execute(
+				"""
+				SELECT *
+				FROM octane_defect_history_events
+				WHERE lower(COALESCE(field_name, '')) LIKE '%phase%'
+				ORDER BY defect_id, event_timestamp
+				"""
+			).fetchall()
+		else:
+			rows = []
+			for start_index in range(0, len(normalized_defect_ids), SQLITE_MAX_VARIABLES):
+				batch_ids = normalized_defect_ids[start_index : start_index + SQLITE_MAX_VARIABLES]
+				placeholders = ", ".join("?" for _ in batch_ids)
+				rows.extend(
+					conn.execute(
+						f"""
+						SELECT *
+						FROM octane_defect_history_events
+						WHERE defect_id IN ({placeholders})
+						  AND lower(COALESCE(field_name, '')) LIKE '%phase%'
+						ORDER BY defect_id, event_timestamp
+						""",
+						batch_ids,
+					).fetchall()
+				)
 	finally:
 		conn.close()
 
@@ -195,11 +229,13 @@ def refresh_materialized_outcomes(
 	source_db_path: Path | str,
 	hot_db_path: Path | str,
 	force: bool = False,
+	defect_ids: Sequence[str] | None = None,
 ) -> dict[str, object]:
 	resolved_hot_path = ensure_outcome_store(hot_db_path)
 	source_signature = _compute_source_signature(source_db_path)
 	snapshot_version = build_full_picture_snapshot_version(source_db_path)
 	publish_dashboard_snapshot = _source_has_full_picture_defect_table(source_db_path)
+	normalized_defect_ids = _normalize_defect_ids(defect_ids)
 
 	from backend.analytics import read_models
 
@@ -212,8 +248,14 @@ def refresh_materialized_outcomes(
 		existing_row_count = int(existing_row_count_row[0] or 0) if existing_row_count_row else 0
 		refresh_state_signature = str(refresh_state_row[1]).strip() if refresh_state_row else ""
 		refresh_state_row_count = int(refresh_state_row[2] or 0) if refresh_state_row else -1
+		can_incremental_refresh = (
+			not force
+			and normalized_defect_ids is not None
+			and refresh_state_row is not None
+		)
 		if (
 			not force
+			and normalized_defect_ids is None
 			and refresh_state_signature == source_signature
 			and refresh_state_row_count == existing_row_count
 			and (
@@ -230,9 +272,25 @@ def refresh_materialized_outcomes(
 				"source_signature": source_signature,
 			}
 
-		derived_rows = _derive_outcome_rows(source_db_path, source_signature)
+		if can_incremental_refresh:
+			derived_rows = _derive_outcome_rows(
+				source_db_path,
+				source_signature,
+				defect_ids=normalized_defect_ids,
+			)
+			if normalized_defect_ids:
+				for start_index in range(0, len(normalized_defect_ids), SQLITE_MAX_VARIABLES):
+					batch_ids = normalized_defect_ids[start_index : start_index + SQLITE_MAX_VARIABLES]
+					placeholders = ", ".join("?" for _ in batch_ids)
+					hot_conn.execute(
+						f"DELETE FROM defect_outcomes WHERE defect_id IN ({placeholders})",
+						batch_ids,
+					)
+		else:
+			derived_rows = _derive_outcome_rows(source_db_path, source_signature)
 		refreshed_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-		hot_conn.execute("DELETE FROM defect_outcomes")
+		if not can_incremental_refresh:
+			hot_conn.execute("DELETE FROM defect_outcomes")
 		hot_conn.executemany(
 			"""
 			INSERT INTO defect_outcomes(
@@ -248,6 +306,8 @@ def refresh_materialized_outcomes(
 			""",
 			derived_rows,
 		)
+		current_row_count_row = hot_conn.execute("SELECT COUNT(*) FROM defect_outcomes").fetchone()
+		current_row_count = int(current_row_count_row[0] or 0) if current_row_count_row else len(derived_rows)
 		hot_conn.execute(
 			"""
 			INSERT INTO outcome_refresh_state(
@@ -264,7 +324,7 @@ def refresh_materialized_outcomes(
 			(
 				OUTCOME_STORE_NAME,
 				source_signature,
-				len(derived_rows),
+				current_row_count,
 				refreshed_at,
 			),
 		)
@@ -277,11 +337,14 @@ def refresh_materialized_outcomes(
 			snapshot_version,
 			defect_db_path=source_db_path,
 			hot_db_path=resolved_hot_path,
+			defect_ids=normalized_defect_ids if can_incremental_refresh else None,
 		)
 
 	return {
-		"row_count": len(derived_rows),
+		"row_count": current_row_count,
+		"updated_row_count": len(derived_rows),
 		"skipped": False,
+		"incremental": bool(can_incremental_refresh),
 		"source_signature": source_signature,
 	}
 

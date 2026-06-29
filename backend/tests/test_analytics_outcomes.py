@@ -433,6 +433,150 @@ def test_refresh_materialized_outcomes_rebuilds_when_source_signature_changes(tm
 	assert loaded["D-2"]["is_rejected_directly"] is True
 
 
+def test_refresh_materialized_outcomes_can_update_selected_defects(tmp_path):
+	source_db = tmp_path / "qgate_data.db"
+	hot_db = tmp_path / "database" / "hot" / "vizion_serving.db"
+	_seed_history_events(
+		source_db,
+		[
+			(
+				"D-1",
+				"status_phase",
+				"2026-05-25T00:00:00Z",
+				1,
+				1,
+				"08",
+				"06",
+				"08-Resolved Forward",
+				"06-Ready for Test",
+			),
+			(
+				"D-2",
+				"status_phase",
+				"2026-05-26T00:00:00Z",
+				1,
+				1,
+				"01",
+				"03",
+				"01-New",
+				"03-In Analysis",
+			),
+		],
+	)
+
+	first = refresh_materialized_outcomes(source_db, hot_db, force=True)
+
+	conn = sqlite3.connect(source_db)
+	try:
+		conn.execute("DELETE FROM octane_defect_history_events WHERE defect_id = 'D-2'")
+		conn.execute(
+			"""
+			INSERT INTO octane_defect_history_events(
+				defect_id, field_name, event_timestamp, entry_index, change_index,
+				old_value, new_value, old_value_text, new_value_text
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+			""",
+			(
+				"D-2",
+				"status_phase",
+				"2026-05-27T00:00:00Z",
+				1,
+				1,
+				"01",
+				"09",
+				"01-New",
+				"09-Rejected",
+			),
+		)
+		conn.commit()
+	finally:
+		conn.close()
+
+	second = refresh_materialized_outcomes(source_db, hot_db, force=False, defect_ids=("D-2",))
+	loaded = load_materialized_outcomes(hot_db, ("D-1", "D-2"))
+
+	assert first["row_count"] == 2
+	assert second["skipped"] is False
+	assert second["incremental"] is True
+	assert second["updated_row_count"] == 1
+	assert second["row_count"] == 2
+	assert loaded["D-1"]["is_resolved_forward"] is True
+	assert loaded["D-2"]["is_rejected_directly"] is True
+
+
+def test_refresh_materialized_outcomes_can_update_selected_snapshot_rows(tmp_path):
+	source_db = tmp_path / "qgate_data.db"
+	hot_db = tmp_path / "database" / "hot" / "vizion_serving.db"
+	_seed_history_events(
+		source_db,
+		[
+			("D-1", "status_phase", "2026-05-25T00:00:00Z", 1, 1, "08", "06", "08-Resolved Forward", "06-Ready for Test"),
+			("D-2", "status_phase", "2026-05-26T00:00:00Z", 1, 1, "01", "03", "01-New", "03-In Analysis"),
+		],
+	)
+	conn = sqlite3.connect(source_db)
+	try:
+		conn.executescript(
+			"""
+			CREATE TABLE octane_defects (
+				defect_id TEXT PRIMARY KEY,
+				name TEXT,
+				status_phase TEXT,
+				creation_time TEXT,
+				problem_finder_team TEXT,
+				year TEXT,
+				project TEXT
+			);
+			"""
+		)
+		conn.executemany(
+			"INSERT INTO octane_defects(defect_id, name, status_phase, creation_time, problem_finder_team, year, project) VALUES (?, ?, ?, ?, ?, ?, ?)",
+			[
+				("D-1", "Original D1", "06-Ready for Test", "2026-05-25T00:00:00Z", "DTSV_China", "2026", "IDCEVO"),
+				("D-2", "Original D2", "03-In Analysis", "2026-05-26T00:00:00Z", "DTSV_China", "2026", "IDCEVO"),
+			],
+		)
+		conn.commit()
+	finally:
+		conn.close()
+
+	refresh_materialized_outcomes(source_db, hot_db, force=True)
+	conn = sqlite3.connect(source_db)
+	try:
+		conn.execute("UPDATE octane_defects SET name='Updated D2' WHERE defect_id='D-2'")
+		conn.commit()
+	finally:
+		conn.close()
+
+	second = refresh_materialized_outcomes(source_db, hot_db, force=False, defect_ids=("D-2",))
+
+	assert second["incremental"] is True
+
+	conn = sqlite3.connect(hot_db)
+	try:
+		latest_snapshot_version = conn.execute(
+			"""
+			SELECT snapshot_version
+			FROM dashboard_ticket_snapshot_state
+			ORDER BY rowid DESC
+			LIMIT 1
+			"""
+		).fetchone()[0]
+		rows = conn.execute(
+			"""
+			SELECT ticket_id, ticket_name
+			FROM dashboard_ticket_snapshot_rows
+			WHERE snapshot_version = ?
+			ORDER BY ticket_id
+			""",
+			(latest_snapshot_version,),
+		).fetchall()
+	finally:
+		conn.close()
+
+	assert rows == [("D-1", "Original D1"), ("D-2", "Updated D2")]
+
+
 def test_load_materialized_outcomes_batches_large_defect_id_lists(tmp_path):
 	source_db = tmp_path / "qgate_data.db"
 	hot_db = tmp_path / "database" / "hot" / "vizion_serving.db"

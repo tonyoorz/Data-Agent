@@ -186,7 +186,8 @@ def testing_coverage_testcase_detail(request: Request) -> JSONResponse:
 
 @app.get("/api/metadata/filters")
 def metadata_filters() -> dict[str, list[str]]:
-    return build_filter_metadata()
+    payload = build_filter_metadata()
+    return payload
 
 
 @app.get("/api/correlation/defect-test")

@@ -268,6 +268,36 @@ def test_full_picture_summary_endpoint_returns_snapshot_version(tmp_path, monkey
     assert payload["filters"]["china_scopes"] == ["Global"]
 
 
+def test_top_issue_analysis_endpoint_returns_filtered_rows(tmp_path, monkeypatch):
+    db_path = tmp_path / "qgate_data.db"
+    hot_db_path = _default_hot_db_path(tmp_path)
+    _seed_qgate_source_db(db_path, defect_count=2)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("UPDATE octane_defects SET project = ? WHERE defect_id = ?", ("MGU", "D-002"))
+        conn.commit()
+    _refresh_full_picture_hot_outcomes(db_path, hot_db_path)
+    _record_active_snapshot(hot_db_path, source_db_path=db_path)
+    _configure_full_picture_env(
+        monkeypatch,
+        defect_db_path=db_path,
+        hot_db_path=hot_db_path,
+    )
+    client = TestClient(app)
+
+    response = client.get("/api/full-picture/top-issue-analysis?years=2026&projects=IDCEVO")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["snapshot_version"] == build_full_picture_snapshot_version(db_path)
+    assert payload["generated_from"]["projects"] == ["IDCEVO"]
+    assert payload["status_distribution"] == [{"status": "03-In Analysis", "count": 1}]
+    assert payload["defect_trend"] == [
+        {"month": "2026-05", "new_count": 1, "closed_count": 0, "in_progress_count": 1}
+    ]
+    assert [row["ticket_id"] for row in payload["top_issue_rows"]] == ["D-001"]
+    assert payload["top_issue_rows"][0]["age_days"] == 1
+
+
 def test_full_picture_dashboard_exposes_requirement_field_and_filters(tmp_path, monkeypatch):
     db_path = tmp_path / "qgate_data.db"
     hot_db_path = _default_hot_db_path(tmp_path)
@@ -591,35 +621,6 @@ def test_full_picture_tickets_return_top_topic_priority_rows_ignoring_creation_t
         "D-TOP-GLOBAL",
         "D-TOP-TEAM",
     ]
-
-
-def test_filter_priority_rows_keeps_in_scope_top_topic_rows_pinned() -> None:
-    candidate_rows = [
-        {
-            "ticket_id": "D-TOP-IN-SCOPE",
-            "ticket_name": "Top topic already matched current page",
-            "requirement": "Top Topic | DOC_PreCon_A",
-            "requirement_names": ["Top Topic", "DOC_PreCon_A"],
-            "classification": "Showstopper_Candidate",
-        },
-        {
-            "ticket_id": "D-NORMAL",
-            "ticket_name": "Normal page row",
-            "requirement": "DOC_PreCon_A",
-            "requirement_names": ["DOC_PreCon_A"],
-            "classification": "Showstopper_Candidate",
-        },
-    ]
-
-    priority_rows = read_models._filter_priority_rows(
-        candidate_rows,
-        search="",
-        sort_by="classification",
-        sort_order="desc",
-        excluded_ticket_ids={"D-TOP-IN-SCOPE"},
-    )
-
-    assert [row["ticket_id"] for row in priority_rows] == ["D-TOP-IN-SCOPE"]
 
 
 def test_full_picture_tickets_hide_top_topic_priority_rows_after_first_page(tmp_path, monkeypatch):

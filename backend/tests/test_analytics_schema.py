@@ -1,4 +1,5 @@
 from pathlib import Path
+
 import subprocess
 import sqlite3
 import sys
@@ -1211,6 +1212,74 @@ def test_cli_refresh_full_picture_outcomes_rejects_malformed_history_schema(tmp_
     assert str(exc_info.value) == (
         f"Provided Full Picture history source database is invalid: {invalid_db_path}"
     )
+
+
+def test_cli_compact_source_history_storage_drops_legacy_raw_history_payloads(tmp_path, capsys):
+    source_db = tmp_path / "qgate_raw.db"
+
+    conn = sqlite3.connect(source_db)
+    try:
+        conn.executescript(
+            """
+            CREATE TABLE octane_defect_history_events (
+                defect_id TEXT,
+                team TEXT,
+                event_timestamp TEXT,
+                entry_index INTEGER,
+                change_index INTEGER,
+                action TEXT,
+                user_name TEXT,
+                field_name TEXT,
+                old_value TEXT,
+                new_value TEXT,
+                old_value_text TEXT,
+                new_value_text TEXT,
+                raw_event_json TEXT,
+                raw_change_json TEXT,
+                fetched_at TEXT
+            );
+            CREATE TABLE octane_defect_histories (
+                defect_id TEXT PRIMARY KEY,
+                team TEXT,
+                total_count INTEGER,
+                payload_json TEXT,
+                fetched_at TEXT
+            );
+            INSERT INTO octane_defect_history_events(
+                defect_id, field_name, event_timestamp, old_value, new_value,
+                old_value_text, new_value_text, raw_event_json, raw_change_json, fetched_at
+            ) VALUES ('D-1', 'phase', '2026-01-01T00:00:00Z', '08', '06', 'Review', 'Open', '{""raw"": true}', '{""field_name"": ""phase""}', '2026-01-02T00:00:00Z');
+            INSERT INTO octane_defect_histories(defect_id, team, total_count, payload_json, fetched_at)
+            VALUES ('D-1', 'DTSV_China', 1, '{""data"": []}', '2026-01-02T00:00:00Z');
+            """
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    exit_code = main(["compact-source-history-storage", "--db-path", str(source_db)])
+
+    assert exit_code == 0
+    summary = json.loads(capsys.readouterr().out)
+    assert summary["dropped_raw_columns"] == ["raw_event_json", "raw_change_json"]
+    assert summary["dropped_tables"] == ["octane_defect_histories"]
+    conn = sqlite3.connect(source_db)
+    try:
+        history_columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(octane_defect_history_events)").fetchall()
+        }
+        tables = {
+            row[0]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
+        }
+        row_count = conn.execute("SELECT COUNT(*) FROM octane_defect_history_events").fetchone()[0]
+    finally:
+        conn.close()
+
+    assert "raw_event_json" not in history_columns
+    assert "raw_change_json" not in history_columns
+    assert "octane_defect_histories" not in tables
+    assert row_count == 1
 
 
 def test_cli_refresh_full_picture_outcomes_passes_force_flag(tmp_path, monkeypatch, capsys):

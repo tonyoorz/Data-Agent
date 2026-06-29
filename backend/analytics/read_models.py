@@ -286,6 +286,24 @@ def _normalize_filter_date_value(date_value: Any) -> str:
         return ""
 
 
+def _parse_iso_date_value(date_value: Any):
+    normalized_date = _normalize_filter_date_value(date_value)
+    if not normalized_date:
+        return None
+    try:
+        return datetime.fromisoformat(normalized_date).date()
+    except ValueError:
+        return None
+
+
+def _calculate_age_days(creation_time: Any, ticket_date: Any) -> int:
+    start_date = _parse_iso_date_value(creation_time)
+    end_date = _parse_iso_date_value(ticket_date) or start_date
+    if start_date is None or end_date is None:
+        return 0
+    return max((end_date - start_date).days, 0)
+
+
 def _matches_creation_time_range(
     creation_time: Any,
     *,
@@ -1345,10 +1363,12 @@ def _materialize_snapshot_ticket_rows(
     *,
     defect_db_path: Path | str | None = None,
     hot_db_path: Path | str | None = None,
+    defect_ids: Iterable[Any] | None = None,
 ) -> None:
     normalized_snapshot_version = str(snapshot_version or "").strip()
     if not normalized_snapshot_version:
         return
+    has_incremental_defect_ids = defect_ids is not None
 
     resolved_hot_db_path = Path(hot_db_path).resolve() if hot_db_path is not None else get_full_picture_hot_db_path()
     resolved_hot_db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1361,7 +1381,8 @@ def _materialize_snapshot_ticket_rows(
             (normalized_snapshot_version,),
         ).fetchone()
         if state_row is not None and not schema_updated:
-            return
+            if not has_incremental_defect_ids:
+                return
 
         if schema_updated:
             conn.execute(
@@ -1492,11 +1513,13 @@ def publish_dashboard_snapshot_rows(
     *,
     defect_db_path: Path | str | None = None,
     hot_db_path: Path | str | None = None,
+    defect_ids: Iterable[Any] | None = None,
 ) -> None:
     _materialize_snapshot_ticket_rows(
         snapshot_version,
         defect_db_path=defect_db_path,
         hot_db_path=hot_db_path,
+        defect_ids=defect_ids,
     )
 
 
@@ -1838,152 +1861,6 @@ def _build_full_picture_dataset(
     return generated_from, ticket_rows
 
 
-def _top_issue_severity_label(row: dict[str, Any]) -> str:
-    return str(row.get("problem_severity") or row.get("classification") or "").strip()
-
-
-def _top_issue_severity_rank(row: dict[str, Any]) -> int:
-    severity_text = _top_issue_severity_label(row).casefold()
-    for keyword, rank in (
-        ("showstopper", 5),
-        ("critical", 4),
-        ("major", 3),
-        ("medium", 2),
-        ("minor", 1),
-        ("low", 0),
-    ):
-        if keyword in severity_text:
-            return rank
-    return -1
-
-
-def _is_closed_ticket_row(row: dict[str, Any]) -> bool:
-    phase_code = _extract_phase_code(row.get("phase") or row.get("status"))
-    if phase_code in {"06", "08", "09"}:
-        return True
-
-    status_text = str(row.get("status") or "").casefold()
-    return any(
-        keyword in status_text
-        for keyword in ("closed", "resolved", "rejected", "delivered", "ready for test")
-    )
-
-
-def _top_issue_age_days(row: dict[str, Any]) -> int:
-    creation_date = _normalize_filter_date_value(row.get("creation_time"))
-    end_date = _normalize_filter_date_value(row.get("ticket_date")) or creation_date
-    if not creation_date or not end_date:
-        return 0
-
-    try:
-        creation_value = datetime.fromisoformat(creation_date)
-        end_value = datetime.fromisoformat(end_date)
-    except ValueError:
-        return 0
-
-    return max((end_value - creation_value).days, 0)
-
-
-def _normalize_top_issue_status(raw_status: Any) -> str:
-    status = str(raw_status or "").strip()
-    if not status:
-        return ""
-
-    return re.sub(r"_(?:Low|Medium|High)$", "", status, flags=re.IGNORECASE)
-
-
-def _build_top_issue_rows(ticket_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    ranked_rows = sorted(
-        ticket_rows,
-        key=lambda row: (
-            _top_issue_severity_rank(row),
-            _top_issue_age_days(row),
-            _sortable_value(row.get("ticket_id")),
-        ),
-        reverse=True,
-    )
-
-    return [
-        {
-            "ticket_id": str(row.get("ticket_id") or "").strip(),
-            "ticket_name": str(row.get("ticket_name") or "").strip(),
-            "severity": _top_issue_severity_label(row),
-            "project": str(row.get("project") or "").strip(),
-            "status": _normalize_top_issue_status(row.get("status")),
-            "age_days": _top_issue_age_days(row),
-            "creation_time": str(row.get("creation_time") or "").strip(),
-            "ticket_date": str(row.get("ticket_date") or "").strip(),
-            "classification": str(row.get("classification") or "").strip(),
-        }
-        for row in ranked_rows[:50]
-    ]
-
-
-def _build_status_distribution_rows(ticket_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    counts: dict[str, int] = {}
-    for row in ticket_rows:
-        status = _normalize_top_issue_status(row.get("status"))
-        if not status:
-            continue
-        counts[status] = counts.get(status, 0) + 1
-
-    return [
-        {"status": status, "count": counts[status]}
-        for status in sorted(counts)
-    ]
-
-
-def _build_defect_trend_rows(ticket_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    per_day: dict[str, dict[str, int]] = {}
-    for row in ticket_rows:
-        day = _normalize_filter_date_value(row.get("creation_time"))
-        if not day:
-            continue
-        bucket = per_day.setdefault(
-            day,
-            {"month": day, "new_count": 0, "closed_count": 0, "in_progress_count": 0},
-        )
-        bucket["new_count"] += 1
-        if _is_closed_ticket_row(row):
-            bucket["closed_count"] += 1
-        else:
-            bucket["in_progress_count"] += 1
-
-    return [per_day[day] for day in sorted(per_day)]
-
-
-def build_top_issue_analysis_payload(**kwargs: Any) -> dict[str, Any]:
-    query = normalize_query(**kwargs)
-    snapshot_metadata = _read_snapshot_metadata()
-    snapshot_version = _resolve_effective_snapshot_version(snapshot_metadata)
-
-    if snapshot_version:
-        if snapshot_version.startswith("live-"):
-            _materialize_snapshot_ticket_rows(snapshot_version)
-        snapshot_metadata = _read_snapshot_metadata()
-        if _resolve_effective_snapshot_version(snapshot_metadata) != snapshot_version:
-            raise FullPictureDashboardRequestError("Dashboard snapshot changed during request")
-        generated_from = _build_generated_from_payload(query)
-        ticket_rows = _load_materialized_ticket_rows(
-            snapshot_version=snapshot_version,
-            query=query,
-        )
-    else:
-        snapshot_metadata, generated_from, ticket_rows = _build_snapshot_bound_dataset(
-            query,
-            requested_snapshot_version=snapshot_version,
-        )
-
-    return {
-        "snapshot_version": snapshot_version,
-        "generated_from": generated_from,
-        "refresh_metadata": snapshot_metadata,
-        "top_issue_rows": _build_top_issue_rows(ticket_rows),
-        "status_distribution": _build_status_distribution_rows(ticket_rows),
-        "defect_trend": _build_defect_trend_rows(ticket_rows),
-    }
-
-
 def build_full_picture_summary_payload(**kwargs: Any) -> dict[str, Any]:
     query = normalize_query(**kwargs)
     snapshot_metadata = _read_snapshot_metadata()
@@ -2082,11 +1959,16 @@ def _filter_priority_rows(
 ) -> list[dict[str, Any]]:
     priority_rows = [row for row in candidate_rows if _is_top_topic_ticket_row(row)]
     priority_rows = _search_ticket_rows(priority_rows, search)
-    return _sort_ticket_rows(
+    priority_rows = _sort_ticket_rows(
         priority_rows,
         sort_by=sort_by,
         sort_order=sort_order,
     )
+    return [
+        row
+        for row in priority_rows
+        if str(row.get("ticket_id") or "").strip() not in excluded_ticket_ids
+    ]
 
 
 def _sort_ticket_rows(
@@ -2199,6 +2081,111 @@ def list_full_picture_ticket_rows(**kwargs: Any) -> dict[str, Any]:
         "total_pages": total_pages,
         "rows": rows,
         "priority_rows": priority_rows,
+    }
+
+
+def _is_closed_top_issue_row(row: dict[str, Any]) -> bool:
+    phase_code = _extract_phase_code(row.get("phase") or row.get("status"))
+    return phase_code in {"06", "08", "09"}
+
+
+def _build_top_issue_status_distribution(ticket_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    counts: dict[str, int] = {}
+    for row in ticket_rows:
+        status = str(row.get("status") or "Unknown").strip() or "Unknown"
+        counts[status] = counts.get(status, 0) + 1
+    return [
+        {"status": status, "count": count}
+        for status, count in sorted(counts.items(), key=lambda item: (-item[1], _sortable_value(item[0])))
+    ]
+
+
+def _build_top_issue_defect_trend(ticket_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[str, dict[str, int]] = {}
+    for row in ticket_rows:
+        month = str(row.get("month") or _get_ticket_month_value(row.get("creation_time")) or "").strip()
+        if not month:
+            continue
+        state = grouped.setdefault(month, {"new_count": 0, "closed_count": 0, "in_progress_count": 0})
+        state["new_count"] += 1
+        if _is_closed_top_issue_row(row):
+            state["closed_count"] += 1
+        else:
+            state["in_progress_count"] += 1
+    return [
+        {"month": month, **state}
+        for month, state in sorted(grouped.items(), key=lambda item: item[0])
+    ]
+
+
+def _build_top_issue_rows(ticket_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    severity_order = {"showstopper": 0, "critical": 1, "major": 2}
+
+    rows = [
+        {
+            "ticket_id": str(row.get("ticket_id") or ""),
+            "ticket_name": str(row.get("ticket_name") or ""),
+            "severity": str(row.get("problem_severity") or ""),
+            "project": str(row.get("project") or ""),
+            "status": str(row.get("status") or ""),
+            "age_days": _calculate_age_days(row.get("creation_time"), row.get("ticket_date")),
+            "creation_time": str(row.get("creation_time") or ""),
+            "ticket_date": str(row.get("ticket_date") or ""),
+            "classification": str(row.get("classification") or ""),
+        }
+        for row in ticket_rows
+    ]
+    rows.sort(
+        key=lambda row: (
+            severity_order.get(str(row.get("severity") or "").strip().casefold(), len(severity_order)),
+            -int(row.get("age_days") or 0),
+            _sortable_value(row.get("ticket_id")),
+        )
+    )
+    return rows[:100]
+
+
+def build_top_issue_analysis_payload(**kwargs: Any) -> dict[str, Any]:
+    query = normalize_query(**kwargs)
+    requested_snapshot_version = str(kwargs.get("snapshot_version") or "").strip()
+    snapshot_metadata = _read_snapshot_metadata()
+    snapshot_version = _resolve_effective_snapshot_version(snapshot_metadata)
+    if requested_snapshot_version and snapshot_version and requested_snapshot_version != snapshot_version:
+        raise FullPictureDashboardRequestError(
+            f"Requested snapshot version is stale: {requested_snapshot_version}"
+        )
+
+    if snapshot_version:
+        if snapshot_version.startswith("live-"):
+            _materialize_snapshot_ticket_rows(snapshot_version)
+        snapshot_metadata = _read_snapshot_metadata()
+        snapshot_version_after = _resolve_effective_snapshot_version(snapshot_metadata)
+        if snapshot_version_after != snapshot_version:
+            raise FullPictureDashboardRequestError("Dashboard snapshot changed during request")
+        if requested_snapshot_version and snapshot_version_after and requested_snapshot_version != snapshot_version_after:
+            raise FullPictureDashboardRequestError(
+                f"Requested snapshot version is stale: {requested_snapshot_version}"
+            )
+        generated_from = _build_generated_from_payload(query)
+        ticket_rows = _load_materialized_ticket_rows(
+            snapshot_version=snapshot_version_after,
+            query=query,
+        )
+        response_snapshot_version = snapshot_version_after
+    else:
+        snapshot_metadata, generated_from, ticket_rows = _build_snapshot_bound_dataset(
+            query,
+            requested_snapshot_version=requested_snapshot_version,
+        )
+        response_snapshot_version = _resolve_snapshot_version(snapshot_metadata)
+
+    return {
+        "snapshot_version": response_snapshot_version,
+        "generated_from": generated_from,
+        "refresh_metadata": snapshot_metadata,
+        "top_issue_rows": _build_top_issue_rows(ticket_rows),
+        "status_distribution": _build_top_issue_status_distribution(ticket_rows),
+        "defect_trend": _build_top_issue_defect_trend(ticket_rows),
     }
 
 

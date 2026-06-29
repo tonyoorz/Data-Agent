@@ -17,7 +17,7 @@ def load_cookie_header(cookie_file: Path | str) -> str:
 def build_cookie_session(cookie_file: Path | str) -> requests.Session:
     header = load_cookie_header(cookie_file)
     session = requests.Session()
-    session.headers.update({"Cookie": header})
+    session.headers.update({"Cookie": header, "User-Agent": "Mozilla/5.0"})
     for part in header.split(";"):
         cookie_part = part.strip()
         if not cookie_part or "=" not in cookie_part:

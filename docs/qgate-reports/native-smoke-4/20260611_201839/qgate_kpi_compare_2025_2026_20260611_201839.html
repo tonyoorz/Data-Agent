@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>2025 vs 2026 KPI Analysis</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: Segoe UI, Arial, sans-serif;
+      background: #f5f7fb;
+      color: #162033;
+    }
+    body { margin: 0; padding: 32px; background: linear-gradient(180deg, #edf3ff 0%, #f8fbff 100%); }
+    main { max-width: 1200px; margin: 0 auto; }
+    section { background: #ffffff; border: 1px solid #d8e1f0; border-radius: 16px; padding: 20px; margin-top: 18px; box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06); }
+    h1 { margin: 0 0 8px; }
+    h2 { margin-bottom: 12px; }
+    p { margin: 8px 0 0; }
+    .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; }
+    .card { background: #102542; color: #f8fbff; border-radius: 14px; padding: 16px; }
+    .metric { font-size: 28px; font-weight: 700; margin-top: 4px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+    th, td { padding: 10px 12px; border-bottom: 1px solid #e6ebf2; text-align: left; vertical-align: top; }
+    th { background: #f7f9fc; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>2025 vs 2026 KPI Analysis</h1>
+    <p>Native static compare report generated from octane_manual_runs and octane_defects.</p>
+
+    <section>
+      <div class="summary">
+        <div class="card"><div>2025 executions</div><div class="metric">103583</div></div>
+        <div class="card"><div>2026 executions</div><div class="metric">14293</div></div>
+        <div class="card"><div>2025 defects</div><div class="metric">53604</div></div>
+        <div class="card"><div>2026 defects</div><div class="metric">19840</div></div>
+      </div>
+    </section>
+
+    <section>
+      <h2>A1. Core KPI Overview</h2>
+      <table>
+        <thead><tr><th>Year</th><th>Total executions</th><th>Passed</th><th>Passed rate</th><th>Failed</th><th>Failed rate</th><th>Requires Attention</th><th>Requires Attention rate</th></tr></thead>
+        <tbody><tr><td>2025</td><td>103583</td><td>87143</td><td>84.1%</td><td>5092</td><td>4.9%</td><td>11348</td><td>11.0%</td></tr><tr><td>2026</td><td>14293</td><td>12070</td><td>84.4%</td><td>447</td><td>3.1%</td><td>1776</td><td>12.4%</td></tr></tbody>
+      </table>
+    </section>
+
+    <section class="grid">
+      <div>
+        <h2>A2. Project Coverage</h2>
+        <table><thead><tr><th>Project</th><th>Count</th></tr></thead><tbody><tr><td>HU-MGU_02_A</td><td>28619</td></tr><tr><td>IDCEVO-25</td><td>26807</td></tr><tr><td>ICON-25</td><td>26802</td></tr><tr><td>WAVE-01</td><td>24410</td></tr><tr><td>HU-MGU_02_L</td><td>16114</td></tr><tr><td>IDCEVO</td><td>11117</td></tr><tr><td>MGU</td><td>10369</td></tr><tr><td>IDC</td><td>8064</td></tr><tr><td>App</td><td>6499</td></tr><tr><td>BCP-21</td><td>6080</td></tr><tr><td>HU-MGU_01</td><td>3574</td></tr><tr><td>IC_G5-BOX</td><td>3503</td></tr><tr><td>RAM-01</td><td>1366</td></tr><tr><td>BDC-03</td><td>1153</td></tr><tr><td>My BMW v5.7.0 CN</td><td>511</td></tr><tr><td>WAVE-11</td><td>476</td></tr><tr><td>RSU</td><td>404</td></tr><tr><td>Unknown</td><td>386</td></tr><tr><td>My BMW v6.3.0 CN</td><td>386</td></tr><tr><td>My BMW v5.9.0 CN</td><td>377</td></tr><tr><td>My BMW v5.3.0 CN</td><td>374</td></tr><tr><td>My BMW v5.11.0 CN</td><td>355</td></tr><tr><td>(HU-MGU_02_A)</td><td>354</td></tr><tr><td>MINI v5.9.0 CN</td><td>300</td></tr><tr><td>My BMW/MINI HarmonyOS NEXT v5.5.0</td><td>280</td></tr><tr><td>My BMW v5.5.0 CN</td><td>270</td></tr><tr><td>My BMW v6.8.0 HK</td><td>263</td></tr><tr><td>MARS-01</td><td>245</td></tr><tr><td>MINI v5.7.0 CN</td><td>235</td></tr><tr><td>CCU-01</td><td>232</td></tr><tr><td>HU_MGU_01</td><td>221</td></tr><tr><td>ATM-02</td><td>215</td></tr><tr><td>(WAVE-01 or WAVE-11)</td><td>213</td></tr><tr><td>My BMW/MINI HarmonyOS NEXT</td><td>208</td></tr><tr><td>ATM-01</td><td>205</td></tr><tr><td>MINI v5.3.0 CN</td><td>192</td></tr><tr><td>(ATM-01 or ATM-02)</td><td>178</td></tr><tr><td>MINI v5.11.0 CN</td><td>176</td></tr><tr><td>MINI v5.5.0 CN</td><td>165</td></tr><tr><td>RSE_PADI-01</td><td>164</td></tr><tr><td>My BMW/MINI HarmonyOS NEXT v5.11.0</td><td>158</td></tr><tr><td>(WAVE-01)</td><td>143</td></tr><tr><td>MINI v6.3.0 CN</td><td>130</td></tr><tr><td>(HU-MGU_02_L)</td><td>121</td></tr><tr><td>BYOD MVP0 Testing Support on v6.7.0</td><td>101</td></tr><tr><td>BMT</td><td>94</td></tr><tr><td>(WAVE-11 or WAVE-01)</td><td>78</td></tr><tr><td>NBT_EVO_ASIEN</td><td>75</td></tr><tr><td>CID_MID-25</td><td>71</td></tr><tr><td>2025CW7</td><td>71</td></tr><tr><td>ZBE_RMT-01</td><td>66</td></tr><tr><td>(SME-02 or SME-03 or SME-05 or CCU-01)</td><td>63</td></tr><tr><td>HU-ENTRYEVO</td><td>61</td></tr><tr><td>SWAG-01</td><td>58</td></tr><tr><td>(IDCEVO-25</td><td>56</td></tr><tr><td>ICON-25)</td><td>56</td></tr><tr><td>SWAG-02</td><td>52</td></tr><tr><td>My BMW BYOD v6.3.0</td><td>36</td></tr><tr><td>BYOD MVP0 Testing Support on v6.3.0</td><td>36</td></tr><tr><td>CID_MID-26</td><td>35</td></tr><tr><td>[DTSV_China]_HU-ENTRYEVO</td><td>32</td></tr><tr><td>ATM-01_[CN]</td><td>32</td></tr><tr><td>(PHUD-50ECO)</td><td>31</td></tr><tr><td>(HU-MGU_01)</td><td>31</td></tr><tr><td>((RSE_EXBX-02</td><td>28</td></tr><tr><td>CDE) or RSE_EXBX-02 or CDE)</td><td>28</td></tr><tr><td>(PHUD-50VIS)</td><td>25</td></tr><tr><td>IDCEVO 0326 HK DTSV Testing</td><td>24</td></tr><tr><td>WAVE-HIGH</td><td>23</td></tr><tr><td>WAVE-11 High</td><td>23</td></tr><tr><td>MINI v5.9.0 HK</td><td>21</td></tr><tr><td>RSE-EXBX</td><td>17</td></tr><tr><td>WAVE-01 or WAVE-11</td><td>15</td></tr><tr><td>IP-NEXT-10</td><td>15</td></tr><tr><td>FCW</td><td>15</td></tr><tr><td>My BMW v5.7 POC  for China Boost Training</td><td>12</td></tr><tr><td>(CCU-01 or CCU-02 or CCU-03)</td><td>12</td></tr><tr><td>( HU-MGU_02_A )</td><td>11</td></tr><tr><td>(CCU-01 or CCU-02 or CCU-03 or GWM_VCU1)</td><td>11</td></tr><tr><td>dummy</td><td>8</td></tr><tr><td>( WAVE-01 or WAVE-11 )</td><td>8</td></tr><tr><td>(RSE26 or (RSE26</td><td>6</td></tr><tr><td>CDE))</td><td>6</td></tr><tr><td>( not SME-02 or not SME-03 or not SME-05 or not  CCU-01)</td><td>5</td></tr><tr><td>not (CCU-01 or CCU-02 or CCU-03 or SME-02 or SME-05 or SME-03)</td><td>5</td></tr><tr><td>( SME-02 I SME-03 I SME-03 I CCU-01 I CCU-02 I CCU-03 )</td><td>5</td></tr><tr><td>not  ( DME-840 I DME-840H I DME-860 I DME-861 I DME-86T0 I DME-880 I DME-88T0 I DME-8C0 I DME-8CTO I DME-DDE802 I DME-DDE803 I DME-DDE832 )</td><td>5</td></tr><tr><td>HU-MGU_02_L or HU-MGU_01</td><td>5</td></tr><tr><td>(ADCAM-10MID or ADCAM-10LOW)</td><td>4</td></tr><tr><td>(KAFAS-04HIGH or KAFAS-04MID)</td><td>4</td></tr><tr><td>(SME-05 or SME-03 or SME-02 or CCU-01 or LIM-01)</td><td>4</td></tr><tr><td>IC_HIGH-BO_G4_1</td><td>4</td></tr><tr><td>ICON_24</td><td>4</td></tr><tr><td>( not  SME-02 or not  SME-03 or not  SME-05 )</td><td>4</td></tr><tr><td>HU-MGU_01 or HU-MGU_02_A or HU-MGU_02_L</td><td>4</td></tr><tr><td>(SME-02 or SME-03 or SME-05)</td><td>4</td></tr><tr><td>(HU-MGU_01 or HU-MGU_02_L)</td><td>3</td></tr><tr><td>(WAVE-11)</td><td>3</td></tr><tr><td>HU-MGU_01 or HU-MGU_02_L</td><td>3</td></tr><tr><td>HU-MGU_01 or HU-MGU_02_L or HU-MGU_02_A</td><td>2</td></tr><tr><td>(HU-MGU_01</td><td>2</td></tr><tr><td>WAVE-01) or (HU-MGU_01</td><td>2</td></tr><tr><td>WAVE-11) or (HU-MGU_02_L</td><td>2</td></tr><tr><td>WAVE-01) or (HU-MGU_02_L</td><td>2</td></tr><tr><td>WAVE-11)</td><td>2</td></tr><tr><td>ATM-01 or ATM-02</td><td>2</td></tr><tr><td>(RSE26 or CDE)</td><td>2</td></tr><tr><td>(CCU-01 or CCU-02 or CCU-03 or CCU-22)</td><td>1</td></tr><tr><td>BIS-01</td><td>1</td></tr><tr><td>CDE</td><td>1</td></tr></tbody></table>
+      </div>
+      <div>
+        <h2>A3. Model Coverage</h2>
+        <table><thead><tr><th>Model</th><th>Count</th></tr></thead><tbody><tr><td>G70</td><td>26187</td></tr><tr><td>U12</td><td>14850</td></tr><tr><td>NA6</td><td>13309</td></tr><tr><td>G68</td><td>13094</td></tr><tr><td>Unknown</td><td>5478</td></tr><tr><td>U25</td><td>5176</td></tr><tr><td>I20</td><td>4178</td></tr><tr><td>G48</td><td>3852</td></tr><tr><td>G20</td><td>3742</td></tr><tr><td>NA5</td><td>3574</td></tr><tr><td>J01</td><td>3181</td></tr><tr><td>G28</td><td>2848</td></tr><tr><td>F65</td><td>2444</td></tr><tr><td>U11</td><td>2203</td></tr><tr><td>F66</td><td>1801</td></tr><tr><td>J05</td><td>1643</td></tr><tr><td>G07</td><td>1635</td></tr><tr><td>RR25</td><td>1591</td></tr><tr><td>G45</td><td>919</td></tr><tr><td>RR31</td><td>881</td></tr><tr><td>G78</td><td>827</td></tr><tr><td>F78</td><td>754</td></tr><tr><td>G09</td><td>742</td></tr><tr><td>F56</td><td>532</td></tr><tr><td>G26</td><td>397</td></tr><tr><td>Digital Product only</td><td>345</td></tr><tr><td>U06</td><td>325</td></tr><tr><td>G08</td><td>289</td></tr><tr><td>G05</td><td>169</td></tr><tr><td>G50</td><td>122</td></tr><tr><td>RR45</td><td>95</td></tr><tr><td>U10</td><td>93</td></tr><tr><td>G06</td><td>82</td></tr><tr><td>NA8</td><td>79</td></tr><tr><td>G58</td><td>70</td></tr><tr><td>G30</td><td>66</td></tr><tr><td>G18</td><td>62</td></tr><tr><td>F44</td><td>56</td></tr><tr><td>G72</td><td>36</td></tr><tr><td>F49</td><td>27</td></tr><tr><td>G38</td><td>21</td></tr><tr><td>G66</td><td>17</td></tr><tr><td>I01</td><td>16</td></tr><tr><td>G65</td><td>11</td></tr><tr><td>F52</td><td>10</td></tr><tr><td>Legacy Model</td><td>9</td></tr><tr><td>RR21</td><td>9</td></tr><tr><td>G42</td><td>8</td></tr><tr><td>G01</td><td>6</td></tr><tr><td>G12</td><td>5</td></tr><tr><td>G60</td><td>4</td></tr><tr><td>F39</td><td>3</td></tr><tr><td>Undefined</td><td>2</td></tr><tr><td>RR11</td><td>1</td></tr></tbody></table>
+      </div>
+    </section>
+
+    <section>
+      <h2>A4. Test Execution and Defect Linkage</h2>
+      <table>
+        <thead><tr><th>Year</th><th>Linked executions</th><th>Linked rate</th><th>Linked Failed</th><th>Linked Passed</th></tr></thead>
+        <tbody>
+          <tr><td>2025</td><td>5345</td><td>5.2%</td><td>5089</td><td>71</td></tr>
+          <tr><td>2026</td><td>454</td><td>3.2%</td><td>447</td><td>3</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>B1. Core Defect KPI Overview</h2>
+      <table>
+        <thead><tr><th>Year</th><th>Total defects</th><th>BI-4 and below</th><th>Showstopper Confirmed</th><th>Preventing Maturity</th><th>Showstopper Candidate</th><th>06-Concluded</th></tr></thead>
+        <tbody><tr><td>2025</td><td>53604</td><td>15311</td><td>2783</td><td>33127</td><td>7049</td><td>18586</td></tr><tr><td>2026</td><td>19840</td><td>5919</td><td>201</td><td>9949</td><td>2742</td><td>5372</td></tr></tbody>
+      </table>
+    </section>
+
+    <section class="grid">
+      <div>
+        <h2>B2. CWA Blocking Reason Distribution</h2>
+        <table><thead><tr><th>Blocking reason</th><th>Count</th></tr></thead><tbody><tr><td>Child (Duplicate)</td><td>16964</td></tr><tr><td>Additional Information necessary</td><td>9905</td></tr><tr><td>Defect handling in supplier system</td><td>4495</td></tr><tr><td>Not reproducible</td><td>4213</td></tr><tr><td>Expected behaviour</td><td>3783</td></tr><tr><td>Management decision</td><td>809</td></tr><tr><td>Function not implemented/testable yet</td><td>755</td></tr><tr><td>Further traces necessary</td><td>743</td></tr><tr><td>User Error</td><td>436</td></tr><tr><td>Invalid Testcase</td><td>266</td></tr><tr><td>Insufficient Defect Quality</td><td>202</td></tr><tr><td>Tolerated</td><td>156</td></tr><tr><td>Not responsible</td><td>144</td></tr><tr><td>Measuring Tool Issue</td><td>85</td></tr><tr><td>CR - conceptional issue</td><td>44</td></tr><tr><td>Solution Survey</td><td>36</td></tr><tr><td>Under Survey</td><td>20</td></tr><tr><td>PQM Transfer</td><td>15</td></tr><tr><td>Solution insufficient</td><td>5</td></tr></tbody></table>
+      </div>
+      <div>
+        <h2>B3. CWA Three-Color Cluster</h2>
+        <table><thead><tr><th>Cluster</th><th>Count</th></tr></thead><tbody><tr><td>Green</td><td>52203</td></tr><tr><td>Red</td><td>21230</td></tr><tr><td>Unknown</td><td>11</td></tr></tbody></table>
+      </div>
+      <div>
+        <h2>B4. Ticket Matrix Distribution</h2>
+        <table><thead><tr><th>Matrix slice</th><th>Count</th></tr></thead><tbody><tr><td>2025 / IDCEVO / 09-Concluded without action</td><td>30629</td></tr><tr><td>2025 / IDCEVO / 06-Concluded</td><td>16361</td></tr><tr><td>2026 / IDCEVO / 09-Concluded without action</td><td>8633</td></tr><tr><td>2026 / IDCEVO / 06-Concluded</td><td>4800</td></tr><tr><td>2026 / IDCEVO / 04-In Progress</td><td>2368</td></tr><tr><td>2025 / IDC / 09-Concluded without action</td><td>2324</td></tr><tr><td>2025 / IDC / 06-Concluded</td><td>1229</td></tr><tr><td>2026 / IDCEVO / 01-New</td><td>779</td></tr><tr><td>2025 / MGU / 09-Concluded without action</td><td>604</td></tr><tr><td>2025 / App / 06-Concluded</td><td>467</td></tr><tr><td>2026 / IDC / 09-Concluded without action</td><td>434</td></tr><tr><td>2025 / Unknown / 09-Concluded without action</td><td>407</td></tr><tr><td>2026 / IDC / 06-Concluded</td><td>296</td></tr><tr><td>2026 / IDCEVO / 08-In Verification</td><td>285</td></tr><tr><td>2026 / IDC / 04-In Progress</td><td>243</td></tr><tr><td>2025 / App / 09-Concluded without action</td><td>236</td></tr><tr><td>2025 / Unknown / 06-Concluded</td><td>235</td></tr><tr><td>2025 / MGU / 06-Concluded</td><td>222</td></tr><tr><td>2026 / RSU / 09-Concluded without action</td><td>211</td></tr><tr><td>2025 / IDCEVO / 04-In Progress</td><td>198</td></tr><tr><td>2026 / IDCEVO / 02-In Pre-Analysis</td><td>172</td></tr><tr><td>2026 / IDCEVO / 03-In Analysis</td><td>169</td></tr><tr><td>2026 / IDC / 01-New</td><td>157</td></tr><tr><td>2026 / App / 06-Concluded</td><td>139</td></tr><tr><td>2026 / Unknown / 09-Concluded without action</td><td>124</td></tr><tr><td>2025 / RSU / 09-Concluded without action</td><td>119</td></tr><tr><td>2026 / MGU / 09-Concluded without action</td><td>111</td></tr><tr><td>2026 / App / 09-Concluded without action</td><td>87</td></tr><tr><td>2026 / IDCEVO / 05-In Testing</td><td>82</td></tr><tr><td>2025 / RSU / 06-Concluded</td><td>72</td></tr><tr><td>2025 / IDC / 04-In Progress</td><td>70</td></tr><tr><td>2025 / IDC / 01-New</td><td>70</td></tr><tr><td>2025 / MGU / 01-New</td><td>67</td></tr><tr><td>2026 / MGU / 04-In Progress</td><td>63</td></tr><tr><td>2025 / IDC / 08-In Verification</td><td>60</td></tr><tr><td>2026 / RSU / 06-Concluded</td><td>59</td></tr><tr><td>2026 / Unknown / 01-New</td><td>55</td></tr><tr><td>2026 / Unknown / 06-Concluded</td><td>53</td></tr><tr><td>2026 / IDC / 08-In Verification</td><td>52</td></tr><tr><td>2026 / App / 04-In Progress</td><td>46</td></tr><tr><td>2026 / MGU / 01-New</td><td>37</td></tr><tr><td>2026 / App / 01-New</td><td>35</td></tr><tr><td>2025 / IDCEVO / 01-New</td><td>33</td></tr><tr><td>2026 / IDC / 03-In Analysis</td><td>32</td></tr><tr><td>2026 / App / 08-In Verification</td><td>28</td></tr><tr><td>2026 / RSU / 04-In Progress</td><td>28</td></tr><tr><td>2025 / IDCEVO / 03-In Analysis</td><td>27</td></tr><tr><td>2026 / Unknown / 04-In Progress</td><td>27</td></tr><tr><td>2026 / MGU / 06-Concluded</td><td>25</td></tr><tr><td>2026 / IDCEVO / 00-Draft</td><td>25</td></tr><tr><td>2026 / IDC / 05-In Testing</td><td>22</td></tr><tr><td>2026 / MGU / 03-In Analysis</td><td>21</td></tr><tr><td>2025 / Unknown / 08-In Verification</td><td>20</td></tr><tr><td>2026 / RSU / 01-New</td><td>20</td></tr><tr><td>2025 / App / 01-New</td><td>18</td></tr><tr><td>2025 / IDCEVO / 08-In Verification</td><td>17</td></tr><tr><td>2025 / IDC / 03-In Analysis</td><td>17</td></tr><tr><td>2026 / IDCEVO / 07-In Pre-Verification</td><td>17</td></tr><tr><td>2025 / MGU / 08-In Verification</td><td>16</td></tr><tr><td>2026 / Unknown / 03-In Analysis</td><td>16</td></tr><tr><td>2025 / IDC / 05-In Testing</td><td>13</td></tr><tr><td>2025 / Unknown / 01-New</td><td>12</td></tr><tr><td>2026 / MGU / 08-In Verification</td><td>12</td></tr><tr><td>2025 / IDCEVO / 05-In Testing</td><td>11</td></tr><tr><td>2026 / IDC / 02-In Pre-Analysis</td><td>11</td></tr><tr><td>2025 / MGU / 03-In Analysis</td><td>10</td></tr><tr><td>2026 / Unknown / 08-In Verification</td><td>9</td></tr><tr><td>2026 / RSU / 08-In Verification</td><td>9</td></tr><tr><td>2025 / MGU / 04-In Progress</td><td>8</td></tr><tr><td>2025 / Unknown / 04-In Progress</td><td>8</td></tr><tr><td>2026 / IDC / 07-In Pre-Verification</td><td>8</td></tr><tr><td>2026 / App / 03-In Analysis</td><td>7</td></tr><tr><td>2025 / Unknown / 03-In Analysis</td><td>5</td></tr><tr><td>2026 / Unknown / 05-In Testing</td><td>5</td></tr><tr><td>2026 / MGU / 05-In Testing</td><td>5</td></tr><tr><td>2025 / App / 04-In Progress</td><td>4</td></tr><tr><td>2025 / App / 08-In Verification</td><td>4</td></tr><tr><td>2025 / App / 03-In Analysis</td><td>4</td></tr><tr><td>2026 / MGU / 02-In Pre-Analysis</td><td>4</td></tr><tr><td>2025 / MGU / 05-In Testing</td><td>3</td></tr><tr><td>2026 / Unknown / 02-In Pre-Analysis</td><td>3</td></tr><tr><td>2026 / App / 02-In Pre-Analysis</td><td>3</td></tr><tr><td>2026 / Unknown / 00-Draft</td><td>3</td></tr><tr><td>2026 / RSU / 03-In Analysis</td><td>2</td></tr><tr><td>2026 / RSU / 02-In Pre-Analysis</td><td>2</td></tr><tr><td>2026 / IDC / 00-Draft</td><td>2</td></tr><tr><td>2025 / RSU / 08-In Verification</td><td>1</td></tr><tr><td>2025 / Unknown / 05-In Testing</td><td>1</td></tr><tr><td>2025 / IDCEVO / 07-In Pre-Verification</td><td>1</td></tr><tr><td>2025 / IDC / 02-In Pre-Analysis</td><td>1</td></tr><tr><td>2026 / App / 05-In Testing</td><td>1</td></tr><tr><td>2026 / Unknown / 07-In Pre-Verification</td><td>1</td></tr><tr><td>2026 / MGU / 07-In Pre-Verification</td><td>1</td></tr><tr><td>2026 / App / 00-Draft</td><td>1</td></tr></tbody></table>
+      </div>
+      <div>
+        <h2>B5. Top 15 Submitters</h2>
+        <table><thead><tr><th>Submitter</th><th>Count</th></tr></thead><tbody><tr><td>QQTEE05</td><td>40509</td></tr><tr><td>Sven Luetticke</td><td>6672</td></tr><tr><td>BBA Sync</td><td>2191</td></tr><tr><td>Omid Pahlevan Sharif</td><td>997</td></tr><tr><td>Wei Yang</td><td>725</td></tr><tr><td>Emily Zheng</td><td>711</td></tr><tr><td>Jingpu Li</td><td>647</td></tr><tr><td>Weining Zhao</td><td>646</td></tr><tr><td>Paula Nippgen</td><td>593</td></tr><tr><td>Jingsheng Liang</td><td>568</td></tr><tr><td>Weiteng Wang</td><td>522</td></tr><tr><td>Linna Lu</td><td>515</td></tr><tr><td>Felipe Wu</td><td>510</td></tr><tr><td>Alexander Domanski</td><td>495</td></tr><tr><td>Adley Wong</td><td>473</td></tr></tbody></table>
+      </div>
+    </section>
+
+    <section class="grid">
+      <div>
+        <h2>C1. Showstopper Confirmed</h2>
+        <table><thead><tr><th>Team</th><th>Count</th></tr></thead><tbody><tr><td>IUK</td><td>92</td></tr><tr><td>[AT]CoC_EI_IuK</td><td>49</td></tr><tr><td>DIPS</td><td>26</td></tr><tr><td>Plant-Tiexi FIT</td><td>11</td></tr><tr><td>[AT]FIT_LAENDER_CHINA</td><td>4</td></tr><tr><td>Plant-Dadong FIT</td><td>3</td></tr><tr><td>DTSV_MUC_IuK</td><td>2</td></tr><tr><td>[AT]BBA_Basis-FIT</td><td>2</td></tr><tr><td>IuK_TSP_Navi</td><td>2</td></tr><tr><td>IuK_TSP_Stability_Performance</td><td>2</td></tr><tr><td>DTSV_China</td><td>2</td></tr><tr><td>IuK_TSP_Carfunctions</td><td>1</td></tr><tr><td>IuK_TSP_HMI</td><td>1</td></tr><tr><td>DIPS_TSP_MobileApps</td><td>1</td></tr><tr><td>Spotlight_FIT</td><td>1</td></tr><tr><td>IuK_TSP_Entertainment</td><td>1</td></tr><tr><td>Unknown</td><td>1</td></tr></tbody></table>
+      </div>
+      <div>
+        <h2>C2. Phase 09 (CWA)</h2>
+        <table><thead><tr><th>Team</th><th>Count</th></tr></thead><tbody><tr><td>IUK</td><td>6552</td></tr><tr><td>[AT]CoC_EI_IuK</td><td>1103</td></tr><tr><td>DIPS</td><td>763</td></tr><tr><td>Plant-Tiexi FIT</td><td>279</td></tr><tr><td>Unknown</td><td>273</td></tr><tr><td>Plant-Dadong FIT</td><td>142</td></tr><tr><td>[AT]FIT_LAENDER_CHINA</td><td>138</td></tr><tr><td>DTSV_China</td><td>112</td></tr><tr><td>[AT]BBA_Basis-FIT</td><td>104</td></tr><tr><td>Spotlight_FIT</td><td>37</td></tr><tr><td>IuK_TSP_Navi</td><td>20</td></tr><tr><td>IuK_TSP_HMI</td><td>17</td></tr><tr><td>DTSV_MUC_IuK</td><td>15</td></tr><tr><td>IuK_TSP_Entertainment</td><td>12</td></tr><tr><td>IuK_TSP_Stability_Performance</td><td>10</td></tr><tr><td>DIPS_TSP_CD_Updates</td><td>7</td></tr><tr><td>IuK_TSP_Connectivity</td><td>6</td></tr><tr><td>IuK_TSP_AZV</td><td>3</td></tr><tr><td>IuK_TSP_Carfunctions</td><td>2</td></tr><tr><td>IuK_TSP_Audio</td><td>2</td></tr><tr><td>DIPS_TSP_MobileApps</td><td>1</td></tr><tr><td>DIPS_TSP_eMob</td><td>1</td></tr><tr><td>Spotlight_DTSV_China</td><td>1</td></tr></tbody></table>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

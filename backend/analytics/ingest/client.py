@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+import concurrent.futures
 from typing import Any
 
 import requests
@@ -73,6 +74,8 @@ WORK_ITEM_RELATION_FIELDS: tuple[str, ...] = (
 )
 
 ProgressCallback = Callable[[str], None]
+COMMENT_DEFECT_ID_BATCH_SIZE = 100
+HISTORY_DEFECT_ID_BATCH_SIZE = 50
 
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -153,26 +156,34 @@ class OctaneApiClient:
         self._team_name_cache = {row["id"]: row["name"] for row in rows}
         return rows
 
-    def fetch_defects(self, *, team_id: str, year: int) -> list[dict[str, Any]]:
-        team_name = self._team_name_cache.get(str(team_id).strip(), str(team_id).strip())
-        safe_team = _escape_octane_text(team_name)
+    def fetch_defects(self, *, team_id: str, year: int, modified_since: str | None = None) -> list[dict[str, Any]]:
+        safe_team_id = _escape_octane_text(str(team_id).strip())
+        modified_since_clause = ""
+        if modified_since:
+            modified_since_clause = f"last_modified>='{_escape_octane_text(str(modified_since).strip())}';"
         query = (
-            f'"(creation_time>=\'{year}-01-01\';creation_time<=\'{year}-12-31\';'
-            f'((problem_finder_team_udf={{name=\'{safe_team}\'}})||(author={{name=\'{safe_team}\'}})||(team={{name=\'{safe_team}\'}})))"'
+            f'"(problem_finder_team_udf={{id=\'{safe_team_id}\'}};'
+            f"creation_time>='{year}-01-01T00:00:00Z';"
+            f"{modified_since_clause}"
+            f"creation_time<='{year}-12-31T23:59:59Z')\""
         )
         return self.fetch_rows(endpoint="defects", fields=DEFECT_FIELDS, query=query)
 
     def fetch_comments_for_defects(self, defect_ids: Sequence[str]) -> list[dict[str, Any]]:
-        normalized_ids = [str(defect_id).strip() for defect_id in defect_ids if str(defect_id).strip()]
+        normalized_ids = sorted({str(defect_id).strip() for defect_id in defect_ids if str(defect_id).strip()})
         if not normalized_ids:
             return []
-        id_expr = ",".join(f"'{_escape_octane_text(defect_id)}'" for defect_id in normalized_ids)
-        query = f'"(owner_work_item={{id IN {id_expr}}})"'
-        rows = self.fetch_rows(
-            endpoint="comments",
-            fields="id,author{full_name,name},text,creation_time,last_modified,owner_work_item{id,subtype}",
-            query=query,
-        )
+        rows: list[dict[str, Any]] = []
+        for batch_ids in _chunked(normalized_ids, COMMENT_DEFECT_ID_BATCH_SIZE):
+            id_expr = ",".join(f"'{_escape_octane_text(defect_id)}'" for defect_id in batch_ids)
+            query = f'"(owner_work_item={{id IN {id_expr}}})"'
+            rows.extend(
+                self.fetch_rows(
+                    endpoint="comments",
+                    fields="id,author{full_name,name},text,creation_time,last_modified,owner_work_item{id,subtype}",
+                    query=query,
+                )
+            )
         for row in rows:
             owner = row.get("owner_work_item") or {}
             if isinstance(owner, dict):
@@ -181,8 +192,117 @@ class OctaneApiClient:
 
     def fetch_history(self, *, defect_id: str) -> dict[str, Any]:
         query = f'"(entity_id=\'{_escape_octane_text(str(defect_id).strip())}\';entity_type=\'defect\')"'
-        rows = self.fetch_rows(endpoint="history_logs", fields=HISTORY_FIELDS, query=query, limit=10000)
+        return self._fetch_history_payload(query=query)
+
+    def _history_query(self, *, defect_ids: Sequence[str], modified_since: str | None = None) -> str:
+        if len(defect_ids) == 1:
+            entity_clause = f"entity_id='{_escape_octane_text(str(defect_ids[0]).strip())}'"
+        else:
+            id_expr = ",".join(f"'{_escape_octane_text(defect_id)}'" for defect_id in defect_ids)
+            entity_clause = f"entity_id IN {id_expr}"
+        since_clause = ""
+        if modified_since:
+            since_clause = f";timestamp>='{_escape_octane_text(str(modified_since).strip())}'"
+        return f'"({entity_clause};entity_type=\'defect\'{since_clause})"'
+
+    def _fetch_history_payload(self, *, query: str) -> dict[str, Any]:
+        offset = 0
+        limit = 10000
+        rows: list[dict[str, Any]] = []
+        total_count: int | None = None
+        while True:
+            response = self._session.get(
+                f"{self._api_base}/history_logs",
+                params={
+                    "query": query,
+                    "limit": limit,
+                    "offset": offset,
+                    "order_by": "-timestamp",
+                },
+                timeout=90,
+                verify=False,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            batch = [row for row in list(payload.get("data") or []) if isinstance(row, dict)]
+            rows.extend(batch)
+            if total_count is None:
+                try:
+                    total_count = int(payload.get("total_count")) if payload.get("total_count") is not None else None
+                except (TypeError, ValueError):
+                    total_count = None
+            if len(batch) < limit:
+                break
+            if total_count is not None and len(rows) >= total_count:
+                break
+            offset += limit
         return {"data": rows, "total_count": len(rows)}
+
+    def _fetch_history_batch(self, batch_ids: Sequence[str], *, modified_since: str | None = None) -> dict[str, dict[str, Any]]:
+        if not batch_ids:
+            return {}
+        if len(batch_ids) == 1:
+            defect_id = str(batch_ids[0]).strip()
+            query = self._history_query(defect_ids=(defect_id,), modified_since=modified_since)
+            return {defect_id: self._fetch_history_payload(query=query)}
+
+        query = self._history_query(defect_ids=batch_ids, modified_since=modified_since)
+        payload = self._fetch_history_payload(query=query)
+        grouped_rows = {defect_id: [] for defect_id in batch_ids}
+        for row in list(payload.get("data") or []):
+            if not isinstance(row, dict):
+                continue
+            entity_id = str(row.get("entity_id") or "").strip()
+            if entity_id in grouped_rows:
+                grouped_rows[entity_id].append(row)
+        return {
+            defect_id: {"data": grouped_rows[defect_id], "total_count": len(grouped_rows[defect_id])}
+            for defect_id in batch_ids
+        }
+
+    def fetch_histories_for_defects(
+        self,
+        defect_ids: Sequence[str],
+        *,
+        max_workers: int = 1,
+        modified_since_by_defect: dict[str, str | None] | None = None,
+    ) -> dict[str, dict[str, Any]]:
+        normalized_ids = sorted({str(defect_id).strip() for defect_id in defect_ids if str(defect_id).strip()})
+        if not normalized_ids:
+            return {}
+        results: dict[str, dict[str, Any]] = {}
+        since_by_defect = modified_since_by_defect or {}
+        if modified_since_by_defect:
+            full_refresh_ids = [defect_id for defect_id in normalized_ids if since_by_defect.get(defect_id) is None]
+            incremental_refresh_ids = [defect_id for defect_id in normalized_ids if since_by_defect.get(defect_id) is not None]
+            batches = _chunked(full_refresh_ids, HISTORY_DEFECT_ID_BATCH_SIZE) + _chunked(
+                incremental_refresh_ids,
+                HISTORY_DEFECT_ID_BATCH_SIZE,
+            )
+        else:
+            batches = _chunked(normalized_ids, HISTORY_DEFECT_ID_BATCH_SIZE)
+        effective_workers = max(1, min(int(max_workers or 1), 8, len(batches)))
+
+        def batch_since(batch_ids: Sequence[str]) -> str | None:
+            since_values = [since_by_defect.get(defect_id) for defect_id in batch_ids]
+            if any(value is None for value in since_values):
+                return None
+            normalized_since = [str(value).strip() for value in since_values if str(value or "").strip()]
+            return min(normalized_since) if normalized_since else None
+
+        if effective_workers == 1:
+            for batch_ids in batches:
+                results.update(self._fetch_history_batch(batch_ids, modified_since=batch_since(batch_ids)))
+            return results
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=effective_workers) as executor:
+            future_to_batch = {
+                executor.submit(self._fetch_history_batch, batch_ids, modified_since=batch_since(batch_ids)): batch_ids
+                for batch_ids in batches
+            }
+            for future in concurrent.futures.as_completed(future_to_batch):
+                results.update(future.result())
+        return results
 
     def fetch_manual_runs(
         self,

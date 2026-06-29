@@ -284,6 +284,113 @@ def test_rows_from_octane_defects_flattens_comments_from_sqlite(tmp_path):
     assert "<p>" not in rows[0]["comments"]
 
 
+def test_rows_from_octane_defects_prefilters_excluded_phases_before_comment_processing(tmp_path):
+    bridge = _load_duplicate_search_bridge_module()
+    db_path = tmp_path / "qgate_data.db"
+
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.execute(
+            """
+            CREATE TABLE octane_defects (
+                defect_id TEXT,
+                name TEXT,
+                description TEXT,
+                project TEXT,
+                pu TEXT,
+                software_version TEXT,
+                status_phase TEXT,
+                assigned_ecu TEXT,
+                lead_model TEXT,
+                detected_in_release TEXT,
+                comments TEXT
+            )
+            """
+        )
+        conn.executemany(
+            """
+            INSERT INTO octane_defects (
+                defect_id,
+                name,
+                description,
+                project,
+                pu,
+                software_version,
+                status_phase,
+                assigned_ecu,
+                lead_model,
+                detected_in_release,
+                comments
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    "1",
+                    "Excluded ticket",
+                    "Should never be preprocessed.",
+                    "IDCEVO",
+                    "27-07",
+                    "27-07",
+                    "09-Concluded without action",
+                    "HU-H5",
+                    "G60",
+                    "EES27",
+                    json.dumps([{"text": "expensive comment"}]),
+                ),
+                (
+                    "2",
+                    "Active ticket",
+                    "Should remain searchable.",
+                    "IDCEVO",
+                    "27-07",
+                    "27-07",
+                    "03-In Analysis",
+                    "HU-H5",
+                    "G60",
+                    "EES27",
+                    json.dumps([{"text": "active comment"}]),
+                ),
+            ],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    rows = bridge._rows_from_octane_defects(db_path)
+
+    assert [row["id"] for row in rows] == ["2"]
+
+
+def test_rows_from_defect_file_prefilters_excluded_phases_before_comment_processing(tmp_path):
+    bridge = _load_duplicate_search_bridge_module()
+    file_path = tmp_path / "defects.json"
+    file_path.write_text(
+        json.dumps(
+            [
+                {
+                    "id": "1",
+                    "name": "Excluded ticket",
+                    "description": "Should be skipped early.",
+                    "status_phase": "06-Concluded",
+                    "comments": [{"text": "ignore this comment"}],
+                },
+                {
+                    "id": "2",
+                    "name": "Active ticket",
+                    "description": "Should remain.",
+                    "status_phase": "03-In Analysis",
+                    "comments": [{"text": "keep this comment"}],
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    rows = bridge._rows_from_defect_file(file_path)
+
+    assert [row["id"] for row in rows] == ["2"]
+
+
 def test_build_comment_views_prefers_analysis_text_and_drops_workflow_noise():
     bridge = _load_duplicate_search_bridge_module()
 

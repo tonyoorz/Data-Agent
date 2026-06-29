@@ -88,7 +88,7 @@ def build_feature_region_sql_expr(
     )
 
 
-def build_tpmdashboard_project_sql_expr(
+def build_reference_project_sql_expr(
     *,
     name_expr: str,
     target_ecu_conf_expr: str,

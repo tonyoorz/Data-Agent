@@ -14,7 +14,8 @@
     "preview": "vite preview",
     "start": "node ./server/index.mjs",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "report:qgate-kpi": "python -m backend.analytics_cli generate-qgate-kpi-reports"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

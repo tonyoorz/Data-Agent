@@ -113,6 +113,20 @@ TESTCASE_RELATION_ADDITIONAL_COLUMNS: dict[str, str] = {
     "related_path": "TEXT",
 }
 
+COMMENT_REFRESH_STATE_COLUMNS: dict[str, str] = {
+    "defect_id": "TEXT NOT NULL PRIMARY KEY",
+    "defect_last_modified": "TEXT NOT NULL",
+    "comments_json": "TEXT NOT NULL",
+    "refreshed_at": "TEXT NOT NULL",
+}
+
+HISTORY_REFRESH_STATE_COLUMNS: dict[str, str] = {
+    "defect_id": "TEXT NOT NULL PRIMARY KEY",
+    "defect_last_modified": "TEXT NOT NULL",
+    "last_history_event_timestamp": "TEXT",
+    "last_history_checked_at": "TEXT NOT NULL",
+}
+
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
@@ -243,7 +257,56 @@ class OctaneSourceStore:
         self._ensure_columns("octane_manual_runs", MANUAL_RUN_EXTRA_COLUMNS)
         self._ensure_columns("octane_testcases", TESTCASE_ADDITIONAL_COLUMNS)
         self._ensure_columns("octane_testcase_relations", TESTCASE_RELATION_ADDITIONAL_COLUMNS)
+        self._ensure_comment_refresh_state_table()
+        self._ensure_history_refresh_state_table()
+        self._conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_octane_defect_history_events_defect_timestamp
+            ON octane_defect_history_events(defect_id, event_timestamp)
+            """
+        )
         self._conn.commit()
+
+    def _ensure_comment_refresh_state_table(self) -> None:
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS octane_defect_comment_refresh_state (
+                defect_id TEXT NOT NULL PRIMARY KEY,
+                defect_last_modified TEXT NOT NULL,
+                comments_json TEXT NOT NULL,
+                refreshed_at TEXT NOT NULL
+            )
+            """
+        )
+        self._ensure_columns(
+            "octane_defect_comment_refresh_state",
+            {
+                "defect_last_modified": "TEXT NOT NULL DEFAULT ''",
+                "last_defect_modified": "TEXT NOT NULL DEFAULT ''",
+                "comments_json": "TEXT NOT NULL DEFAULT '[]'",
+                "refreshed_at": "TEXT NOT NULL DEFAULT ''",
+            },
+        )
+
+    def _ensure_history_refresh_state_table(self) -> None:
+        self._conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS octane_defect_history_refresh_state (
+                defect_id TEXT NOT NULL PRIMARY KEY,
+                defect_last_modified TEXT NOT NULL,
+                last_history_event_timestamp TEXT,
+                last_history_checked_at TEXT NOT NULL
+            )
+            """
+        )
+        self._ensure_columns(
+            "octane_defect_history_refresh_state",
+            {
+                "defect_last_modified": "TEXT NOT NULL DEFAULT ''",
+                "last_history_event_timestamp": "TEXT",
+                "last_history_checked_at": "TEXT NOT NULL DEFAULT ''",
+            },
+        )
 
     def _ensure_columns(self, table_name: str, columns: dict[str, str]) -> None:
         existing_columns = {
@@ -275,6 +338,134 @@ class OctaneSourceStore:
             f"ON CONFLICT({conflict_target}) DO UPDATE SET {assignments}"
         )
         self._conn.executemany(sql, rows)
+
+    def load_comment_snapshots(self, defect_ids: list[str]) -> dict[str, dict[str, str]]:
+        normalized_ids = [str(defect_id).strip() for defect_id in defect_ids if str(defect_id).strip()]
+        if not normalized_ids:
+            return {}
+
+        snapshots: dict[str, dict[str, str]] = {}
+        for start_index in range(0, len(normalized_ids), SQLITE_MAX_QUERY_VARIABLES):
+            batch_ids = normalized_ids[start_index : start_index + SQLITE_MAX_QUERY_VARIABLES]
+            placeholders = ", ".join("?" for _ in batch_ids)
+            rows = self._conn.execute(
+                f"""
+                SELECT
+                    d.defect_id,
+                    CASE WHEN s.defect_id IS NULL THEN 0 ELSE 1 END AS has_refresh_state,
+                    COALESCE(NULLIF(TRIM(CAST(s.defect_last_modified AS TEXT)), ''), NULLIF(TRIM(CAST(s.last_defect_modified AS TEXT)), ''), NULLIF(TRIM(CAST(d.last_modified AS TEXT)), '')) AS defect_last_modified,
+                    COALESCE(NULLIF(TRIM(CAST(s.comments_json AS TEXT)), ''), NULLIF(TRIM(CAST(d.comments AS TEXT)), '')) AS comments_json
+                FROM octane_defects d
+                LEFT JOIN octane_defect_comment_refresh_state s ON s.defect_id = d.defect_id
+                WHERE d.defect_id IN ({placeholders})
+                """,
+                batch_ids,
+            ).fetchall()
+            for row in rows:
+                snapshots[str(row["defect_id"])] = {
+                    "has_refresh_state": "1" if int(row["has_refresh_state"] or 0) else "0",
+                    "defect_last_modified": str(row["defect_last_modified"] or "").strip(),
+                    "comments_json": str(row["comments_json"] or "").strip(),
+                }
+        return snapshots
+
+    def record_comment_refresh_state(self, rows: list[tuple[str, str, str]]) -> None:
+        if not rows:
+            return
+        refreshed_at = _utc_now()
+        existing_columns = {
+            str(row[1]).strip()
+            for row in self._conn.execute("PRAGMA table_info(octane_defect_comment_refresh_state)").fetchall()
+        }
+        columns = ["defect_id", "defect_last_modified", "comments_json", "refreshed_at"]
+        if "last_defect_modified" in existing_columns:
+            columns.insert(2, "last_defect_modified")
+        if "last_synced_at" in existing_columns:
+            columns.append("last_synced_at")
+        placeholders = ", ".join("?" for _ in columns)
+        assignments = ", ".join(
+            f"{column}=excluded.{column}"
+            for column in columns
+            if column != "defect_id"
+        )
+        values: list[tuple[object, ...]] = []
+        for defect_id, last_modified, comments_json in rows:
+            row_values: list[object] = [defect_id, last_modified, comments_json, refreshed_at]
+            if "last_defect_modified" in existing_columns:
+                row_values.insert(2, last_modified)
+            if "last_synced_at" in existing_columns:
+                row_values.append(refreshed_at)
+            values.append(tuple(row_values))
+        self._conn.executemany(
+            f"""
+            INSERT INTO octane_defect_comment_refresh_state({', '.join(columns)})
+            VALUES ({placeholders})
+            ON CONFLICT(defect_id) DO UPDATE SET {assignments}
+            """,
+            values,
+        )
+
+    def plan_history_refreshes(self, defects: list[dict[str, Any]]) -> tuple[dict[str, str | None], int]:
+        defect_last_modified = {
+            str(row.get("id") or "").strip(): str(row.get("last_modified") or "").strip()
+            for row in defects
+            if str(row.get("id") or "").strip()
+        }
+        defect_ids = sorted(defect_last_modified)
+        if not defect_ids:
+            return {}, 0
+
+        latest_history: dict[str, dict[str, str]] = {}
+        history_state: dict[str, dict[str, str]] = {}
+        for start_index in range(0, len(defect_ids), SQLITE_MAX_QUERY_VARIABLES):
+            batch_ids = defect_ids[start_index : start_index + SQLITE_MAX_QUERY_VARIABLES]
+            placeholders = ", ".join("?" for _ in batch_ids)
+            rows = self._conn.execute(
+                f"""
+                SELECT
+                    defect_id,
+                    MAX(event_timestamp) AS last_history_event_timestamp,
+                    MAX(fetched_at) AS latest_fetched_at
+                FROM octane_defect_history_events
+                WHERE defect_id IN ({placeholders})
+                GROUP BY defect_id
+                """,
+                batch_ids,
+            ).fetchall()
+            for row in rows:
+                latest_history[str(row["defect_id"])] = {
+                    "last_history_event_timestamp": str(row["last_history_event_timestamp"] or "").strip(),
+                    "latest_fetched_at": str(row["latest_fetched_at"] or "").strip(),
+                }
+
+            state_rows = self._conn.execute(
+                f"""
+                SELECT defect_id, last_history_event_timestamp, last_history_checked_at
+                FROM octane_defect_history_refresh_state
+                WHERE defect_id IN ({placeholders})
+                """,
+                batch_ids,
+            ).fetchall()
+            for row in state_rows:
+                history_state[str(row["defect_id"])] = {
+                    "last_history_event_timestamp": str(row["last_history_event_timestamp"] or "").strip(),
+                    "last_history_checked_at": str(row["last_history_checked_at"] or "").strip(),
+                }
+
+        refresh_since: dict[str, str | None] = {}
+        for defect_id in defect_ids:
+            state = history_state.get(defect_id, {})
+            latest = latest_history.get(defect_id, {})
+            last_checked_at = state.get("last_history_checked_at") or latest.get("latest_fetched_at") or ""
+            last_event_timestamp = state.get("last_history_event_timestamp") or latest.get("last_history_event_timestamp") or ""
+            modified_at = defect_last_modified.get(defect_id, "")
+            if not last_checked_at or (modified_at and modified_at > last_checked_at):
+                refresh_since[defect_id] = last_event_timestamp or None
+        return refresh_since, len(defect_ids) - len(refresh_since)
+
+    def filter_stale_history_defect_ids(self, defects: list[dict[str, Any]]) -> tuple[list[str], int]:
+        refresh_since, skipped_count = self.plan_history_refreshes(defects)
+        return sorted(refresh_since), skipped_count
 
     def upsert_defects(self, defects: list[dict[str, Any]], *, team: str, year: int | None = None) -> int:
         defect_ids = [str(row.get("id") or "").strip() for row in defects if str(row.get("id") or "").strip()]
@@ -373,6 +564,147 @@ class OctaneSourceStore:
         self._conn.commit()
         return len(payload)
 
+    def _history_event_rows_from_payload(
+        self,
+        *,
+        defect_id: str,
+        payload: dict[str, Any],
+        team: str = "",
+        min_event_timestamp: str | None = None,
+        fetched_at: str | None = None,
+        start_entry_index: int = 0,
+    ) -> list[tuple[object, ...]]:
+        normalized_defect_id = str(defect_id or "").strip()
+        if not normalized_defect_id:
+            return []
+        resolved_fetched_at = fetched_at or _utc_now()
+        min_timestamp = str(min_event_timestamp or "").strip()
+        rows: list[tuple[object, ...]] = []
+        for entry_index, entry in enumerate(list(payload.get("data") or [])):
+            if not isinstance(entry, dict):
+                continue
+            event_timestamp = str(entry.get("timestamp") or "").strip()
+            if min_timestamp and event_timestamp and event_timestamp < min_timestamp:
+                continue
+            stored_entry_index = int(start_entry_index) + len({row[9] for row in rows})
+            change_set = list(entry.get("change_set") or [])
+            if not change_set:
+                row = (
+                    normalized_defect_id,
+                    event_timestamp,
+                    "",
+                    "",
+                    "",
+                    resolved_fetched_at,
+                    str(entry.get("action") or "").strip(),
+                    _coalesce(_nested_value(entry.get("user"), "full_name"), _nested_value(entry.get("user"), "name"), _scalar_text(entry.get("user"))),
+                    team,
+                    stored_entry_index,
+                    0,
+                    "",
+                    "",
+                )
+                rows.append(row)
+                continue
+            for change_index, change in enumerate(change_set):
+                if not isinstance(change, dict):
+                    continue
+                row = (
+                    normalized_defect_id,
+                    event_timestamp,
+                    str(change.get("field_name") or "").strip(),
+                    str(change.get("old_value") or "").strip(),
+                    str(change.get("value") or change.get("new_value") or "").strip(),
+                    resolved_fetched_at,
+                    str(entry.get("action") or "").strip(),
+                    _coalesce(_nested_value(entry.get("user"), "full_name"), _nested_value(entry.get("user"), "name"), _scalar_text(entry.get("user"))),
+                    team,
+                    stored_entry_index,
+                    change_index,
+                    str(change.get("old_value_text") or change.get("old_value") or "").strip(),
+                    str(change.get("value_text") or change.get("new_value_text") or change.get("value") or "").strip(),
+                )
+                rows.append(row)
+
+        return rows
+
+    def _min_history_payload_timestamp(self, payload: dict[str, Any], *, min_event_timestamp: str | None = None) -> str:
+        min_timestamp = str(min_event_timestamp or "").strip()
+        timestamps = []
+        for entry in list(payload.get("data") or []):
+            if not isinstance(entry, dict):
+                continue
+            event_timestamp = str(entry.get("timestamp") or "").strip()
+            if not event_timestamp:
+                continue
+            if min_timestamp and event_timestamp < min_timestamp:
+                continue
+            timestamps.append(event_timestamp)
+        return min(timestamps) if timestamps else ""
+
+    def _next_history_entry_index(self, defect_id: str) -> int:
+        row = self._conn.execute(
+            """
+            SELECT MAX(COALESCE(entry_index, 0)) AS max_entry_index
+            FROM octane_defect_history_events
+            WHERE defect_id = ?
+            """,
+            (defect_id,),
+        ).fetchone()
+        if row is None or row["max_entry_index"] is None:
+            return 0
+        return int(row["max_entry_index"] or 0) + 1
+
+    def _insert_history_event_rows(self, rows: list[tuple[object, ...]]) -> None:
+        if not rows:
+            return
+        insert_columns = [
+            "defect_id",
+            "event_timestamp",
+            "field_name",
+            "old_value",
+            "new_value",
+            "fetched_at",
+            "action",
+            "user_name",
+            "team",
+            "entry_index",
+            "change_index",
+            "old_value_text",
+            "new_value_text",
+        ]
+        placeholders = ", ".join("?" for _ in insert_columns)
+        self._conn.executemany(
+            f"INSERT INTO octane_defect_history_events({', '.join(insert_columns)}) VALUES ({placeholders})",
+            rows,
+        )
+
+    def _record_history_refresh_state(self, *, defect_id: str, defect_last_modified: str = "") -> None:
+        normalized_defect_id = str(defect_id or "").strip()
+        if not normalized_defect_id:
+            return
+        row = self._conn.execute(
+            """
+            SELECT MAX(event_timestamp) AS last_history_event_timestamp
+            FROM octane_defect_history_events
+            WHERE defect_id = ?
+            """,
+            (normalized_defect_id,),
+        ).fetchone()
+        last_history_event_timestamp = str(row["last_history_event_timestamp"] or "").strip() if row else ""
+        self._conn.execute(
+            """
+            INSERT INTO octane_defect_history_refresh_state(
+                defect_id, defect_last_modified, last_history_event_timestamp, last_history_checked_at
+            ) VALUES (?, ?, ?, ?)
+            ON CONFLICT(defect_id) DO UPDATE SET
+                defect_last_modified=excluded.defect_last_modified,
+                last_history_event_timestamp=excluded.last_history_event_timestamp,
+                last_history_checked_at=excluded.last_history_checked_at
+            """,
+            (normalized_defect_id, str(defect_last_modified or "").strip(), last_history_event_timestamp, _utc_now()),
+        )
+
     def replace_defect_history_events(
         self,
         *,
@@ -384,90 +716,52 @@ class OctaneSourceStore:
         normalized_defect_id = str(defect_id or "").strip()
         if not normalized_defect_id:
             return 0
-        fetched_at = _utc_now()
-        history_columns = {
-            str(row[1]).strip().lower()
-            for row in self._conn.execute("PRAGMA table_info(octane_defect_history_events)").fetchall()
-        }
-        include_raw_event_json = "raw_event_json" in history_columns
-        include_raw_change_json = "raw_change_json" in history_columns
-        rows: list[tuple[object, ...]] = []
-        for entry_index, entry in enumerate(list(payload.get("data") or [])):
-            if not isinstance(entry, dict):
-                continue
-            change_set = list(entry.get("change_set") or [])
-            if not change_set:
-                row = (
-                    normalized_defect_id,
-                    str(entry.get("timestamp") or "").strip(),
-                    "",
-                    "",
-                    "",
-                    fetched_at,
-                    str(entry.get("action") or "").strip(),
-                    _coalesce(_nested_value(entry.get("user"), "full_name"), _nested_value(entry.get("user"), "name"), _scalar_text(entry.get("user"))),
-                    team,
-                    entry_index,
-                    0,
-                    "",
-                    "",
-                )
-                if include_raw_event_json:
-                    row += (_json_text(entry),)
-                if include_raw_change_json:
-                    row += (_json_text({}),)
-                rows.append(row)
-                continue
-            for change_index, change in enumerate(change_set):
-                if not isinstance(change, dict):
-                    continue
-                row = (
-                    normalized_defect_id,
-                    str(entry.get("timestamp") or "").strip(),
-                    str(change.get("field_name") or "").strip(),
-                    str(change.get("old_value") or "").strip(),
-                    str(change.get("value") or change.get("new_value") or "").strip(),
-                    fetched_at,
-                    str(entry.get("action") or "").strip(),
-                    _coalesce(_nested_value(entry.get("user"), "full_name"), _nested_value(entry.get("user"), "name"), _scalar_text(entry.get("user"))),
-                    team,
-                    entry_index,
-                    change_index,
-                    str(change.get("old_value_text") or change.get("old_value") or "").strip(),
-                    str(change.get("value_text") or change.get("new_value_text") or change.get("value") or "").strip(),
-                )
-                if include_raw_event_json:
-                    row += (_json_text(entry),)
-                if include_raw_change_json:
-                    row += (_json_text(change),)
-                rows.append(row)
+        rows = self._history_event_rows_from_payload(defect_id=normalized_defect_id, payload=payload, team=team)
 
         self._conn.execute("DELETE FROM octane_defect_history_events WHERE defect_id=?", (normalized_defect_id,))
-        if rows:
-            insert_columns = [
-                "defect_id",
-                "event_timestamp",
-                "field_name",
-                "old_value",
-                "new_value",
-                "fetched_at",
-                "action",
-                "user_name",
-                "team",
-                "entry_index",
-                "change_index",
-                "old_value_text",
-                "new_value_text",
-            ]
-            if include_raw_event_json:
-                insert_columns.append("raw_event_json")
-            if include_raw_change_json:
-                insert_columns.append("raw_change_json")
-            placeholders = ", ".join("?" for _ in insert_columns)
-            self._conn.executemany(
-                f"INSERT INTO octane_defect_history_events({', '.join(insert_columns)}) VALUES ({placeholders})",
-                rows,
+        self._insert_history_event_rows(rows)
+        self._record_history_refresh_state(defect_id=normalized_defect_id)
+        if commit:
+            self._conn.commit()
+        return len(rows)
+
+    def upsert_defect_history_events(
+        self,
+        *,
+        defect_id: str,
+        payload: dict[str, Any],
+        team: str = "",
+        modified_since: str | None = None,
+        defect_last_modified: str = "",
+        commit: bool = True,
+    ) -> int:
+        normalized_defect_id = str(defect_id or "").strip()
+        if not normalized_defect_id:
+            return 0
+        normalized_since = str(modified_since or "").strip()
+        delete_from_timestamp = self._min_history_payload_timestamp(
+            payload,
+            min_event_timestamp=normalized_since or None,
+        )
+        if normalized_since and delete_from_timestamp:
+            self._conn.execute(
+                """
+                DELETE FROM octane_defect_history_events
+                WHERE defect_id = ? AND COALESCE(event_timestamp, '') >= ?
+                """,
+                (normalized_defect_id, delete_from_timestamp),
             )
+        elif not normalized_since:
+            self._conn.execute("DELETE FROM octane_defect_history_events WHERE defect_id=?", (normalized_defect_id,))
+        rows = self._history_event_rows_from_payload(
+            defect_id=normalized_defect_id,
+            payload=payload,
+            team=team,
+            min_event_timestamp=normalized_since or None,
+            start_entry_index=self._next_history_entry_index(normalized_defect_id) if normalized_since else 0,
+        )
+        self._insert_history_event_rows(rows)
+        self._record_history_refresh_state(defect_id=normalized_defect_id, defect_last_modified=defect_last_modified)
         if commit:
             self._conn.commit()
         return len(rows)

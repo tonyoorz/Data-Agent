@@ -71,6 +71,14 @@ def ensure_schema(db_path: Path | str) -> None:
                 new_value TEXT,
                 fetched_at TEXT NOT NULL
             );
+            CREATE INDEX IF NOT EXISTS idx_octane_defect_history_events_defect_timestamp
+                ON octane_defect_history_events(defect_id, event_timestamp);
+            CREATE TABLE IF NOT EXISTS octane_defect_history_refresh_state (
+                defect_id TEXT NOT NULL PRIMARY KEY,
+                defect_last_modified TEXT NOT NULL,
+                last_history_event_timestamp TEXT,
+                last_history_checked_at TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS octane_manual_runs (
                 mr_id TEXT PRIMARY KEY,
                 defect_id TEXT,

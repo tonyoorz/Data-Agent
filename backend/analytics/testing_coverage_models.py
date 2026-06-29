@@ -16,7 +16,7 @@ from backend.analytics.db import connect
 from backend.analytics.testing_coverage_reference import (
     build_feature_region_sql_expr,
     build_iso_test_week_sql_expr,
-    build_tpmdashboard_project_sql_expr,
+    build_reference_project_sql_expr,
 )
 
 
@@ -336,7 +336,7 @@ def _source_testing_dataset_query(conn: sqlite3.Connection) -> str:
         finished_expr=_optional_expr("mr", manual_run_columns, "finished", "finished_udf"),
         fallback_test_week_expr=_optional_expr("d", defect_columns, "test_week"),
     )
-    project_expr = build_tpmdashboard_project_sql_expr(
+    project_expr = build_reference_project_sql_expr(
         name_expr=_optional_expr("mr", manual_run_columns, "name", "test_name"),
         target_ecu_conf_expr=_optional_expr("mr", manual_run_columns, "target_ecu_conf", "target_ecu_conf_udf"),
         top_aida_expr=top_aida_expr,

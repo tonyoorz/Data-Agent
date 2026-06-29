@@ -25,6 +25,7 @@ from progressive_reranker import get_progressive_reranker
 
 
 _DEFECT_DF_CACHE: Dict[str, Dict[str, Any]] = {}
+_DUPSEARCH_EXCLUDED_PHASE_PREFIXES = ('00-', '06-', '09-')
 
 
 def _elapsed_ms(started_at: float) -> float:
@@ -38,6 +39,13 @@ def _strip_html(text: str) -> str:
     clean = unescape(clean)
     clean = re.sub(r'\s+', ' ', clean)
     return clean.strip()
+
+
+def _phase_is_prefilter_excluded(value: Any) -> bool:
+    phase = str(value or '').strip().lower()
+    if not phase:
+        return False
+    return any(phase.startswith(prefix.lower()) for prefix in _DUPSEARCH_EXCLUDED_PHASE_PREFIXES)
 
 
 def _flatten_comments(value: Any) -> str:
@@ -386,6 +394,13 @@ def _rows_from_defect_file(file_path: Path) -> List[Dict[str, Any]]:
     for raw in data if isinstance(data, list) else []:
         if not isinstance(raw, dict):
             continue
+        phase = _pick_scalar(raw.get('status_phase'))
+        if not phase:
+            phase_obj = raw.get('phase')
+            if isinstance(phase_obj, dict):
+                phase = _pick_scalar(phase_obj.get('name'))
+        if _phase_is_prefilter_excluded(phase):
+            continue
         title = str(raw.get('name') or '').strip()
         description = _strip_html(str(raw.get('description') or ''))
         comments = _flatten_comments(raw.get('comments'))
@@ -403,12 +418,6 @@ def _rows_from_defect_file(file_path: Path) -> List[Dict[str, Any]]:
 
         project = _pick_scalar(raw.get('project')) or hints.project
         pu = _pick_scalar(raw.get('pu')) or _extract_pu_from_version(_pick_scalar(raw.get('software_version_udf'))) or hints.pu
-        phase = _pick_scalar(raw.get('status_phase'))
-        if not phase:
-            phase_obj = raw.get('phase')
-            if isinstance(phase_obj, dict):
-                phase = _pick_scalar(phase_obj.get('name'))
-
         rows.append(
             {
                 'id': str(raw.get('id') or '').strip(),
@@ -468,6 +477,12 @@ def _rows_from_octane_defects(sqlite_path: Path) -> List[Dict[str, Any]]:
             lead_model,
             detected_in_release
         FROM octane_defects
+        WHERE status_phase IS NULL
+           OR (
+                status_phase NOT LIKE '00-%'
+            AND status_phase NOT LIKE '06-%'
+            AND status_phase NOT LIKE '09-%'
+           )
     '''
         df = pd.read_sql_query(query, connection)
 

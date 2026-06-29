@@ -39,7 +39,8 @@ interface Attachment {
   id: string;
   name: string;
   kind: "image" | "file";
-  dataUrl?: string; // for images, base64
+  mimeType?: string;
+  dataUrl?: string;
   size: number;
 }
 interface Msg {
@@ -59,7 +60,6 @@ interface Conversation {
 }
 
 const STORAGE_KEY = "dtsv.chat.v2";
-
 function createId() {
   if (typeof globalThis.crypto?.randomUUID === "function") {
     return globalThis.crypto.randomUUID();
@@ -90,6 +90,16 @@ const newConversation = (): Conversation => ({
 });
 
 const newId = () => createId();
+
+function pickPreferredAudioInputId(devices: MediaDeviceInfo[], current = "") {
+  const preferred = devices.find((device) => {
+    const label = device.label.toLowerCase();
+    return /headset|headphone|earphone|airpods|bluetooth|耳机|耳麦/.test(label);
+  });
+  if (preferred?.deviceId) return preferred.deviceId;
+  if (current && devices.some((device) => device.deviceId === current)) return current;
+  return devices.find((device) => device.deviceId === "default")?.deviceId || devices[0]?.deviceId || "";
+}
 
 interface Props {
   moduleKey?: string;
@@ -124,6 +134,7 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
   const [recording, setRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
   const [voiceError, setVoiceError] = useState("");
+  const [selectedAudioInputId, setSelectedAudioInputId] = useState("");
 
   const abortRef = useRef<AbortController | null>(null);
   const activeRequestRef = useRef<string | null>(null);
@@ -171,6 +182,29 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadAudioInputDevices = async () => {
+      if (!navigator.mediaDevices?.enumerateDevices) return;
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        if (cancelled) return;
+        const inputs = devices.filter((device) => device.kind === "audioinput");
+        setSelectedAudioInputId((current) => pickPreferredAudioInputId(inputs, current));
+      } catch {
+        if (!cancelled) setSelectedAudioInputId("");
+      }
+    };
+
+    loadAudioInputDevices();
+    navigator.mediaDevices?.addEventListener?.("devicechange", loadAudioInputDevices);
+    return () => {
+      cancelled = true;
+      navigator.mediaDevices?.removeEventListener?.("devicechange", loadAudioInputDevices);
+    };
+  }, []);
+
   const sortedConvos = useMemo(() => {
     return [...conversations].sort((a, b) => {
       if (!!b.pinned !== !!a.pinned) return (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0);
@@ -205,8 +239,9 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
     for (const f of Array.from(files).slice(0, 5)) {
       if (f.size > 8 * 1024 * 1024) continue;
       const isImg = f.type.startsWith("image/");
+      const isPdf = f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf");
       let dataUrl: string | undefined;
-      if (isImg) {
+      if (isImg || isPdf) {
         dataUrl = await new Promise<string>((resolve) => {
           const r = new FileReader();
           r.onload = () => resolve(r.result as string);
@@ -217,6 +252,7 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
         id: newId(),
         name: f.name,
         kind: isImg ? "image" : "file",
+        mimeType: f.type || (isPdf ? "application/pdf" : "application/octet-stream"),
         dataUrl,
         size: f.size,
       });
@@ -284,7 +320,10 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
     }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const audioConstraint = selectedAudioInputId
+        ? { deviceId: { exact: selectedAudioInputId } }
+        : true;
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraint });
       mediaStreamRef.current = stream;
       audioChunksRef.current = [];
 
@@ -354,11 +393,21 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
   // ----- core send -----
   const buildGatewayMessages = (history: Msg[]) =>
     history.map((m) => {
-      if (m.role === "user" && m.attachments?.some((a) => a.kind === "image" && a.dataUrl)) {
-        const parts: any[] = [{ type: "text", text: m.content || "(图片)" }];
+      if (m.role === "user" && m.attachments?.some((a) => a.dataUrl && (a.kind === "image" || a.mimeType === "application/pdf"))) {
+        const parts: any[] = [{ type: "text", text: m.content || "(附件)" }];
         for (const a of m.attachments) {
           if (a.kind === "image" && a.dataUrl) {
             parts.push({ type: "image_url", image_url: { url: a.dataUrl } });
+          }
+          if (a.kind === "file" && a.mimeType === "application/pdf" && a.dataUrl) {
+            parts.push({
+              type: "file_data",
+              file_data: {
+                name: a.name,
+                mime_type: a.mimeType,
+                url: a.dataUrl,
+              },
+            });
           }
         }
         return { role: "user", content: parts };

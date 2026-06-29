@@ -45,6 +45,10 @@ describe("AIChat duplicate search integration", () => {
         getUserMedia: vi.fn().mockResolvedValue({
           getTracks: () => [{ stop: vi.fn() }],
         }),
+        enumerateDevices: vi.fn().mockResolvedValue([
+          { kind: "audioinput", deviceId: "default", label: "Default Microphone" },
+          { kind: "audioinput", deviceId: "headset-mic", label: "Headset Microphone" },
+        ]),
       },
     });
   });
@@ -77,14 +81,14 @@ describe("AIChat duplicate search integration", () => {
     }
   });
 
-  it("shows duplicate search mode controls and defaults to deepseek v4 pro", () => {
+  it("shows duplicate search mode controls and defaults to deepseek v4 flash", () => {
     render(<AIChat moduleKey="ai-chat" moduleLabel="AI Chat" />);
 
     expect(
       screen.getByRole("button", { name: /duplicate search/i }),
     ).toBeInTheDocument();
 
-    expect(screen.getByRole("combobox")).toHaveValue("deepseek-v4-pro");
+    expect(screen.getByRole("combobox")).toHaveValue("deepseek-v4-flash");
     expect(screen.getByRole("switch", { name: /缺陷上下文/i })).not.toBeChecked();
   });
 
@@ -117,7 +121,7 @@ describe("AIChat duplicate search integration", () => {
           modelPhase: "click_boost",
           feedbackCount: 3,
           summaryText: "最可能的重复问题是 DTV-1024，请优先复核。",
-          answerModel: "deepseek-v4-pro",
+          answerModel: "deepseek-v4-flash",
           candidates: [
             {
               ticketId: "DTV-1024",
@@ -189,7 +193,7 @@ describe("AIChat duplicate search integration", () => {
             modelPhase: "click_boost",
             feedbackCount: 3,
             summaryText: "最可能的重复问题是 DTV-1024，请优先复核。",
-            answerModel: "deepseek-v4-pro",
+            answerModel: "deepseek-v4-flash",
             candidates: [
               {
                 ticketId: "DTV-1024",
@@ -376,6 +380,57 @@ describe("AIChat duplicate search integration", () => {
     });
 
     expect(await screen.findByText("已完成")).toBeInTheDocument();
+  });
+
+  it("sends uploaded PDF attachments to the AI chat gateway", async () => {
+    const encoder = new TextEncoder();
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.close();
+        },
+      }),
+      json: async () => ({ error: "unexpected" }),
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<AIChat moduleKey="ai-chat" moduleLabel="AI Chat" />);
+
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const pdf = new File(["%PDF-1.4 invoice text"], "invoice.pdf", { type: "application/pdf" });
+    fireEvent.change(fileInput, { target: { files: [pdf] } });
+
+    await screen.findByText("invoice.pdf");
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "PDF 里说了什么" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/ai/chat",
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+
+    const payload = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const userMessage = payload.messages.find((message: { role: string }) => message.role === "user");
+    expect(userMessage.content).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "text", text: "PDF 里说了什么" }),
+        expect.objectContaining({
+          type: "file_data",
+          file_data: expect.objectContaining({
+            name: "invoice.pdf",
+            mime_type: "application/pdf",
+            url: expect.stringMatching(/^data:application\/pdf;base64,/),
+          }),
+        }),
+      ]),
+    );
   });
 
   it("includes defect context for AI chat only after the toggle is enabled", async () => {
@@ -574,11 +629,47 @@ describe("AIChat duplicate search integration", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("shows a short error when transcription fails", async () => {
+  it("automatically records from a headset microphone when one is available", async () => {
+    const getUserMediaMock = vi.fn().mockResolvedValue({
+      getTracks: () => [{ stop: vi.fn() }],
+    });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ success: true, text: "voice transcript" }),
+      text: async () => "",
+    });
+
+    Object.defineProperty(globalThis.navigator, "mediaDevices", {
+      configurable: true,
+      value: {
+        getUserMedia: getUserMediaMock,
+        enumerateDevices: vi.fn().mockResolvedValue([
+          { kind: "audioinput", deviceId: "default", label: "Default Microphone" },
+          { kind: "audioinput", deviceId: "headset-mic", label: "Headset Microphone" },
+        ]),
+      },
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<AIChat moduleKey="ai-chat" moduleLabel="AI Chat" />);
+
+    await waitFor(() => {
+      expect(screen.queryByLabelText("麦克风")).not.toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByRole("button", { name: "开始录音" }));
+
+    await waitFor(() => {
+      expect(getUserMediaMock).toHaveBeenCalledWith({
+        audio: { deviceId: { exact: "headset-mic" } },
+      });
+    });
+  });
+
+  it("shows the backend transcription error when transcription fails", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: false,
-      json: async () => ({ error: "transcribe failed" }),
-      text: async () => "transcribe failed",
+      json: async () => ({ error: "ASR service is unavailable" }),
+      text: async () => "ASR service is unavailable",
     });
 
     vi.stubGlobal("fetch", fetchMock);
@@ -588,6 +679,6 @@ describe("AIChat duplicate search integration", () => {
     fireEvent.click(screen.getByRole("button", { name: "开始录音" }));
     fireEvent.click(await screen.findByRole("button", { name: "停止录音" }));
 
-    expect(await screen.findByText("语音转写失败，请重试。")).toBeInTheDocument();
+    expect(await screen.findByText("ASR service is unavailable")).toBeInTheDocument();
   });
 });

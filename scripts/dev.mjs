@@ -3,16 +3,16 @@ import { spawn, spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { getTerminationCommand } from "./devHelpers.mjs";
+import { getTerminationCommand, hasHealthyServiceOnPort } from "./devHelpers.mjs";
 import { assertSupportedNodeVersion } from "./nodeVersion.mjs";
-import { loadLocalEnv } from "../server/loadLocalEnv.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "..");
+const analyticsPort = Number(process.env.VIZION_ANALYTICS_PORT || "3003");
+const apiPort = Number(process.env.VIZION_API_PORT || "3004");
 
 assertSupportedNodeVersion();
-loadLocalEnv();
 
 const children = [];
 let exiting = false;
@@ -67,6 +67,8 @@ function launch(command, args, name) {
       return;
     }
 
+    const reason = signal ? `signal ${signal}` : `code ${code ?? 0}`;
+    console.error(`[vizion-dev] ${name} exited with ${reason}`);
     exiting = true;
     for (const proc of children) {
       if (proc !== child && !proc.killed) {
@@ -80,20 +82,36 @@ function launch(command, args, name) {
   console.log(`[vizion-dev] started ${name}`);
 }
 
-launch(
-  resolvePythonCommand(),
-  [
+async function launchIfNeeded({ name, command, args, port, expectedService }) {
+  if (await hasHealthyServiceOnPort({ port, expectedService })) {
+    console.log(`[vizion-dev] reusing existing ${name} on http://127.0.0.1:${port}`);
+    return;
+  }
+
+  launch(command, args, name);
+}
+
+await launchIfNeeded({
+  name: "analytics-api",
+  command: resolvePythonCommand(),
+  args: [
     "-m",
     "uvicorn",
     "backend.analytics.api:app",
     "--host",
     "127.0.0.1",
     "--port",
-    process.env.VIZION_ANALYTICS_PORT || "3003",
+    String(analyticsPort),
   ],
-  "analytics-api",
-);
-launch(process.execPath, [path.join(repoRoot, "server", "index.mjs")], "local-api");
+  port: analyticsPort,
+  expectedService: "analytics",
+});
+await launchIfNeeded({
+  name: "local-api",
+  command: process.execPath,
+  args: [path.join(repoRoot, "server", "index.mjs")],
+  port: apiPort,
+});
 launch(process.execPath, [path.join(repoRoot, "node_modules", "vite", "bin", "vite.js")], "vite");
 
 function shutdown(signal) {

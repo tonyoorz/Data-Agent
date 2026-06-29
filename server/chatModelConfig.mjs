@@ -1,47 +1,14 @@
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-
 const DEFAULT_MODELS = [
-  "deepseek-v4-pro",
+  "deepseek-v4-flash",
   "qwen3.5-397b-a17b",
   "glm-5",
 ];
 
 const DEFAULT_ENDPOINTS = {
-  "deepseek-v4-pro": "https://aistudio.bmwbrill.cn/api/service/ssl/170/lm-platform/llm/v2/chat/completions",
+  "deepseek-v4-flash": "https://aistudio.bmwbrill.cn/api/service/ssl/170/lm-platform/llm/v2/chat/completions",
   "qwen3.5-397b-a17b": "https://aistudio.bmwbrill.cn/api/service/164/ernie/v2/chat/completions",
   "glm-5": "https://aistudio.bmwbrill.cn/api/service/163/ernie/v2/chat/completions",
 };
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const repoRoot = path.resolve(__dirname, "..");
-
-function readAccessCodeFromSiblingRepo() {
-  const candidates = [
-    path.resolve(repoRoot, "..", "TPMDashbaord", "agent", "legacy", "ai_chat_manager_legacy.py"),
-    path.resolve(repoRoot, "..", "TPMDashboard", "agent", "legacy", "ai_chat_manager_legacy.py"),
-  ];
-
-  for (const candidate of candidates) {
-    if (!fs.existsSync(candidate)) {
-      continue;
-    }
-
-    try {
-      const content = fs.readFileSync(candidate, "utf8");
-      const match = content.match(/HARDCODED_DEEPSEEK_ACCESS_CODE\s*=\s*"([^"]+)"/);
-      if (match?.[1]) {
-        return match[1].trim();
-      }
-    } catch {
-      continue;
-    }
-  }
-
-  return "";
-}
 
 function readFirst(env, keys) {
   for (const key of keys) {
@@ -125,7 +92,7 @@ export function resolveChatModelConfig(selectedModel, env = process.env) {
     "DUPSEARCH_CHAT_ACCESS_CODE",
     "ACCESS_CODE",
     "DEEPSEEK_ACCESS_CODE",
-  ]) || readAccessCodeFromSiblingRepo();
+  ]);
   const endpoint = endpointTemplate
     ? endpointTemplate.replace("{access_code}", accessCode)
     : "";

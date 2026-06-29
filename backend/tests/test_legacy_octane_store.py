@@ -308,7 +308,7 @@ def test_legacy_octane_store_preserves_unmanaged_columns_on_existing_rows(tmp_pa
     assert preserved == ("keep-defect", "keep-run", "keep-test")
 
 
-def test_source_store_history_writer_populates_legacy_raw_columns_when_present(tmp_path: Path) -> None:
+def test_source_store_history_writer_leaves_legacy_raw_columns_empty_when_present(tmp_path: Path) -> None:
     db_path = tmp_path / "qgate_raw.db"
 
     conn = sqlite3.connect(db_path)
@@ -328,8 +328,8 @@ def test_source_store_history_writer_populates_legacy_raw_columns_when_present(t
                 new_value TEXT,
                 old_value_text TEXT,
                 new_value_text TEXT,
-                raw_event_json TEXT NOT NULL,
-                raw_change_json TEXT NOT NULL,
+                raw_event_json TEXT,
+                raw_change_json TEXT,
                 fetched_at TEXT NOT NULL,
                 PRIMARY KEY (defect_id, team, entry_index, change_index)
             );
@@ -378,8 +378,8 @@ def test_source_store_history_writer_populates_legacy_raw_columns_when_present(t
     finally:
         conn.close()
 
-    assert json.loads(row[0])["action"] == "updated"
-    assert json.loads(row[1])["field_name"] == "phase"
+    assert row == (None, None)
+
 
 def test_legacy_octane_store_flushes_batched_history_writes_on_close(tmp_path: Path) -> None:
     db_path = tmp_path / "qgate_raw.db"

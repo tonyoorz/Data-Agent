@@ -5,8 +5,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
-
 import backend.analytics_cli as analytics_cli
 from backend.analytics_cli import main
 from backend.analytics.dashboard_snapshot import read_active_snapshot_state
@@ -50,49 +48,6 @@ def test_analytics_cli_init_db_command_creates_database(tmp_path: Path) -> None:
     assert "octane_defects" in tables
     assert "octane_manual_runs" in tables
     assert "octane_testcases" in tables
-
-
-@pytest.mark.skipif(sys.platform != "win32", reason="Nightly refresh wrapper is Windows-specific")
-def test_run_nightly_source_refresh_includes_comments_by_default(tmp_path: Path) -> None:
-    repo_root = Path(__file__).resolve().parents[2]
-    log_path = tmp_path / "nightly.log"
-    stub_launcher = repo_root / "scripts" / "test-nightly-refresh-stub.cmd"
-
-    result = subprocess.run(
-        [
-            "powershell.exe",
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            str(repo_root / "scripts" / "run-nightly-source-refresh.ps1"),
-            "-PythonLauncher",
-            str(stub_launcher),
-            "-PythonVersion",
-            "-3.11",
-            "-Teams",
-            "DTSV_China",
-            "-Years",
-            "2026",
-            "-ManualRunYears",
-            "2026",
-            "-TeamName",
-            "DTSV_China",
-            "-HistoryMaxWorkers",
-            "2",
-            "-LogPath",
-            str(log_path),
-        ],
-        cwd=repo_root,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-
-    assert result.returncode == 0, result.stderr
-    log_text = log_path.read_text(encoding="utf-8")
-    assert "skip_comments=False" in log_text
-    assert "--skip-comments" not in log_text
 
 
 def test_analytics_cli_refresh_octane_source_invokes_repo_owned_pipeline(
@@ -184,12 +139,13 @@ def test_analytics_cli_refresh_manual_runs_source_invokes_repo_owned_pipeline(
             progress("Refreshing manual runs for DTSV_China 2025 with full fetch")
         return {"manual_run_rows": 3}
 
-    def fake_run_processor_pipeline(db_path, *, asset_root=None, dry_run=False, report_path=None) -> dict[str, int]:
+    def fake_run_processor_pipeline(db_path, *, asset_root=None, dry_run=False, report_path=None, manual_run_ids=None) -> dict[str, int]:
         captured["processor"] = {
             "db_path": db_path,
             "asset_root": asset_root,
             "dry_run": dry_run,
             "report_path": report_path,
+            "manual_run_ids": manual_run_ids,
         }
         return {"defect_updates": 0, "run_updates": 5}
 
@@ -218,6 +174,7 @@ def test_analytics_cli_refresh_manual_runs_source_invokes_repo_owned_pipeline(
         "asset_root": None,
         "dry_run": False,
         "report_path": None,
+        "manual_run_ids": None,
     }
     assert "Starting manual-runs refresh for DTSV_China years=2025,2026" in stdout
     assert "Refreshing manual runs for DTSV_China 2025 with full fetch" in stdout
@@ -225,6 +182,60 @@ def test_analytics_cli_refresh_manual_runs_source_invokes_repo_owned_pipeline(
     assert "Processor pipeline finished" in stdout
     assert '"manual_run_rows": 3' in stdout
     assert '"run_updates": 5' in stdout
+
+
+def test_analytics_cli_refresh_octane_cookie_validates_refreshed_cookie(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    monkeypatch.setenv("VIZION_REPO_ROOT_OVERRIDE", str(tmp_path))
+    calls: list[tuple[str, object]] = []
+
+    def fake_refresh_cookie_file(*, base_url, cookie_file, headless):
+        calls.append(("refresh", {"base_url": base_url, "cookie_file": cookie_file, "headless": headless}))
+        Path(cookie_file).write_text("SESSION=valid", encoding="utf-8")
+
+    class FakeClient:
+        def list_teams(self):
+            calls.append(("validate", None))
+            return [{"id": "1", "name": "DTSV_China"}]
+
+    monkeypatch.setattr(analytics_cli, "refresh_cookie_file", fake_refresh_cookie_file)
+    monkeypatch.setattr(ingest_client, "build_default_octane_client", lambda: FakeClient())
+
+    exit_code = main(["refresh-octane-cookie", "--headless"])
+
+    stdout = capsys.readouterr().out
+    assert exit_code == 0
+    assert [name for name, _ in calls] == ["refresh", "validate"]
+    assert calls[0][1]["headless"] is True
+    assert '"cookie_validated": true' in stdout
+
+
+def test_analytics_cli_refresh_octane_cookie_fails_when_refreshed_cookie_is_invalid(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    monkeypatch.setenv("VIZION_REPO_ROOT_OVERRIDE", str(tmp_path))
+
+    def fake_refresh_cookie_file(*, base_url, cookie_file, headless):
+        Path(cookie_file).write_text("SESSION=invalid", encoding="utf-8")
+
+    class FakeClient:
+        def list_teams(self):
+            raise RuntimeError("401 Unauthorized")
+
+    monkeypatch.setattr(analytics_cli, "refresh_cookie_file", fake_refresh_cookie_file)
+    monkeypatch.setattr(ingest_client, "build_default_octane_client", lambda: FakeClient())
+
+    exit_code = main(["refresh-octane-cookie", "--headless"])
+
+    stdout = capsys.readouterr().out
+    assert exit_code == 1
+    assert '"cookie_validated": false' in stdout
+    assert "401 Unauthorized" in stdout
 
 
 def test_analytics_cli_refresh_full_picture_outcomes_reports_progress(
@@ -244,7 +255,7 @@ def test_analytics_cli_refresh_full_picture_outcomes_reports_progress(
     finally:
         conn.close()
 
-    def fake_refresh(source_db_path, hot_db_path, force):
+    def fake_refresh(source_db_path, hot_db_path, force, defect_ids=None):
         return {"row_count": 12, "skipped": False, "source_signature": "sig-1"}
 
     monkeypatch.setattr(analytics_cli, "refresh_materialized_outcomes", fake_refresh)
@@ -277,35 +288,9 @@ def test_analytics_cli_refresh_all_sources_runs_steps_in_order(
 
     calls: list[tuple[str, object]] = []
 
-    def fake_refresh_legacy_qgate_source_incremental(**kwargs):
-        calls.append(("legacy", kwargs))
-        return {
-            "defect_refresh": {
-                "team_summaries": [
-                    {
-                        "team": "DTSV_China",
-                        "refreshed_defects": 3,
-                        "year_summaries": [
-                            {
-                                "year": 2026,
-                                "comments_refreshed": 2,
-                                "comments_reused": 1,
-                            }
-                        ],
-                    }
-                ]
-            },
-            "history_resume": {
-                "team_summaries": [
-                    {
-                        "team": "DTSV_China",
-                        "queued_defects": 4,
-                        "processed_defects": 4,
-                        "failed_defects": 0,
-                    }
-                ]
-            },
-        }
+    def fake_refresh_octane_source(*, request, client):
+        calls.append(("source", {"request": request, "client": client}))
+        return {"defect_rows": 3, "defect_ids": ["D-1", "D-2"], "history_event_rows": 4}
 
     def fake_build_default_octane_client() -> str:
         calls.append(("build_client", None))
@@ -322,24 +307,26 @@ def test_analytics_cli_refresh_all_sources_runs_steps_in_order(
             progress("manual progress line")
         return {"manual_run_rows": 7}
 
-    def fake_run_processor_pipeline(db_path, *, asset_root=None, dry_run=False, report_path=None):
+    def fake_run_processor_pipeline(db_path, *, asset_root=None, dry_run=False, report_path=None, manual_run_ids=None):
         calls.append(("processor", {
             "db_path": db_path,
             "asset_root": asset_root,
             "dry_run": dry_run,
             "report_path": report_path,
+            "manual_run_ids": manual_run_ids,
         }))
         return {"defect_updates": 2, "run_updates": 3}
 
-    def fake_refresh_materialized_outcomes(source_db_path, hot_db_path, force):
+    def fake_refresh_materialized_outcomes(source_db_path, hot_db_path, force, defect_ids=None):
         calls.append(("outcomes", {
             "source_db_path": source_db_path,
             "hot_db_path": hot_db_path,
             "force": force,
+            "defect_ids": defect_ids,
         }))
         return {"row_count": 11, "skipped": False, "source_signature": "sig-2"}
 
-    monkeypatch.setattr(analytics_cli, "refresh_legacy_qgate_source_incremental", fake_refresh_legacy_qgate_source_incremental)
+    monkeypatch.setattr(ingest_pipeline, "refresh_octane_source", fake_refresh_octane_source)
     monkeypatch.setattr(ingest_client, "build_default_octane_client", fake_build_default_octane_client)
     monkeypatch.setattr(ingest_pipeline, "refresh_octane_manual_runs_only", fake_refresh_octane_manual_runs_only)
     monkeypatch.setattr(analytics_cli, "run_processor_pipeline", fake_run_processor_pipeline)
@@ -359,27 +346,34 @@ def test_analytics_cli_refresh_all_sources_runs_steps_in_order(
         "2026",
         "--history-max-workers",
         "50",
+        "--team-max-workers",
+        "2",
     ])
 
     stdout = capsys.readouterr().out
     assert exit_code == 0
     assert [name for name, _ in calls] == [
-        "legacy",
+        "build_client",
+        "source",
         "build_client",
         "manual_runs",
         "processor",
         "outcomes",
     ]
     assert "Starting combined source refresh" in stdout
-    assert "Step 1/3: refreshing incremental defect/history source..." in stdout
-    assert "Step 1/3 summary: defects=3 comments_refreshed=2 comments_reused=1 history_queued=4 history_processed=4 history_failed=0" in stdout
+    assert "Step 1/3: refreshing Octane defects and history source..." in stdout
+    assert "Step 1/3 summary: defect_rows=3 history_event_rows=4" in stdout
     assert "Step 2/3: refreshing manual runs source..." in stdout
     assert "manual progress line" in stdout
     assert "Step 3/3: refreshing full-picture outcomes..." in stdout
     assert '"manual_run_rows": 7' in stdout
     assert '"row_count": 11' in stdout
-    assert calls[0][1]["years"] == (2025, 2026)
-    assert calls[2][1]["years"] == (2026,)
+    assert calls[1][1]["request"].years == (2025, 2026)
+    assert calls[1][1]["request"].include_history is True
+    assert calls[1][1]["request"].team_max_workers == 2
+    assert calls[3][1]["years"] == (2026,)
+    assert calls[4][1]["manual_run_ids"] is None
+    assert calls[5][1]["defect_ids"] == ("D-1", "D-2")
 
 
 def test_analytics_cli_audit_octane_dimensions_writes_report_under_hot_database(

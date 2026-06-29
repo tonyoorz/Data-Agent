@@ -45,7 +45,7 @@ describe("streamCompanyChatCompletion", () => {
 
     await streamCompanyChatCompletion({
       messages: [{ role: "user", content: "hello" }],
-      model: "deepseek-v4-pro",
+      model: "deepseek-v4-flash",
       context: "ctx",
       response,
       onMetrics,
@@ -80,5 +80,113 @@ describe("streamCompanyChatCompletion", () => {
         streamTotalMs: expect.any(Number),
       }),
     );
+  });
+
+  it("converts image message parts to OCR text before calling the text chat model", async () => {
+    const encoder = new TextEncoder();
+    const response = {
+      writeHead: vi.fn(),
+      write: vi.fn(),
+      end: vi.fn(),
+    };
+    const imageOcrRunner = vi.fn().mockResolvedValue({ text: "VIN: WBA123" });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.close();
+        },
+      }),
+      text: async () => "",
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await streamCompanyChatCompletion({
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "read this image" },
+            { type: "image_url", image_url: { url: "data:image/png;base64,aW1hZ2U=" } },
+          ],
+        },
+      ],
+      model: "deepseek-v4-flash",
+      response,
+      imageOcrRunner,
+    });
+
+    expect(imageOcrRunner).toHaveBeenCalledWith(
+      expect.objectContaining({
+        imageUrl: "data:image/png;base64,aW1hZ2U=",
+        index: 1,
+      }),
+    );
+
+    const upstreamBody = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+    const userMessage = upstreamBody.messages.find((message: { role: string }) => message.role === "user");
+    expect(userMessage.content).toContain("read this image");
+    expect(userMessage.content).toContain("Image 1 OCR text:\nVIN: WBA123");
+    expect(userMessage.content).not.toContain("image_url");
+  });
+
+  it("converts PDF file message parts to extracted text before calling the text chat model", async () => {
+    const encoder = new TextEncoder();
+    const response = {
+      writeHead: vi.fn(),
+      write: vi.fn(),
+      end: vi.fn(),
+    };
+    const documentTextRunner = vi.fn().mockResolvedValue({ text: "Invoice total: 123 RMB" });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.close();
+        },
+      }),
+      text: async () => "",
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await streamCompanyChatCompletion({
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "PDF 里说了什么" },
+            {
+              type: "file_data",
+              file_data: {
+                name: "invoice.pdf",
+                mime_type: "application/pdf",
+                url: "data:application/pdf;base64,JVBERi0xLjQ=",
+              },
+            },
+          ],
+        },
+      ],
+      model: "deepseek-v4-flash",
+      response,
+      documentTextRunner,
+    });
+
+    expect(documentTextRunner).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fileBase64: "JVBERi0xLjQ=",
+        mimeType: "application/pdf",
+        name: "invoice.pdf",
+      }),
+    );
+
+    const upstreamBody = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+    const userMessage = upstreamBody.messages.find((message: { role: string }) => message.role === "user");
+    expect(userMessage.content).toContain("PDF 里说了什么");
+    expect(userMessage.content).toContain("Attachment 1 text from invoice.pdf:\nInvoice total: 123 RMB");
+    expect(userMessage.content).not.toContain("file_data");
   });
 });
