@@ -51,6 +51,61 @@ class TestSafetyCheck:
         safety = self.ci._check_safety("import requests")
         assert safety['safe'] is False
 
+    # ---- AST bypass attempts: substring blacklist would miss these ----
+
+    def test_forbidden_dunder_class_chain(self):
+        """().__class__.__mro__[-1].__subclasses__() escape — must be blocked"""
+        safety = self.ci._check_safety(
+            "result = ().__class__.__mro__[-1].__subclasses__()[0]"
+        )
+        assert safety['safe'] is False
+
+    def test_forbidden_builtins_via_getattr(self):
+        """getattr(__builtins__, 'exec') — must be blocked (getattr + __builtins__)"""
+        safety = self.ci._check_safety(
+            "getattr(__builtins__, 'exec')('print(1)')"
+        )
+        assert safety['safe'] is False
+
+    def test_forbidden_getattr_string_concat(self):
+        """getattr with string concat — getattr name itself is blocked"""
+        safety = self.ci._check_safety("result = getattr(x, '__cl' + 'ass__')")
+        assert safety['safe'] is False
+        assert 'getattr' in safety['reason']
+
+    def test_forbidden_dunder_import_call(self):
+        """__import__('os') — must be blocked"""
+        safety = self.ci._check_safety("result = __import__('os').system('id')")
+        assert safety['safe'] is False
+
+    def test_forbidden_eval(self):
+        safety = self.ci._check_safety("result = eval('1+1')")
+        assert safety['safe'] is False
+
+    def test_forbidden_from_import_blocked_lib(self):
+        safety = self.ci._check_safety("from socket import socket")
+        assert safety['safe'] is False
+        assert 'socket' in safety['reason']
+
+    def test_forbidden_relative_import(self):
+        safety = self.ci._check_safety("from . import secret")
+        assert safety['safe'] is False
+
+    def test_syntax_error_rejected(self):
+        safety = self.ci._check_safety("result = (")
+        assert safety['safe'] is False
+
+    def test_safe_pandas_pattern(self):
+        """Realistic pandas usage must NOT be blocked"""
+        code = (
+            "import pandas as pd\n"
+            "df = pd.DataFrame(data)\n"
+            "top = df.nlargest(1, 'count').iloc[0]\n"
+            "result = f\"top={top['name']}\""
+        )
+        safety = self.ci._check_safety(code)
+        assert safety['safe'] is True, safety.get('reason')
+
 
 # ============================================================================
 # Execution Tests
@@ -92,6 +147,39 @@ result = 'done'
         result = ci._execute_sandbox(slow_code, data)
         assert result['success'] is False
         assert 'timeout' in result.get('error', '').lower() or '超时' in result.get('output', '')
+
+    def test_cpu_infinite_loop_blocked(self):
+        """Infinite CPU loop must be stopped (wall timeout + RLIMIT_CPU)"""
+        ci = CodeInterpreter(llm_call_fn=None, timeout=2)
+        code = "while True:\n    pass\nresult = 'done'"
+        result = ci._execute_sandbox(code, [{'x': 1}])
+        assert result['success'] is False
+
+    @pytest.mark.skipif(sys.platform == 'darwin',
+                        reason="RLIMIT_AS not reliably enforced on macOS (overcommit)")
+    def test_memory_bomb_blocked_when_limit_set(self):
+        """With a memory cap set, runaway allocation must fail (RLIMIT_AS).
+
+        Cap is 1024MB (above Python's ~hundreds-of-MB virtual footprint so the
+        interpreter still starts); allocation is 2GB, which exceeds the cap."""
+        ci = CodeInterpreter(llm_call_fn=None, timeout=15, memory_limit_mb=1024)
+        code = "x = bytearray(2 * 1024 * 1024 * 1024)\nresult = 'done'"
+        result = ci._execute_sandbox(code, [{'x': 1}])
+        assert result['success'] is False
+
+    def test_safe_builtins_still_work(self):
+        """Whitelisted builtins (e.g. chr, sum) must function at runtime."""
+        ci = CodeInterpreter(llm_call_fn=None)
+        result = ci._execute_sandbox("result = chr(65)", [{'x': 1}])
+        assert result['success'] is True
+        assert result['output'] == 'A'
+
+    def test_open_blocked_at_runtime(self):
+        """Even though AST blocks 'open' by name, it must never execute."""
+        ci = CodeInterpreter(llm_call_fn=None)
+        # If AST somehow let it through, restricted builtins still block it.
+        result = ci._execute_sandbox("result = open('/etc/passwd').read()", [])
+        assert result['success'] is False
 
 
 # ============================================================================

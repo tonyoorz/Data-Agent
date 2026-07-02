@@ -9,11 +9,21 @@ Design:
 2. Sandbox: Restricted exec with timeout, no network, no file write
 3. Formatter: Convert execution result to natural language
 
-Safety:
-- subprocess with timeout
-- Restricted globals (no __import__, no open, no os/system)
-- Memory limit via input data size cap
-- Only pandas/numpy/math/re available
+Safety (layered defense, trusted single-user threat model):
+- Layer 1: AST static analysis — reject disallowed imports, dunder
+  introspection (``__class__``/``__subclasses__``/``__mro__``/...) and
+  dangerous builtin names. Replaces the old substring denylist, which
+  was trivially bypassable.
+- Layer 2: restricted ``__builtins__`` at runtime — dangerous builtins
+  (``open``/``eval``/``exec``/``getattr``/...) are removed and
+  ``__import__`` is replaced with an allowlist-guarded import, so even
+  an AST miss can't escalate. User code runs in an isolated namespace
+  that only exposes ``data``.
+- Layer 3: OS resource limits via ``resource.setrlimit`` (CPU seconds,
+  file-write size, optional address-space cap) applied in the child
+  process before exec.
+- Layer 4: minimal subprocess environment (scrubbed env, ``-E``,
+  temp ``cwd``).
 
 Usage:
     from agent.interpret.code_interpreter import CodeInterpreter
@@ -28,8 +38,11 @@ Usage:
 
 from __future__ import annotations
 
+import ast
 import json
 import logging
+import os
+import resource
 import subprocess
 import sys
 import tempfile
@@ -54,7 +67,7 @@ CODE_GEN_PROMPT = """你是一个 Python 数据分析代码生成器。
 
 请生成 Python 代码来分析上述数据，回答用户问题。
 
-可用库：pandas, numpy, math, re, json, statistics
+可用库：pandas, numpy, math, re, json, statistics, time
 限制：
 - 不要 import 其它库
 - 不要读写文件
@@ -66,6 +79,50 @@ CODE_GEN_PROMPT = """你是一个 Python 数据分析代码生成器。
 
 只输出 Python 代码，不要解释。
 """
+
+
+# ============================================================================
+# Safety Visitor (Layer 1: AST static analysis)
+# ============================================================================
+
+class _SafetyVisitor(ast.NodeVisitor):
+    """Walks user code once, recording the first policy violation."""
+
+    def __init__(self, safe_imports, dunder_block, dangerous_names):
+        self.safe_imports = safe_imports
+        self.dunder_block = dunder_block
+        self.dangerous_names = dangerous_names
+        self.reason: Optional[str] = None
+
+    def _flag(self, reason: str) -> None:
+        if self.reason is None:
+            self.reason = reason
+
+    def visit_Import(self, node: ast.Import) -> None:
+        for alias in node.names:
+            root = alias.name.split('.')[0]
+            if root not in self.safe_imports:
+                self._flag(f"不支持的库: {root}")
+        self.generic_visit(node)
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        if node.level and node.level > 0:
+            self._flag("禁止相对导入")
+        else:
+            root = (node.module or "").split('.')[0]
+            if root not in self.safe_imports:
+                self._flag(f"不支持的库: {root}")
+        self.generic_visit(node)
+
+    def visit_Attribute(self, node: ast.Attribute) -> None:
+        if node.attr in self.dunder_block:
+            self._flag(f"禁止访问: {node.attr}")
+        self.generic_visit(node)
+
+    def visit_Name(self, node: ast.Name) -> None:
+        if node.id in self.dangerous_names:
+            self._flag(f"禁止使用: {node.id}")
+        self.generic_visit(node)
 
 
 # ============================================================================
@@ -87,38 +144,53 @@ class CodeInterpreter:
     # Safe imports allowed in generated code
     SAFE_IMPORTS = {
         "pandas", "numpy", "math", "re", "json",
-        "statistics", "collections", "itertools",
+        "statistics", "collections", "itertools", "time",
     }
 
-    # Forbidden patterns in code
-    FORBIDDEN_PATTERNS = [
-        "import os",
-        "import sys",
-        "import subprocess",
-        "import socket",
-        "import urllib",
-        "import requests",
-        "import http",
-        "import shutil",
-        "import pickle",
-        "import marshal",
-        "import ctypes",
-        "__import__",
-        "open(",
-        "exec(",
-        "eval(",
-        "compile(",
-        "globals(",
-        "locals(",
-    ]
+    # Dunder attributes that enable the standard introspection escape chain.
+    # Blocking these at the AST level cuts ().__class__.__mro__...__subclasses__()
+    # and friends.
+    _DUNDER_BLOCK = frozenset({
+        "__import__", "__builtins__", "__class__", "__subclasses__",
+        "__bases__", "__base__", "__mro__", "__globals__", "__locals__",
+        "__code__", "__dict__", "__loader__", "__spec__", "__self__",
+        "__func__", "__closure__", "__wrapped__", "__subclasshook__",
+    })
+
+    # Bare names that must never appear in user code (builtins / lookups).
+    _DANGEROUS_NAMES = frozenset({
+        "__import__", "eval", "exec", "compile", "open", "breakpoint",
+        "getattr", "setattr", "delattr", "vars", "globals", "locals",
+        "dir", "input", "memoryview", "exit", "quit", "help",
+    })
+
+    # Builtins stripped from the runtime namespace (Layer 2).
+    _BLOCKED_BUILTINS = frozenset({
+        "__import__", "open", "eval", "exec", "compile", "input",
+        "breakpoint", "getattr", "setattr", "delattr", "vars",
+        "globals", "locals", "dir", "memoryview", "exit", "quit", "help",
+    })
 
     def __init__(
         self,
         llm_call_fn: Optional[Callable] = None,
         timeout: int = 5,
+        memory_limit_mb: Optional[int] = None,
+        cpu_limit: Optional[int] = None,
     ):
         self.llm_call_fn = llm_call_fn
         self.timeout = timeout
+        # RLIMIT_AS is opt-in: a fixed address-space cap can collide with
+        # numpy/pandas virtual-memory footprint, and is not reliably enforced
+        # on all platforms (e.g. macOS overcommit). Off by default.
+        self.memory_limit_mb = memory_limit_mb
+        # RLIMIT_CPU is opt-in too: it sums CPU across threads, so BLAS-backed
+        # numpy/pandas imports trip a tight limit. The wall-clock `timeout`
+        # is the primary CPU guard.
+        self.cpu_limit = cpu_limit
+        # Max bytes the sandbox may write to any file. Safe to enforce by
+        # default (analysis libs don't write large files).
+        self.fsize_limit_bytes = 1 * 1024 * 1024  # 1 MB
 
     def execute(
         self,
@@ -253,82 +325,128 @@ else:
         return code
 
     def _check_safety(self, code: str) -> Dict[str, Any]:
-        """Check code for forbidden patterns"""
-        code_lower = code.lower()
+        """Layer 1: AST static analysis. Rejects disallowed imports, dunder
+        introspection, and dangerous builtin names. Returns ``{safe, reason}``."""
+        try:
+            tree = ast.parse(code)
+        except SyntaxError as e:
+            return {'safe': False, 'reason': f'语法错误: {e}'}
 
-        for pattern in self.FORBIDDEN_PATTERNS:
-            if pattern.lower() in code_lower:
-                return {
-                    'safe': False,
-                    'reason': f'禁止使用: {pattern}',
-                }
-
-        # Check imports
-        for line in code.split('\n'):
-            line = line.strip()
-            if line.startswith('import ') or line.startswith('from '):
-                module = line.replace('import ', '').replace('from ', '').split('.')[0].split(' ')[0]
-                if module not in self.SAFE_IMPORTS:
-                    return {
-                        'safe': False,
-                        'reason': f'不支持的库: {module}',
-                    }
-
+        visitor = _SafetyVisitor(
+            self.SAFE_IMPORTS, self._DUNDER_BLOCK, self._DANGEROUS_NAMES
+        )
+        visitor.visit(tree)
+        if visitor.reason:
+            return {'safe': False, 'reason': visitor.reason}
         return {'safe': True, 'reason': ''}
+
+    def _build_script(self, code: str) -> str:
+        """Build the child script: load data from stdin, install restricted
+        builtins (Layer 2), then exec user code in an isolated namespace."""
+        allowed = ", ".join(repr(m) for m in sorted(self.SAFE_IMPORTS))
+        blocked = ", ".join(repr(m) for m in sorted(self._BLOCKED_BUILTINS))
+        return textwrap.dedent(f"""\
+            import json, sys, builtins as _b
+
+            data = json.loads(sys.stdin.read())
+
+            # --- Layer 2: restricted builtins ---
+            _real_import = _b.__import__
+            _ALLOWED = {{{allowed}}}
+            def _safe_import(name, _globals=None, _locals=None, fromlist=(), level=0):
+                if name.split('.')[0] not in _ALLOWED:
+                    raise ImportError("import not allowed: " + str(name))
+                return _real_import(name, _globals, _locals, fromlist, level)
+
+            _BLOCKED = {{{blocked}}}
+            SAFE_BUILTINS = {{k: v for k, v in vars(_b).items() if k not in _BLOCKED}}
+            SAFE_BUILTINS["__import__"] = _safe_import
+            SAFE_BUILTINS["__builtins__"] = SAFE_BUILTINS
+
+            # User code runs here in an isolated namespace that exposes only `data`.
+            USER_CODE = {code!r}
+            _sentinel = object()
+            _ns = {{"data": data, "__builtins__": SAFE_BUILTINS}}
+            try:
+                exec(compile(USER_CODE, "<sandbox>", "exec"), _ns)
+                result = _ns.get("result", _sentinel)
+            except Exception as _e:
+                print(json.dumps({{"success": False, "result": "代码执行错误: " + str(_e)}}))
+                sys.exit(0)
+
+            if result is _sentinel:
+                print(json.dumps({{"success": True, "result": "代码执行完成（无result变量）"}}))
+            else:
+                print(json.dumps({{"success": True, "result": str(result)}}))
+        """)
+
+    @staticmethod
+    def _apply_rlimit(res: int, value: int) -> None:
+        """Set a soft rlimit, clamped to the current hard limit."""
+        soft, hard = resource.getrlimit(res)
+        new_hard = value if hard == resource.RLIM_INFINITY else min(value, hard)
+        new_soft = min(value, new_hard)
+        resource.setrlimit(res, (new_soft, new_hard))
+
+    def _make_preexec(self):
+        """Layer 3: returns a preexec_fn that applies OS resource limits in
+        the child process before exec."""
+        cpu = self.cpu_limit
+        fsize = self.fsize_limit_bytes
+        mem_bytes = self.memory_limit_mb * 1024 * 1024 if self.memory_limit_mb else None
+
+        def _preexec() -> None:
+            if cpu is not None:
+                try:
+                    self._apply_rlimit(resource.RLIMIT_CPU, cpu)
+                except Exception:
+                    pass
+            try:
+                self._apply_rlimit(resource.RLIMIT_FSIZE, fsize)
+            except Exception:
+                pass
+            if mem_bytes is not None:
+                try:
+                    self._apply_rlimit(resource.RLIMIT_AS, mem_bytes)
+                except Exception:
+                    pass
+
+        return _preexec
 
     def _execute_sandbox(
         self,
         code: str,
         data: List[Dict[str, Any]],
     ) -> Dict[str, Any]:
-        """Execute code in a subprocess sandbox"""
+        """Execute code in a subprocess sandbox with layered restrictions."""
         data_json = json.dumps(data, ensure_ascii=False, default=str)
+        full_script = self._build_script(code)
 
-        # Build the script with no f-string escaping issues
-        # Data is passed via stdin, code is embedded directly
-        script_lines = [
-            "import json, sys",
-            "",
-            "# Load data from stdin",
-            "data = json.loads(sys.stdin.read())",
-            "",
-            "# User code",
-            "try:",
-        ]
-        # Indent user code
-        for line in code.split('\n'):
-            script_lines.append("    " + line if line.strip() else "")
-        script_lines.extend([
-            "except Exception as e:",
-            "    result = f'代码执行错误: {e}'",
-            "",
-            "# Output result",
-            "if 'result' in dir():",
-            "    print(json.dumps({'success': True, 'result': str(result)}))",
-            "else:",
-            "    print(json.dumps({'success': True, 'result': '代码执行完成（无result变量）'}))",
-        ])
-
-        full_script = "\n".join(script_lines)
-
+        script_path = None
+        work_dir = None
         try:
-            # Write to temp file and execute
-            with tempfile.NamedTemporaryFile(
-                mode='w', suffix='.py', delete=False, prefix='sandbox_'
-            ) as f:
+            work_dir = tempfile.mkdtemp(prefix="sandbox_")
+            # Write script inside the isolated working directory
+            with open(os.path.join(work_dir, "run.py"), "w", encoding="utf-8") as f:
                 f.write(full_script)
                 script_path = f.name
 
+            # Layer 4: minimal environment + isolated cwd + -E (ignore PYTHON* env)
+            child_env = {
+                "PATH": os.environ.get("PATH", ""),
+                "HOME": os.environ.get("HOME", ""),
+            }
+
             result = subprocess.run(
-                [sys.executable, script_path],
+                [sys.executable, "-E", script_path],
                 input=data_json[:50000],
                 capture_output=True,
                 text=True,
                 timeout=self.timeout,
+                cwd=work_dir,
+                env=child_env,
+                preexec_fn=self._make_preexec(),
             )
-
-            # Cleanup
-            Path(script_path).unlink(missing_ok=True)
 
             if result.returncode == 0:
                 try:
@@ -337,7 +455,7 @@ else:
                         'success': output['success'],
                         'output': output['result'],
                     }
-                except (json.JSONDecodeError, IndexError):
+                except (json.JSONDecodeError, IndexError, KeyError):
                     return {
                         'success': True,
                         'output': result.stdout[:500],
@@ -350,16 +468,20 @@ else:
                 }
 
         except subprocess.TimeoutExpired:
-            Path(script_path).unlink(missing_ok=True)
             return {
                 'success': False,
                 'output': f'代码执行超时 ({self.timeout}秒)',
                 'error': 'timeout',
             }
         except Exception as e:
-            Path(script_path).unlink(missing_ok=True)
             return {
                 'success': False,
                 'output': f'执行失败: {str(e)}',
                 'error': str(e),
             }
+        finally:
+            import shutil
+            if script_path:
+                Path(script_path).unlink(missing_ok=True)
+            if work_dir:
+                shutil.rmtree(work_dir, ignore_errors=True)
