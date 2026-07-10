@@ -1,36 +1,43 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
   BarChart3,
   Bug,
+  CalendarDays,
   ChevronLeft,
   ChevronRight,
   FlaskConical,
   LayoutDashboard,
   LineChart,
   ListChecks,
+  Network,
   ShieldCheck,
   Sparkles,
   TrendingUp,
   Users,
 } from "lucide-react";
 
+import "@/i18n";
+
 const navItems = [
   {
     id: "main-dashboard",
-    label: "Main Dashboard",
-    sublabel: "Full Picture 管理总览",
+    labelKey: "mainDashboard.label",
+    sublabelKey: "mainDashboard.sublabel",
     icon: LayoutDashboard,
   },
-  { id: "topissue", label: "Top Issue 分析", icon: TrendingUp },
-  { id: "project", label: "项目分析", icon: LayoutDashboard },
-  { id: "defect-high", label: "缺陷高频分析", icon: Bug },
-  { id: "long-runner", label: "长周期分析", icon: LineChart },
-  { id: "test-team", label: "测试团队分析", icon: Users },
-  { id: "coverage", label: "测试覆盖率分析", icon: ShieldCheck },
-  { id: "test-status", label: "测试状态分析", icon: ListChecks },
-  { id: "defect-status", label: "缺陷状态分析", icon: BarChart3 },
-  { id: "qgate-kpi-report", label: "QGate KPI Report", icon: BarChart3 },
-  { id: "ai-chat", label: "AI Chat", icon: Sparkles, badge: "Beta" as const },
+  { id: "topissue", labelKey: "topIssue", icon: TrendingUp },
+  { id: "project", labelKey: "project", icon: LayoutDashboard },
+  { id: "defect-high", labelKey: "defectHigh", icon: Bug },
+  { id: "long-runner", labelKey: "longRunner", icon: LineChart },
+  { id: "test-team", labelKey: "testTeam", icon: Users },
+  { id: "coverage", labelKey: "coverage", icon: ShieldCheck },
+  { id: "traceability", labelKey: "traceability", icon: Network },
+  { id: "test-status", labelKey: "testStatus", icon: ListChecks },
+  { id: "defect-status", labelKey: "defectStatus", icon: BarChart3 },
+  { id: "qgate-kpi-report", labelKey: "qgateKpiReport", icon: BarChart3 },
+  { id: "qgate-weekly-report", labelKey: "qgateWeeklyReport", icon: CalendarDays },
+  { id: "ai-chat", labelKey: "aiChat", icon: Sparkles, badgeKey: "beta" },
 ];
 
 interface DashboardSidebarProps {
@@ -39,6 +46,7 @@ interface DashboardSidebarProps {
 }
 
 const DashboardSidebar = ({ active, onNavigate }: DashboardSidebarProps) => {
+  const { t } = useTranslation("navigation");
   const [collapsed, setCollapsed] = useState(false);
 
   return (
@@ -55,7 +63,7 @@ const DashboardSidebar = ({ active, onNavigate }: DashboardSidebarProps) => {
         {!collapsed && (
           <div className="overflow-hidden">
             <h1 className="truncate text-sm font-bold text-[hsl(0,0%,95%)]">DTSV</h1>
-            <p className="truncate text-xs text-[hsl(var(--sidebar-fg))]">数据分析平台</p>
+            <p className="truncate text-xs text-[hsl(var(--sidebar-fg))]">{t("productSubtitle")}</p>
           </div>
         )}
       </div>
@@ -65,29 +73,32 @@ const DashboardSidebar = ({ active, onNavigate }: DashboardSidebarProps) => {
         {navItems.map((item) => {
           const isActive = active === item.id;
           const Icon = item.icon;
+          const label = t(item.labelKey);
+          const sublabel = "sublabelKey" in item && item.sublabelKey ? t(item.sublabelKey) : "";
+          const badge = "badgeKey" in item && item.badgeKey ? t(item.badgeKey) : "";
           return (
             <button
               key={item.id}
               onClick={() => onNavigate(item.id)}
               className={`nav-item w-full ${isActive ? "nav-item-active" : "nav-item-inactive"}`}
-              title={collapsed ? item.label : undefined}
+              title={collapsed ? label : undefined}
             >
               <Icon className="h-[18px] w-[18px] shrink-0" />
               {!collapsed && (
                 <>
                   <div className="flex flex-1 flex-col overflow-hidden text-left">
-                    <span className="truncate">{item.label}</span>
-                    {"sublabel" in item && item.sublabel && (
+                    <span className="truncate">{label}</span>
+                    {sublabel ? (
                       <span className="truncate text-[11px] text-[hsl(var(--sidebar-fg))]">
-                        {item.sublabel}
+                        {sublabel}
                       </span>
-                    )}
+                    ) : null}
                   </div>
-                  {"badge" in item && item.badge && (
+                  {badge ? (
                     <span className="rounded-md bg-primary/20 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-primary">
-                      {item.badge}
+                      {badge}
                     </span>
-                  )}
+                  ) : null}
                 </>
               )}
             </button>

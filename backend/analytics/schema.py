@@ -71,14 +71,6 @@ def ensure_schema(db_path: Path | str) -> None:
                 new_value TEXT,
                 fetched_at TEXT NOT NULL
             );
-            CREATE INDEX IF NOT EXISTS idx_octane_defect_history_events_defect_timestamp
-                ON octane_defect_history_events(defect_id, event_timestamp);
-            CREATE TABLE IF NOT EXISTS octane_defect_history_refresh_state (
-                defect_id TEXT NOT NULL PRIMARY KEY,
-                defect_last_modified TEXT NOT NULL,
-                last_history_event_timestamp TEXT,
-                last_history_checked_at TEXT NOT NULL
-            );
             CREATE TABLE IF NOT EXISTS octane_manual_runs (
                 mr_id TEXT PRIMARY KEY,
                 defect_id TEXT,
@@ -104,6 +96,7 @@ def ensure_schema(db_path: Path | str) -> None:
                 scope_team TEXT NOT NULL,
                 scope_release TEXT NOT NULL,
                 source TEXT NOT NULL,
+                year TEXT,
                 test_name TEXT,
                 run_count INTEGER NOT NULL,
                 defect_ids_json TEXT NOT NULL,
@@ -123,6 +116,48 @@ def ensure_schema(db_path: Path | str) -> None:
                 related_name TEXT,
                 fetched_at TEXT NOT NULL,
                 PRIMARY KEY (test_id, scope_team, scope_release, source, relation_type, related_id)
+            );
+            CREATE TABLE IF NOT EXISTS octane_run_traceability (
+                run_id TEXT NOT NULL,
+                test_id TEXT NOT NULL,
+                test_name TEXT,
+                scope_team TEXT NOT NULL,
+                scope_release TEXT NOT NULL,
+                source TEXT NOT NULL,
+                year TEXT,
+                status TEXT,
+                run_finished TEXT,
+                relation_type TEXT NOT NULL,
+                related_id TEXT NOT NULL,
+                related_name TEXT,
+                related_subtype TEXT,
+                related_path TEXT,
+                parent_id TEXT,
+                parent_name TEXT,
+                parent_subtype TEXT,
+                fetched_at TEXT NOT NULL,
+                PRIMARY KEY (run_id, test_id, scope_team, scope_release, source, relation_type, related_id)
+            );
+            CREATE TABLE IF NOT EXISTS octane_traceability_testcases (
+                test_id TEXT NOT NULL,
+                scope_team TEXT NOT NULL,
+                scope_release TEXT NOT NULL,
+                source TEXT NOT NULL,
+                year TEXT,
+                test_name TEXT,
+                run_count INTEGER NOT NULL,
+                run_ids_json TEXT NOT NULL,
+                run_status_distribution_json TEXT NOT NULL,
+                defect_ids_json TEXT NOT NULL,
+                defect_names_json TEXT NOT NULL,
+                feature_ids_json TEXT NOT NULL,
+                feature_names_json TEXT NOT NULL,
+                story_ids_json TEXT NOT NULL,
+                story_names_json TEXT NOT NULL,
+                epic_ids_json TEXT NOT NULL,
+                epic_names_json TEXT NOT NULL,
+                fetched_at TEXT NOT NULL,
+                PRIMARY KEY (test_id, scope_team, scope_release, source)
             );
             """
         )

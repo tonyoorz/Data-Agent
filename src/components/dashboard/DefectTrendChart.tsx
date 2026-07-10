@@ -14,6 +14,10 @@ type DefectTrendChartProps = {
   data: TopIssueTrendRow[];
 };
 
+function formatTrendDateLabel(value: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value.slice(5) : value;
+}
+
 const DefectTrendChart = ({ data }: DefectTrendChartProps) => {
   const chartData = data.map((row) => ({
     month: row.month,
@@ -27,7 +31,7 @@ const DefectTrendChart = ({ data }: DefectTrendChartProps) => {
       <div className="mb-5 flex items-center justify-between">
         <div>
           <h3 className="text-base font-semibold text-foreground">缺陷趋势</h3>
-          <p className="mt-0.5 text-xs text-muted-foreground">日度新增、关闭与进行中缺陷数</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">工作日新增、关闭与进行中缺陷数</p>
         </div>
         <div className="flex items-center gap-4 text-xs">
           <span className="flex items-center gap-1.5">
@@ -64,6 +68,9 @@ const DefectTrendChart = ({ data }: DefectTrendChartProps) => {
           <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 16%, 90%)" vertical={false} />
           <XAxis
             dataKey="month"
+            interval="preserveStartEnd"
+            minTickGap={20}
+            tickFormatter={formatTrendDateLabel}
             tick={{ fontSize: 12, fill: "hsl(220, 10%, 50%)" }}
             axisLine={false}
             tickLine={false}
@@ -75,6 +82,7 @@ const DefectTrendChart = ({ data }: DefectTrendChartProps) => {
             width={36}
           />
           <Tooltip
+            labelFormatter={(value) => String(value)}
             contentStyle={{
               background: "hsl(0, 0%, 100%)",
               border: "1px solid hsl(220, 16%, 90%)",

@@ -120,8 +120,27 @@ export function resolveChatModelConfig(selectedModel, env = process.env) {
   };
 }
 
-export function buildChatCompletionRequest({ selectedModel, messages, env = process.env, stream = false }) {
+function buildToolRequestFields(tools, toolChoice) {
+  if (!Array.isArray(tools) || tools.length === 0) {
+    return {};
+  }
+
+  return {
+    tools,
+    ...(toolChoice == null ? {} : { tool_choice: toolChoice }),
+  };
+}
+
+export function buildChatCompletionRequest({
+  selectedModel,
+  messages,
+  env = process.env,
+  stream = false,
+  tools,
+  toolChoice,
+}) {
   const config = resolveChatModelConfig(selectedModel || "", env);
+  const toolRequestFields = buildToolRequestFields(tools, toolChoice);
 
   if (config.usesInternalEndpoint) {
     return {
@@ -137,6 +156,7 @@ export function buildChatCompletionRequest({ selectedModel, messages, env = proc
         temperature: 0.2,
         max_token_length: 2048,
         stream,
+        ...toolRequestFields,
       },
       config,
     };
@@ -159,6 +179,7 @@ export function buildChatCompletionRequest({ selectedModel, messages, env = proc
       max_tokens: 900,
       messages,
       stream,
+      ...toolRequestFields,
     },
     config,
   };

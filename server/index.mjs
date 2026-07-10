@@ -4,10 +4,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import duplicateBridgeRuntime from "./duplicateBridgeRuntime.cjs";
+import { resolveAiAnalyticsContext } from "./aiAnalyticsContext.mjs";
+import { resolveMainAgentToolContext, shouldPlanMainAgentTools } from "./mainAgentToolLoop.mjs";
 import { createDuplicateWarmupManager } from "./duplicateWarmup.mjs";
 import { extractLatestUserQuery, resolveAiDefectContext } from "./aiContext.mjs";
 import { streamCompanyChatCompletion, writeSseEvent } from "./companyChat.mjs";
-import { summarizeDuplicateResults } from "./duplicateSummary.mjs";
+import { attachDuplicateSummary } from "./duplicateResultEnrichment.mjs";
 import { loadLocalEnv } from "./loadLocalEnv.mjs";
 import {
   defaultQGateReportsRoot,
@@ -58,11 +60,16 @@ async function handleAiChatRequest(body, response) {
   const requestId = buildRequestId("ai-chat");
   const queryText = extractLatestUserQuery(body?.messages);
   const useDefectContext = body?.useDefectContext === true;
+  const useAnalyticsContext = body?.useAnalyticsContext === true;
+  const analyticsContext = useAnalyticsContext
+    ? await resolveAiAnalyticsContext({ messages: body?.messages })
+    : null;
   let aiContext = null;
+  let mainAgentToolContext = null;
   let streamMetrics = null;
 
   try {
-    if (useDefectContext) {
+    if (useDefectContext && !analyticsContext?.skipDefectContext) {
       writeSseEvent(response, {
         type: "status",
         message: "正在检索 qgate 相关缺陷…",
@@ -76,13 +83,49 @@ async function handleAiChatRequest(body, response) {
       });
     }
 
-    const mergedContext = [body?.context, aiContext?.contextText].filter(Boolean).join("\n\n");
+    const baseContext = [body?.context, analyticsContext?.contextText, aiContext?.contextText].filter(Boolean).join("\n\n");
+    if (useAnalyticsContext && !analyticsContext?.skipDefectContext && shouldPlanMainAgentTools(body?.messages)) {
+      writeSseEvent(response, {
+        type: "status",
+        message: "正在判断是否需要调用 dashboard 工具…",
+      });
+      try {
+        mainAgentToolContext = await resolveMainAgentToolContext({
+          messages: body?.messages,
+          model: body?.model,
+          context: baseContext,
+          toolDependencies: {
+            runDuplicateBridge,
+            ensureDuplicateWarmup: () => duplicateWarmupManager.ensureWarm({ reason: "main-agent-tool-search-duplicates" }),
+          },
+        });
+        if (mainAgentToolContext.toolCalls.length) {
+          writeSseEvent(response, {
+            type: "status",
+            message: `已调用 ${mainAgentToolContext.toolCalls.length} 个 dashboard 工具，正在生成回答…`,
+          });
+        }
+      } catch (error) {
+        console.warn("[ai-chat] main agent tool planning failed", error);
+        writeSseEvent(response, {
+          type: "status",
+          message: "dashboard 工具暂不可用，改用已检索上下文回答…",
+        });
+      }
+    }
+
+    const mergedContext = [baseContext, mainAgentToolContext?.contextText].filter(Boolean).join("\n\n");
+    const finalMessages = [
+      ...(Array.isArray(body?.messages) ? body.messages : []),
+      ...(mainAgentToolContext?.toolConversationMessages || []),
+    ];
     await streamCompanyChatCompletion({
-      messages: body?.messages,
+      messages: finalMessages,
       model: body?.model,
       context: mergedContext,
       response,
       prefaceEvents: [
+        ...(mainAgentToolContext?.toolEvents || []),
         ...(aiContext?.duplicateSearchResult
           ? [
               {
@@ -104,6 +147,8 @@ async function handleAiChatRequest(body, response) {
       model: String(body?.model || ""),
       query: summarizeQuery(aiContext?.queryText || queryText),
       aiContextEnabled: useDefectContext,
+      analyticsContextEnabled: useAnalyticsContext,
+      mainAgentToolCallCount: mainAgentToolContext?.toolCalls?.length || 0,
       aiContextTimings: aiContext?.timings || null,
       streamMetrics,
       totalMs: roundMs(nowMs() - startedAt),
@@ -115,6 +160,8 @@ async function handleAiChatRequest(body, response) {
       model: String(body?.model || ""),
       query: summarizeQuery(aiContext?.queryText || queryText),
       aiContextEnabled: useDefectContext,
+      analyticsContextEnabled: useAnalyticsContext,
+      mainAgentToolCallCount: mainAgentToolContext?.toolCalls?.length || 0,
       aiContextTimings: aiContext?.timings || null,
       streamMetrics,
       totalMs: roundMs(nowMs() - startedAt),
@@ -145,6 +192,17 @@ async function readJsonBody(request) {
 
   const raw = Buffer.concat(chunks).toString("utf8").trim();
   return raw ? JSON.parse(raw) : {};
+}
+
+async function proxyAnalyticsJson(pathname, searchParams, response) {
+  const analyticsUrl = new URL(pathname, "http://127.0.0.1:3003");
+  searchParams.forEach((value, key) => analyticsUrl.searchParams.append(key, value));
+  const analyticsResponse = await fetch(analyticsUrl);
+  const payload = await analyticsResponse.text();
+  response.writeHead(analyticsResponse.status, {
+    "Content-Type": analyticsResponse.headers.get("content-type") || "application/json; charset=utf-8",
+  });
+  response.end(payload);
 }
 
 function serveStaticAsset(request, response, url) {
@@ -203,6 +261,11 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === "GET" && url.pathname === "/api/qgate-reports/latest-dashboard") {
       sendJson(response, 200, findLatestQGateDashboardReport(defaultQGateReportsRoot));
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/qgate-reports/weekly-report") {
+      await proxyAnalyticsJson(url.pathname, url.searchParams, response);
       return;
     }
 
@@ -302,13 +365,11 @@ const server = http.createServer(async (request, response) => {
       });
 
       if (result?.success && result?.result) {
-        const summary = await summarizeDuplicateResults(query, result.result, selectedModel);
-        result.result = {
-          ...result.result,
-          summaryText: summary.summaryText,
-          answerModel: summary.answerModel,
-          summarySource: summary.summarySource,
-        };
+        result.result = await attachDuplicateSummary({
+          query,
+          selectedModel,
+          result: result.result,
+        });
       }
 
       sendJson(response, result?.success ? 200 : 500, result);

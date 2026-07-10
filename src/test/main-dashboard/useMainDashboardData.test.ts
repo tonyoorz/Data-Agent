@@ -18,7 +18,7 @@ describe("useMainDashboardData", () => {
 
     expect(useQuery).toHaveBeenCalledWith(
       expect.objectContaining({
-        queryKey: ["main-dashboard"],
+        queryKey: ["main-dashboard", {}],
         staleTime: 60_000,
         retry: 0,
         refetchOnMount: false,

@@ -53,6 +53,24 @@ function resolveRequestTimeoutMs(options = {}, env = process.env) {
   return Math.max(100, Math.floor(raw));
 }
 
+function resolveSearchRequestTimeoutMs(options = {}, env = process.env) {
+  const raw = Number(
+    options.searchRequestTimeoutMs
+      || env.DUPSEARCH_BRIDGE_SEARCH_TIMEOUT_MS
+      || env.DUPSEARCH_BRIDGE_SEARCH_REQUEST_TIMEOUT_MS
+      || 180000,
+  );
+  if (!Number.isFinite(raw) || raw <= 0) {
+    return 180000;
+  }
+  return Math.max(100, Math.floor(raw));
+}
+
+function usesIndexingTimeout(payload) {
+  const action = String(payload?.action || '').trim().toLowerCase();
+  return action === 'search' || action === 'warmup';
+}
+
 function isRetryableBridgeError(error) {
   const message = error instanceof Error ? error.message : String(error || '');
   return /timed out|exited before responding|Bridge process failed|EPIPE|stdin/i.test(message);
@@ -62,6 +80,7 @@ class JsonLineBridgeClient {
   constructor(options) {
     this.options = { ...options };
     this.requestTimeoutMs = resolveRequestTimeoutMs(options);
+    this.searchRequestTimeoutMs = resolveSearchRequestTimeoutMs(options);
     this.proc = null;
     this.stdoutReader = null;
     this.pending = [];
@@ -98,6 +117,9 @@ class JsonLineBridgeClient {
     }
 
     const proc = this._ensureProcess();
+    const timeoutMs = usesIndexingTimeout(payload)
+      ? this.searchRequestTimeoutMs
+      : this.requestTimeoutMs;
 
     return new Promise((resolve, reject) => {
       let timer = null;
@@ -121,9 +143,9 @@ class JsonLineBridgeClient {
         if (index >= 0) {
           this.pending.splice(index, 1);
         }
-        pending.reject(new Error(`Bridge request timed out after ${this.requestTimeoutMs}ms`));
+        pending.reject(new Error(`Bridge request timed out after ${timeoutMs}ms`));
         this._teardownProcess(proc);
-      }, this.requestTimeoutMs);
+      }, timeoutMs);
       timer.unref?.();
 
       this.pending.push(pending);
@@ -247,6 +269,7 @@ function getDuplicateBridgeClient() {
         PYTHONIOENCODING: 'utf-8',
       },
       requestTimeoutMs: Number(process.env.DUPSEARCH_BRIDGE_REQUEST_TIMEOUT_MS || 45000),
+      searchRequestTimeoutMs: Number(process.env.DUPSEARCH_BRIDGE_SEARCH_TIMEOUT_MS || 180000),
     });
   }
 
@@ -273,6 +296,8 @@ module.exports = {
   isRetryableBridgeError,
   resolvePythonExecutable,
   resolveRequestTimeoutMs,
+  resolveSearchRequestTimeoutMs,
+  usesIndexingTimeout,
   runDuplicateBridge,
   stopDuplicateBridgeRuntime,
 };

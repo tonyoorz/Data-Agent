@@ -1,49 +1,57 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import DashboardSidebar from "@/components/dashboard/DashboardSidebar";
-import FilterPanel from "@/components/dashboard/FilterPanel";
-import KPICards from "@/components/dashboard/KPICards";
-import DefectTrendChart from "@/components/dashboard/DefectTrendChart";
-import StatusDistributionChart from "@/components/dashboard/StatusDistributionChart";
-import TopIssueTable from "@/components/dashboard/TopIssueTable";
+import LanguageSwitcher from "@/components/dashboard/LanguageSwitcher";
 import ProjectAnalysis from "@/components/dashboard/pages/ProjectAnalysis";
 import DefectHighFreq from "@/components/dashboard/pages/DefectHighFreq";
 import LongRunnerAnalysis from "@/components/dashboard/pages/LongRunnerAnalysis";
 import TestTeamAnalysis from "@/components/dashboard/pages/TestTeamAnalysis";
 import CoverageAnalysis from "@/components/dashboard/pages/CoverageAnalysis";
+import TraceabilityAnalysis from "@/components/dashboard/pages/TraceabilityAnalysis";
 import TestStatusAnalysis from "@/components/dashboard/pages/TestStatusAnalysis";
 import DefectStatusAnalysis from "@/components/dashboard/pages/DefectStatusAnalysis";
 import AIChat from "@/components/dashboard/pages/AIChat";
 import MainDashboard from "@/components/dashboard/pages/MainDashboard";
+import TopIssueAnalysis from "@/components/dashboard/pages/TopIssueAnalysis";
 import QGateKpiReport from "@/components/dashboard/pages/QGateKpiReport";
+import QGateWeeklyReport from "@/components/dashboard/pages/QGateWeeklyReport";
 import { formatSyncTimestamp } from "@/lib/formatSyncTimestamp";
 
-const pageTitles: Record<string, { title: string; subtitle: string }> = {
+import "@/i18n";
+
+const pageTitleKeys: Record<string, { titleKey: string; subtitleKey: string }> = {
   "main-dashboard": {
-    title: "Main Dashboard",
-    subtitle: "将 Full Picture 数据和交互方式融合到当前数据看板",
+    titleKey: "mainDashboard.title",
+    subtitleKey: "mainDashboard.subtitle",
   },
-  topissue: { title: "Top Issue 分析", subtitle: "关键问题追踪与趋势分析" },
-  project: { title: "项目分析", subtitle: "多项目缺陷对比与进度总览" },
-  "defect-high": { title: "缺陷高频分析", subtitle: "高频缺陷模块识别与根因定位" },
-  "long-runner": { title: "长周期分析", subtitle: "超期缺陷追踪与周期优化" },
-  "test-team": { title: "测试团队分析", subtitle: "团队绩效与能力评估" },
-  coverage: { title: "测试覆盖率分析", subtitle: "模块覆盖率监控与提升" },
-  "test-status": { title: "测试状态分析", subtitle: "用例执行状态与通过率" },
-  "defect-status": { title: "缺陷状态分析", subtitle: "缺陷生命周期与流转趋势" },
-  "qgate-kpi-report": { title: "QGate KPI Report", subtitle: "QGate KPI Dashboard 迁移视图" },
-  "ai-chat": { title: "AI Chat", subtitle: "与 DTSV 智能体对话，获取分析洞察" },
+  topissue: { titleKey: "topIssue.title", subtitleKey: "topIssue.subtitle" },
+  project: { titleKey: "project.title", subtitleKey: "project.subtitle" },
+  "defect-high": { titleKey: "defectHigh.title", subtitleKey: "defectHigh.subtitle" },
+  "long-runner": { titleKey: "longRunner.title", subtitleKey: "longRunner.subtitle" },
+  "test-team": { titleKey: "testTeam.title", subtitleKey: "testTeam.subtitle" },
+  coverage: { titleKey: "coverage.title", subtitleKey: "coverage.subtitle" },
+  traceability: { titleKey: "traceability.title", subtitleKey: "traceability.subtitle" },
+  "test-status": { titleKey: "testStatus.title", subtitleKey: "testStatus.subtitle" },
+  "defect-status": { titleKey: "defectStatus.title", subtitleKey: "defectStatus.subtitle" },
+  "qgate-kpi-report": { titleKey: "qgateKpiReport.title", subtitleKey: "qgateKpiReport.subtitle" },
+  "qgate-weekly-report": { titleKey: "qgateWeeklyReport.title", subtitleKey: "qgateWeeklyReport.subtitle" },
+  "ai-chat": { titleKey: "aiChat.title", subtitleKey: "aiChat.subtitle" },
 };
 
 const Index = () => {
+  const { t } = useTranslation(["common", "pages"]);
   const [activeNav, setActiveNav] = useState("main-dashboard");
   const [mainDashboardSyncDate, setMainDashboardSyncDate] = useState<string | null>(null);
-  const info = pageTitles[activeNav] || pageTitles["main-dashboard"];
+  const info = pageTitleKeys[activeNav] || pageTitleKeys["main-dashboard"];
+  const pageTitle = t(info.titleKey, { ns: "pages" });
   const formattedMainDashboardSyncDate = formatSyncTimestamp(mainDashboardSyncDate);
 
   const renderContent = () => {
     switch (activeNav) {
       case "main-dashboard":
         return <MainDashboard onSyncDateChange={setMainDashboardSyncDate} />;
+      case "topissue":
+        return <TopIssueAnalysis onSyncDateChange={setMainDashboardSyncDate} />;
       case "project":
         return <ProjectAnalysis />;
       case "defect-high":
@@ -54,30 +62,20 @@ const Index = () => {
         return <TestTeamAnalysis />;
       case "coverage":
         return <CoverageAnalysis />;
+      case "traceability":
+        return <TraceabilityAnalysis />;
       case "test-status":
         return <TestStatusAnalysis />;
       case "defect-status":
         return <DefectStatusAnalysis />;
       case "qgate-kpi-report":
         return <QGateKpiReport />;
+      case "qgate-weekly-report":
+        return <QGateWeeklyReport />;
       case "ai-chat":
-        return <AIChat moduleKey={activeNav} moduleLabel={info.title} />;
+        return <AIChat moduleKey={activeNav} moduleLabel={pageTitle} />;
       default:
-        return (
-          <>
-            <FilterPanel />
-            <KPICards />
-            <div className="grid gap-5 lg:grid-cols-5">
-              <div className="lg:col-span-3">
-                <DefectTrendChart />
-              </div>
-              <div className="lg:col-span-2">
-                <StatusDistributionChart />
-              </div>
-            </div>
-            <TopIssueTable />
-          </>
-        );
+        return <MainDashboard onSyncDateChange={setMainDashboardSyncDate} />;
     }
   };
 
@@ -88,12 +86,15 @@ const Index = () => {
       <main className="min-h-0 flex-1 overflow-y-auto">
         <header className="sticky top-0 z-30 flex items-center justify-between border-b border-border bg-background/80 backdrop-blur-md px-6 py-3.5">
           <div>
-            <h1 className="text-lg font-bold text-foreground">{info.title}</h1>
-            <p className="text-xs text-muted-foreground">{info.subtitle}</p>
+            <h1 className="text-lg font-bold text-foreground">{pageTitle}</h1>
+            <p className="text-xs text-muted-foreground">{t(info.subtitleKey, { ns: "pages" })}</p>
           </div>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <span className="flex h-2 w-2 rounded-full bg-success" />
-            {`数据已同步 · ${formattedMainDashboardSyncDate ?? "暂无日期"}`}
+          <div className="flex items-center gap-3 text-xs text-muted-foreground">
+            <LanguageSwitcher />
+            <div className="flex items-center gap-2">
+              <span className="flex h-2 w-2 rounded-full bg-success" />
+              {`${t("sync.synced")} · ${formattedMainDashboardSyncDate ?? t("sync.noDate")}`}
+            </div>
           </div>
         </header>
 

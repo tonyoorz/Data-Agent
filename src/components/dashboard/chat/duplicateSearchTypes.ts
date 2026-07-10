@@ -2,6 +2,8 @@ export type DuplicateFeedbackSignal = "positive" | "negative" | "click";
 
 export interface DuplicateSearchCandidate {
   score1to10: number;
+  confidenceScore1to10?: number;
+  confidenceLabel?: "high" | "medium" | "low" | "review" | string;
   similarity: number;
   ticketId: string;
   name: string;
@@ -9,6 +11,7 @@ export interface DuplicateSearchCandidate {
   pu?: string;
   statusPhase?: string;
   snippet: string;
+  reviewFocus?: string;
   evidenceSnippets?: string[];
   rankingSignals?: {
     denseRank?: number | null;

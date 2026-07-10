@@ -220,4 +220,107 @@ describe("DuplicateSearchResults", () => {
     expect(screen.getByText("Sparse #1")).toBeInTheDocument();
     expect(screen.getByText("Sparse x2")).toBeInTheDocument();
   });
+
+  it("prefers per-candidate review focus over raw snippets", () => {
+    render(
+      <DuplicateSearchResults
+        allowFeedback={false}
+        result={{
+          searchId: "search-review-focus-1",
+          queryText: "speech can not wakeup",
+          modelPhase: "click_boost",
+          feedbackCount: 0,
+          candidates: [
+            {
+              ticketId: "2754092",
+              name: "Speech can not be wake up",
+              score1to10: 6,
+              confidenceScore1to10: 8,
+              confidenceLabel: "high",
+              similarity: 0.56,
+              snippet: "raw platform lifecycle description should not dominate the card",
+              reviewFocus: "Likely wake-up symptom match; compare platform, trigger path, timestamp and logs.",
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Likely wake-up symptom match; compare platform, trigger path, timestamp and logs.")).toBeInTheDocument();
+    expect(screen.getByText("置信度 8/10")).toBeInTheDocument();
+    expect(screen.queryByText("raw platform lifecycle description should not dominate the card")).not.toBeInTheDocument();
+  });
+
+  it("renders candidate comment evidence below the review focus", () => {
+    render(
+      <DuplicateSearchResults
+        allowFeedback={false}
+        result={{
+          searchId: "search-comment-evidence-1",
+          queryText: "hicar failed to connect",
+          modelPhase: "click_boost",
+          feedbackCount: 7,
+          candidates: [
+            {
+              ticketId: "2752582",
+              name: "FIT_CN_NA6: Fail to activate HUAWEI HiCar when Bluetooth is connected",
+              score1to10: 7,
+              confidenceScore1to10: 8,
+              similarity: 0.62,
+              snippet: "HiCar activation failure after Bluetooth connection.",
+              reviewFocus: "优先核对 comments/evidence 中的同类现象。",
+              evidenceSnippets: [
+                "Comment analysis: Bluetooth connects successfully but HiCar activation stays inactive after the device handshake.",
+                "Log evidence: hicar_service reports activation timeout on IDCEVO PU26.",
+                "Extra evidence should stay hidden in the compact card.",
+              ],
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Comments 分析")).toBeInTheDocument();
+    expect(screen.getByText(/Bluetooth connects successfully/)).toBeInTheDocument();
+    expect(screen.getByText(/hicar_service reports activation timeout/)).toBeInTheDocument();
+    expect(screen.queryByText(/Extra evidence should stay hidden/)).not.toBeInTheDocument();
+  });
+
+  it("orders candidates by review confidence and shows similarity separately", () => {
+    render(
+      <DuplicateSearchResults
+        allowFeedback={false}
+        result={{
+          searchId: "search-confidence-order-1",
+          queryText: "speech can not wakeup",
+          modelPhase: "click_boost",
+          feedbackCount: 0,
+          candidates: [
+            {
+              ticketId: "2337201",
+              name: "Speech did not work in any language",
+              score1to10: 6,
+              confidenceScore1to10: 6,
+              similarity: 0.565,
+              snippet: "dense-only top match",
+            },
+            {
+              ticketId: "2754092",
+              name: "Speech can not be wake up",
+              score1to10: 6,
+              confidenceScore1to10: 7,
+              similarity: 0.557,
+              snippet: "sparse and evidence supported match",
+            },
+          ],
+        }}
+      />,
+    );
+
+    const items = screen.getAllByRole("listitem");
+    expect(items[0]).toHaveTextContent("2754092");
+    expect(items[0]).toHaveTextContent("置信度 7/10 · 相似度 6/10");
+    expect(items[1]).toHaveTextContent("2337201");
+    expect(items[1]).toHaveTextContent("置信度 6/10 · 相似度 6/10");
+  });
 });

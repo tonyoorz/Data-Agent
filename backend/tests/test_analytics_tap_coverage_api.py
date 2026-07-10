@@ -248,17 +248,10 @@ def test_testing_coverage_analysis_returns_503_without_published_testing_snapsho
 
     response = client.get("/api/testing/coverage-analysis/filters")
 
-    assert response.status_code == 200
+    assert response.status_code == 503
     assert response.json() == {
-        "years": ["2026"],
-        "projects": ["IDCEVO"],
-        "test_weeks": ["2026-CW21"],
-        "pus": ["ICV"],
-        "aidas": ["Use Speech operation [01.04.02.01.01.05]"],
-        "statuses": ["Passed"],
-        "feature_regions": ["China Specific"],
-        "fvps": ["Voice Experience"],
-        "fvs": ["Speech"],
+        "error": "testing coverage analysis data not ready",
+        "missing_fields": REQUIRED_MISSING_FIELDS,
     }
 
 
@@ -354,17 +347,10 @@ def test_testing_coverage_analysis_returns_503_when_hot_rows_exist_without_activ
 
     response = client.get("/api/testing/coverage-analysis/filters")
 
-    assert response.status_code == 200
+    assert response.status_code == 503
     assert response.json() == {
-        "years": ["2026"],
-        "projects": ["IDCEVO"],
-        "test_weeks": ["2026-CW21"],
-        "pus": ["ICV"],
-        "aidas": ["Use Speech operation [01.04.02.01.01.05]"],
-        "statuses": ["Passed"],
-        "feature_regions": ["China Specific"],
-        "fvps": ["Voice Experience"],
-        "fvs": ["Speech"],
+        "error": "testing coverage analysis data not ready",
+        "missing_fields": REQUIRED_MISSING_FIELDS,
     }
 
 
@@ -831,8 +817,6 @@ def test_testing_coverage_analysis_uses_tester_column_when_run_by_and_author_are
             "top_aida": "Use Speech operation [01.04.02.01.01.05]",
             "project": "IDCEVO",
             "pu": "ICV",
-            "fvp": "Voice Experience",
-            "fv": "Speech",
             "tester": "Tester From Column",
             "count": 1,
         }
@@ -1017,8 +1001,6 @@ def test_testing_coverage_analysis_source_queries_prefer_manual_run_dimensions_w
             "top_aida": "Use Speech operation [01.04.02.01.01.05]",
             "project": "IDCEVO",
             "pu": "ICV",
-            "fvp": "Voice Experience",
-            "fv": "Speech",
             "tester": "Tester From Manual Run",
             "count": 1,
         }
@@ -1212,6 +1194,77 @@ def test_testing_coverage_analysis_endpoints_return_grouped_data(tmp_path, monke
     ]
 
 
+def test_testing_coverage_filter_options_keep_available_years_when_year_is_selected(tmp_path, monkeypatch):
+    db_path = tmp_path / "octane_data.db"
+    ensure_schema(db_path)
+
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.executemany(
+            """
+            INSERT INTO octane_manual_runs(
+                mr_id, defect_id, test_id, test_name, status, year, test_week,
+                pu, top_aida, feature_region, tester, project, fv, fvp,
+                team, lead_model, raw_json, fetched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    "MR-2025",
+                    "D-2025",
+                    "T-2025",
+                    "Legacy wake test",
+                    "Passed",
+                    "2025",
+                    "2025-CW50",
+                    "PU-2025",
+                    "AIDA-2025",
+                    "China",
+                    "Tester 2025",
+                    "SP25",
+                    "Speech",
+                    "Voice",
+                    "DTSV_China",
+                    "NA5",
+                    "{}",
+                    "2025-12-12T00:00:00Z",
+                ),
+                (
+                    "MR-2026",
+                    "D-2026",
+                    "T-2026",
+                    "Current wake test",
+                    "Failed",
+                    "2026",
+                    "2026-CW21",
+                    "PU-2026",
+                    "AIDA-2026",
+                    "Global",
+                    "Tester 2026",
+                    "SP26",
+                    "Speech",
+                    "Voice",
+                    "DTSV_China",
+                    "NA5",
+                    "{}",
+                    "2026-05-25T00:00:00Z",
+                ),
+            ],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    monkeypatch.setenv("VIZION_ANALYTICS_DB_PATH", str(db_path))
+    client = TestClient(app)
+
+    response = client.get("/api/testing/coverage-analysis/filters", params={"years": "2026"})
+
+    assert response.status_code == 200
+    assert response.json()["years"] == ["2025", "2026"]
+    assert response.json()["projects"] == ["SP26"]
+
+
 def test_testing_coverage_analysis_testcase_detail_honors_limit_query_param(tmp_path, monkeypatch):
     db_path = tmp_path / "octane_data.db"
     ensure_schema(db_path)
@@ -1402,8 +1455,6 @@ def test_testing_coverage_analysis_grouped_endpoints_merge_normalized_bucket_val
             "top_aida": "AIDA-1",
             "project": "IDCEVO",
             "pu": "PU1",
-            "fvp": "Voice",
-            "fv": "Speech",
             "tester": "Tester A",
             "count": 2,
         }

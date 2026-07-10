@@ -19,7 +19,7 @@ for candidate in (str(REPO_ROOT), str(BACKEND_ROOT)):
         sys.path.insert(0, candidate)
 
 from backend.analytics.config import get_full_picture_source_db_path
-from duplicate_issue_finder import extract_hints, get_or_build_index_with_metadata
+from duplicate_issue_finder import calibrate_duplicate_confidence, extract_hints, get_or_build_index_with_metadata
 from feedback_store import FeedbackStore
 from progressive_reranker import get_progressive_reranker
 
@@ -742,9 +742,18 @@ def _search(payload: Dict[str, Any], repo_root: Path) -> Dict[str, Any]:
 
     result_items: List[Dict[str, Any]] = []
     for candidate in candidates:
+        ranking_signals = getattr(candidate, 'ranking_signals', None)
+        evidence_snippets = list(getattr(candidate, 'evidence_snippets', []) or [])
+        confidence = calibrate_duplicate_confidence(
+            similarity=float(getattr(candidate, 'similarity', 0.0) or 0.0),
+            ranking_signals=ranking_signals,
+            evidence_snippets=evidence_snippets,
+        )
         result_items.append(
             {
                 'score1to10': int(getattr(candidate, 'score_1_10', 1) or 1),
+                'confidenceScore1to10': int(confidence.get('score') or 1),
+                'confidenceLabel': str(confidence.get('label') or 'review'),
                 'similarity': float(getattr(candidate, 'similarity', 0.0) or 0.0),
                 'ticketId': str(getattr(candidate, 'ticket_id', '') or ''),
                 'name': str(getattr(candidate, 'name', '') or ''),
@@ -752,8 +761,8 @@ def _search(payload: Dict[str, Any], repo_root: Path) -> Dict[str, Any]:
                 'pu': getattr(candidate, 'pu', None),
                 'statusPhase': getattr(candidate, 'status_phase', None),
                 'snippet': str(getattr(candidate, 'snippet', '') or ''),
-                'evidenceSnippets': list(getattr(candidate, 'evidence_snippets', []) or []),
-                'rankingSignals': _camel_case_ranking_signals(getattr(candidate, 'ranking_signals', None)),
+                'evidenceSnippets': evidence_snippets,
+                'rankingSignals': _camel_case_ranking_signals(ranking_signals),
             }
         )
 

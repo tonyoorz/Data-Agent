@@ -64,13 +64,108 @@ describe("summarizeDuplicateResults", () => {
     expect(requestBody.messages[0].content).toContain("不得改写该候选的置信度等级");
     expect(requestBody.messages[1].content).toContain("证据1: 分析结论：HU wake timeout after KL15 on.");
     expect(requestBody.messages[1].content).toContain("证据2: 日志显示 wake sequence 中断。");
-    expect(requestBody.messages[1].content).toContain("置信度等级: 高置信");
+    expect(requestBody.messages[1].content).toContain("复核置信度: 高置信 (8/10)");
+    expect(requestBody.messages[1].content).toContain("相似度分数: 8/10");
     expect(requestBody.messages[1].content).not.toContain("这条不应该进入 prompt。");
     expect(requestBody.messages[1].content).not.toContain("\nafter KL15 on.");
     expect(requestBody.messages[1].content).not.toContain("wake sequence\r\n 中断");
   });
 
-  it("uses fallback summary with bounded evidence when credentials are missing", async () => {
+  it("returns per-candidate review focus from structured company LLM output", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                summaryText: "当前排序第一候选 2754092，需要核对平台和日志。",
+                candidateAnalyses: [
+                  {
+                    ticketId: "2754092",
+                    reviewFocus: "Likely wake-up symptom match; compare platform, trigger path, timestamp and logs.",
+                  },
+                ],
+              }),
+            },
+          },
+        ],
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const summary = await summarizeDuplicateResults(
+      "speech can not wakeup",
+      {
+        candidates: [
+          {
+            ticketId: "2754092",
+            name: "Speech can not be wake up",
+            score1to10: 6,
+            snippet: "wake up speech issue",
+          },
+        ],
+        modelPhase: "click_boost",
+        feedbackCount: 0,
+      },
+      "deepseek-v4-flash",
+      { language: "en" },
+    );
+
+    const requestBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(requestBody.messages[0].content).toContain("Output in English");
+    expect(summary.summarySource).toBe("llm");
+    expect(summary.summaryText).toContain("Current top candidate: 2754092");
+    expect(summary.candidateAnalyses).toEqual([
+      {
+        ticketId: "2754092",
+        reviewFocus: "Likely wake-up symptom match; compare platform, trigger path, timestamp and logs.",
+      },
+    ]);
+  });
+
+  it("summarizes candidates in review-confidence order with separate similarity scores", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: "{}" } }] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const summary = await summarizeDuplicateResults(
+      "speech can not wakeup",
+      {
+        candidates: [
+          {
+            ticketId: "2337201",
+            name: "Speech did not work in any language",
+            score1to10: 6,
+            confidenceScore1to10: 6,
+            snippet: "dense-only top match",
+          },
+          {
+            ticketId: "2754092",
+            name: "Speech can not be wake up",
+            score1to10: 6,
+            confidenceScore1to10: 7,
+            snippet: "sparse and evidence supported match",
+          },
+        ],
+        modelPhase: "click_boost",
+        feedbackCount: 0,
+      },
+      "mock-model",
+      { language: "en" },
+    );
+
+    const requestBody = JSON.parse(fetchMock.mock.calls[0][1].body);
+    const prompt = requestBody.messages[1].content;
+    expect(prompt.indexOf("Ticket: 2754092")).toBeLessThan(prompt.indexOf("Ticket: 2337201"));
+    expect(prompt).toContain("Review confidence: medium confidence (7/10)");
+    expect(prompt).toContain("Similarity score: 6/10");
+    expect(summary.summaryText.split("\n")[0]).toContain("Current top candidate: 2754092");
+  });
+
+  it("uses a concise fallback summary with bounded evidence when credentials are missing", async () => {
     resolveChatModelConfigMock.mockReturnValue({ model: "test-model", credential: "" });
 
     const summary = await summarizeDuplicateResults(
@@ -95,9 +190,15 @@ describe("summarizeDuplicateResults", () => {
     );
 
     expect(summary.summarySource).toBe("fallback");
-    expect(summary.summaryText).toContain("最可能重复票: 2686999。标题“导航黄屏 related defect”，置信度: 高置信。");
-    expect(summary.summaryText).toContain("评论分析: 第一条证据 需要合并；第二条证据");
+    expect(summary.summaryText).toContain("优先复核: D2686999");
+    expect(summary.summaryText).toContain("复核置信度 高置信 (8/10)，相似度 8/10");
+    expect(summary.summaryText).toContain("依据: 第一条证据 需要合并；第二条证据");
+    expect(summary.summaryText).toContain("下一步: 核对平台、触发路径、时间戳和日志后再关联。");
+    expect(summary.summaryText).not.toContain("现象匹配:");
+    expect(summary.summaryText).not.toContain("候选概览:");
     expect(summary.summaryText).not.toContain("第三条证据不会展示");
+    expect(summary.candidateAnalyses[0].reviewFocus).toContain("优先核对 comments/evidence");
+    expect(summary.candidateAnalyses[0].reviewFocus).not.toContain("comments/evidence suggest");
   });
 
   it("uses fallback summary and marks evidence insufficient when fetch fails without evidence", async () => {
@@ -121,7 +222,7 @@ describe("summarizeDuplicateResults", () => {
     );
 
     expect(summary.summarySource).toBe("fallback");
-    expect(summary.summaryText).toContain("评论分析: 当前候选缺少足够 comments 证据");
+    expect(summary.summaryText).toContain("依据: 当前候选缺少足够 comments 证据");
   });
 
   it("falls back when the summary model exceeds the configured timeout", async () => {

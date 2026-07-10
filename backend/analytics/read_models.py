@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import os
 from pathlib import Path
 from typing import Any, Iterable
 import json
+import math
 import re
 import sqlite3
 from urllib.parse import quote
@@ -2100,21 +2101,54 @@ def _build_top_issue_status_distribution(ticket_rows: list[dict[str, Any]]) -> l
     ]
 
 
-def _build_top_issue_defect_trend(ticket_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _is_workday(date_value) -> bool:
+    return date_value.weekday() < 5
+
+
+def _iter_workday_labels(start_date, end_date) -> Iterable[str]:
+    current_date = start_date
+    while current_date <= end_date:
+        if _is_workday(current_date):
+            yield current_date.isoformat()
+        current_date += timedelta(days=1)
+
+
+def _build_top_issue_defect_trend(
+    ticket_rows: list[dict[str, Any]],
+    *,
+    creation_time_start: str = "",
+    creation_time_end: str = "",
+) -> list[dict[str, Any]]:
     grouped: dict[str, dict[str, int]] = {}
+    grouped_dates = []
     for row in ticket_rows:
-        month = str(row.get("month") or _get_ticket_month_value(row.get("creation_time")) or "").strip()
-        if not month:
+        creation_date = _parse_iso_date_value(row.get("creation_time"))
+        if creation_date is None or not _is_workday(creation_date):
             continue
-        state = grouped.setdefault(month, {"new_count": 0, "closed_count": 0, "in_progress_count": 0})
+        day = creation_date.isoformat()
+        grouped_dates.append(creation_date)
+        state = grouped.setdefault(day, {"new_count": 0, "closed_count": 0, "in_progress_count": 0})
         state["new_count"] += 1
         if _is_closed_top_issue_row(row):
             state["closed_count"] += 1
         else:
             state["in_progress_count"] += 1
+
+    range_start = _parse_iso_date_value(creation_time_start)
+    range_end = _parse_iso_date_value(creation_time_end)
+    if range_start is None and grouped_dates:
+        range_start = min(grouped_dates)
+    if range_end is None and grouped_dates:
+        range_end = max(grouped_dates)
+    if range_start is None or range_end is None or range_start > range_end:
+        return []
+
     return [
-        {"month": month, **state}
-        for month, state in sorted(grouped.items(), key=lambda item: item[0])
+        {
+            "month": day,
+            **grouped.get(day, {"new_count": 0, "closed_count": 0, "in_progress_count": 0}),
+        }
+        for day in _iter_workday_labels(range_start, range_end)
     ]
 
 
@@ -2143,6 +2177,227 @@ def _build_top_issue_rows(ticket_rows: list[dict[str, Any]]) -> list[dict[str, A
         )
     )
     return rows[:100]
+
+
+LONG_RUNNER_DISTRIBUTION_BUCKETS = (
+    ("0-7天", 0, 7),
+    ("8-14天", 8, 14),
+    ("15-30天", 15, 30),
+    ("31-60天", 31, 60),
+    ("60天+", 61, None),
+)
+
+
+def _get_positive_int(value: Any, default: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
+
+
+def _round_one_decimal_half_up(value: float) -> float:
+    return math.floor(value * 10 + 0.5) / 10
+
+
+def _build_long_runner_rows(ticket_rows: list[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:
+    rows = [
+        {
+            "ticket_id": str(row.get("ticket_id") or ""),
+            "ticket_name": str(row.get("ticket_name") or ""),
+            "age_days": _calculate_age_days(row.get("creation_time"), row.get("ticket_date")),
+            "project": str(row.get("project") or ""),
+            "status": str(row.get("status") or row.get("phase") or ""),
+        }
+        for row in ticket_rows
+    ]
+    rows.sort(key=lambda row: (-int(row.get("age_days") or 0), _sortable_value(row.get("ticket_id"))))
+    return rows[:limit]
+
+
+def _build_long_runner_distribution(ticket_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    ages = [_calculate_age_days(row.get("creation_time"), row.get("ticket_date")) for row in ticket_rows]
+    distribution_rows = []
+    for label, min_days, max_days in LONG_RUNNER_DISTRIBUTION_BUCKETS:
+        count = sum(
+            1
+            for age_days in ages
+            if age_days >= min_days and (max_days is None or age_days <= max_days)
+        )
+        distribution_rows.append({"range": label, "count": count})
+    return distribution_rows
+
+
+def _build_long_runner_trend(ticket_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[str, dict[str, int]] = {}
+    for row in ticket_rows:
+        ticket_date = _parse_iso_date_value(row.get("ticket_date"))
+        if ticket_date is None:
+            continue
+        month = ticket_date.isoformat()[:7]
+        age_days = _calculate_age_days(row.get("creation_time"), row.get("ticket_date"))
+        state = grouped.setdefault(month, {"total_days": 0, "count": 0, "max_days": 0})
+        state["total_days"] += age_days
+        state["count"] += 1
+        state["max_days"] = max(state["max_days"], age_days)
+
+    return [
+        {
+            "month": month,
+            "avg_days": _round_one_decimal_half_up(state["total_days"] / state["count"]) if state["count"] else 0.0,
+            "max_days": state["max_days"],
+        }
+        for month, state in sorted(grouped.items())
+    ]
+
+
+def _build_long_runner_overview(ticket_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    ages = [_calculate_age_days(row.get("creation_time"), row.get("ticket_date")) for row in ticket_rows]
+    total_count = len(ages)
+    return {
+        "average_days": _round_one_decimal_half_up(sum(ages) / total_count) if total_count else 0.0,
+        "overdue_count": sum(1 for age_days in ages if age_days > 30),
+        "severe_overdue_count": sum(1 for age_days in ages if age_days > 60),
+        "total_count": total_count,
+    }
+
+
+def build_long_runner_analysis_payload(**kwargs: Any) -> dict[str, Any]:
+    query = normalize_query(**kwargs)
+    requested_snapshot_version = str(kwargs.get("snapshot_version") or "").strip()
+    row_limit = _get_positive_int(kwargs.get("limit"), 12)
+    snapshot_metadata = _read_snapshot_metadata()
+    snapshot_version = _resolve_effective_snapshot_version(snapshot_metadata)
+    if requested_snapshot_version and snapshot_version and requested_snapshot_version != snapshot_version:
+        raise FullPictureDashboardRequestError(
+            f"Requested snapshot version is stale: {requested_snapshot_version}"
+        )
+
+    if snapshot_version:
+        if snapshot_version.startswith("live-"):
+            _materialize_snapshot_ticket_rows(snapshot_version)
+        snapshot_metadata = _read_snapshot_metadata()
+        snapshot_version_after = _resolve_effective_snapshot_version(snapshot_metadata)
+        if snapshot_version_after != snapshot_version:
+            raise FullPictureDashboardRequestError("Dashboard snapshot changed during request")
+        if requested_snapshot_version and snapshot_version_after and requested_snapshot_version != snapshot_version_after:
+            raise FullPictureDashboardRequestError(
+                f"Requested snapshot version is stale: {requested_snapshot_version}"
+            )
+        generated_from = _build_generated_from_payload(query)
+        ticket_rows = _load_materialized_ticket_rows(
+            snapshot_version=snapshot_version_after,
+            query=query,
+        )
+        response_snapshot_version = snapshot_version_after
+    else:
+        snapshot_metadata, generated_from, ticket_rows = _build_snapshot_bound_dataset(
+            query,
+            requested_snapshot_version=requested_snapshot_version,
+        )
+        response_snapshot_version = _resolve_snapshot_version(snapshot_metadata)
+
+    return {
+        "snapshot_version": response_snapshot_version,
+        "generated_from": generated_from,
+        "refresh_metadata": snapshot_metadata,
+        "overview": _build_long_runner_overview(ticket_rows),
+        "trend": _build_long_runner_trend(ticket_rows),
+        "distribution": _build_long_runner_distribution(ticket_rows),
+        "long_runner_rows": _build_long_runner_rows(ticket_rows, limit=row_limit),
+    }
+
+
+HIGH_FREQUENCY_SEVERITY_RANK = {
+    "Critical": 4,
+    "High": 3,
+    "Medium": 2,
+    "Low": 1,
+}
+
+
+def _classify_high_frequency_severity(row: dict[str, Any]) -> str:
+    severity_text = f"{row.get('problem_severity') or ''} {row.get('classification') or ''}".casefold()
+    if any(token in severity_text for token in ("showstopper", "critical", "unsatisfactory", "05")):
+        return "Critical"
+    if any(token in severity_text for token in ("high", "major", "severe", "04")):
+        return "High"
+    if any(token in severity_text for token in ("medium", "moderate", "03")):
+        return "Medium"
+    return "Low"
+
+
+def _build_defect_high_frequency_rows(ticket_rows: list[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:
+    grouped: dict[str, dict[str, Any]] = {}
+    for row in ticket_rows:
+        module_name = str(row.get("assigned_ecu") or "").strip() or "未归类 ECU"
+        severity = _classify_high_frequency_severity(row)
+        current = grouped.setdefault(module_name, {"module": module_name, "count": 0, "severity": "Low"})
+        current["count"] += 1
+        if HIGH_FREQUENCY_SEVERITY_RANK[severity] > HIGH_FREQUENCY_SEVERITY_RANK[str(current["severity"])]:
+            current["severity"] = severity
+
+    rows = list(grouped.values())
+    rows.sort(key=lambda row: (-int(row["count"]), _sortable_value(row["module"])))
+    return rows[:limit]
+
+
+def _build_defect_high_frequency_overview(ticket_rows: list[dict[str, Any]], frequency_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    total_count = len(ticket_rows)
+    module_count = len({str(row.get("assigned_ecu") or "").strip() or "未归类 ECU" for row in ticket_rows})
+    repeated_count = sum(int(row["count"]) for row in frequency_rows if int(row["count"]) > 1)
+    critical_count = sum(1 for row in ticket_rows if _classify_high_frequency_severity(row) == "Critical")
+    return {
+        "module_count": module_count,
+        "repeat_rate": int(round((repeated_count / total_count) * 100)) if total_count else 0,
+        "critical_count": critical_count,
+        "total_count": total_count,
+    }
+
+
+def build_defect_high_frequency_analysis_payload(**kwargs: Any) -> dict[str, Any]:
+    query = normalize_query(**kwargs)
+    requested_snapshot_version = str(kwargs.get("snapshot_version") or "").strip()
+    row_limit = _get_positive_int(kwargs.get("limit"), 12)
+    snapshot_metadata = _read_snapshot_metadata()
+    snapshot_version = _resolve_effective_snapshot_version(snapshot_metadata)
+    if requested_snapshot_version and snapshot_version and requested_snapshot_version != snapshot_version:
+        raise FullPictureDashboardRequestError(
+            f"Requested snapshot version is stale: {requested_snapshot_version}"
+        )
+
+    if snapshot_version:
+        if snapshot_version.startswith("live-"):
+            _materialize_snapshot_ticket_rows(snapshot_version)
+        snapshot_metadata = _read_snapshot_metadata()
+        snapshot_version_after = _resolve_effective_snapshot_version(snapshot_metadata)
+        if snapshot_version_after != snapshot_version:
+            raise FullPictureDashboardRequestError("Dashboard snapshot changed during request")
+        if requested_snapshot_version and snapshot_version_after and requested_snapshot_version != snapshot_version_after:
+            raise FullPictureDashboardRequestError(
+                f"Requested snapshot version is stale: {requested_snapshot_version}"
+            )
+        generated_from = _build_generated_from_payload(query)
+        ticket_rows = _load_materialized_ticket_rows(
+            snapshot_version=snapshot_version_after,
+            query=query,
+        )
+        response_snapshot_version = snapshot_version_after
+    else:
+        snapshot_metadata, generated_from, ticket_rows = _build_snapshot_bound_dataset(
+            query,
+            requested_snapshot_version=requested_snapshot_version,
+        )
+        response_snapshot_version = _resolve_snapshot_version(snapshot_metadata)
+
+    frequency_rows = _build_defect_high_frequency_rows(ticket_rows, limit=row_limit)
+    return {
+        "snapshot_version": response_snapshot_version,
+        "generated_from": generated_from,
+        "refresh_metadata": snapshot_metadata,
+        "overview": _build_defect_high_frequency_overview(ticket_rows, frequency_rows),
+        "frequency_rows": frequency_rows,
+    }
 
 
 def build_top_issue_analysis_payload(**kwargs: Any) -> dict[str, Any]:
@@ -2185,7 +2440,11 @@ def build_top_issue_analysis_payload(**kwargs: Any) -> dict[str, Any]:
         "refresh_metadata": snapshot_metadata,
         "top_issue_rows": _build_top_issue_rows(ticket_rows),
         "status_distribution": _build_top_issue_status_distribution(ticket_rows),
-        "defect_trend": _build_top_issue_defect_trend(ticket_rows),
+        "defect_trend": _build_top_issue_defect_trend(
+            ticket_rows,
+            creation_time_start=query.creation_time_start,
+            creation_time_end=query.creation_time_end,
+        ),
     }
 
 

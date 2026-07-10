@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -113,6 +114,15 @@ TESTCASE_RELATION_ADDITIONAL_COLUMNS: dict[str, str] = {
     "related_path": "TEXT",
 }
 
+TRACEABILITY_TESTCASE_ADDITIONAL_COLUMNS: dict[str, str] = {
+    "year": "TEXT",
+    "defect_names_json": "TEXT NOT NULL DEFAULT '[]'",
+    "feature_names_json": "TEXT NOT NULL DEFAULT '[]'",
+    "story_names_json": "TEXT NOT NULL DEFAULT '[]'",
+    "epic_ids_json": "TEXT NOT NULL DEFAULT '[]'",
+    "epic_names_json": "TEXT NOT NULL DEFAULT '[]'",
+}
+
 COMMENT_REFRESH_STATE_COLUMNS: dict[str, str] = {
     "defect_id": "TEXT NOT NULL PRIMARY KEY",
     "defect_last_modified": "TEXT NOT NULL",
@@ -151,6 +161,30 @@ def _nested_value(value: object, *keys: str) -> str:
     if isinstance(current, (dict, list)):
         return ""
     return str(current or "").strip()
+
+
+def _reference_items(value: object) -> list[dict[str, Any]]:
+    if isinstance(value, dict):
+        data = value.get("data")
+        if isinstance(data, list):
+            return [dict(item) for item in data if isinstance(item, dict)]
+        if any(str(value.get(key) or "").strip() for key in ("id", "name", "subtype", "type")):
+            return [dict(value)]
+        return []
+    if isinstance(value, list):
+        items: list[dict[str, Any]] = []
+        for item in value:
+            items.extend(_reference_items(item))
+        return items
+    return []
+
+
+def _first_reference_id(value: object) -> str:
+    for item in _reference_items(value):
+        item_id = str(item.get("id") or "").strip()
+        if item_id:
+            return item_id
+    return _nested_value(value, "id")
 
 
 def _first_named_value(value: object) -> str:
@@ -240,6 +274,71 @@ def _relation_bucket_key(subtype: str) -> str | None:
     return None
 
 
+def _linked_defect_ids(value: object) -> list[str]:
+    if value is None:
+        return []
+    ids: list[str] = []
+    seen: set[str] = set()
+    for part in re.split(r"[,;\s]+", str(value)):
+        defect_id = part.strip()
+        if not defect_id or defect_id in seen:
+            continue
+        seen.add(defect_id)
+        ids.append(defect_id)
+    return ids
+
+
+def _trace_relation_from_item(item: dict[str, Any], default_type: str) -> dict[str, str] | None:
+    related_id = str(item.get("id") or "").strip()
+    if not related_id:
+        return None
+    related_type = _normalize_relation_subtype(item.get("subtype") or item.get("type") or default_type)
+    if related_type not in {"defect", "feature", "story"}:
+        related_type = default_type
+    if related_type not in {"defect", "feature", "story"}:
+        return None
+    parent = item.get("parent") if isinstance(item.get("parent"), dict) else {}
+    return {
+        "relation_type": related_type,
+        "related_id": related_id,
+        "related_name": str(item.get("name") or "").strip(),
+        "related_subtype": related_type,
+        "related_path": str(item.get("path") or "").strip(),
+        "parent_id": str(parent.get("id") or "").strip(),
+        "parent_name": str(parent.get("name") or "").strip(),
+        "parent_subtype": str(parent.get("subtype") or parent.get("type") or "").strip(),
+    }
+
+
+def _run_traceability_relations(row: dict[str, Any]) -> list[dict[str, str]]:
+    relations: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+
+    def add_relation(item: dict[str, Any], default_type: str) -> None:
+        relation = _trace_relation_from_item(item, default_type)
+        if relation is None:
+            return
+        key = (relation["relation_type"], relation["related_id"])
+        if key in seen:
+            return
+        seen.add(key)
+        relations.append(relation)
+
+    for item in _reference_items(row.get("defect")):
+        add_relation(item, "defect")
+    for defect_id in _linked_defect_ids(row.get("linked_defects")):
+        add_relation({"id": defect_id, "subtype": "defect"}, "defect")
+    if "related_work_items" in row:
+        work_items = [item for item in list(row.get("related_work_items") or []) if isinstance(item, dict)]
+    else:
+        work_items = _reference_items(row.get("covered_content"))
+    for item in work_items:
+        if isinstance(item, dict):
+            add_relation(item, _normalize_relation_subtype(item.get("subtype") or item.get("type") or ""))
+
+    return relations
+
+
 class OctaneSourceStore:
     def __init__(self, db_path: Path | str):
         self.db_path = Path(db_path)
@@ -260,12 +359,31 @@ class OctaneSourceStore:
         self._ensure_columns("octane_manual_runs", MANUAL_RUN_EXTRA_COLUMNS)
         self._ensure_columns("octane_testcases", TESTCASE_ADDITIONAL_COLUMNS)
         self._ensure_columns("octane_testcase_relations", TESTCASE_RELATION_ADDITIONAL_COLUMNS)
+        self._ensure_columns("octane_traceability_testcases", TRACEABILITY_TESTCASE_ADDITIONAL_COLUMNS)
         self._ensure_comment_refresh_state_table()
         self._ensure_history_refresh_state_table()
         self._conn.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_octane_defect_history_events_defect_timestamp
             ON octane_defect_history_events(defect_id, event_timestamp)
+            """
+        )
+        self._conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_octane_run_traceability_related
+            ON octane_run_traceability(relation_type, related_id)
+            """
+        )
+        self._conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_octane_run_traceability_test
+            ON octane_run_traceability(test_id, scope_team, scope_release)
+            """
+        )
+        self._conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_octane_traceability_testcases_scope
+            ON octane_traceability_testcases(scope_team, scope_release, source)
             """
         )
         self._conn.commit()
@@ -845,8 +963,8 @@ class OctaneSourceStore:
             payload.append(
                 (
                     mr_id,
-                    _nested_value(row.get("defect"), "id"),
-                    _nested_value(row.get("test"), "id"),
+                    _first_reference_id(row.get("defect")),
+                    _first_reference_id(row.get("test")),
                     _coalesce(str(row.get("test_name") or "").strip(), _nested_value(row.get("test"), "name"), str(row.get("name") or "").strip()),
                     _first_named_value(row.get("status")),
                     _coalesce(str(row.get("year") or "").strip(), str(year or ""), _release_name(row)[2:4] if _release_name(row).startswith("R-") else ""),
@@ -908,13 +1026,242 @@ class OctaneSourceStore:
         self._conn.commit()
         return len(payload)
 
+    def replace_run_traceability_from_runs(self, runs: list[dict[str, Any]], *, team: str, source: str = "manual_runs") -> int:
+        run_ids = [str(row.get("id") or "").strip() for row in runs if str(row.get("id") or "").strip()]
+        if not run_ids:
+            return 0
+
+        fetched_at = _utc_now()
+        rows: list[tuple[object, ...]] = []
+        affected_testcases: set[tuple[str, str, str, str]] = set()
+        for start in range(0, len(run_ids), SQLITE_MAX_QUERY_VARIABLES):
+            batch = run_ids[start:start + SQLITE_MAX_QUERY_VARIABLES]
+            placeholders = ", ".join("?" for _ in batch)
+            for existing in self._conn.execute(
+                f"""
+                SELECT DISTINCT test_id, scope_team, scope_release, source
+                FROM octane_run_traceability
+                WHERE source=? AND run_id IN ({placeholders})
+                """,
+                (source, *batch),
+            ).fetchall():
+                affected_testcases.add(
+                    (
+                        str(existing["test_id"] or ""),
+                        str(existing["scope_team"] or ""),
+                        str(existing["scope_release"] or ""),
+                        str(existing["source"] or ""),
+                    )
+                )
+        for row in runs:
+            run_id = str(row.get("id") or "").strip()
+            test_id = _first_reference_id(row.get("test"))
+            if not run_id or not test_id:
+                continue
+            scope_release = _release_name(row)
+            test_name = _coalesce(str(row.get("test_name") or "").strip(), _nested_value(row.get("test"), "name"), str(row.get("name") or "").strip())
+            status = _first_named_value(row.get("status"))
+            year = _coalesce(str(row.get("year") or "").strip(), scope_release[2:4] if scope_release.startswith("R-") else "")
+            if len(year) == 2 and year.isdigit():
+                year = f"20{year}"
+            run_finished = _coalesce(str(row.get("finished") or "").strip(), str(row.get("finished_udf") or "").strip())
+            affected_testcases.add((test_id, team, scope_release, source))
+            for relation in _run_traceability_relations(row):
+                rows.append(
+                    (
+                        run_id,
+                        test_id,
+                        test_name,
+                        team,
+                        scope_release,
+                        source,
+                        year,
+                        status,
+                        run_finished,
+                        relation["relation_type"],
+                        relation["related_id"],
+                        relation["related_name"],
+                        relation["related_subtype"],
+                        relation["related_path"],
+                        relation["parent_id"],
+                        relation["parent_name"],
+                        relation["parent_subtype"],
+                        fetched_at,
+                    )
+                )
+
+        for start in range(0, len(run_ids), SQLITE_MAX_QUERY_VARIABLES):
+            batch = run_ids[start:start + SQLITE_MAX_QUERY_VARIABLES]
+            placeholders = ", ".join("?" for _ in batch)
+            self._conn.execute(
+                f"DELETE FROM octane_run_traceability WHERE source=? AND run_id IN ({placeholders})",
+                (source, *batch),
+            )
+        if rows:
+            self._upsert_rows(
+                "octane_run_traceability",
+                (
+                    "run_id", "test_id", "test_name", "scope_team", "scope_release", "source",
+                    "year", "status", "run_finished", "relation_type", "related_id", "related_name",
+                    "related_subtype", "related_path", "parent_id", "parent_name", "parent_subtype", "fetched_at"
+                ),
+                rows,
+                conflict_columns=("run_id", "test_id", "scope_team", "scope_release", "source", "relation_type", "related_id"),
+            )
+        self._rebuild_traceability_testcases(affected_testcases, fetched_at=fetched_at)
+        self._conn.commit()
+        return len(rows)
+
+    def _rebuild_traceability_testcases(
+        self,
+        testcase_keys: set[tuple[str, str, str, str]],
+        *,
+        fetched_at: str,
+    ) -> None:
+        if not testcase_keys:
+            return
+
+        rows: list[tuple[object, ...]] = []
+        for test_id, scope_team, scope_release, source in sorted(testcase_keys):
+            self._conn.execute(
+                """
+                DELETE FROM octane_traceability_testcases
+                WHERE test_id=? AND scope_team=? AND scope_release=? AND source=?
+                """,
+                (test_id, scope_team, scope_release, source),
+            )
+            relation_rows = self._conn.execute(
+                """
+                SELECT run_id, year, test_name, status, relation_type, related_id, related_name, parent_id, parent_name
+                FROM octane_run_traceability
+                WHERE test_id=? AND scope_team=? AND scope_release=? AND source=?
+                """,
+                (test_id, scope_team, scope_release, source),
+            ).fetchall()
+            if not relation_rows:
+                continue
+
+            run_ids: set[str] = set()
+            status_by_run_id: dict[str, str] = {}
+            defect_ids: set[str] = set()
+            defect_names_by_id: dict[str, str] = {}
+            feature_names_by_id: dict[str, str] = {}
+            story_names_by_id: dict[str, str] = {}
+            epic_names_by_id: dict[str, str] = {}
+            test_name = ""
+            year = ""
+            for relation_row in relation_rows:
+                run_id = str(relation_row["run_id"] or "").strip()
+                if run_id:
+                    run_ids.add(run_id)
+                if not year:
+                    year = str(relation_row["year"] or "").strip()
+                if not test_name:
+                    test_name = str(relation_row["test_name"] or "").strip()
+                status = str(relation_row["status"] or "").strip()
+                if status and run_id:
+                    status_by_run_id.setdefault(run_id, status)
+                related_id = str(relation_row["related_id"] or "").strip()
+                related_name = str(relation_row["related_name"] or "").strip()
+                parent_id = str(relation_row["parent_id"] or "").strip()
+                parent_name = str(relation_row["parent_name"] or "").strip()
+                relation_type = str(relation_row["relation_type"] or "").strip()
+                if not related_id:
+                    continue
+                if relation_type == "defect":
+                    defect_ids.add(related_id)
+                    defect_names_by_id[related_id] = related_name or related_id
+                elif relation_type == "feature":
+                    feature_names_by_id[related_id] = related_name or related_id
+                    if parent_id:
+                        epic_names_by_id[parent_id] = parent_name or parent_id
+                elif relation_type == "story":
+                    story_names_by_id[related_id] = related_name or related_id
+                    if parent_id:
+                        feature_names_by_id.setdefault(parent_id, parent_name or parent_id)
+
+            feature_ids = sorted(feature_names_by_id)
+            story_ids = sorted(story_names_by_id)
+            epic_ids = sorted(epic_names_by_id)
+
+            rows.append(
+                (
+                    test_id,
+                    scope_team,
+                    scope_release,
+                    source,
+                    year,
+                    test_name,
+                    len(run_ids),
+                    _json_text(sorted(run_ids)),
+                    _json_text(
+                        {
+                            status: list(status_by_run_id.values()).count(status)
+                            for status in sorted(set(status_by_run_id.values()))
+                        }
+                    ),
+                    _json_text(sorted(defect_ids)),
+                    _json_text([defect_names_by_id[item_id] for item_id in sorted(defect_ids)]),
+                    _json_text(feature_ids),
+                    _json_text([feature_names_by_id[item_id] for item_id in feature_ids]),
+                    _json_text(story_ids),
+                    _json_text([story_names_by_id[item_id] for item_id in story_ids]),
+                    _json_text(epic_ids),
+                    _json_text([epic_names_by_id[item_id] for item_id in epic_ids]),
+                    fetched_at,
+                )
+            )
+
+        if rows:
+            self._upsert_rows(
+                "octane_traceability_testcases",
+                (
+                    "test_id", "scope_team", "scope_release", "source", "year", "test_name", "run_count",
+                    "run_ids_json", "run_status_distribution_json", "defect_ids_json", "defect_names_json",
+                    "feature_ids_json", "feature_names_json", "story_ids_json", "story_names_json",
+                    "epic_ids_json", "epic_names_json", "fetched_at",
+                ),
+                rows,
+                conflict_columns=("test_id", "scope_team", "scope_release", "source"),
+            )
+
+    def delete_run_traceability_scope(
+        self,
+        *,
+        team: str,
+        years: tuple[int, ...],
+        releases: tuple[str, ...] = (),
+        source: str = "manual_runs",
+    ) -> int:
+        clauses = ["source=?", "TRIM(COALESCE(CAST(scope_team AS TEXT), ''))=?"]
+        params: list[object] = [source, team]
+        if years:
+            placeholders = ", ".join("?" for _ in years)
+            clauses.append(f"CAST(year AS INTEGER) IN ({placeholders})")
+            params.extend(int(year) for year in years)
+        if releases:
+            placeholders = ", ".join("?" for _ in releases)
+            clauses.append(f"TRIM(COALESCE(CAST(scope_release AS TEXT), '')) IN ({placeholders})")
+            params.extend(str(release).strip() for release in releases)
+        cursor = self._conn.execute(
+            f"DELETE FROM octane_run_traceability WHERE {' AND '.join(clauses)}",
+            params,
+        )
+        self._conn.execute(
+            f"DELETE FROM octane_traceability_testcases WHERE {' AND '.join(clauses)}",
+            params,
+        )
+        self._conn.commit()
+        return int(cursor.rowcount or 0)
+
     def rebuild_testcases_from_runs(self, runs: list[dict[str, Any]], *, team: str, source: str = "manual_runs") -> dict[str, int]:
         grouped: dict[tuple[str, str], dict[str, Any]] = {}
         relation_rows: list[tuple[object, ...]] = []
+        relation_keys: set[tuple[str, str, str, str, str, str]] = set()
         fetched_at = _utc_now()
 
         for row in runs:
-            test_id = _nested_value(row.get("test"), "id")
+            test_id = _first_reference_id(row.get("test"))
             if not test_id:
                 continue
             scope_release = _release_name(row)
@@ -937,38 +1284,32 @@ class OctaneSourceStore:
             status_name = _first_named_value(row.get("status"))
             if status_name:
                 bucket["run_status_distribution"][status_name] = int(bucket["run_status_distribution"].get(status_name, 0)) + 1
-            defect_id = _nested_value(row.get("defect"), "id")
-            if defect_id:
-                bucket["defect_ids"].add(defect_id)
-                relation_rows.append((test_id, team, scope_release, source, "defect", defect_id, defect_id, "defect", "", fetched_at))
-
             manual_test_id = _nested_value(row.get("covered_manual_test"), "id")
             if manual_test_id:
                 bucket["manual_test_ids"].add(manual_test_id)
 
-            for item in list(row.get("related_work_items") or []):
-                if not isinstance(item, dict):
+            for relation in _run_traceability_relations(row):
+                bucket_key = _relation_bucket_key(relation["relation_type"])
+                if bucket_key is None:
                     continue
-                related_id = str(item.get("id") or "").strip()
-                related_subtype = _normalize_relation_subtype(item.get("subtype"))
-                bucket_key = _relation_bucket_key(related_subtype)
-                if not related_id or bucket_key is None:
-                    continue
-                bucket[bucket_key].add(related_id)
-                relation_rows.append(
-                    (
-                        test_id,
-                        team,
-                        scope_release,
-                        source,
-                        related_subtype,
-                        related_id,
-                        str(item.get("name") or "").strip(),
-                        related_subtype,
-                        str(item.get("path") or "").strip(),
-                        fetched_at,
+                bucket[bucket_key].add(relation["related_id"])
+                relation_key = (test_id, team, scope_release, source, relation["relation_type"], relation["related_id"])
+                if relation_key not in relation_keys:
+                    relation_keys.add(relation_key)
+                    relation_rows.append(
+                        (
+                            test_id,
+                            team,
+                            scope_release,
+                            source,
+                            relation["relation_type"],
+                            relation["related_id"],
+                            relation["related_name"],
+                            relation["related_subtype"],
+                            relation["related_path"],
+                            fetched_at,
+                        )
                     )
-                )
             bucket["runs"].append(row)
 
         testcase_rows = [

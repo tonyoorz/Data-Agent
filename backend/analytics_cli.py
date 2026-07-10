@@ -37,6 +37,8 @@ from backend.analytics.db import connect
 from backend.analytics.full_picture_outcomes import refresh_materialized_outcomes
 from backend.analytics.ingest import client as ingest_client
 from backend.analytics.ingest import pipeline as ingest_pipeline
+from backend.analytics.duplicate_comment_runner import run_duplicate_comment_agent
+from backend.analytics.duplicate_comment_writer import build_compact_duplicate_comment_html
 from backend.analytics.processor import backfill_defect_projects, run_processor_pipeline, sync_dimension_fields
 from backend.analytics.qgate_kpi_compare_report import generate_qgate_kpi_compare_report
 from backend.analytics.qgate_kpi_dashboard_report import generate_qgate_kpi_dashboard_report
@@ -60,6 +62,162 @@ def _parse_year_values(raw_value: str | None) -> tuple[int, ...]:
 
 def _emit_progress(message: str) -> None:
     print(message, flush=True)
+
+
+def _run_duplicate_search_bridge(query_text: str, *, top_k: int, model: str = "") -> dict[str, object]:
+    repo_root = Path(__file__).resolve().parents[1]
+    node_cli = repo_root / "server" / "duplicateSearchCli.mjs"
+    if node_cli.exists():
+        node_command = os.environ.get("VIZION_NODE_EXE", "node")
+        node_args = [node_command, str(node_cli), "--query", query_text, "--top-k", str(int(top_k or 5))]
+        if str(model or "").strip():
+            node_args.extend(["--model", str(model).strip()])
+        node_result = subprocess.run(
+            node_args,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=300,
+            check=False,
+        )
+        node_output = (node_result.stdout or "").strip()
+        if node_result.returncode == 0 and node_output:
+            return json.loads(node_output.splitlines()[-1])
+
+    bridge_script = repo_root / "scripts" / "duplicate_search_bridge.py"
+    payload = {"action": "search", "query": query_text, "top_k": int(top_k or 5)}
+    result = subprocess.run(
+        [sys.executable, str(bridge_script)],
+        input=json.dumps(payload, ensure_ascii=False),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=240,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError((result.stderr or result.stdout or "duplicate search bridge failed").strip())
+    output = (result.stdout or "").strip()
+    if not output:
+        raise RuntimeError("duplicate search bridge returned empty output")
+    return json.loads(output.splitlines()[-1])
+
+
+def _is_octane_auth_failure(exc: Exception) -> bool:
+    message = str(exc)
+    return "401" in message or "Unauthorized" in message or "Failed to validate CSRF" in message
+
+
+def _duplicate_candidate_score(value: object) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _ordered_duplicate_candidates(candidates: object) -> list[dict[str, object]]:
+    return sorted(
+        [item for item in list(candidates or []) if isinstance(item, dict)],
+        key=lambda candidate: (
+            _duplicate_candidate_score(candidate.get("confidenceScore1to10") or candidate.get("score1to10")),
+            _duplicate_candidate_score(candidate.get("score1to10")),
+            _duplicate_candidate_score(candidate.get("similarity")),
+        ),
+        reverse=True,
+    )
+
+
+def _refresh_cookie_after_auth_failure(*, headless: bool) -> dict[str, object]:
+    summary = refresh_octane_cookie(headless=headless)
+    if not bool(summary.get("cookie_validated")):
+        raise RuntimeError(f"Octane cookie refresh failed: {json.dumps(summary, ensure_ascii=False)}")
+    return summary
+
+
+def post_duplicate_search_comment(
+    *,
+    ticket_id: str,
+    query_text: str | None = None,
+    ticket_name: str | None = None,
+    top_k: int = 5,
+    model: str = "",
+    apply: bool = False,
+    auto_refresh_cookie_on_auth_failure: bool = True,
+    cookie_refresh_headless: bool = False,
+) -> dict[str, object]:
+    normalized_ticket_id = str(ticket_id or "").strip()
+    if not normalized_ticket_id:
+        raise ValueError("--ticket-id is required")
+
+    resolved_ticket_name = str(ticket_name or "").strip()
+    octane_client = None
+    if not resolved_ticket_name:
+        octane_client = ingest_client.build_default_octane_client()
+        try:
+            ticket = octane_client.fetch_work_item(normalized_ticket_id)
+        except Exception as exc:
+            if not auto_refresh_cookie_on_auth_failure or not _is_octane_auth_failure(exc):
+                raise
+            _refresh_cookie_after_auth_failure(headless=cookie_refresh_headless)
+            octane_client = ingest_client.build_default_octane_client()
+            ticket = octane_client.fetch_work_item(normalized_ticket_id)
+        resolved_ticket_name = str(ticket.get("name") or "").strip()
+    resolved_ticket_name = resolved_ticket_name or normalized_ticket_id
+    effective_query = str(query_text or "").strip() or resolved_ticket_name
+    search_payload = _run_duplicate_search_bridge(effective_query, top_k=top_k, model=model)
+    if not bool(search_payload.get("success")):
+        raise RuntimeError(str(search_payload.get("error") or "duplicate search failed"))
+    duplicate_result = search_payload.get("result")
+    if not isinstance(duplicate_result, dict):
+        raise RuntimeError("duplicate search returned no result")
+
+    marker = f"VizionMarker:D{normalized_ticket_id}-duplicate-search-agent"
+    html = build_compact_duplicate_comment_html(
+        ticket_id=normalized_ticket_id,
+        ticket_name=resolved_ticket_name,
+        duplicate_result=duplicate_result,
+        marker=marker,
+        max_candidates=top_k,
+    )
+    ordered_candidates = _ordered_duplicate_candidates(duplicate_result.get("candidates"))
+    top_candidate = ordered_candidates[0] if ordered_candidates else {}
+    summary: dict[str, object] = {
+        "ticket_id": normalized_ticket_id,
+        "ticket_name": resolved_ticket_name,
+        "query_text": effective_query,
+        "candidate_count": len(list(duplicate_result.get("candidates") or [])),
+        "model_phase": duplicate_result.get("modelPhase"),
+        "dataset_size": duplicate_result.get("dataset_size"),
+        "top_score": top_candidate.get("score1to10"),
+        "top_confidence_score": top_candidate.get("confidenceScore1to10") or top_candidate.get("score1to10"),
+        "top_similarity_score": top_candidate.get("score1to10"),
+        "applied": bool(apply),
+        "html_preview": html,
+        "cookie_refreshed": False,
+    }
+    if not apply:
+        return summary
+
+    if octane_client is None:
+        octane_client = ingest_client.build_default_octane_client()
+    try:
+        created_comment = octane_client.create_comment_for_work_item(
+            work_item_id=normalized_ticket_id,
+            html_text=html,
+        )
+    except Exception as exc:
+        if not auto_refresh_cookie_on_auth_failure or not _is_octane_auth_failure(exc):
+            raise
+        _refresh_cookie_after_auth_failure(headless=cookie_refresh_headless)
+        octane_client = ingest_client.build_default_octane_client()
+        created_comment = octane_client.create_comment_for_work_item(
+            work_item_id=normalized_ticket_id,
+            html_text=html,
+        )
+        summary["cookie_refreshed"] = True
+    summary["created_comment_id"] = created_comment.get("id")
+    summary["created_author"] = created_comment.get("author")
+    return summary
 
 
 def _validate_octane_cookie_file(cookie_file: Path) -> tuple[bool, int, str]:
@@ -111,38 +269,55 @@ def _refresh_cookie_with_external_sso(candidate_cookie_file: Path) -> dict[str, 
     }
 
 
-def refresh_octane_cookie(*, prefer_legacy: bool = False, sync_login: bool = False, headless: bool = False) -> dict[str, object]:
+def refresh_octane_cookie(
+    *,
+    prefer_legacy: bool = False,
+    sync_login: bool = False,
+    headless: bool = False,
+    in_place: bool = False,
+) -> dict[str, object]:
     cookie_file = get_octane_cookie_file_path()
     candidate_cookie_file = cookie_file.with_name(cookie_file.name + ".candidate")
+    refresh_target_file = cookie_file if in_place else candidate_cookie_file
     local_error = ""
     try:
         refresh_cookie_file(
             base_url=get_octane_base_url(),
-            cookie_file=candidate_cookie_file,
+            cookie_file=refresh_target_file,
             headless=headless,
         )
     except Exception as exc:
         local_error = str(exc)
 
-    cookie_validated, team_count, validation_error = _validate_octane_cookie_file(candidate_cookie_file)
-    mode = "local-playwright"
+    cookie_validated, team_count, validation_error = _validate_octane_cookie_file(refresh_target_file)
+    mode = "local-playwright-in-place" if in_place else "local-playwright"
     external_result: dict[str, object] | None = None
-    if not cookie_validated:
+    if not cookie_validated and not in_place:
         external_result = _refresh_cookie_with_external_sso(candidate_cookie_file)
         if external_result.get("attempted") and int(external_result.get("exit_code") or 1) == 0:
             cookie_validated, team_count, validation_error = _validate_octane_cookie_file(candidate_cookie_file)
             mode = "external-sso"
 
     if not cookie_validated:
-        return {
-            "cookie_refreshed": bool(candidate_cookie_file.exists()),
+        payload: dict[str, object] = {
+            "cookie_refreshed": bool(refresh_target_file.exists()),
             "cookie_validated": False,
             "mode": mode,
             "cookie_file": str(cookie_file),
-            "candidate_cookie_file": str(candidate_cookie_file),
             "local_error": local_error,
             "validation_error": validation_error,
             "external_result": external_result,
+        }
+        if not in_place:
+            payload["candidate_cookie_file"] = str(candidate_cookie_file)
+        return payload
+    if in_place:
+        return {
+            "cookie_refreshed": True,
+            "cookie_validated": True,
+            "mode": mode,
+            "cookie_file": str(cookie_file),
+            "team_count": team_count,
         }
     cookie_file.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(candidate_cookie_file, cookie_file)
@@ -205,6 +380,38 @@ def _refresh_manual_runs_source_with_progress(*, team_name: str, years: tuple[in
     )
     _emit_progress("Processor pipeline finished")
     return {**summary, **processor_summary}
+
+
+def _traceability_default_years() -> tuple[int, ...]:
+    current_year = datetime.now().year
+    return tuple(range(2025, current_year + 1))
+
+
+def _refresh_traceability_source_with_progress(
+    *,
+    team_name: str,
+    years: tuple[int, ...],
+    releases: tuple[str, ...] = (),
+    force: bool = False,
+    workers: int = 24,
+) -> dict[str, object]:
+    source_db_path = get_full_picture_source_db_path()
+    _emit_progress(
+        f"Starting traceability refresh for {team_name} years={','.join(str(year) for year in years)}"
+        + (f" releases={','.join(releases)}" if releases else "")
+    )
+    summary = ingest_pipeline.refresh_octane_traceability_source(
+        source_db_path=source_db_path,
+        team_name=team_name,
+        years=years,
+        releases=releases,
+        force=force,
+        workers=workers,
+        client=ingest_client.build_default_octane_client(),
+        progress=_emit_progress,
+    )
+    _emit_progress("Traceability refresh finished")
+    return summary
 
 
 def _refresh_testing_coverage_hot_with_progress(*, force: bool) -> dict[str, object]:
@@ -519,6 +726,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--save-files", action="store_true")
     parser.add_argument("--cookie-file")
     parser.add_argument("--team-name")
+    parser.add_argument("--ticket-id")
+    parser.add_argument("--query-text")
+    parser.add_argument("--model")
+    parser.add_argument("--state-db-path")
+    parser.add_argument("--allow-batch", action="store_true")
     parser.add_argument("--release-name")
     parser.add_argument("--page-limit", type=int)
     parser.add_argument("--workers", type=int)
@@ -531,6 +743,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--headless", action="store_true")
     parser.add_argument("--sync-login", action="store_true")
     parser.add_argument("--prefer-local", action="store_true")
+    parser.add_argument("--in-place", action="store_true")
+    parser.add_argument("--no-auto-refresh-cookie", action="store_true")
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     db_path = args.db_path or str(get_analytics_db_path())
@@ -586,6 +800,45 @@ def main(argv: Sequence[str] | None = None) -> int:
         if not args.feedback_db_path or not args.output_path:
             raise SystemExit("--feedback-db-path and --output-path are required")
         summary = _export_duplicate_search_eval_cases(Path(args.feedback_db_path), Path(args.output_path))
+        print(json.dumps(summary, ensure_ascii=False))
+        return 0
+    if args.command == "post-duplicate-search-comment":
+        summary = post_duplicate_search_comment(
+            ticket_id=str(args.ticket_id or ""),
+            query_text=args.query_text,
+            top_k=int(args.top_k or 5),
+            model=str(args.model or ""),
+            apply=bool(args.apply),
+            auto_refresh_cookie_on_auth_failure=not bool(args.no_auto_refresh_cookie),
+            cookie_refresh_headless=bool(args.headless),
+        )
+        print(json.dumps(summary, ensure_ascii=False))
+        return 0
+    if args.command == "run-duplicate-comment-agent":
+        ticket_ids = _parse_csv_values(args.ticket_id)
+        if not ticket_ids and not args.allow_batch:
+            raise SystemExit("--ticket-id is required unless --allow-batch is set")
+        source_db_path = Path(args.db_path) if args.db_path else get_full_picture_source_db_path()
+        state_db_path = Path(args.state_db_path) if args.state_db_path else get_full_picture_hot_db_path().parent / "duplicate_agent_comment_runs.db"
+        summary = run_duplicate_comment_agent(
+            source_db_path=source_db_path,
+            state_db_path=state_db_path,
+            team_name=str(args.team_name or "DTSV_China"),
+            ticket_ids=ticket_ids,
+            limit=int(args.page_limit) if args.page_limit else None,
+            apply=bool(args.apply),
+            force=bool(args.force),
+            post_comment=lambda ticket_id, ticket_name, apply: post_duplicate_search_comment(
+                ticket_id=str(ticket_id),
+                query_text=args.query_text,
+                ticket_name=str(ticket_name),
+                top_k=int(args.top_k or 5),
+                model=str(args.model or ""),
+                apply=bool(apply),
+                auto_refresh_cookie_on_auth_failure=not bool(args.no_auto_refresh_cookie),
+                cookie_refresh_headless=bool(args.headless),
+            ),
+        )
         print(json.dumps(summary, ensure_ascii=False))
         return 0
     if args.command == "stage-full-picture-source":
@@ -649,6 +902,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         print(json.dumps(summary, ensure_ascii=False))
         return 0
+    if args.command == "refresh-traceability-source":
+        summary = _refresh_traceability_source_with_progress(
+            team_name=str(args.team_name or "DTSV_China"),
+            years=_parse_year_values(args.years) or _traceability_default_years(),
+            releases=tuple(_parse_csv_values(args.release_name)),
+            force=bool(args.force),
+            workers=int(args.workers or 24),
+        )
+        print(json.dumps(summary, ensure_ascii=False))
+        return 0
     if args.command == "refresh-testing-coverage-hot":
         summary = _refresh_testing_coverage_hot_with_progress(force=args.force)
         print(json.dumps(summary, ensure_ascii=False))
@@ -678,6 +941,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             prefer_legacy=not args.prefer_local,
             sync_login=args.sync_login,
             headless=args.headless,
+            in_place=args.in_place,
         )
         print(json.dumps(summary, ensure_ascii=False))
         return 0 if bool(summary.get("cookie_validated")) else 1

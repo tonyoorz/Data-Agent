@@ -238,6 +238,55 @@ def test_analytics_cli_refresh_manual_runs_source_invokes_repo_owned_pipeline(
     assert '"run_updates": 5' in stdout
 
 
+def test_analytics_cli_refresh_traceability_source_invokes_repo_owned_pipeline(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    database_root = tmp_path / "database"
+    monkeypatch.setenv("VIZION_DATABASE_ROOT", str(database_root))
+
+    captured: dict[str, object] = {}
+
+    def fake_build_default_octane_client() -> str:
+        return "fake-client"
+
+    def fake_refresh_octane_traceability_source(*, source_db_path, team_name, years, client, progress=None) -> dict[str, object]:
+        captured["pipeline"] = {
+            "source_db_path": source_db_path,
+            "team_name": team_name,
+            "years": years,
+            "client": client,
+        }
+        if progress is not None:
+            progress("Refreshing traceability runs for DTSV_China 2026 with full fetch")
+        return {"manual_run_rows": 4, "traceability_rows": 9, "manual_run_ids": ["MR-1"]}
+
+    monkeypatch.setattr(ingest_client, "build_default_octane_client", fake_build_default_octane_client)
+    monkeypatch.setattr(ingest_pipeline, "refresh_octane_traceability_source", fake_refresh_octane_traceability_source)
+
+    exit_code = main([
+        "refresh-traceability-source",
+        "--team-name",
+        "DTSV_China",
+        "--years",
+        "2026",
+    ])
+
+    stdout = capsys.readouterr().out
+    assert exit_code == 0
+    assert captured["pipeline"] == {
+        "source_db_path": database_root / "source" / "qgate_raw.db",
+        "team_name": "DTSV_China",
+        "years": (2026,),
+        "client": "fake-client",
+    }
+    assert "Starting traceability refresh for DTSV_China years=2026" in stdout
+    assert "Refreshing traceability runs for DTSV_China 2026 with full fetch" in stdout
+    assert "Traceability refresh finished" in stdout
+    assert '"traceability_rows": 9' in stdout
+
+
 def test_analytics_cli_refresh_octane_cookie_validates_refreshed_cookie(
     tmp_path: Path,
     monkeypatch,
@@ -265,6 +314,36 @@ def test_analytics_cli_refresh_octane_cookie_validates_refreshed_cookie(
     assert [name for name, _ in calls] == ["refresh", "validate"]
     assert calls[0][1]["headless"] is True
     assert '"cookie_validated": true' in stdout
+
+
+def test_analytics_cli_refresh_octane_cookie_can_update_cookie_file_in_place(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    monkeypatch.setenv("VIZION_REPO_ROOT_OVERRIDE", str(tmp_path))
+    calls: list[tuple[str, object]] = []
+
+    def fake_refresh_cookie_file(*, base_url, cookie_file, headless):
+        calls.append(("refresh", {"cookie_file": cookie_file, "headless": headless}))
+        Path(cookie_file).write_text("SESSION=valid", encoding="utf-8")
+
+    class FakeClient:
+        def list_teams(self):
+            calls.append(("validate", None))
+            return [{"id": "1", "name": "DTSV_China"}]
+
+    monkeypatch.setattr(analytics_cli, "refresh_cookie_file", fake_refresh_cookie_file)
+    monkeypatch.setattr(ingest_client, "build_default_octane_client", lambda: FakeClient())
+
+    exit_code = main(["refresh-octane-cookie", "--in-place"])
+
+    stdout = capsys.readouterr().out
+    assert exit_code == 0
+    assert [name for name, _ in calls] == ["refresh", "validate"]
+    assert Path(calls[0][1]["cookie_file"]).name == "cookie.txt"
+    assert '"mode": "local-playwright-in-place"' in stdout
+    assert '"candidate_cookie_file"' not in stdout
 
 
 def test_analytics_cli_refresh_octane_cookie_fails_when_refreshed_cookie_is_invalid(
@@ -428,6 +507,67 @@ def test_analytics_cli_refresh_all_sources_runs_steps_in_order(
     assert calls[3][1]["years"] == (2026,)
     assert calls[4][1]["manual_run_ids"] is None
     assert calls[5][1]["defect_ids"] == ("D-1", "D-2")
+
+
+def test_analytics_cli_refresh_all_sources_defaults_to_2025_and_2026_testing_years(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    database_root = tmp_path / "database"
+    source_db_path = database_root / "source" / "qgate_raw.db"
+    source_db_path.parent.mkdir(parents=True, exist_ok=True)
+    source_db_path.touch()
+    monkeypatch.setenv("VIZION_DATABASE_ROOT", str(database_root))
+
+    calls: list[tuple[str, object]] = []
+
+    def fake_refresh_octane_source(*, request, client):
+        calls.append(("source", {"request": request, "client": client}))
+        return {"defect_rows": 0, "defect_ids": [], "history_event_rows": 0}
+
+    def fake_build_default_octane_client() -> str:
+        calls.append(("build_client", None))
+        return "fake-client"
+
+    def fake_refresh_octane_manual_runs_only(*, source_db_path, team_name, years, client, progress=None):
+        calls.append(("manual_runs", {
+            "source_db_path": source_db_path,
+            "team_name": team_name,
+            "years": years,
+            "client": client,
+        }))
+        return {"manual_run_rows": 0}
+
+    def fake_run_processor_pipeline(db_path, *, asset_root=None, dry_run=False, report_path=None, manual_run_ids=None):
+        calls.append(("processor", {"db_path": db_path, "manual_run_ids": manual_run_ids}))
+        return {"defect_updates": 0, "run_updates": 0}
+
+    def fake_refresh_materialized_outcomes(source_db_path, hot_db_path, force, defect_ids=None):
+        calls.append(("outcomes", {
+            "source_db_path": source_db_path,
+            "hot_db_path": hot_db_path,
+            "force": force,
+            "defect_ids": defect_ids,
+        }))
+        return {"row_count": 0, "skipped": False, "source_signature": "sig-empty"}
+
+    monkeypatch.setattr(ingest_pipeline, "refresh_octane_source", fake_refresh_octane_source)
+    monkeypatch.setattr(ingest_client, "build_default_octane_client", fake_build_default_octane_client)
+    monkeypatch.setattr(ingest_pipeline, "refresh_octane_manual_runs_only", fake_refresh_octane_manual_runs_only)
+    monkeypatch.setattr(analytics_cli, "run_processor_pipeline", fake_run_processor_pipeline)
+    monkeypatch.setattr(analytics_cli, "refresh_materialized_outcomes", fake_refresh_materialized_outcomes)
+    monkeypatch.setattr(analytics_cli, "record_snapshot_refresh", lambda *args, **kwargs: None)
+    monkeypatch.setattr(analytics_cli, "activate_snapshot_version", lambda *args, **kwargs: None)
+
+    exit_code = main(["refresh-all-sources"])
+
+    stdout = capsys.readouterr().out
+    assert exit_code == 0
+    assert calls[1][1]["request"].years == (2025, 2026)
+    assert calls[3][1]["years"] == (2025, 2026)
+    assert "years=2025,2026" in stdout
+    assert "manual_years=2025,2026" in stdout
 
 
 def test_analytics_cli_prepare_duplicate_search_index_invokes_bridge_warmup(

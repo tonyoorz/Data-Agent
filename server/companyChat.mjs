@@ -1,22 +1,27 @@
 import { buildChatCompletionRequest, resolveChatModelConfig } from "./chatModelConfig.mjs";
+import { compactChatMessages } from "./chatMessageBudget.mjs";
 import { expandMessagesWithDocumentText } from "./documentText.mjs";
 import { expandImageMessagesWithOcr } from "./imageOcr.mjs";
 
 const SYSTEM_PROMPT = `You are DTSV Intelligence — a senior data analyst embedded in a quality engineering dashboard.
 
 # Output protocol (strict)
-Before the final answer, narrate your work as an agent does, using these special tags. The UI parses them.
+Before the final answer, show only grounded, visible analysis steps using these special tags. The UI parses them.
 
-1. <think>...</think> — your private reasoning. 1-4 short sentences. Use it once at the start, and again only if you change direction.
-2. <step title="..." source="...">one-line result</step> — represent each analytical action you take, in order. title is what you are doing; source is the data slice; the body is the one-line finding. Emit 2-5 steps for non-trivial questions.
-3. <cite source="...">label</cite> — inline citation chips inside the final answer, pointing to the dashboard module or table the claim depends on.
-4. Then the final markdown answer (Signal → Diagnosis → Recommendation).
+1. <step title="..." source="...">one-line result</step> — summarize a real supplied context block, tool result, attachment extraction, or data limitation. Only emit <step> for evidence you actually received in the messages or system context.
+2. <cite source="...">label</cite> — inline citation chips inside the final answer, pointing to the dashboard module, tool, or table the claim depends on.
+3. Then the final markdown answer (Signal → Diagnosis → Recommendation).
+
+# Grounding rules
+- Do not invent tool use, database queries, files, modules, or hidden work.
+- If no tool result or relevant context is supplied, do not claim that you searched or queried data.
+- If data is missing, emit one <step> noting the gap, then ask one sharp clarifying question.
+- Treat "# Main agent tool result" blocks and tool messages as factual data, but preserve their scope and caveats.
 
 # Style
 - Direct, structured, grounded. No "Certainly!", no "As an AI".
 - Concise markdown: short paragraphs, bullet lists, small tables.
 - Numbers and concrete reasoning, not vague claims.
-- If data is missing, emit one <step> noting the gap, then ask one sharp clarifying question.
 - Respond in the user's language (Chinese or English).`;
 
 function normalizeAssistantContent(content) {
@@ -70,7 +75,15 @@ function roundMs(value) {
   return Number(value.toFixed(1));
 }
 
-export async function requestCompanyChatCompletion({ messages, model, context, imageOcrRunner, documentTextRunner }) {
+export async function requestCompanyChatCompletion({
+  messages,
+  model,
+  context,
+  tools,
+  toolChoice,
+  imageOcrRunner,
+  documentTextRunner,
+}) {
   const config = resolveChatModelConfig(model || "", process.env);
   if (!config.credential) {
     throw new Error(
@@ -80,12 +93,14 @@ export async function requestCompanyChatCompletion({ messages, model, context, i
 
   const documentExpandedMessages = await expandMessagesWithDocumentText(messages, process.env, { documentTextRunner });
   const preparedMessages = await expandImageMessagesWithOcr(documentExpandedMessages, process.env, { imageOcrRunner });
-  const mergedMessages = buildMergedMessages(preparedMessages, context);
+  const mergedMessages = buildMergedMessages(compactChatMessages(preparedMessages), context);
 
   const requestConfig = buildChatCompletionRequest({
     selectedModel: config.model,
     messages: mergedMessages,
     env: process.env,
+    tools,
+    toolChoice,
   });
 
   const response = await fetch(requestConfig.url, {
@@ -100,13 +115,16 @@ export async function requestCompanyChatCompletion({ messages, model, context, i
   }
 
   const payload = await response.json();
-  const content = normalizeAssistantContent(payload?.choices?.[0]?.message?.content);
-  if (!content) {
+  const message = payload?.choices?.[0]?.message || {};
+  const content = normalizeAssistantContent(message.content);
+  const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+  if (!content && toolCalls.length === 0) {
     throw new Error("Chat model returned empty content");
   }
 
   return {
     content,
+    toolCalls,
     answerModel: config.model,
   };
 }
@@ -131,7 +149,7 @@ export async function streamCompanyChatCompletion({
 
   const documentExpandedMessages = await expandMessagesWithDocumentText(messages, process.env, { documentTextRunner });
   const preparedMessages = await expandImageMessagesWithOcr(documentExpandedMessages, process.env, { imageOcrRunner });
-  const mergedMessages = buildMergedMessages(preparedMessages, context);
+  const mergedMessages = buildMergedMessages(compactChatMessages(preparedMessages), context);
   const requestConfig = buildChatCompletionRequest({
     selectedModel: config.model,
     messages: mergedMessages,

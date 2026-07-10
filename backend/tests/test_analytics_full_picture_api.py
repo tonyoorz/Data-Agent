@@ -268,6 +268,47 @@ def test_full_picture_summary_endpoint_returns_snapshot_version(tmp_path, monkey
     assert payload["filters"]["china_scopes"] == ["Global"]
 
 
+def test_top_issue_analysis_endpoint_returns_workday_trend(tmp_path, monkeypatch):
+    db_path = tmp_path / "qgate_data.db"
+    hot_db_path = _default_hot_db_path(tmp_path)
+    _seed_qgate_source_db(db_path, defect_count=4)
+    with sqlite3.connect(db_path) as conn:
+        conn.executemany(
+            """
+            UPDATE octane_defects
+            SET creation_time = ?, last_modified = ?, status_phase = ?, phase = ?
+            WHERE defect_id = ?
+            """,
+            [
+                ("2026-05-22T09:00:00Z", "2026-05-22T09:00:00Z", "03-In Analysis", "03-In Analysis", "D-001"),
+                ("2026-05-23T09:00:00Z", "2026-05-23T09:00:00Z", "03-In Analysis", "03-In Analysis", "D-002"),
+                ("2026-05-24T09:00:00Z", "2026-05-24T09:00:00Z", "06-Concluded", "06-Concluded", "D-003"),
+                ("2026-05-25T09:00:00Z", "2026-05-25T09:00:00Z", "03-In Analysis", "03-In Analysis", "D-004"),
+            ],
+        )
+        conn.commit()
+    _refresh_full_picture_hot_outcomes(db_path, hot_db_path)
+    _record_active_snapshot(hot_db_path, source_db_path=db_path)
+    _configure_full_picture_env(
+        monkeypatch,
+        defect_db_path=db_path,
+        hot_db_path=hot_db_path,
+    )
+    client = TestClient(app)
+
+    response = client.get(
+        "/api/full-picture/top-issue-analysis?years=2026"
+        "&creation_time_start=2026-05-21&creation_time_end=2026-05-25"
+    )
+
+    assert response.status_code == 200
+    assert response.json()["defect_trend"] == [
+        {"month": "2026-05-21", "new_count": 0, "closed_count": 0, "in_progress_count": 0},
+        {"month": "2026-05-22", "new_count": 1, "closed_count": 0, "in_progress_count": 1},
+        {"month": "2026-05-25", "new_count": 1, "closed_count": 0, "in_progress_count": 1},
+    ]
+
+
 def test_top_issue_analysis_endpoint_returns_filtered_rows(tmp_path, monkeypatch):
     db_path = tmp_path / "qgate_data.db"
     hot_db_path = _default_hot_db_path(tmp_path)
@@ -292,10 +333,109 @@ def test_top_issue_analysis_endpoint_returns_filtered_rows(tmp_path, monkeypatch
     assert payload["generated_from"]["projects"] == ["IDCEVO"]
     assert payload["status_distribution"] == [{"status": "03-In Analysis", "count": 1}]
     assert payload["defect_trend"] == [
-        {"month": "2026-05", "new_count": 1, "closed_count": 0, "in_progress_count": 1}
+        {"month": "2026-05-20", "new_count": 1, "closed_count": 0, "in_progress_count": 1}
     ]
     assert [row["ticket_id"] for row in payload["top_issue_rows"]] == ["D-001"]
     assert payload["top_issue_rows"][0]["age_days"] == 1
+
+
+def test_long_runner_analysis_endpoint_returns_compact_payload(tmp_path, monkeypatch):
+    db_path = tmp_path / "qgate_data.db"
+    hot_db_path = _default_hot_db_path(tmp_path)
+    _seed_qgate_source_db(db_path, defect_count=4)
+    with sqlite3.connect(db_path) as conn:
+        conn.executemany(
+            """
+            UPDATE octane_defects
+            SET creation_time = ?, last_modified = ?, status_phase = ?, phase = ?, project = ?
+            WHERE defect_id = ?
+            """,
+            [
+                ("2026-01-01T00:00:00Z", "2026-03-07T00:00:00Z", "03-In Analysis", "03-In Analysis", "IDCEVO", "D-001"),
+                ("2026-02-01T00:00:00Z", "2026-03-12T00:00:00Z", "04-In Progress", "04-In Progress", "IDC", "D-002"),
+                ("2026-03-01T00:00:00Z", "2026-03-11T00:00:00Z", "01-New", "01-New", "IDCEVO", "D-003"),
+                ("2026-03-01T00:00:00Z", "2026-03-16T00:00:00Z", "05-Open", "05-Open", "IDC", "D-004"),
+            ],
+        )
+        conn.commit()
+    _refresh_full_picture_hot_outcomes(db_path, hot_db_path)
+    _record_active_snapshot(hot_db_path, source_db_path=db_path)
+    _configure_full_picture_env(
+        monkeypatch,
+        defect_db_path=db_path,
+        hot_db_path=hot_db_path,
+    )
+    client = TestClient(app)
+
+    response = client.get("/api/full-picture/long-runner-analysis?years=2026&limit=2")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "ticket_rows" not in payload
+    assert payload["overview"] == {
+        "average_days": 32.3,
+        "overdue_count": 2,
+        "severe_overdue_count": 1,
+        "total_count": 4,
+    }
+    assert payload["distribution"] == [
+        {"range": "0-7天", "count": 0},
+        {"range": "8-14天", "count": 1},
+        {"range": "15-30天", "count": 1},
+        {"range": "31-60天", "count": 1},
+        {"range": "60天+", "count": 1},
+    ]
+    assert payload["trend"] == [
+        {"month": "2026-03", "avg_days": 32.3, "max_days": 65},
+    ]
+    assert [row["ticket_id"] for row in payload["long_runner_rows"]] == ["D-001", "D-002"]
+    assert payload["long_runner_rows"][0]["age_days"] == 65
+
+
+def test_defect_high_frequency_endpoint_returns_compact_payload(tmp_path, monkeypatch):
+    db_path = tmp_path / "qgate_data.db"
+    hot_db_path = _default_hot_db_path(tmp_path)
+    _seed_qgate_source_db(db_path, defect_count=4)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("ALTER TABLE octane_defects ADD COLUMN raw_json TEXT DEFAULT '{}'")
+        conn.executemany(
+            """
+            UPDATE octane_defects
+            SET assigned_ecu = ?, raw_json = ?
+            WHERE defect_id = ?
+            """,
+            [
+                ("ECU-A", '{"problem_severity_udf":{"name":"05-unsatisfactory"},"reporting_class_udf":{"name":"Showstopper_Candidate"}}', "D-001"),
+                ("ECU-A", '{"problem_severity_udf":{"name":"04-major"},"reporting_class_udf":{"name":"Major"}}', "D-002"),
+                ("ECU-B", '{"problem_severity_udf":{"name":"03-medium"},"reporting_class_udf":{"name":"Normal"}}', "D-003"),
+                ("ECU-A", '{"problem_severity_udf":{"name":"02-low"},"reporting_class_udf":{"name":"Normal"}}', "D-004"),
+            ],
+        )
+        conn.commit()
+    _refresh_full_picture_hot_outcomes(db_path, hot_db_path)
+    _record_active_snapshot(hot_db_path, source_db_path=db_path)
+    _configure_full_picture_env(
+        monkeypatch,
+        defect_db_path=db_path,
+        hot_db_path=hot_db_path,
+    )
+    client = TestClient(app)
+
+    response = client.get("/api/full-picture/defect-high-frequency-analysis?years=2026&limit=2")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert "ticket_rows" not in payload
+    assert payload["overview"] == {
+        "module_count": 2,
+        "repeat_rate": 75,
+        "critical_count": 1,
+        "total_count": 4,
+    }
+    assert payload["frequency_rows"] == [
+        {"module": "ECU-A", "count": 3, "severity": "Critical"},
+        {"module": "ECU-B", "count": 1, "severity": "Medium"},
+    ]
 
 
 def test_full_picture_dashboard_exposes_requirement_field_and_filters(tmp_path, monkeypatch):

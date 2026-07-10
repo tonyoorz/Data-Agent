@@ -11,23 +11,28 @@ from backend.analytics.dashboard_snapshot import read_active_snapshot_state
 from backend.analytics.read_models import (
     FullPictureDashboardDataError,
     FullPictureDashboardRequestError,
+    build_defect_high_frequency_analysis_payload,
     build_defect_test_correlation,
     build_filter_metadata,
     build_full_picture_payload,
     build_full_picture_summary_payload,
+    build_long_runner_analysis_payload,
     build_top_issue_analysis_payload,
     build_testing_summary,
     list_full_picture_ticket_rows,
     list_runs,
     list_testcases,
 )
+from backend.analytics.qgate_weekly_report import build_qgate_weekly_report_payload
 from backend.analytics.testing_coverage_models import (
     TestingCoverageDataNotReadyError,
     build_aida_status_rows,
     build_project_status_rows,
+    build_test_team_analysis_payload,
     build_testing_coverage_filters,
     build_testcase_detail_rows,
 )
+from backend.analytics.traceability_models import build_traceability_analysis_payload
 from backend.analytics.schema import ensure_schema
 
 
@@ -115,6 +120,36 @@ def full_picture_top_issue_analysis(request: Request) -> JSONResponse:
     return JSONResponse(status_code=200, content=payload)
 
 
+@app.get("/api/full-picture/long-runner-analysis")
+def full_picture_long_runner_analysis(request: Request) -> JSONResponse:
+    try:
+        payload = build_long_runner_analysis_payload(**_full_picture_query_params(request))
+    except FullPictureDashboardDataError:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "analytics database not initialized"},
+        )
+    except FullPictureDashboardRequestError as exc:
+        status_code = 409 if "snapshot" in str(exc).lower() else 400
+        return JSONResponse(status_code=status_code, content={"error": str(exc)})
+    return JSONResponse(status_code=200, content=payload)
+
+
+@app.get("/api/full-picture/defect-high-frequency-analysis")
+def full_picture_defect_high_frequency_analysis(request: Request) -> JSONResponse:
+    try:
+        payload = build_defect_high_frequency_analysis_payload(**_full_picture_query_params(request))
+    except FullPictureDashboardDataError:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "analytics database not initialized"},
+        )
+    except FullPictureDashboardRequestError as exc:
+        status_code = 409 if "snapshot" in str(exc).lower() else 400
+        return JSONResponse(status_code=status_code, content={"error": str(exc)})
+    return JSONResponse(status_code=200, content=payload)
+
+
 @app.get("/api/full-picture/dashboard/refresh-status")
 def full_picture_dashboard_refresh_status() -> JSONResponse:
     return JSONResponse(
@@ -136,6 +171,19 @@ def testing_testcases() -> list[dict[str, object]]:
 @app.get("/api/testing/runs")
 def testing_runs() -> list[dict[str, object]]:
     return list_runs()
+
+
+@app.get("/api/testing/team-analysis")
+def testing_team_analysis(request: Request, team: str = "DTSV_China") -> JSONResponse:
+    return JSONResponse(
+        status_code=200,
+        content=build_test_team_analysis_payload(team, request.query_params),
+    )
+
+
+@app.get("/api/qgate-reports/weekly-report")
+def qgate_weekly_report(year: str = "") -> JSONResponse:
+    return JSONResponse(status_code=200, content=build_qgate_weekly_report_payload(year=year))
 
 
 def _testing_coverage_not_ready_response(exc: TestingCoverageDataNotReadyError) -> JSONResponse:
@@ -184,10 +232,14 @@ def testing_coverage_testcase_detail(request: Request) -> JSONResponse:
     return JSONResponse(status_code=200, content=payload)
 
 
+@app.get("/api/testing/traceability-analysis")
+def testing_traceability_analysis(request: Request) -> JSONResponse:
+    return JSONResponse(status_code=200, content=build_traceability_analysis_payload(request.query_params))
+
+
 @app.get("/api/metadata/filters")
 def metadata_filters() -> dict[str, list[str]]:
-    payload = build_filter_metadata()
-    return payload
+    return build_filter_metadata()
 
 
 @app.get("/api/correlation/defect-test")

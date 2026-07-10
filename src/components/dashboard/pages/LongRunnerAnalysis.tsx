@@ -1,45 +1,134 @@
-import { Clock, Timer, AlertCircle } from "lucide-react";
+import { useMemo } from "react";
+
+import { useQuery } from "@tanstack/react-query";
+import { AlertCircle, AlertTriangle, Clock, Loader2, Timer } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar } from "recharts";
 
-const trendData = [
-  { month: "10月", avg: 12, max: 45 },
-  { month: "11月", avg: 14, max: 52 },
-  { month: "12月", avg: 11, max: 38 },
-  { month: "1月", avg: 16, max: 61 },
-  { month: "2月", avg: 13, max: 48 },
-  { month: "3月", avg: 15, max: 55 },
-];
+const LONG_RUNNER_LIMIT = 12;
+const DEFAULT_ANALYSIS_YEAR = "2026";
 
-const longItems = [
-  { id: "DEF-1089", title: "HMI 启动黑屏问题", days: 62, project: "MEB-Platform", status: "In Analysis" },
-  { id: "DEF-0874", title: "CAN 信号丢失", days: 55, project: "PPE-Platform", status: "In Progress" },
-  { id: "DEF-1203", title: "OTA 升级回滚失败", days: 48, project: "SSP-Platform", status: "In Analysis" },
-  { id: "DEF-0951", title: "电池 SOC 计算偏差", days: 43, project: "MEB-Platform", status: "In Testing" },
-  { id: "DEF-1105", title: "ADAS 摄像头标定异常", days: 38, project: "MLB-Evo", status: "In Progress" },
-  { id: "DEF-0792", title: "座椅记忆功能失效", days: 35, project: "J1-Platform", status: "In Testing" },
-];
+type LongRunnerItem = {
+  id: string;
+  title: string;
+  days: number;
+  project: string;
+  status: string;
+  month: string;
+};
 
-const distData = [
-  { range: "0-7天", count: 245 },
-  { range: "8-14天", count: 178 },
-  { range: "15-30天", count: 96 },
-  { range: "31-60天", count: 42 },
-  { range: "60天+", count: 18 },
-];
+type LongRunnerApiPayload = {
+  overview: {
+    average_days: number;
+    overdue_count: number;
+    severe_overdue_count: number;
+    total_count: number;
+  };
+  trend: Array<{
+    month: string;
+    avg_days: number;
+    max_days: number;
+  }>;
+  distribution: Array<{
+    range: string;
+    count: number;
+  }>;
+  long_runner_rows: Array<{
+    ticket_id: string;
+    ticket_name: string;
+    age_days: number;
+    project: string;
+    status: string;
+  }>;
+};
 
-const kpis = [
-  { label: "平均解决周期", value: "13.5天", icon: Clock, color: "bg-primary/10 text-primary" },
-  { label: "超期缺陷", value: "60", icon: Timer, color: "bg-warning/10 text-warning" },
-  { label: "严重超期", value: "18", icon: AlertCircle, color: "bg-destructive/10 text-destructive" },
-];
+async function fetchLongRunnerAnalysis(): Promise<LongRunnerApiPayload> {
+  const response = await fetch(`/api/full-picture/long-runner-analysis?years=${DEFAULT_ANALYSIS_YEAR}&limit=${LONG_RUNNER_LIMIT}`);
+  if (!response.ok) {
+    throw new Error(`Long runner analysis request failed (${response.status} ${response.statusText})`);
+  }
 
-const LongRunnerAnalysis = () => (
+  return response.json() as Promise<LongRunnerApiPayload>;
+}
+
+function formatAverageDays(value: number) {
+  return `${value.toFixed(1)}天`;
+}
+
+const LongRunnerAnalysis = () => {
+  const { data, error, isLoading } = useQuery({
+    queryKey: ["long-runner-analysis", LONG_RUNNER_LIMIT],
+    queryFn: fetchLongRunnerAnalysis,
+    staleTime: 60_000,
+    retry: 0,
+  });
+  const longItems = useMemo<LongRunnerItem[]>(() => {
+    return (data?.long_runner_rows ?? []).map((row) => ({
+      id: row.ticket_id,
+      title: row.ticket_name,
+      days: row.age_days,
+      project: row.project || "-",
+      status: row.status || "-",
+      month: "",
+    }));
+  }, [data?.long_runner_rows]);
+  const trendData = useMemo(() => {
+    return (data?.trend ?? []).map((row) => ({
+      month: row.month,
+      avg: row.avg_days,
+      max: row.max_days,
+    }));
+  }, [data?.trend]);
+  const distributionData = data?.distribution ?? [];
+  const averageDays = data?.overview.average_days ?? 0;
+  const overdueCount = data?.overview.overdue_count ?? 0;
+  const severeOverdueCount = data?.overview.severe_overdue_count ?? 0;
+  const kpis = [
+    { label: "平均解决周期", value: formatAverageDays(averageDays), icon: Clock, color: "bg-primary/10 text-primary" },
+    { label: "超期缺陷", value: String(overdueCount), icon: Timer, color: "bg-warning/10 text-warning" },
+    { label: "严重超期", value: String(severeOverdueCount), icon: AlertCircle, color: "bg-destructive/10 text-destructive" },
+  ];
+
+  if (isLoading && !data) {
+    return (
+      <section className="dashboard-card p-6">
+        <div className="flex items-center gap-3 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          <span>正在加载真实长周期数据...</span>
+        </div>
+      </section>
+    );
+  }
+
+  if (error && !data) {
+    return (
+      <section className="dashboard-card p-6">
+        <div className="flex items-start gap-3 text-sm text-destructive">
+          <AlertTriangle className="mt-0.5 h-4 w-4" />
+          <div>
+            <p className="font-medium">长周期数据加载失败</p>
+            <p className="mt-1 text-muted-foreground">{error instanceof Error ? error.message : "请稍后重试"}</p>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  if (longItems.length === 0) {
+    return (
+      <section className="dashboard-card p-6">
+        <p className="text-sm font-medium text-foreground">暂无长周期数据</p>
+        <p className="mt-1 text-sm text-muted-foreground">Full Picture 当前范围内没有同时具备创建时间和最近票据日期的缺陷记录。</p>
+      </section>
+    );
+  }
+
+  return (
   <div className="space-y-5">
     <div className="grid grid-cols-3 gap-4">
       {kpis.map((k) => {
         const Icon = k.icon;
         return (
-          <div key={k.label} className="dashboard-card p-5">
+          <div key={k.label} className="dashboard-card p-5" role="article" aria-label={k.label}>
             <div className="flex items-start justify-between">
               <div>
                 <p className="kpi-label">{k.label}</p>
@@ -75,7 +164,7 @@ const LongRunnerAnalysis = () => (
         <h3 className="mb-4 text-sm font-semibold text-foreground">周期分布</h3>
         <div className="h-[300px]">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={distData}>
+            <BarChart data={distributionData}>
               <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 16%, 90%)" />
               <XAxis dataKey="range" tick={{ fontSize: 11, fill: "hsl(220, 10%, 50%)" }} />
               <YAxis tick={{ fontSize: 11, fill: "hsl(220, 10%, 50%)" }} />
@@ -123,6 +212,7 @@ const LongRunnerAnalysis = () => (
       </div>
     </div>
   </div>
-);
+  );
+};
 
 export default LongRunnerAnalysis;

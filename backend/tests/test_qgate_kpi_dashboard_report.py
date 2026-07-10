@@ -78,6 +78,72 @@ def test_generate_qgate_kpi_dashboard_report_writes_expected_sections(
     assert "DTSV_China" in html
 
 
+def test_generate_qgate_kpi_dashboard_report_defaults_year_filter_to_2026(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "qgate_raw.db"
+    output_path = tmp_path / "qgate_kpi_dashboard.html"
+    ensure_schema(db_path)
+
+    conn = sqlite3.connect(db_path)
+    try:
+        defect_rows = [
+            (
+                "D-2025",
+                "Ticket 2025",
+                "DTSV_China",
+                "MGU",
+                "China",
+                "ICV",
+                "Speech",
+                "Tony",
+                "NA5",
+                '{"id":"D-2025","name":"Ticket 2025","year":"2025","phase":{"name":"09-In Progress"},"problem_finder_team_udf":{"name":"DTSV_China"}}',
+                "2026-06-11T00:00:00Z",
+            ),
+            (
+                "D-2026",
+                "Ticket 2026",
+                "DTSV_China",
+                "MGU",
+                "China",
+                "ICV",
+                "Speech",
+                "Tony",
+                "NA5",
+                '{"id":"D-2026","name":"Ticket 2026","year":"2026","phase":{"name":"09-In Progress"},"problem_finder_team_udf":{"name":"DTSV_China"}}',
+                "2026-06-11T00:00:00Z",
+            ),
+        ]
+        conn.executemany(
+            """
+            INSERT INTO octane_defects(defect_id, name, team, project, market, pu, fv, fvp, lead_model, raw_json, fetched_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            defect_rows,
+        )
+        conn.executemany(
+            """
+            INSERT INTO octane_defect_history_events(defect_id, event_timestamp, field_name, old_value, new_value, fetched_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            [
+                ("D-2025", "2025-01-01T00:00:00Z", "phase", "00-Draft", "01-New", "2026-06-11T00:00:00Z"),
+                ("D-2025", "2025-01-03T00:00:00Z", "phase", "01-New", "09-In Progress", "2026-06-11T00:00:00Z"),
+                ("D-2026", "2026-01-01T00:00:00Z", "phase", "00-Draft", "01-New", "2026-06-11T00:00:00Z"),
+                ("D-2026", "2026-01-03T00:00:00Z", "phase", "01-New", "09-In Progress", "2026-06-11T00:00:00Z"),
+            ],
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    generate_qgate_kpi_dashboard_report(db_path=db_path, output_path=output_path)
+
+    html = output_path.read_text(encoding="utf-8")
+    assert "const DEFAULT_YEARS=QGATE_PAYLOAD.options.years.includes('2026')?['2026']" in html
+
+
 def test_generate_qgate_kpi_dashboard_report_writes_interactive_payload_and_readable_phase_names(
     tmp_path: Path,
 ) -> None:

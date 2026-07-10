@@ -7,6 +7,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+import requests
+
 from backend.analytics.ingest.client import OctaneApiClient
 from backend.analytics.ingest.pipeline import IngestRequest, refresh_octane_manual_runs_only, refresh_octane_source
 
@@ -73,6 +75,8 @@ class FakeOctaneClient:
         year: int,
         modified_since: str | None = None,
         include_related_work_items: bool = True,
+        releases: tuple[str, ...] = (),
+        related_work_item_workers: int = 1,
         progress=None,
     ) -> list[dict[str, object]]:
         self.manual_run_calls.append(
@@ -81,6 +85,8 @@ class FakeOctaneClient:
                 "year": year,
                 "modified_since": modified_since,
                 "include_related_work_items": include_related_work_items,
+                "releases": releases,
+                "related_work_item_workers": related_work_item_workers,
             }
         )
         if progress is not None:
@@ -725,6 +731,8 @@ def test_refresh_octane_manual_runs_only_skips_testcase_rebuild(tmp_path: Path) 
             "year": 2026,
             "modified_since": None,
             "include_related_work_items": False,
+            "releases": (),
+            "related_work_item_workers": 1,
         }
     ]
 
@@ -762,6 +770,309 @@ def test_refresh_octane_manual_runs_only_reports_progress(tmp_path: Path) -> Non
         "manual-runs page year=2026",
         "Stored 1 manual runs for DTSV_China 2026",
     ]
+
+
+class TraceabilityOctaneClient:
+    def __init__(self) -> None:
+        self.manual_run_calls: list[dict[str, object]] = []
+
+    def list_teams(self) -> list[dict[str, str]]:
+        return [{"id": "1", "name": "DTSV_China"}]
+
+    def fetch_manual_runs(
+        self,
+        *,
+        team_id: str,
+        year: int,
+        modified_since: str | None = None,
+        include_related_work_items: bool = True,
+        releases: tuple[str, ...] = (),
+        related_work_item_workers: int = 1,
+        progress=None,
+    ) -> list[dict[str, object]]:
+        self.manual_run_calls.append(
+            {
+                "team_id": team_id,
+                "year": year,
+                "modified_since": modified_since,
+                "include_related_work_items": include_related_work_items,
+                "releases": releases,
+                "related_work_item_workers": related_work_item_workers,
+            }
+        )
+        if progress is not None:
+            progress(f"traceability manual-runs page year={year}")
+        return [
+            {
+                "id": "MR-TRACE-1",
+                "defect": {
+                    "total_count": 1,
+                    "data": [
+                        {"id": "D-TRACE-1", "name": "Wake defect", "subtype": "defect"},
+                    ],
+                },
+                "test": {"id": "T-TRACE-1", "name": "Wake trace test", "subtype": "test_manual"},
+                "test_name": "Wake trace test",
+                "status": {"name": "Passed"},
+                "release": {"name": "R-26-06"},
+                "run_team_000_udf": {"name": "DTSV_China"},
+                "finished_udf": "2026-06-30T08:00:00Z",
+                "covered_content": {
+                    "total_count": 2,
+                    "data": [
+                        {
+                            "id": "F-HISTORY-1",
+                            "name": "Historical testcase feature",
+                            "subtype": "feature",
+                            "path": "epic/historical-feature",
+                            "parent": {"id": "E-HISTORY-1", "name": "Historical epic", "subtype": "epic"},
+                        },
+                        {
+                            "id": "S-HISTORY-1",
+                            "name": "Historical testcase story",
+                            "subtype": "story",
+                            "path": "epic/historical-feature/historical-story",
+                            "parent": {"id": "F-HISTORY-1", "name": "Historical testcase feature", "subtype": "feature"},
+                        },
+                    ],
+                },
+                "related_work_items": [
+                    {
+                        "id": "F-TRACE-1",
+                        "name": "Wake feature",
+                        "subtype": "feature",
+                        "path": "epic/wake-feature",
+                        "parent": {"id": "E-TRACE-1", "name": "Wake epic", "subtype": "epic"},
+                    },
+                    {
+                        "id": "S-TRACE-1",
+                        "name": "Wake story",
+                        "subtype": "story",
+                        "path": "epic/wake-feature/wake-story",
+                        "parent": {"id": "F-TRACE-1", "name": "Wake feature", "subtype": "feature"},
+                    },
+                ] if include_related_work_items else [],
+            }
+        ]
+
+
+def test_refresh_traceability_source_writes_run_level_relations(tmp_path: Path) -> None:
+    from backend.analytics.ingest.pipeline import refresh_octane_traceability_source
+
+    db_path = tmp_path / "qgate_raw.db"
+    client = TraceabilityOctaneClient()
+
+    summary = refresh_octane_traceability_source(
+        source_db_path=db_path,
+        team_name="DTSV_China",
+        years=(2026,),
+        workers=24,
+        client=client,
+    )
+
+    assert summary == {
+        "manual_run_rows": 1,
+        "traceability_rows": 3,
+        "manual_run_ids": ["MR-TRACE-1"],
+    }
+    assert client.manual_run_calls == [
+        {
+            "team_id": "1",
+            "year": 2026,
+            "modified_since": None,
+            "include_related_work_items": True,
+            "releases": (),
+            "related_work_item_workers": 24,
+        }
+    ]
+
+    conn = sqlite3.connect(db_path)
+    try:
+        rows = conn.execute(
+            """
+            SELECT run_id, test_id, scope_team, scope_release, year, status,
+                   relation_type, related_id, related_name, parent_id, parent_name
+            FROM octane_run_traceability
+            ORDER BY relation_type, related_id
+            """
+        ).fetchall()
+        testcase_row = conn.execute(
+            """
+            SELECT test_id, scope_team, scope_release, source, test_name, run_count,
+                   run_ids_json, run_status_distribution_json,
+                 defect_ids_json, defect_names_json,
+                 feature_ids_json, feature_names_json,
+                 story_ids_json, story_names_json,
+                 epic_ids_json, epic_names_json
+            FROM octane_traceability_testcases
+            WHERE test_id='T-TRACE-1'
+            """
+        ).fetchone()
+    finally:
+        conn.close()
+
+    assert rows == [
+        ("MR-TRACE-1", "T-TRACE-1", "DTSV_China", "R-26-06", "2026", "Passed", "defect", "D-TRACE-1", "Wake defect", "", ""),
+        ("MR-TRACE-1", "T-TRACE-1", "DTSV_China", "R-26-06", "2026", "Passed", "feature", "F-TRACE-1", "Wake feature", "E-TRACE-1", "Wake epic"),
+        ("MR-TRACE-1", "T-TRACE-1", "DTSV_China", "R-26-06", "2026", "Passed", "story", "S-TRACE-1", "Wake story", "F-TRACE-1", "Wake feature"),
+    ]
+    assert testcase_row is not None
+    assert testcase_row[:6] == ("T-TRACE-1", "DTSV_China", "R-26-06", "manual_runs", "Wake trace test", 1)
+    assert json.loads(testcase_row[6]) == ["MR-TRACE-1"]
+    assert json.loads(testcase_row[7]) == {"Passed": 1}
+    assert json.loads(testcase_row[8]) == ["D-TRACE-1"]
+    assert json.loads(testcase_row[9]) == ["Wake defect"]
+    assert json.loads(testcase_row[10]) == ["F-TRACE-1"]
+    assert json.loads(testcase_row[11]) == ["Wake feature"]
+    assert json.loads(testcase_row[12]) == ["S-TRACE-1"]
+    assert json.loads(testcase_row[13]) == ["Wake story"]
+    assert json.loads(testcase_row[14]) == ["E-TRACE-1"]
+    assert json.loads(testcase_row[15]) == ["Wake epic"]
+
+
+def test_refresh_traceability_source_force_rebuilds_only_traceability_scope(tmp_path: Path) -> None:
+    from backend.analytics.ingest.pipeline import refresh_octane_traceability_source
+    from backend.analytics.ingest.source_store import OctaneSourceStore
+
+    db_path = tmp_path / "qgate_raw.db"
+    store = OctaneSourceStore(db_path)
+    try:
+        store.create_tables()
+        store.upsert_manual_runs(
+            [
+                {
+                    "id": "MR-OLD-1",
+                    "test": {"id": "T-OLD-1", "name": "Old trace test"},
+                    "test_name": "Old trace test",
+                    "status": {"name": "Passed"},
+                    "release": {"name": "R-26-06"},
+                    "run_team_000_udf": {"name": "DTSV_China"},
+                    "year": "2026",
+                }
+            ],
+            team="DTSV_China",
+            year=2026,
+        )
+        store.replace_run_traceability_from_runs(
+            [
+                {
+                    "id": "MR-OLD-1",
+                    "test": {"id": "T-OLD-1", "name": "Old trace test"},
+                    "test_name": "Old trace test",
+                    "status": {"name": "Passed"},
+                    "release": {"name": "R-26-06"},
+                    "run_team_000_udf": {"name": "DTSV_China"},
+                    "year": "2026",
+                    "related_work_items": [
+                        {"id": "S-OLD-1", "name": "Old story", "subtype": "story"},
+                    ],
+                }
+            ],
+            team="DTSV_China",
+        )
+    finally:
+        store.close()
+
+    client = TraceabilityOctaneClient()
+
+    refresh_octane_traceability_source(
+        source_db_path=db_path,
+        team_name="DTSV_China",
+        years=(2026,),
+        client=client,
+        force=True,
+    )
+
+    conn = sqlite3.connect(db_path)
+    try:
+        manual_count = conn.execute("SELECT COUNT(*) FROM octane_manual_runs WHERE mr_id='MR-OLD-1'").fetchone()[0]
+        old_trace_count = conn.execute("SELECT COUNT(*) FROM octane_run_traceability WHERE run_id='MR-OLD-1'").fetchone()[0]
+        old_testcase_count = conn.execute("SELECT COUNT(*) FROM octane_traceability_testcases WHERE test_id='T-OLD-1'").fetchone()[0]
+        new_trace_count = conn.execute("SELECT COUNT(*) FROM octane_run_traceability WHERE run_id='MR-TRACE-1'").fetchone()[0]
+    finally:
+        conn.close()
+
+    assert manual_count == 1
+    assert old_trace_count == 0
+    assert old_testcase_count == 0
+    assert new_trace_count == 3
+
+
+def test_run_traceability_does_not_fallback_to_covered_content_when_related_items_empty(tmp_path: Path) -> None:
+    from backend.analytics.ingest.source_store import OctaneSourceStore
+
+    db_path = tmp_path / "qgate_raw.db"
+    store = OctaneSourceStore(db_path)
+    try:
+        store.create_tables()
+        written = store.replace_run_traceability_from_runs(
+            [
+                {
+                    "id": "MR-TRACE-EMPTY",
+                    "defect": {"total_count": 0, "data": []},
+                    "test": {"id": "T-TRACE-EMPTY", "name": "Wake trace test", "subtype": "test_manual"},
+                    "test_name": "Wake trace test",
+                    "status": {"name": "Passed"},
+                    "release": {"name": "R-26-06"},
+                    "run_team_000_udf": {"name": "DTSV_China"},
+                    "covered_content": {
+                        "total_count": 1,
+                        "data": [
+                            {
+                                "id": "S-HISTORY-1",
+                                "name": "Historical testcase story",
+                                "subtype": "story",
+                                "parent": {"id": "F-HISTORY-1", "name": "Historical testcase feature", "subtype": "feature"},
+                            }
+                        ],
+                    },
+                    "related_work_items": [],
+                }
+            ],
+            team="DTSV_China",
+        )
+        rows = store._conn.execute("SELECT relation_type, related_id FROM octane_run_traceability").fetchall()
+    finally:
+        store.close()
+
+    assert written == 0
+    assert rows == []
+
+
+def test_refresh_traceability_source_full_fetches_when_traceability_table_is_empty(tmp_path: Path) -> None:
+    from backend.analytics.ingest.pipeline import refresh_octane_traceability_source
+    from backend.analytics.ingest.source_store import OctaneSourceStore
+
+    db_path = tmp_path / "qgate_raw.db"
+    store = OctaneSourceStore(db_path)
+    try:
+        store.create_tables()
+        store.upsert_manual_runs(
+            [
+                {
+                    "id": "MR-CACHED-1",
+                    "test": {"id": "T-CACHED-1"},
+                    "status": "Passed",
+                    "release": {"name": "R-26-06"},
+                    "run_team_000_udf": {"name": "DTSV_China"},
+                    "last_modified": "2026-06-30T08:00:00Z",
+                }
+            ],
+            team="DTSV_China",
+            year=2026,
+        )
+    finally:
+        store.close()
+    client = TraceabilityOctaneClient()
+
+    refresh_octane_traceability_source(
+        source_db_path=db_path,
+        team_name="DTSV_China",
+        years=(2026,),
+        client=client,
+    )
+
+    assert client.manual_run_calls[0]["modified_since"] is None
 
 
 def test_octane_client_list_teams_omits_query_param() -> None:
@@ -826,6 +1137,112 @@ def test_octane_client_fetch_comments_batches_unique_defect_ids_by_100() -> None
     assert captured_queries[0].count("D-") == 100
     assert captured_queries[1].count("D-") == 100
     assert captured_queries[2].count("D-") == 1
+
+
+def test_octane_client_fetch_related_work_items_filters_by_release() -> None:
+    captured_queries: list[str] = []
+
+    class FakeResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            return {
+                "data": [
+                    {
+                        "id": "S-1",
+                        "name": "Run story",
+                        "subtype": "story",
+                        "path": "feature/story",
+                        "parent": {"id": "F-1", "name": "Run feature", "subtype": "feature"},
+                    }
+                ]
+            }
+
+    class FakeSession:
+        def get(self, url: str, *, params: dict[str, object], timeout: int, verify: bool):
+            captured_queries.append(str(params["query"]))
+            return FakeResponse()
+
+    client = OctaneApiClient(
+        base_url="https://octane.example.com",
+        shared_space_id="1002",
+        workspace_id="2001",
+        session=FakeSession(),
+    )
+
+    rows = client.fetch_related_work_items_for_runs(["MR-001"], releases=("R-26-06",))
+
+    assert rows == {
+        "MR-001": [
+            {
+                "id": "S-1",
+                "name": "Run story",
+                "subtype": "story",
+                "path": "feature/story",
+                "parent": {"id": "F-1", "name": "Run feature", "subtype": "feature"},
+            }
+        ]
+    }
+    assert captured_queries == [
+        '"(subtype IN \'defect\',\'feature\',\'story\';((release={name=\'R-26-06\'}));run_covered_content_relation={id IN \'MR-001\'})"'
+    ]
+
+
+def test_octane_client_fetch_related_work_items_splits_timed_out_batches() -> None:
+    captured_queries: list[str] = []
+
+    class FakeResponse:
+        def __init__(self, query: str) -> None:
+            self.query = query
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, object]:
+            if "MR-001" not in self.query:
+                return {"data": []}
+            return {
+                "data": [
+                    {
+                        "id": "S-1",
+                        "name": "Run story",
+                        "subtype": "story",
+                        "path": "feature/story",
+                        "parent": {"id": "F-1", "name": "Run feature", "subtype": "feature"},
+                        "run_covered_content_relation": {"id": "MR-001"},
+                    }
+                ]
+            }
+
+    class FakeSession:
+        def get(self, url: str, *, params: dict[str, object], timeout: int, verify: bool):
+            query = str(params["query"])
+            captured_queries.append(query)
+            if query.count("MR-") > 1:
+                raise requests.exceptions.ReadTimeout("batch too large")
+            return FakeResponse(query)
+
+    client = OctaneApiClient(
+        base_url="https://octane.example.com",
+        shared_space_id="1002",
+        workspace_id="2001",
+        session=FakeSession(),
+    )
+
+    rows = client.fetch_related_work_items_for_runs(["MR-001", "MR-002"], batch_size=2)
+
+    assert rows["MR-001"] == [
+        {
+            "id": "S-1",
+            "name": "Run story",
+            "subtype": "story",
+            "path": "feature/story",
+            "parent": {"id": "F-1", "name": "Run feature", "subtype": "feature"},
+        }
+    ]
+    assert rows["MR-002"] == []
+    assert [query.count("MR-") for query in captured_queries] == [2, 1, 1]
 
 
 def test_octane_client_fetch_history_uses_legacy_history_logs_shape() -> None:

@@ -529,7 +529,7 @@ def _build_html(*, payload: dict[str, Any]) -> str:
     const QGATE_PAYLOAD = __PAYLOAD_JSON__;
     function decodeDataset(dataset){if(!dataset||!Array.isArray(dataset.columns)||!Array.isArray(dataset.rows))return Array.isArray(dataset)?dataset:[];return dataset.rows.map(row=>Object.fromEntries(dataset.columns.map((column,index)=>[column,row[index]])));}
     const META_ROWS=decodeDataset(QGATE_PAYLOAD.meta);const COVERAGE_ROWS=decodeDataset(QGATE_PAYLOAD.coverage);const TICKET_ROWS=decodeDataset(QGATE_PAYLOAD.tickets);const ISSUE_ROWS=decodeDataset(QGATE_PAYLOAD.issues);const TICKET_MAP=new Map(TICKET_ROWS.map(row=>[String(row.Ticket_ID||''),row]));
-    const DEFAULT_YEARS=QGATE_PAYLOAD.options.years.includes('2025')?['2025']:[...QGATE_PAYLOAD.options.years];
+    const DEFAULT_YEARS=QGATE_PAYLOAD.options.years.includes('2026')?['2026']:[...QGATE_PAYLOAD.options.years];
     const state={years:[...DEFAULT_YEARS],teams:[...QGATE_PAYLOAD.options.teams],groups:[...QGATE_PAYLOAD.options.groups],changedBy:'all',fif:'all',timespanMin:0,timespanMax:Math.min(120,QGATE_PAYLOAD.options.timespanMax||120),minCount:QGATE_PAYLOAD.generated_from.min_transition_count||200,fifMinTickets:1,fifPhaseTransition:'all',selectedSummary:null};
     const groupClassMap={'Q-Gate':'qgate','Integration':'integration','CoC':'coc','Other':'other'};
     function fmtNumber(value,digits=0){const numeric=Number(value||0);return numeric.toLocaleString(undefined,{maximumFractionDigits:digits,minimumFractionDigits:digits});}

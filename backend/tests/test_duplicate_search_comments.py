@@ -732,6 +732,8 @@ def test_search_bridge_serializes_evidence_snippets_to_camel_case(monkeypatch):
     assert result["result"]["candidates"] == [
         {
             "score1to10": 8,
+            "confidenceScore1to10": 9,
+            "confidenceLabel": "high",
             "similarity": 0.87,
             "ticketId": "DP-101",
             "name": "Wake trace issue",
@@ -753,6 +755,28 @@ def test_search_bridge_serializes_evidence_snippets_to_camel_case(monkeypatch):
             },
         }
     ]
+
+
+def test_calibrated_confidence_uses_multi_signal_gradient():
+    strong = duplicate_issue_finder.calibrate_duplicate_confidence(
+        similarity=0.62,
+        ranking_signals={
+            "dense_rank": 2,
+            "dense_score": 0.7,
+            "sparse_rank": 3,
+            "sparse_score": 0.6,
+        },
+        evidence_snippets=["Comment evidence points to the same wake timeout."],
+    )
+    weak = duplicate_issue_finder.calibrate_duplicate_confidence(
+        similarity=0.62,
+        ranking_signals={"dense_rank": 40, "dense_score": 0.62},
+        evidence_snippets=[],
+    )
+
+    assert strong["score"] > weak["score"]
+    assert strong["label"] in {"high", "medium"}
+    assert weak["label"] in {"medium", "low", "review"}
 
 
 def test_keyword_fallback_search_uses_comments_text(monkeypatch):

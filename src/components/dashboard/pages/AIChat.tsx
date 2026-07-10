@@ -468,19 +468,43 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
 
     const topCandidate = result.candidates[0];
     const topEvidence = collectEvidence(topCandidate);
-    const topSnippet = normalizeText(topCandidate.snippet, 120);
-    const topConfidenceLevel = buildConfidenceLevel(topCandidate.score1to10);
+    const topBasis = topEvidence.length
+      ? topEvidence.join("；")
+      : normalizeText(topCandidate.snippet, 120) || "当前候选缺少足够 comments 证据";
+    const topScore = topCandidate.confidenceScore1to10 ?? topCandidate.score1to10;
+    const topSimilarityScore = topCandidate.score1to10;
+    const topConfidenceLevel = buildConfidenceLevel(topScore);
 
     return [
       head.join(" · "),
       "",
-      `最可能重复票: ${topCandidate.ticketId || "N/A"}。标题“${topCandidate.name || "Untitled"}”，置信度: ${topConfidenceLevel}。`,
-      topSnippet ? `现象匹配: ${topSnippet}` : "现象匹配: 当前候选缺少足够摘要信息。",
-      topEvidence.length
-        ? `评论分析: ${topEvidence.join("；")}`
-        : "评论分析: 当前候选缺少足够 comments 证据。",
-      "建议: 优先核对标题、comments 分析过程和关键日志是否一致。",
+      `优先复核: D${topCandidate.ticketId || "N/A"}“${topCandidate.name || "Untitled"}”。复核置信度 ${topConfidenceLevel} (${topScore || 0}/10)，相似度 ${topSimilarityScore || 0}/10。`,
+      `依据: ${topBasis}。`,
+      "下一步: 核对平台、触发路径、时间戳和日志后再关联。",
     ].join("\n");
+  };
+
+  const escapeAgentAttr = (value: unknown) =>
+    String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/"/g, "&quot;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+
+  const summarizeToolEventPayload = (value: unknown, maxLength = 180) => {
+    const text = typeof value === "string" ? value : JSON.stringify(value ?? {});
+    const normalized = String(text || "").replace(/\s+/g, " ").trim();
+    return normalized.length > maxLength ? `${normalized.slice(0, maxLength - 3).trimEnd()}...` : normalized;
+  };
+
+  const formatToolEventStep = (event: any) => {
+    if (event?.type === "tool-input-available") {
+      return `<step title="调用工具" source="${escapeAgentAttr(event.toolName || "tool")}">${escapeAgentAttr(summarizeToolEventPayload(event.input))}</step>`;
+    }
+    if (event?.type === "tool-output-available") {
+      return `<step title="工具返回" source="${escapeAgentAttr(event.toolName || "tool")}">${escapeAgentAttr(summarizeToolEventPayload(event.outputSummary))}</step>`;
+    }
+    return "";
   };
 
   const runStream = async (history: Msg[], assistantMsgId: string) => {
@@ -515,6 +539,7 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
           model,
           context: contextStr,
           useDefectContext: chatContextEnabled,
+          useAnalyticsContext: true,
         }),
         signal: controller.signal,
       });
@@ -604,6 +629,14 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
                 ),
                 updatedAt: Date.now(),
               }));
+              continue;
+            }
+
+            if (parsed?.type === "tool-input-available" || parsed?.type === "tool-output-available") {
+              const toolStep = formatToolEventStep(parsed);
+              if (toolStep) {
+                animator.pushImmediate(toolStep);
+              }
               continue;
             }
 
@@ -1073,6 +1106,7 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
                 {active.messages.map((m, i) => {
                   const isLastAsst =
                     m.role === "assistant" && i === active.messages.length - 1;
+                  const showDuplicateResults = m.mode === "duplicate-search" && Boolean(m.duplicateResult);
                   return (
                     <motion.div
                       key={m.id}
@@ -1153,10 +1187,12 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
                                 <TypingDots />
                                 <span>已获取 qgate 相关缺陷，正在生成回答…</span>
                               </div>
-                              <DuplicateSearchResults
-                                result={m.duplicateResult}
-                                allowFeedback={m.mode === "duplicate-search"}
-                              />
+                              {showDuplicateResults ? (
+                                <DuplicateSearchResults
+                                  result={m.duplicateResult}
+                                  allowFeedback
+                                />
+                              ) : null}
                             </div>
                           ) : (
                             <TypingDots />
@@ -1164,10 +1200,10 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
                         ) : m.role === "assistant" ? (
                           <div className="space-y-3">
                             <MessageRenderer content={m.content} streaming={streaming && isLastAsst} />
-                            {m.duplicateResult ? (
+                            {showDuplicateResults ? (
                               <DuplicateSearchResults
                                 result={m.duplicateResult}
-                                allowFeedback={m.mode === "duplicate-search"}
+                                allowFeedback
                               />
                             ) : null}
                           </div>

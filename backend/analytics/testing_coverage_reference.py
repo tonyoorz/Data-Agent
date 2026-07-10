@@ -133,6 +133,21 @@ def build_reference_project_sql_expr(
     )
 
 
+def build_tpmdashboard_project_sql_expr(
+    *,
+    name_expr: str,
+    target_ecu_conf_expr: str,
+    top_aida_expr: str,
+    fallback_project_expr: str,
+) -> str:
+    return build_reference_project_sql_expr(
+        name_expr=name_expr,
+        target_ecu_conf_expr=target_ecu_conf_expr,
+        top_aida_expr=top_aida_expr,
+        fallback_project_expr=fallback_project_expr,
+    )
+
+
 def build_iso_test_week_sql_expr(*, finished_expr: str, fallback_test_week_expr: str) -> str:
     thursday_expr = "date({finished_expr}, '-3 days', 'weekday 4')".format(
         finished_expr=finished_expr,

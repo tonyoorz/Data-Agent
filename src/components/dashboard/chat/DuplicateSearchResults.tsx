@@ -26,6 +26,38 @@ function formatWeight(value?: number | null) {
   return Number(value).toFixed(2).replace(/\.00$/, "").replace(/0$/, "");
 }
 
+function formatConfidence(candidate: DuplicateSearchCandidate) {
+  const score = candidate.confidenceScore1to10 ?? candidate.score1to10;
+  return `置信度 ${score}/10`;
+}
+
+function formatSimilarity(candidate: DuplicateSearchCandidate) {
+  return `相似度 ${candidate.score1to10}/10`;
+}
+
+function normalizeEvidenceSnippets(candidate: DuplicateSearchCandidate) {
+  return (candidate.evidenceSnippets || [])
+    .map((snippet) => String(snippet || "").replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .slice(0, 2);
+}
+
+function candidateConfidenceScore(candidate: DuplicateSearchCandidate) {
+  return candidate.confidenceScore1to10 ?? candidate.score1to10 ?? 0;
+}
+
+function candidateSimilarityScore(candidate: DuplicateSearchCandidate) {
+  return candidate.score1to10 ?? 0;
+}
+
+function compareByReviewPriority(left: DuplicateSearchCandidate, right: DuplicateSearchCandidate) {
+  return (
+    candidateConfidenceScore(right) - candidateConfidenceScore(left) ||
+    candidateSimilarityScore(right) - candidateSimilarityScore(left) ||
+    Number(right.similarity || 0) - Number(left.similarity || 0)
+  );
+}
+
 const DuplicateSearchResults = ({
   result,
   allowFeedback = true,
@@ -43,6 +75,8 @@ const DuplicateSearchResults = ({
     setVisibleFeedbackCount(result.feedbackCount);
     setFeedbackByTicket({});
   }, [result.feedbackCount, result.searchId]);
+
+  const orderedCandidates = [...result.candidates].sort(compareByReviewPriority);
 
   const submitFeedback = async (
     candidate: DuplicateSearchCandidate,
@@ -105,17 +139,18 @@ const DuplicateSearchResults = ({
         <div>
           <p className="text-sm font-semibold text-foreground">候选缺陷</p>
           <p className="text-xs text-muted-foreground">
-            共 {result.candidates.length} 条 · 阶段 {result.modelPhase} · 反馈 {visibleFeedbackCount}
+            共 {orderedCandidates.length} 条 · 阶段 {result.modelPhase} · 反馈 {visibleFeedbackCount}
           </p>
         </div>
       </div>
       <ul aria-label="候选缺陷列表" className="mt-2 divide-y divide-border/60">
-        {result.candidates.map((candidate, index) => {
+        {orderedCandidates.map((candidate, index) => {
           const feedback = candidate.ticketId ? feedbackByTicket[candidate.ticketId] : undefined;
           const positiveKey = `${candidate.ticketId}:positive`;
           const negativeKey = `${candidate.ticketId}:negative`;
           const isPositiveLoading = loadingKey === positiveKey;
           const isNegativeLoading = loadingKey === negativeKey;
+          const evidenceSnippets = normalizeEvidenceSnippets(candidate);
 
           return (
             <li
@@ -146,7 +181,9 @@ const DuplicateSearchResults = ({
                     {candidate.name || "Untitled issue"}
                   </span>
                   <span className="text-[11px] font-medium text-muted-foreground">
-                    评分 {candidate.score1to10}/10
+                    <span>{formatConfidence(candidate)}</span>
+                    <span> · </span>
+                    <span>{formatSimilarity(candidate)}</span>
                   </span>
                   {feedback === "positive" ? (
                     <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-600">
@@ -160,8 +197,18 @@ const DuplicateSearchResults = ({
                   ) : null}
                 </div>
                 <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                  {candidate.snippet || "No snippet available"}
+                  {candidate.reviewFocus || candidate.snippet || "No review focus available"}
                 </p>
+                {evidenceSnippets.length ? (
+                  <div className="mt-1.5 rounded-md bg-muted/40 px-2 py-1.5 text-xs leading-relaxed text-muted-foreground">
+                    <p className="font-medium text-foreground">Comments 分析</p>
+                    <ol className="mt-1 list-decimal space-y-1 pl-4">
+                      {evidenceSnippets.map((snippet) => (
+                        <li key={snippet}>{snippet}</li>
+                      ))}
+                    </ol>
+                  </div>
+                ) : null}
                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
                   <span className="rounded-full bg-muted px-2 py-0.5">
                     {candidate.project || "project: -"}

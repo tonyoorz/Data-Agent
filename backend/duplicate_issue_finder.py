@@ -553,6 +553,57 @@ def _to_score_1_10(similarity: float) -> int:
     return max(1, min(10, int(round(sim * 9 + 1))))
 
 
+def _rank_bonus(rank: Any, *, strong_rank: int, weak_rank: int) -> float:
+    try:
+        value = int(rank)
+    except Exception:
+        return 0.0
+    if value <= strong_rank:
+        return 0.8
+    if value <= weak_rank:
+        return 0.35
+    return 0.0
+
+
+def calibrate_duplicate_confidence(
+    *,
+    similarity: float,
+    ranking_signals: Optional[Dict[str, Any]] = None,
+    evidence_snippets: Optional[Sequence[str]] = None,
+) -> Dict[str, Any]:
+    """Convert retrieval/rerank signals into a user-facing duplicate confidence.
+
+    This is a deterministic calibration layer, not a probability model. It keeps
+    the useful 1-10 gradient while avoiding the misleading raw linear mapping
+    from cosine/RRF-derived similarity to business confidence.
+    """
+    try:
+        sim = max(0.0, min(1.0, float(similarity)))
+    except Exception:
+        sim = 0.0
+    signals = ranking_signals or {}
+    evidence = [str(item or "").strip() for item in list(evidence_snippets or []) if str(item or "").strip()]
+
+    confidence = 1.0 + (sim * 6.0)
+    confidence += _rank_bonus(signals.get("dense_rank"), strong_rank=5, weak_rank=20)
+    confidence += _rank_bonus(signals.get("sparse_rank"), strong_rank=5, weak_rank=20)
+    if signals.get("dense_rank") is not None and signals.get("sparse_rank") is not None:
+        confidence += 0.5
+    if evidence:
+        confidence += 0.7
+
+    score = max(1, min(10, int(round(confidence))))
+    if score >= 8:
+        label = "high"
+    elif score >= 6:
+        label = "medium"
+    elif score >= 4:
+        label = "low"
+    else:
+        label = "review"
+    return {"score": score, "label": label}
+
+
 def _phase_is_excluded(status_phase: Any, excluded_prefixes: Sequence[str]) -> bool:
     s = _normalize_text(status_phase).lower()
     if not s:

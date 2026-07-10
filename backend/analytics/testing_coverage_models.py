@@ -9,14 +9,14 @@ import sqlite3
 
 from backend.analytics.config import (
     get_analytics_db_path,
-    get_full_picture_hot_db_path,
     get_full_picture_source_db_path,
+    get_full_picture_hot_db_path,
 )
 from backend.analytics.db import connect
 from backend.analytics.testing_coverage_reference import (
     build_feature_region_sql_expr,
     build_iso_test_week_sql_expr,
-    build_reference_project_sql_expr,
+    build_tpmdashboard_project_sql_expr,
 )
 
 
@@ -76,14 +76,25 @@ def _resolve_testing_db_path() -> Path:
     configured = str(os.environ.get("VIZION_ANALYTICS_DB_PATH", "")).strip()
     if configured:
         return get_analytics_db_path()
-    hot_db_path = get_full_picture_hot_db_path()
-    if _is_ready_hot_testing_db(hot_db_path):
-        return hot_db_path
-    return get_full_picture_source_db_path()
+    return get_full_picture_hot_db_path()
+
+
+def _resolve_test_team_db_path() -> Path:
+    configured = str(os.environ.get("VIZION_ANALYTICS_DB_PATH", "")).strip()
+    if configured:
+        return get_analytics_db_path()
+    source_path = get_full_picture_source_db_path()
+    if source_path.exists():
+        return source_path
+    return get_analytics_db_path()
 
 
 def _connect() -> sqlite3.Connection:
     return connect(_resolve_testing_db_path())
+
+
+def _connect_test_team() -> sqlite3.Connection:
+    return connect(_resolve_test_team_db_path())
 
 
 def _normalize_multi_value(raw_values: Any, *, split_commas: bool) -> tuple[str, ...]:
@@ -133,6 +144,12 @@ def _sortable_value(value: Any) -> tuple[int, Any]:
     if text.isdigit():
         return (0, int(text))
     return (1, text.casefold())
+
+
+def _to_percent(numerator: int, denominator: int) -> float:
+    if denominator <= 0:
+        return 0.0
+    return round((numerator / denominator) * 100.0, 2)
 
 
 def _table_columns(conn: sqlite3.Connection, table_name: str = "octane_manual_runs") -> set[str]:
@@ -336,7 +353,7 @@ def _source_testing_dataset_query(conn: sqlite3.Connection) -> str:
         finished_expr=_optional_expr("mr", manual_run_columns, "finished", "finished_udf"),
         fallback_test_week_expr=_optional_expr("d", defect_columns, "test_week"),
     )
-    project_expr = build_reference_project_sql_expr(
+    project_expr = build_tpmdashboard_project_sql_expr(
         name_expr=_optional_expr("mr", manual_run_columns, "name", "test_name"),
         target_ecu_conf_expr=_optional_expr("mr", manual_run_columns, "target_ecu_conf", "target_ecu_conf_udf"),
         top_aida_expr=top_aida_expr,
@@ -366,6 +383,9 @@ def _source_testing_dataset_query(conn: sqlite3.Connection) -> str:
 
 
 def _testing_dataset_query(conn: sqlite3.Connection) -> str | None:
+    if not str(os.environ.get("VIZION_ANALYTICS_DB_PATH", "")).strip():
+        return None
+
     if _table_exists(conn, HOT_TESTING_STORE_NAME):
         hot_columns = _table_columns(conn, HOT_TESTING_STORE_NAME)
         if set(REQUIRED_COVERAGE_FIELDS).issubset(hot_columns):
@@ -393,8 +413,10 @@ def _testing_dataset_query(conn: sqlite3.Connection) -> str | None:
 
 
 def _materialize_testing_runs(conn: sqlite3.Connection) -> str | None:
-    snapshot_version = _resolve_active_testing_snapshot_version(conn)
-    if snapshot_version:
+    if not str(os.environ.get("VIZION_ANALYTICS_DB_PATH", "")).strip():
+        snapshot_version = _resolve_active_testing_snapshot_version(conn)
+        if not snapshot_version:
+            return None
         conn.execute(f"DROP TABLE IF EXISTS {TEMP_TESTING_RUNS_NAME}")
         conn.execute(
             f"""
@@ -458,10 +480,12 @@ def _ensure_coverage_data_ready(conn: sqlite3.Connection, relation_name: str | N
         raise TestingCoverageDataNotReadyError(missing_fields)
 
 
-def _build_where_clause(query: TestingCoverageQuery) -> tuple[str, list[str]]:
+def _build_where_clause(query: TestingCoverageQuery, *, exclude_filter_name: str = "") -> tuple[str, list[str]]:
     where_clauses = ["1=1"]
     params: list[str] = []
     for filter_name, column_name in FILTER_COLUMN_MAP.items():
+        if filter_name == exclude_filter_name:
+            continue
         values = getattr(query, filter_name)
         if not values:
             continue
@@ -517,9 +541,13 @@ def build_testing_coverage_filters(query_params: Any) -> dict[str, list[str]]:
     try:
         relation_name = _materialize_testing_runs(conn)
         _ensure_coverage_data_ready(conn, relation_name)
-        where_clause, params = _build_where_clause(query)
         return {
-            filter_name: _list_distinct_values(conn, relation_name, column_name, where_clause, params)
+            filter_name: _list_distinct_values(
+                conn,
+                relation_name,
+                column_name,
+                *_build_where_clause(query, exclude_filter_name=filter_name),
+            )
             for filter_name, column_name in FILTER_COLUMN_MAP.items()
         }
     finally:
@@ -615,3 +643,58 @@ def build_testcase_detail_rows(query_params: Any) -> list[dict[str, object]]:
         ),
         limit=_get_positive_int_query_param(query_params, "limit"),
     )
+
+
+def build_test_team_analysis_payload(team_name: str = "DTSV_China", query_params: Any = None) -> dict[str, object]:
+    normalized_team = str(team_name or "DTSV_China").strip() or "DTSV_China"
+    years = _get_multi_values(query_params or {}, "years")
+    conn = _connect_test_team()
+    try:
+        if not _table_exists(conn, "octane_manual_runs"):
+            return {"team": normalized_team, "rows": []}
+        columns = _table_columns(conn, "octane_manual_runs")
+        if not {"team", "tester"}.issubset(columns):
+            return {"team": normalized_team, "rows": []}
+
+        where_clauses = [
+            "TRIM(COALESCE(CAST(team AS TEXT), '')) = ?",
+            "TRIM(COALESCE(CAST(tester AS TEXT), '')) <> ''",
+        ]
+        params: list[str] = [normalized_team]
+        if years and "year" in columns:
+            placeholders = ", ".join("?" for _ in years)
+            where_clauses.append(f"TRIM(COALESCE(CAST(year AS TEXT), '')) IN ({placeholders})")
+            params.extend(years)
+
+        rows = conn.execute(
+            """
+            SELECT
+                TRIM(COALESCE(CAST(tester AS TEXT), '')) AS tester,
+                COUNT(*) AS total_runs,
+                SUM(CASE WHEN LOWER(TRIM(COALESCE(CAST(status AS TEXT), ''))) LIKE '%pass%' THEN 1 ELSE 0 END) AS passed_runs,
+                COUNT(DISTINCT NULLIF(TRIM(COALESCE(CAST(defect_id AS TEXT), '')), '')) AS linked_defects
+            FROM octane_manual_runs
+                        WHERE {where_clause}
+            GROUP BY TRIM(COALESCE(CAST(tester AS TEXT), ''))
+            ORDER BY total_runs DESC, tester COLLATE NOCASE
+                        """.format(where_clause=" AND ".join(where_clauses)),
+                        params,
+        ).fetchall()
+    finally:
+        conn.close()
+
+    payload_rows = []
+    for row in rows:
+        total_runs = int(row["total_runs"] or 0)
+        passed_runs = int(row["passed_runs"] or 0)
+        payload_rows.append(
+            {
+                "tester": str(row["tester"] or ""),
+                "total_runs": total_runs,
+                "passed_runs": passed_runs,
+                "linked_defects": int(row["linked_defects"] or 0),
+                "pass_rate": _to_percent(passed_runs, total_runs),
+            }
+        )
+
+    return {"team": normalized_team, "years": list(years), "rows": payload_rows}

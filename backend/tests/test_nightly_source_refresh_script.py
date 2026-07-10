@@ -65,6 +65,36 @@ def test_nightly_source_refresh_can_still_skip_comments_explicitly(tmp_path: Pat
     assert "--skip-comments" in result.stdout
 
 
+def test_nightly_source_refresh_defaults_to_2025_and_2026_testing_years(tmp_path: Path) -> None:
+    log_path = tmp_path / "nightly-default-years.log"
+    result = subprocess.run(
+        [
+            "powershell",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(RUN_SCRIPT),
+            "-PythonLauncher",
+            str(STUB_CMD),
+            "-PythonVersion",
+            "",
+            "-LogPath",
+            str(log_path),
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "years=2025,2026" in result.stdout
+    assert "manual_years=2025,2026" in result.stdout
+    assert "--years 2025,2026" in result.stdout
+    assert "--manual-years 2025,2026" in result.stdout
+
+
 def test_register_nightly_task_prepares_duplicate_index_by_default() -> None:
     result = subprocess.run(
         [

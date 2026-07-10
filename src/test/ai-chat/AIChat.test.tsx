@@ -179,6 +179,47 @@ describe("AIChat duplicate search integration", () => {
     expect(screen.getByText("最可能的重复问题是 DTV-1024，请优先复核。")).toBeInTheDocument();
   });
 
+  it("uses a concise local duplicate fallback summary when the API omits summary text", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        success: true,
+        result: {
+          searchId: "search-compact-fallback-1",
+          queryText: "speech can not wakeup",
+          modelPhase: "click_boost",
+          feedbackCount: 7,
+          candidates: [
+            {
+              ticketId: "2754092",
+              name: "Speech can not be wake up",
+              score1to10: 6,
+              confidenceScore1to10: 7,
+              similarity: 0.56,
+              snippet: "Speech cannot be woken up after software update on U12 BEV.",
+              evidenceSnippets: ["Defect name: Speech cannot be woken up after software update on U12 BEV."],
+            },
+          ],
+        },
+      }),
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<AIChat moduleKey="ai-chat" moduleLabel="AI Chat" />);
+
+    fireEvent.click(screen.getByRole("button", { name: /duplicate search/i }));
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "speech can not wakeup" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    expect(await screen.findByText(/优先复核: D2754092/)).toBeInTheDocument();
+    const text = document.body.textContent || "";
+    expect(text).not.toContain("现象匹配:");
+    expect(text).not.toContain("候选概览:");
+  });
+
   it("shows an immediate retrieval status for duplicate search before results arrive", async () => {
     const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
       return new Promise(() => {}) as Promise<Response>;
@@ -354,9 +395,13 @@ describe("AIChat duplicate search integration", () => {
     expect(
       JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)).useDefectContext,
     ).toBe(false);
+    expect(
+      JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)).useAnalyticsContext,
+    ).toBe(true);
 
-    expect(await screen.findByText("2686999")).toBeInTheDocument();
-    expect(screen.getByText("导航黄屏 related defect")).toBeInTheDocument();
+    expect(await screen.findByText("已完成")).toBeInTheDocument();
+    expect(screen.queryByText("2686999")).not.toBeInTheDocument();
+    expect(screen.queryByText("导航黄屏 related defect")).not.toBeInTheDocument();
   });
 
   it("shows an immediate generating status for pure AI chat before the first visible answer chunk", async () => {
@@ -397,6 +442,43 @@ describe("AIChat duplicate search integration", () => {
       json: async () => ({ error: "unexpected" }),
     });
 
+    expect(await screen.findByText("已完成")).toBeInTheDocument();
+  });
+
+  it("renders structured tool events as real analysis steps", async () => {
+    const encoder = new TextEncoder();
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            encoder.encode(
+              'data: {"type":"tool-input-available","toolCallId":"call-1","toolName":"query_dashboard_summary","input":{"filters":{"years":2026}}}\n\n' +
+                'data: {"type":"tool-output-available","toolCallId":"call-1","toolName":"query_dashboard_summary","outputSummary":"Result: 12 defects"}\n\n' +
+                'data: {"choices":[{"delta":{"content":"**Signal** 已完成"}}]}\n\n' +
+                'data: [DONE]\n\n',
+            ),
+          );
+          controller.close();
+        },
+      }),
+      json: async () => ({ error: "unexpected" }),
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<AIChat moduleKey="ai-chat" moduleLabel="AI Chat" />);
+
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "DTSV 6月份提了多少bug？" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    expect(await screen.findByText("调用工具")).toBeInTheDocument();
+    expect(await screen.findByText("工具返回")).toBeInTheDocument();
+    await screen.findByText("Result: 12 defects");
+    expect(screen.getAllByText("query_dashboard_summary")).toHaveLength(2);
+    expect(await screen.findByText("Result: 12 defects")).toBeInTheDocument();
     expect(await screen.findByText("已完成")).toBeInTheDocument();
   });
 
@@ -494,7 +576,8 @@ describe("AIChat duplicate search integration", () => {
       JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)).useDefectContext,
     ).toBe(true);
     expect(await screen.findByText("正在检索 qgate 相关缺陷…")).toBeInTheDocument();
-    expect(screen.getByText("2686999")).toBeInTheDocument();
+    expect(await screen.findByText("已完成")).toBeInTheDocument();
+    expect(screen.queryByText("2686999")).not.toBeInTheDocument();
   });
 
   it("shows retrieved defect context before the first AI chunk arrives", async () => {
@@ -546,9 +629,9 @@ describe("AIChat duplicate search integration", () => {
       json: async () => ({ error: "unexpected" }),
     });
 
-    expect(await screen.findByText("2686999")).toBeInTheDocument();
-    expect(screen.getByText("导航黄屏 related defect")).toBeInTheDocument();
-    expect(screen.getByText("已获取 qgate 相关缺陷，正在生成回答…")).toBeInTheDocument();
+    expect(await screen.findByText("已获取 qgate 相关缺陷，正在生成回答…")).toBeInTheDocument();
+    expect(screen.queryByText("2686999")).not.toBeInTheDocument();
+    expect(screen.queryByText("导航黄屏 related defect")).not.toBeInTheDocument();
 
     streamController?.enqueue(
       encoder.encode(

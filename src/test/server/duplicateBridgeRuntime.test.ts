@@ -18,7 +18,7 @@ describe("JsonLineBridgeClient", () => {
       requestTimeoutMs: 25,
     });
 
-    await expect(client.request({ action: "warmup" })).rejects.toThrow(
+    await expect(client.request({ action: "feedback" })).rejects.toThrow(
       /timed out/i,
     );
     expect(client.proc).toBeNull();
@@ -46,6 +46,7 @@ if (current === 0) {
       cwd: process.cwd(),
       env: { ...process.env, DUP_BRIDGE_RETRY_MARKER: markerPath },
       requestTimeoutMs: 25,
+      searchRequestTimeoutMs: 25,
     });
 
     await expect(client.request({ action: "search" })).resolves.toEqual({
@@ -53,6 +54,43 @@ if (current === 0) {
       retried: true,
     });
     expect(fs.readFileSync(markerPath, "utf8")).toBe("2");
+    client.dispose();
+  });
+
+  it("allows indexing requests to use a longer timeout than lightweight requests", async () => {
+    const childScript = `
+const readline = require('node:readline');
+const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+rl.on('line', (line) => {
+  const payload = JSON.parse(line);
+  if (payload.action !== 'search' && payload.action !== 'warmup') {
+    return;
+  }
+  const delayMs = 250;
+  setTimeout(() => {
+    process.stdout.write(JSON.stringify({ success: true, action: payload.action }) + '\\n');
+  }, delayMs);
+});
+`;
+
+    const client = new JsonLineBridgeClient({
+      command: process.execPath,
+      args: ["-e", childScript],
+      cwd: process.cwd(),
+      env: process.env,
+      requestTimeoutMs: 100,
+      searchRequestTimeoutMs: 600,
+    });
+
+    await expect(client.request({ action: "feedback" })).rejects.toThrow(/timed out/i);
+    await expect(client.request({ action: "warmup" })).resolves.toEqual({
+      success: true,
+      action: "warmup",
+    });
+    await expect(client.request({ action: "search" })).resolves.toEqual({
+      success: true,
+      action: "search",
+    });
     client.dispose();
   });
 });

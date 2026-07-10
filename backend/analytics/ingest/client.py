@@ -61,6 +61,8 @@ MANUAL_RUN_FIELDS: tuple[str, ...] = (
     "set_udf{name}",
     "target_ecu_conf_udf",
     "exec_model_series_udf{name}",
+    "covered_content{id,name,subtype,parent{id,name,subtype},path}",
+    "linked_defects",
 )
 
 HISTORY_FIELDS: tuple[str, ...] = (
@@ -74,6 +76,7 @@ WORK_ITEM_RELATION_FIELDS: tuple[str, ...] = (
     "id",
     "name",
     "subtype",
+    "release{name}",
     "parent{id,name,subtype}",
     "run_covered_content_relation{id}",
     "path",
@@ -111,6 +114,31 @@ def _normalize_relation_run_ids(value: object) -> list[str]:
         return normalized
     relation_id = str(value or "").strip()
     return [relation_id] if relation_id else []
+
+
+def _reference_name(value: object) -> str:
+    if isinstance(value, dict):
+        return str(value.get("name") or value.get("id") or "").strip()
+    return str(value or "").strip()
+
+
+def _cookie_value_from_header(cookie_header: str, name: str) -> str:
+    for part in str(cookie_header or "").split(";"):
+        cookie_part = part.strip()
+        if not cookie_part or "=" not in cookie_part:
+            continue
+        cookie_name, cookie_value = cookie_part.split("=", 1)
+        if cookie_name.strip() == name:
+            return cookie_value.strip()
+    return ""
+
+
+def _session_cookie_value(session: requests.Session, name: str) -> str:
+    cookies = getattr(session, "cookies", None)
+    cookie_value = str(cookies.get(name) if cookies is not None else "").strip()
+    if cookie_value:
+        return cookie_value
+    return _cookie_value_from_header(str(session.headers.get("Cookie") or ""), name)
 
 
 class OctaneApiClient:
@@ -162,6 +190,20 @@ class OctaneApiClient:
         self._team_name_cache = {row["id"]: row["name"] for row in rows}
         return rows
 
+    def fetch_work_item(self, work_item_id: str) -> dict[str, Any]:
+        normalized_id = str(work_item_id or "").strip()
+        if not normalized_id:
+            raise ValueError("work_item_id is required")
+        response = self._session.get(
+            f"{self._api_base}/work_items/{normalized_id}",
+            params={"fields": "id,name,subtype,description,phase{name,id},last_modified"},
+            timeout=60,
+            verify=False,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        return payload if isinstance(payload, dict) else {}
+
     def fetch_defects(self, *, team_id: str, year: int, modified_since: str | None = None) -> list[dict[str, Any]]:
         safe_team_id = _escape_octane_text(str(team_id).strip())
         modified_since_clause = ""
@@ -195,6 +237,37 @@ class OctaneApiClient:
             if isinstance(owner, dict):
                 row["defect_id"] = str(owner.get("id") or "").strip()
         return rows
+
+    def create_comment_for_work_item(self, *, work_item_id: str, html_text: str) -> dict[str, Any]:
+        normalized_id = str(work_item_id or "").strip()
+        if not normalized_id:
+            raise ValueError("work_item_id is required")
+        text = str(html_text or "").strip()
+        if not text:
+            raise ValueError("html_text is required")
+        xsrf_cookie = _session_cookie_value(self._session, "XSRF_COOKIE")
+        if not xsrf_cookie:
+            raise ValueError("XSRF_COOKIE is required to write Octane comments")
+
+        response = self._session.post(
+            f"{self._api_base}/comments",
+            json={
+                "data": [
+                    {
+                        "type": "comment",
+                        "text": text,
+                        "owner_work_item": {"type": "work_item", "id": normalized_id},
+                    }
+                ]
+            },
+            headers={"XSRF-HEADER": xsrf_cookie},
+            timeout=60,
+            verify=False,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        rows = [row for row in list(payload.get("data") or []) if isinstance(row, dict)]
+        return rows[0] if rows else payload
 
     def fetch_history(self, *, defect_id: str) -> dict[str, Any]:
         query = f'"(entity_id=\'{_escape_octane_text(str(defect_id).strip())}\';entity_type=\'defect\')"'
@@ -317,11 +390,14 @@ class OctaneApiClient:
         year: int,
         modified_since: str | None = None,
         include_related_work_items: bool = True,
+        releases: Sequence[str] = (),
+        related_work_item_workers: int = 24,
         progress: ProgressCallback | None = None,
     ) -> list[dict[str, Any]]:
         team_name = self._team_name_cache.get(str(team_id).strip(), str(team_id).strip())
         safe_team = _escape_octane_text(team_name)
-        rel_expr = "||".join(f"(release={{name='{release_name}'}})" for release_name in _release_names_for_year(year))
+        release_names = tuple(str(release).strip() for release in releases if str(release).strip()) or _release_names_for_year(year)
+        rel_expr = "||".join(f"(release={{name='{_escape_octane_text(release_name)}'}})" for release_name in release_names)
         query_parts = [
             f"run_team_000_udf={{name='{safe_team}'}}",
             f"({rel_expr})",
@@ -337,28 +413,77 @@ class OctaneApiClient:
             progress_label=f"manual-runs {team_name} {year}",
         )
         if include_related_work_items:
-            run_ids = [str(row.get("id") or "").strip() for row in runs if str(row.get("id") or "").strip()]
-            related_by_run = self.fetch_related_work_items_for_runs(run_ids)
+            run_ids_by_release: dict[str, list[str]] = {}
+            for row in runs:
+                run_id = str(row.get("id") or "").strip()
+                if not run_id:
+                    continue
+                run_release = _reference_name(row.get("release"))
+                run_ids_by_release.setdefault(run_release, []).append(run_id)
+            related_by_run: dict[str, list[dict[str, Any]]] = {
+                run_id: []
+                for grouped_run_ids in run_ids_by_release.values()
+                for run_id in grouped_run_ids
+            }
+            for run_release, grouped_run_ids in run_ids_by_release.items():
+                related_by_run.update(
+                    self.fetch_related_work_items_for_runs(
+                        grouped_run_ids,
+                        releases=(run_release,) if run_release else (),
+                        max_workers=related_work_item_workers,
+                        progress=progress,
+                    )
+                )
             for row in runs:
                 run_id = str(row.get("id") or "").strip()
                 row["related_work_items"] = related_by_run.get(run_id, [])
         return runs
 
-    def fetch_related_work_items_for_runs(self, run_ids: Sequence[str], *, batch_size: int = 100) -> dict[str, list[dict[str, Any]]]:
+    def fetch_related_work_items_for_runs(
+        self,
+        run_ids: Sequence[str],
+        *,
+        releases: Sequence[str] = (),
+        batch_size: int = 1,
+        max_workers: int = 8,
+        progress: ProgressCallback | None = None,
+    ) -> dict[str, list[dict[str, Any]]]:
         normalized_ids = [str(run_id).strip() for run_id in run_ids if str(run_id).strip()]
         if not normalized_ids:
             return {}
+        release_names = tuple(str(release).strip() for release in releases if str(release).strip())
+        release_clause = ""
+        if release_names:
+            rel_expr = "||".join(f"(release={{name='{_escape_octane_text(release_name)}'}})" for release_name in release_names)
+            release_clause = f";({rel_expr})"
 
         related_by_run: dict[str, list[dict[str, Any]]] = {run_id: [] for run_id in normalized_ids}
-        for batch in _chunked(normalized_ids, batch_size):
+        completed_batches = 0
+
+        def fetch_batch(batch: Sequence[str]) -> dict[str, list[dict[str, Any]]]:
+            nonlocal completed_batches
+            batch_related: dict[str, list[dict[str, Any]]] = {run_id: [] for run_id in batch}
             id_expr = ",".join(f"'{_escape_octane_text(run_id)}'" for run_id in batch)
-            query = f'"(subtype IN \'defect\',\'feature\',\'story\';run_covered_content_relation={{id IN {id_expr}}})"'
-            rows = self.fetch_rows(
-                endpoint="work_items",
-                fields=WORK_ITEM_RELATION_FIELDS,
-                query=query,
-                limit=1000,
-            )
+            query = f'"(subtype IN \'defect\',\'feature\',\'story\'{release_clause};run_covered_content_relation={{id IN {id_expr}}})"'
+            try:
+                rows = self.fetch_rows(
+                    endpoint="work_items",
+                    fields=WORK_ITEM_RELATION_FIELDS,
+                    query=query,
+                    limit=1000,
+                )
+            except requests.exceptions.Timeout:
+                if len(batch) <= 1:
+                    raise
+                if progress is not None:
+                    progress(f"related work-items batch timed out for {len(batch)} runs; splitting")
+                midpoint = max(1, len(batch) // 2)
+                left = fetch_batch(batch[:midpoint])
+                right = fetch_batch(batch[midpoint:])
+                for result in (left, right):
+                    for run_id, items in result.items():
+                        batch_related.setdefault(run_id, []).extend(items)
+                return batch_related
             for row in rows:
                 relation_run_ids = _normalize_relation_run_ids(row.get("run_covered_content_relation"))
                 relation_payload = {
@@ -368,9 +493,32 @@ class OctaneApiClient:
                     "path": str(row.get("path") or "").strip(),
                     "parent": row.get("parent"),
                 }
+                if len(batch) == 1:
+                    batch_related[batch[0]].append(relation_payload)
+                    continue
                 for run_id in relation_run_ids:
-                    if run_id in related_by_run:
-                        related_by_run[run_id].append(relation_payload)
+                    if run_id in batch_related:
+                        batch_related[run_id].append(relation_payload)
+            completed_batches += 1
+            if progress is not None and completed_batches % 20 == 0:
+                progress(f"related work-items batches fetched: {completed_batches}")
+            return batch_related
+
+        batches = _chunked(normalized_ids, batch_size)
+        effective_workers = max(1, min(int(max_workers or 1), len(batches)))
+        if effective_workers == 1:
+            for batch in batches:
+                result = fetch_batch(batch)
+                for run_id, items in result.items():
+                    related_by_run.setdefault(run_id, []).extend(items)
+            return related_by_run
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=effective_workers) as executor:
+            futures = [executor.submit(fetch_batch, batch) for batch in batches]
+            for future in concurrent.futures.as_completed(futures):
+                result = future.result()
+                for run_id, items in result.items():
+                    related_by_run.setdefault(run_id, []).extend(items)
         return related_by_run
 
 

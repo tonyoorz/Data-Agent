@@ -120,6 +120,43 @@ def _load_incremental_manual_run_since_by_year(
     return watermarks
 
 
+def _load_traceability_refresh_since_by_year(
+    *,
+    source_db_path: Path,
+    team_name: str,
+    years: tuple[int, ...],
+) -> dict[int, str | None]:
+    watermarks = _load_incremental_manual_run_since_by_year(
+        source_db_path=source_db_path,
+        team_name=team_name,
+        years=years,
+    )
+    if not source_db_path.exists() or not years:
+        return watermarks
+
+    placeholders_years = ", ".join("?" for _ in years)
+    query = f"""
+        SELECT CAST(year AS INTEGER) AS run_year, COUNT(*) AS relation_count
+        FROM octane_run_traceability
+        WHERE CAST(year AS INTEGER) IN ({placeholders_years})
+          AND TRIM(COALESCE(CAST(scope_team AS TEXT), '')) = ?
+        GROUP BY CAST(year AS INTEGER)
+    """
+    conn = sqlite3.connect(str(source_db_path))
+    try:
+        rows = conn.execute(query, [*years, team_name]).fetchall()
+    except sqlite3.Error:
+        rows = []
+    finally:
+        conn.close()
+
+    traced_years = {int(run_year) for run_year, relation_count in rows if int(relation_count or 0) > 0}
+    return {
+        int(year): watermarks.get(int(year)) if int(year) in traced_years else None
+        for year in years
+    }
+
+
 def _load_incremental_defect_since_by_year(
     *,
     source_db_path: Path,
@@ -516,3 +553,89 @@ def refresh_octane_manual_runs_only(
         store.close()
 
     return {"manual_run_rows": manual_run_rows, "manual_run_ids": sorted(set(manual_run_ids))}
+
+
+def refresh_octane_traceability_source(
+    *,
+    source_db_path: Path,
+    team_name: str,
+    years: tuple[int, ...],
+    releases: tuple[str, ...] = (),
+    force: bool = False,
+    workers: int = 24,
+    client: Any,
+    progress: ProgressCallback | None = None,
+) -> dict[str, object]:
+    if progress is not None:
+        progress(f"Resolving Octane team: {team_name}")
+    available_teams = client.list_teams()
+    selected_team = next(
+        (
+            row
+            for row in available_teams
+            if str(row.get("name") or "").strip() == str(team_name).strip()
+            or str(row.get("id") or "").strip() == str(team_name).strip()
+        ),
+        None,
+    )
+    if selected_team is None:
+        raise ValueError(f"Octane team not found: {team_name}")
+
+    effective_team_name = str(selected_team.get("name") or team_name).strip()
+    team_id = str(selected_team.get("id") or "").strip()
+    if progress is not None:
+        progress(f"Resolved Octane team: {effective_team_name} ({team_id})")
+    if force:
+        store = OctaneSourceStore(source_db_path)
+        try:
+            store.create_tables()
+            store.delete_run_traceability_scope(team=effective_team_name, years=years, releases=releases)
+        finally:
+            store.close()
+    incremental_since = _load_traceability_refresh_since_by_year(
+        source_db_path=source_db_path,
+        team_name=effective_team_name,
+        years=years,
+    )
+
+    store = OctaneSourceStore(source_db_path)
+    store.create_tables()
+    manual_run_rows = 0
+    traceability_rows = 0
+    manual_run_ids: list[str] = []
+    try:
+        for year in years:
+            modified_since = incremental_since.get(int(year))
+            if progress is not None:
+                if modified_since:
+                    progress(f"Refreshing traceability runs for {effective_team_name} {year} since {modified_since}")
+                else:
+                    progress(f"Refreshing traceability runs for {effective_team_name} {year} with full fetch")
+            runs = list(
+                client.fetch_manual_runs(
+                    team_id=team_id,
+                    year=year,
+                    modified_since=modified_since,
+                    include_related_work_items=True,
+                    releases=releases,
+                    related_work_item_workers=workers,
+                    progress=progress,
+                )
+            )
+            manual_run_rows += store.upsert_manual_runs(runs, team=effective_team_name, year=year)
+            traceability_rows += store.replace_run_traceability_from_runs(runs, team=effective_team_name)
+            manual_run_ids.extend(
+                str(row.get("id") or "").strip()
+                for row in runs
+                if str(row.get("id") or "").strip()
+            )
+            if progress is not None:
+                progress(f"Stored traceability for {len(runs)} manual runs in {effective_team_name} {year}")
+    finally:
+        store.close()
+
+    return {
+        "manual_run_rows": manual_run_rows,
+        "traceability_rows": traceability_rows,
+        "manual_run_ids": sorted(set(manual_run_ids)),
+    }

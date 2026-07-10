@@ -6,6 +6,7 @@ type StreamTextAnimatorOptions = {
 
 export type StreamTextAnimator = {
   push: (text: string) => void;
+  pushImmediate: (text: string) => void;
   finish: () => Promise<void>;
   stop: () => void;
 };
@@ -70,6 +71,19 @@ export function createStreamTextAnimator({
 
       pendingChars.push(...Array.from(text));
       ensureTimer();
+    },
+    pushImmediate(text: string) {
+      if (stopped || !text) {
+        return;
+      }
+
+      if (pendingChars.length) {
+        renderedText += pendingChars.join("");
+        pendingChars = [];
+      }
+      renderedText += text;
+      onUpdate(renderedText);
+      resolveFinishers();
     },
     finish() {
       if (stopped || (!pendingChars.length && timer === null)) {

@@ -4,7 +4,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { downloadChart3Workbook } from "@/components/dashboard/coverage-analysis/coverageAnalysisChart3Export";
 import CoverageAnalysis from "@/components/dashboard/pages/CoverageAnalysis";
+
+vi.mock("@/components/dashboard/coverage-analysis/coverageAnalysisChart3Export", () => ({
+  downloadChart3Workbook: vi.fn(),
+}));
 
 function createDeferredResponse() {
   let resolve!: (value: Response) => void;
@@ -195,6 +200,7 @@ function createCoverageAnalysisFetchMock() {
 describe("CoverageAnalysis page", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn());
+    vi.mocked(downloadChart3Workbook).mockClear();
   });
 
   afterEach(() => {
@@ -655,5 +661,108 @@ describe("CoverageAnalysis page", () => {
     expect(await screen.findByText("Page 1 of 2")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Next page" }));
     expect(await screen.findByText("Page 2 of 2")).toBeInTheDocument();
+  });
+
+  it("exports chart 3 using the testcase detail rows returned for the applied year filter", async () => {
+    const rowsByYear = {
+      "2025": [
+        {
+          test_id: "T-2025",
+          test_name: "Legacy wake test",
+          test_week: "2025-CW50",
+          status: "Passed",
+          top_aida: "AIDA-2025",
+          project: "SP25",
+          pu: "PU-2025",
+          fvp: "Voice Experience",
+          fv: "Speech",
+          tester: "Tester 2025",
+          count: 1,
+        },
+      ],
+      "2026": [
+        {
+          test_id: "T-2026",
+          test_name: "Current wake test",
+          test_week: "2026-CW21",
+          status: "Failed",
+          top_aida: "AIDA-2026",
+          project: "SP26",
+          pu: "PU-2026",
+          fvp: "Voice Experience",
+          fv: "Speech",
+          tester: "Tester 2026",
+          count: 1,
+        },
+      ],
+    };
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const requestedYear = url.includes("years=2025") ? "2025" : "2026";
+
+      if (url.includes("/api/testing/coverage-analysis/filters")) {
+        return createJsonResponse({
+          years: ["2025", "2026"],
+          projects: ["SP25", "SP26"],
+          test_weeks: ["2025-CW50", "2026-CW21"],
+          pus: ["PU-2025", "PU-2026"],
+          aidas: ["AIDA-2025", "AIDA-2026"],
+          statuses: ["Passed", "Failed"],
+          feature_regions: ["China Specific"],
+          fvps: ["Voice Experience"],
+          fvs: ["Speech"],
+        });
+      }
+
+      if (url.includes("/api/testing/coverage-analysis/project-status")) {
+        return createJsonResponse([
+          {
+            test_week: rowsByYear[requestedYear][0].test_week,
+            fv: "Speech",
+            fvp: "Voice Experience",
+            status: rowsByYear[requestedYear][0].status,
+            count: 1,
+          },
+        ]);
+      }
+
+      if (url.includes("/api/testing/coverage-analysis/aida-status")) {
+        return createJsonResponse([
+          {
+            test_week: rowsByYear[requestedYear][0].test_week,
+            top_aida: rowsByYear[requestedYear][0].top_aida,
+            status: rowsByYear[requestedYear][0].status,
+            count: 1,
+          },
+        ]);
+      }
+
+      if (url.includes("/api/testing/coverage-analysis/testcase-detail")) {
+        return createJsonResponse(rowsByYear[requestedYear]);
+      }
+
+      throw new Error(`Unhandled fetch URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderCoverageAnalysis();
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Year filter")).toHaveTextContent("2026");
+    });
+
+    fireEvent.click(screen.getByLabelText("Year filter"));
+    fireEvent.click(await screen.findByLabelText("年份 2026"));
+    fireEvent.click(await screen.findByLabelText("年份 2025"));
+    fireEvent.click(screen.getByRole("button", { name: "应用筛选" }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Year filter")).toHaveTextContent("2025");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "导出Excel" }));
+
+    expect(downloadChart3Workbook).toHaveBeenCalledWith(rowsByYear["2025"]);
+    expect(downloadChart3Workbook).not.toHaveBeenCalledWith(rowsByYear["2026"]);
   });
 });

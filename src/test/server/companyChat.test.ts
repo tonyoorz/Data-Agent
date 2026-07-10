@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { streamCompanyChatCompletion } from "../../../server/companyChat.mjs";
+import { requestCompanyChatCompletion, streamCompanyChatCompletion } from "../../../server/companyChat.mjs";
 
 describe("streamCompanyChatCompletion", () => {
   beforeEach(() => {
@@ -188,5 +188,89 @@ describe("streamCompanyChatCompletion", () => {
     expect(userMessage.content).toContain("PDF 里说了什么");
     expect(userMessage.content).toContain("Attachment 1 text from invoice.pdf:\nInvoice total: 123 RMB");
     expect(userMessage.content).not.toContain("file_data");
+  });
+
+  it("uses a grounded output protocol instead of asking the model to perform private reasoning", async () => {
+    const encoder = new TextEncoder();
+    const response = {
+      writeHead: vi.fn(),
+      write: vi.fn(),
+      end: vi.fn(),
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.close();
+        },
+      }),
+      text: async () => "",
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await streamCompanyChatCompletion({
+      messages: [{ role: "user", content: "hello" }],
+      model: "deepseek-v4-flash",
+      response,
+    });
+
+    const upstreamBody = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+    const systemPrompt = upstreamBody.messages[0].content;
+    expect(systemPrompt).not.toContain("narrate your work as an agent does");
+    expect(systemPrompt).not.toContain("private reasoning");
+    expect(systemPrompt).toContain("Do not invent tool use");
+    expect(systemPrompt).toContain("Only emit <step>");
+  });
+});
+
+describe("requestCompanyChatCompletion", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    process.env.DUPSEARCH_CHAT_ACCESS_CODE = "test-access-code";
+  });
+
+  it("returns tool calls from non-streaming company chat responses", async () => {
+    const toolCalls = [
+      {
+        id: "call-1",
+        type: "function",
+        function: {
+          name: "query_dashboard_summary",
+          arguments: '{"filters":{"years":2026}}',
+        },
+      },
+    ];
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: null, tool_calls: toolCalls } }],
+      }),
+      text: async () => "",
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await requestCompanyChatCompletion({
+      messages: [{ role: "user", content: "How many defects?" }],
+      model: "deepseek-v4-flash",
+      tools: [
+        {
+          type: "function",
+          function: {
+            name: "query_dashboard_summary",
+            parameters: { type: "object", properties: {} },
+          },
+        },
+      ],
+      toolChoice: "auto",
+    });
+
+    expect(result.content).toBe("");
+    expect(result.toolCalls).toEqual(toolCalls);
+    const upstreamBody = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+    expect(upstreamBody.tools).toHaveLength(1);
+    expect(upstreamBody.tool_choice).toBe("auto");
   });
 });
