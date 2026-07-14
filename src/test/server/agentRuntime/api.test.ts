@@ -59,4 +59,18 @@ describe("Agent HTTP application", () => {
     const cancelled = await fixture.fetch(`/api/agent/runs/${body.runId}/cancel`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ schemaVersion: "1.0", threadVersion: body.threadVersion, reasonCode: "user_stop" }) });
     expect(cancelled.status).toBe(202);
   });
+
+  it("keeps follow event streams open until a terminal event is published", async () => {
+    fixture = await startTestAgentServer();
+    const request = { schemaVersion: "1.0", messageId: "msg-follow-1", threadVersion: 0, message: { role: "user", text: "hello", artifactRefs: [] }, selectedModel: "deepseek-v4-flash", useDefectContext: false, useAnalyticsContext: true, eventProtocolVersion: "1.0" };
+    const started = await fixture.fetch("/api/agent/runs", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(request) });
+    const body = await started.json();
+
+    const events = await fixture.fetch(`${body.eventsUrl}?follow=1`, { headers: { accept: 'text/event-stream; profile="agent-v1"' } });
+    const eventText = events.text();
+    const cancelled = await fixture.fetch(`/api/agent/runs/${body.runId}/cancel`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ schemaVersion: "1.0", threadVersion: body.threadVersion, reasonCode: "user_stop" }) });
+
+    expect(cancelled.status).toBe(202);
+    await expect(eventText).resolves.toContain("run.cancelled");
+  });
 });

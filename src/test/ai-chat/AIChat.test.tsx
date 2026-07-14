@@ -501,7 +501,7 @@ describe("AIChat duplicate search integration", () => {
       expect.objectContaining({ method: "POST" }),
     );
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/agent/runs/run-1/events",
+      "/api/agent/runs/run-1/events?follow=1",
       expect.objectContaining({ method: "GET" }),
     );
     expect(fetchMock).not.toHaveBeenCalledWith("/api/ai/chat", expect.anything());
@@ -537,7 +537,7 @@ describe("AIChat duplicate search integration", () => {
     const stopButton = await screen.findByRole("button", { name: "停止生成" });
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith(
-        "/api/agent/runs/run-1/events",
+        "/api/agent/runs/run-1/events?follow=1",
         expect.objectContaining({ method: "GET" }),
       );
     });

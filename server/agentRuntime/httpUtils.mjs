@@ -65,6 +65,7 @@ export function writeSseHeaders(response, request, config, extraHeaders = {}) {
     "x-accel-buffering": "no",
     ...extraHeaders,
   });
+  response.flushHeaders?.();
 }
 
 export function handlePreflight(response, request, config) {

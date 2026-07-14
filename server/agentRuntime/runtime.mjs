@@ -49,6 +49,7 @@ export function createAgentRuntime({ db, contracts, threadStore, eventStore, aud
 
   async function cancelRun({ actor, runId, threadVersion, reasonCode }) {
     const run = threadStore.cancelRun({ actor, runId, threadVersion, reasonCode });
+    eventStore.notifier.emit(runId, eventStore.listAfter({ actor, runId }));
     auditStore.append({ actor, threadId: run.threadId, runId, action: "runtime.cancel", details: { reasonCode } });
     return { status: run.status, threadVersion: db.prepare("SELECT thread_version FROM agent_threads WHERE thread_id=?").pluck().get(run.threadId) };
   }

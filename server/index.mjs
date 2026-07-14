@@ -11,6 +11,7 @@ import { extractLatestUserQuery, resolveAiDefectContext } from "./aiContext.mjs"
 import { streamCompanyChatCompletion, writeSseEvent } from "./companyChat.mjs";
 import { attachDuplicateSummary } from "./duplicateResultEnrichment.mjs";
 import { loadLocalEnv } from "./loadLocalEnv.mjs";
+import { buildProductionDependencies, createAgentApp } from "./app.mjs";
 import {
   defaultQGateReportsRoot,
   findLatestQGateDashboardReport,
@@ -30,6 +31,24 @@ const duplicateWarmupManager = createDuplicateWarmupManager({
   runDuplicateBridge,
   logger: console,
 });
+let agentRuntimeApp = null;
+let cleanupAgentRuntime = async () => undefined;
+
+try {
+  const agentRuntimeDeps = await buildProductionDependencies({
+    env: process.env,
+    root: repoRoot,
+    logger: console,
+    runDuplicateBridge,
+    ensureDuplicateWarmup: () => duplicateWarmupManager.ensureWarm({ reason: "agent-runtime-search-duplicates" }),
+  });
+  agentRuntimeApp = createAgentApp(agentRuntimeDeps);
+  cleanupAgentRuntime = agentRuntimeDeps.cleanup || cleanupAgentRuntime;
+  console.info(`[main-agent] runtime API enabled in ${agentRuntimeDeps.config.mode} mode`);
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  console.warn(`[main-agent] runtime API disabled: ${message}`);
+}
 
 function nowMs() {
   return performance.now();
@@ -53,6 +72,10 @@ function summarizeQuery(queryText) {
 
 function logMetric(event, payload) {
   console.info(`[vizion-metric] ${JSON.stringify({ event, ...payload })}`);
+}
+
+function isAgentRuntimeRoute(url) {
+  return url.pathname === "/api/ai/models" || url.pathname.startsWith("/api/agent/");
 }
 
 async function handleAiChatRequest(body, response) {
@@ -245,6 +268,11 @@ function serveStaticAsset(request, response, url) {
 const server = http.createServer(async (request, response) => {
   const url = new URL(request.url || "/", `http://${request.headers.host || "127.0.0.1"}`);
 
+  if (agentRuntimeApp && isAgentRuntimeRoute(url)) {
+    await agentRuntimeApp(request, response);
+    return;
+  }
+
   if (request.method === "OPTIONS") {
     response.writeHead(204, {
       "Access-Control-Allow-Origin": "*",
@@ -422,8 +450,9 @@ server.listen(port, () => {
   duplicateWarmupManager.triggerBackgroundWarmup({ reason: "startup" });
 });
 
-function shutdown() {
+async function shutdown() {
   stopDuplicateBridgeRuntime();
+  await cleanupAgentRuntime().catch((error) => console.warn("[main-agent] runtime cleanup failed", error));
   server.close(() => process.exit(0));
 }
 

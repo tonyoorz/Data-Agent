@@ -1,6 +1,8 @@
 import { encodeSseEvent } from "./events.mjs";
 import { handlePreflight, readJsonBody, writeHttpError, writeJson, writeSseHeaders } from "./httpUtils.mjs";
 
+const TERMINAL_EVENTS = new Set(["run.completed", "run.failed", "run.cancelled"]);
+
 function httpError(code, statusCode) {
   return Object.assign(new Error(code), { code, statusCode, retryable: false });
 }
@@ -29,9 +31,43 @@ export function createAgentHttpRoutes({ runtime, eventStore, modelRegistry, iden
     const eventsMatch = /^\/api\/agent\/runs\/([^/]+)\/events$/.exec(url.pathname);
     if (request.method === "GET" && eventsMatch) {
       const runId = eventsMatch[1];
+      const afterEventId = request.headers["last-event-id"];
+      eventStore.listAfter({ actor, runId, afterEventId });
       writeSseHeaders(response, request, config, { "X-Agent-Protocol": "1.0", "X-Agent-Run-ID": runId });
-      const events = eventStore.listAfter({ actor, runId, afterEventId: request.headers["last-event-id"] });
-      for (const event of events) response.write(encodeSseEvent(event, "agent-v1"));
+      const seen = new Set();
+      let terminal = false;
+      const writeEvents = (events) => {
+        for (const event of events) {
+          if (seen.has(event.eventId)) continue;
+          seen.add(event.eventId);
+          response.write(encodeSseEvent(event, "agent-v1"));
+          if (TERMINAL_EVENTS.has(event.type)) terminal = true;
+        }
+      };
+      const follow = url.searchParams.get("follow") === "1";
+      let resolveFollow;
+      const onEvents = (events) => {
+        writeEvents(events);
+        if (terminal) resolveFollow?.();
+      };
+      if (follow) eventStore.notifier.on(runId, onEvents);
+      try {
+        writeEvents(eventStore.listAfter({ actor, runId, afterEventId }));
+        if (follow && !terminal && !response.writableEnded) {
+          await new Promise((resolve) => {
+            const done = () => {
+              clearTimeout(timeout);
+              resolve();
+            };
+            resolveFollow = done;
+            const timeout = setTimeout(done, config.sseFollowMaxMs || 30000);
+            request.once("close", done);
+            response.once("close", done);
+          });
+        }
+      } finally {
+        if (follow) eventStore.notifier.off(runId, onEvents);
+      }
       response.end();
       return true;
     }

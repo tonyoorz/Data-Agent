@@ -75,7 +75,12 @@ export async function migrateRuntimeDb({ dbPath, targetVersion }) {
 
 export function openRuntimeDb({ dbPath, expectedVersion }) {
   if (!fs.existsSync(dbPath)) throw new Error("RUNTIME_SCHEMA_NOT_READY:database_missing");
-  const db = new Database(dbPath);
+  let db;
+  try {
+    db = new Database(dbPath);
+  } catch {
+    throw new Error("RUNTIME_SCHEMA_NOT_READY:database_open_failed");
+  }
   configure(db);
   let version;
   try {

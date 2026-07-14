@@ -21,7 +21,7 @@ describe("agent API client", () => {
   it("opens event streams without query-string identity", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response(new ReadableStream(), { status: 200, headers: { "X-Agent-Protocol": "1.0", "X-Agent-Run-ID": "run-1", "X-Agent-Thread-ID": "thread-1" } }));
     const opened = await openAgentEvents({ fetchImpl, runId: "run-1", profile: "agent-v1", lastEventId: "evt-1" });
-    expect(fetchImpl).toHaveBeenCalledWith("/api/agent/runs/run-1/events", expect.objectContaining({ headers: expect.objectContaining({ "Last-Event-ID": "evt-1" }) }));
+    expect(fetchImpl).toHaveBeenCalledWith("/api/agent/runs/run-1/events?follow=1", expect.objectContaining({ headers: expect.objectContaining({ "Last-Event-ID": "evt-1" }) }));
     expect(opened.headers.runId).toBe("run-1");
   });
 

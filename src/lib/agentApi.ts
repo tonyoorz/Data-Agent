@@ -29,7 +29,7 @@ export async function startAgentRun({ fetchImpl = fetch, ...request }: any) {
 }
 
 export async function openAgentEvents({ fetchImpl = fetch, runId, profile, lastEventId, signal }: any) {
-  const response = await fetchImpl(`/api/agent/runs/${encodeURIComponent(runId)}/events`, { method: "GET", signal, headers: { Accept: `text/event-stream; profile="${profile}"`, ...(lastEventId ? { "Last-Event-ID": lastEventId } : {}) } });
+  const response = await fetchImpl(`/api/agent/runs/${encodeURIComponent(runId)}/events?follow=1`, { method: "GET", signal, headers: { Accept: `text/event-stream; profile="${profile}"`, ...(lastEventId ? { "Last-Event-ID": lastEventId } : {}) } });
   if (!response.ok) await parseResponse(response);
   return { response, decoder: createAgentEventDecoder({ profile }), headers: { protocol: response.headers.get("X-Agent-Protocol") || undefined, runId: response.headers.get("X-Agent-Run-ID") || undefined, threadId: response.headers.get("X-Agent-Thread-ID") || undefined } };
 }
