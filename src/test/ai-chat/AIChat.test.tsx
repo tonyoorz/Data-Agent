@@ -445,6 +445,120 @@ describe("AIChat duplicate search integration", () => {
     expect(await screen.findByText("已完成")).toBeInTheDocument();
   });
 
+  it("uses the Agent Runtime event stream when the runtime client is enabled", async () => {
+    window.localStorage.setItem("dtsv.agentRuntime.enabled", "true");
+    const encoder = new TextEncoder();
+    const agentEvent = (overrides = {}) => ({
+      schemaVersion: "1.0",
+      eventId: "evt-1",
+      runId: "run-1",
+      threadId: "thread-1",
+      stateVersion: 1,
+      sequence: 1,
+      timestamp: "2026-07-14T00:00:00.000Z",
+      type: "run.started",
+      payload: { threadVersion: 0, runtimeMode: "langgraph", requestedModelId: "deepseek-v4-flash", actualModelId: "deepseek-v4-flash" },
+      ...overrides,
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ schemaVersion: "1.0", threadId: "thread-1", runId: "run-1", threadVersion: 0, eventsUrl: "/api/agent/runs/run-1/events" }), {
+          status: 202,
+          headers: { "X-Agent-Run-ID": "run-1", "X-Agent-Thread-ID": "thread-1", "X-Agent-Protocol": "1.0" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              controller.enqueue(
+                encoder.encode(
+                  `data: ${JSON.stringify(agentEvent())}\n\n` +
+                    `data: ${JSON.stringify(agentEvent({ eventId: "evt-2", sequence: 2, type: "answer.delta", payload: { answerId: "answer-1", contentHash: "hash-1", offset: 0, text: "Runtime 已完成" } }))}\n\n` +
+                    `data: ${JSON.stringify(agentEvent({ eventId: "evt-3", sequence: 3, type: "run.completed", payload: { answerId: "answer-1", threadVersion: 1, durationMs: 12 } }))}\n\n`,
+                ),
+              );
+              controller.close();
+            },
+          }),
+          { status: 200, headers: { "X-Agent-Run-ID": "run-1", "X-Agent-Thread-ID": "thread-1", "X-Agent-Protocol": "1.0" } },
+        ),
+      );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<AIChat moduleKey="ai-chat" moduleLabel="AI Chat" />);
+
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "请使用新版 runtime" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    expect(await screen.findByText("Runtime 已完成")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/agent/runs",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/agent/runs/run-1/events",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(fetchMock).not.toHaveBeenCalledWith("/api/ai/chat", expect.anything());
+  });
+
+  it("cancels the active Agent Runtime run when generation is stopped", async () => {
+    window.localStorage.setItem("dtsv.agentRuntime.enabled", "true");
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ schemaVersion: "1.0", threadId: "thread-1", runId: "run-1", threadVersion: 0, eventsUrl: "/api/agent/runs/run-1/events" }), {
+          status: 202,
+          headers: { "X-Agent-Run-ID": "run-1", "X-Agent-Thread-ID": "thread-1", "X-Agent-Protocol": "1.0" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(new ReadableStream(), {
+          status: 200,
+          headers: { "X-Agent-Run-ID": "run-1", "X-Agent-Thread-ID": "thread-1", "X-Agent-Protocol": "1.0" },
+        }),
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ schemaVersion: "1.0", runId: "run-1", status: "cancelled", threadVersion: 0 }), { status: 202 }));
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<AIChat moduleKey="ai-chat" moduleLabel="AI Chat" />);
+
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "请启动后取消" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    const stopButton = await screen.findByRole("button", { name: "停止生成" });
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/agent/runs/run-1/events",
+        expect.objectContaining({ method: "GET" }),
+      );
+    });
+
+    fireEvent.click(stopButton);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/agent/runs/run-1/cancel",
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+
+    const cancelCall = fetchMock.mock.calls.find((call) => call[0] === "/api/agent/runs/run-1/cancel");
+    expect(JSON.parse(String(cancelCall?.[1]?.body))).toMatchObject({
+      schemaVersion: "1.0",
+      threadVersion: 0,
+      reasonCode: "user_stop",
+    });
+  });
+
   it("renders structured tool events as real analysis steps", async () => {
     const encoder = new TextEncoder();
     const fetchMock = vi.fn().mockResolvedValue({
@@ -483,6 +597,7 @@ describe("AIChat duplicate search integration", () => {
   });
 
   it("sends uploaded PDF attachments to the AI chat gateway", async () => {
+    window.localStorage.setItem("dtsv.agentRuntime.enabled", "true");
     const encoder = new TextEncoder();
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -531,6 +646,7 @@ describe("AIChat duplicate search integration", () => {
         }),
       ]),
     );
+    expect(fetchMock).not.toHaveBeenCalledWith("/api/agent/runs", expect.anything());
   });
 
   it("includes defect context for AI chat only after the toggle is enabled", async () => {

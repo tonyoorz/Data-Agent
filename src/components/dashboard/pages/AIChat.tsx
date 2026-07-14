@@ -25,6 +25,7 @@ import SlashMenu, { SLASH_COMMANDS, SlashCommand } from "../chat/SlashMenu";
 import { segmentsToPlainText, parseAgentStream } from "../chat/agentParser";
 import DuplicateSearchResults from "../chat/DuplicateSearchResults";
 import { createStreamTextAnimator, type StreamTextAnimator } from "../chat/streamTextAnimator";
+import { cancelAgentRun, openAgentEvents, startAgentRun } from "@/lib/agentApi";
 import {
   COMPANY_CHAT_MODELS,
   DEFAULT_COMPANY_CHAT_MODEL,
@@ -57,9 +58,12 @@ interface Conversation {
   pinned?: boolean;
   messages: Msg[];
   updatedAt: number;
+  runtimeThreadId?: string;
+  runtimeThreadVersion?: number;
 }
 
 const STORAGE_KEY = "dtsv.chat.v2";
+const AGENT_RUNTIME_ENABLED_KEY = "dtsv.agentRuntime.enabled";
 function createId() {
   if (typeof globalThis.crypto?.randomUUID === "function") {
     return globalThis.crypto.randomUUID();
@@ -90,6 +94,14 @@ const newConversation = (): Conversation => ({
 });
 
 const newId = () => createId();
+
+function isAgentRuntimeEnabled() {
+  try {
+    return localStorage.getItem(AGENT_RUNTIME_ENABLED_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
 
 function pickPreferredAudioInputId(devices: MediaDeviceInfo[], current = "") {
   const preferred = devices.find((device) => {
@@ -139,6 +151,8 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
   const abortRef = useRef<AbortController | null>(null);
   const activeRequestRef = useRef<string | null>(null);
   const streamAnimatorRef = useRef<StreamTextAnimator | null>(null);
+  const streamReaderRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
+  const activeAgentRunRef = useRef<{ runId: string; threadVersion: number } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -237,10 +251,21 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
 
   const stop = () => {
     abortRef.current?.abort();
+    streamReaderRef.current?.cancel().catch(() => undefined);
+    const activeAgentRun = activeAgentRunRef.current;
+    if (activeAgentRun) {
+      void cancelAgentRun({
+        runId: activeAgentRun.runId,
+        threadVersion: activeAgentRun.threadVersion,
+        reasonCode: "user_stop",
+      }).catch(() => undefined);
+    }
     activeRequestRef.current = null;
     abortRef.current = null;
     streamAnimatorRef.current?.stop();
     streamAnimatorRef.current = null;
+    streamReaderRef.current = null;
+    activeAgentRunRef.current = null;
     setStreaming(false);
   };
 
@@ -507,7 +532,120 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
     return "";
   };
 
+  const shouldUseAgentRuntime = (history: Msg[]) => {
+    if (!isAgentRuntimeEnabled()) return false;
+    const lastUserMessage = [...history].reverse().find((message) => message.role === "user");
+    return !lastUserMessage?.attachments?.length;
+  };
+
+  const runAgentRuntimeStream = async (history: Msg[], assistantMsgId: string) => {
+    setStreaming(true);
+    const controller = new AbortController();
+    const requestId = newId();
+    activeRequestRef.current = requestId;
+    abortRef.current = controller;
+    streamAnimatorRef.current?.stop();
+    updateActive((c) => ({
+      ...c,
+      messages: c.messages.map((m) =>
+        m.id === assistantMsgId ? { ...m, content: "正在生成回答…" } : m,
+      ),
+      updatedAt: Date.now(),
+    }));
+
+    const lastUserMessage = [...history].reverse().find((message) => message.role === "user");
+    const animator = createStreamTextAnimator({
+      onUpdate: (nextText) => {
+        updateActive((c) => ({
+          ...c,
+          messages: c.messages.map((m) =>
+            m.id === assistantMsgId ? { ...m, content: nextText } : m,
+          ),
+          updatedAt: Date.now(),
+        }));
+      },
+    });
+    streamAnimatorRef.current = animator;
+
+    try {
+      const started = await startAgentRun({
+        messageId: lastUserMessage?.id || newId(),
+        threadId: active.runtimeThreadId,
+        threadVersion: active.runtimeThreadVersion ?? 0,
+        message: { role: "user", text: lastUserMessage?.content || "", artifactRefs: [] },
+        selectedModel: model,
+        useDefectContext: chatContextEnabled,
+        useAnalyticsContext: true,
+      });
+      activeAgentRunRef.current = { runId: started.runId, threadVersion: started.threadVersion };
+      updateActive((c) => ({
+        ...c,
+        runtimeThreadId: started.threadId,
+        runtimeThreadVersion: started.threadVersion,
+        updatedAt: Date.now(),
+      }));
+
+      const opened = await openAgentEvents({
+        runId: started.runId,
+        profile: "agent-v1",
+        signal: controller.signal,
+      });
+      const reader = opened.response.body?.getReader();
+      if (!reader) throw new Error("Agent Runtime event stream is unavailable");
+      streamReaderRef.current = reader;
+
+      for (;;) {
+        const { done, value } = await reader.read();
+        const events = done ? opened.decoder.finish() : opened.decoder.push(value);
+        for (const event of events) {
+          if (event.type === "answer.delta" && typeof event.payload?.text === "string") {
+            animator.push(event.payload.text);
+          }
+          if (event.type === "run.completed" && Number.isInteger(event.payload?.threadVersion)) {
+            activeAgentRunRef.current = null;
+            updateActive((c) => ({ ...c, runtimeThreadVersion: event.payload.threadVersion, updatedAt: Date.now() }));
+          }
+          if (event.type === "run.failed") {
+            activeAgentRunRef.current = null;
+            animator.pushImmediate(`⚠️ ${event.payload?.safeMessage || "请求失败，请稍后再试。"}`);
+          }
+          if (event.type === "run.cancelled") {
+            activeAgentRunRef.current = null;
+            animator.pushImmediate("请求已取消。");
+          }
+        }
+        if (done) break;
+      }
+
+      await animator.finish();
+    } catch (error: any) {
+      if (activeRequestRef.current === requestId && error?.name !== "AbortError") {
+        updateActive((c) => ({
+          ...c,
+          messages: c.messages.map((m) =>
+            m.id === assistantMsgId ? { ...m, content: "⚠️ 连接中断，请重试。" } : m,
+          ),
+          updatedAt: Date.now(),
+        }));
+      }
+    } finally {
+      if (activeRequestRef.current === requestId) {
+        activeRequestRef.current = null;
+        streamAnimatorRef.current = null;
+        streamReaderRef.current = null;
+        activeAgentRunRef.current = null;
+        setStreaming(false);
+        abortRef.current = null;
+      }
+    }
+  };
+
   const runStream = async (history: Msg[], assistantMsgId: string) => {
+    if (shouldUseAgentRuntime(history)) {
+      await runAgentRuntimeStream(history, assistantMsgId);
+      return;
+    }
+
     setStreaming(true);
     const controller = new AbortController();
     const requestId = newId();
