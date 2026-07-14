@@ -48,6 +48,36 @@ export const MAIN_AGENT_TOOLS = [
   {
     type: "function",
     function: {
+      name: "get_data_catalog",
+      description: "List the QGate analytics datasets, metrics, dimensions, filters, and allowed modules available to the main agent before choosing a data query tool.",
+      parameters: {
+        type: "object",
+        properties: {},
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "resolve_business_terms",
+      description: "Map common Chinese/English QGate analytics terms from a user question to safe datasets, metrics, filters, and clarification hints.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "The user's analytics question or phrase to normalize.",
+          },
+        },
+        required: ["query"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "query_dashboard_summary",
       description: "Query the QGate Main Dashboard summary through the analytics API using safe dashboard filters.",
       parameters: {
@@ -397,6 +427,119 @@ function buildToolMessage(toolCall, content) {
   };
 }
 
+function buildDataCatalogPayload() {
+  return {
+    datasets: [
+      {
+        id: "defects",
+        description: "QGate/Octane defect records for Main Dashboard, outcome, phase, team, project, AIDA, ECU, PU, market, lead model, and China/Global analysis.",
+        metrics: ["ticket_count", "created_count", "resolved_forward_count", "rejected_directly_count"],
+        dimensions: Array.from(DASHBOARD_SUMMARY_FILTER_KEYS).filter((key) => !key.startsWith("creation_time_")),
+        filters: Array.from(DASHBOARD_SUMMARY_FILTER_KEYS),
+      },
+      {
+        id: "testing_coverage",
+        description: "Manual-run and testcase execution data for Testing Coverage analysis.",
+        metrics: ["run_count", "status_count", "testcase_count"],
+        dimensions: Array.from(COVERAGE_FILTER_KEYS),
+        filters: Array.from(COVERAGE_FILTER_KEYS),
+      },
+    ],
+    modules: Object.keys(FULL_PICTURE_MODULE_ENDPOINTS),
+    termHints: {
+      "最近一周": { filter: "recent_days", value: 7 },
+      "新增缺陷": { dataset: "defects", metric: "created_count", time_field: "creation_time" },
+      DTSV: { filter: "problem_finder_teams", value: "DTSV_China" },
+      ECU: { filter: "assigned_ecus" },
+      "测试覆盖率": { dataset: "testing_coverage" },
+    },
+    guardrails: [
+      "Use only listed filters, dimensions, and modules.",
+      "Ask clarification when metric meaning or filter scope is ambiguous.",
+      "Regression-commit causality is not available from these dashboard datasets alone.",
+    ],
+  };
+}
+
+function executeDataCatalog(toolCall) {
+  const payload = buildDataCatalogPayload();
+  return {
+    toolMessage: buildToolMessage(toolCall, JSON.stringify({ ok: true, tool: "get_data_catalog", result: payload })),
+    contextText: [
+      "# Main agent tool result",
+      "Tool: get_data_catalog",
+      `Datasets: ${payload.datasets.map((dataset) => dataset.id).join(", ")}`,
+      `Full Picture modules: ${payload.modules.join(", ")}`,
+      `Defect filters: ${payload.datasets[0].filters.join(", ")}`,
+      `Testing Coverage filters: ${payload.datasets[1].filters.join(", ")}`,
+      "Use this catalog to choose an allowlisted analytics tool. Do not invent fields, filters, modules, or SQL.",
+    ].join("\n"),
+  };
+}
+
+function resolveBusinessTerms(query) {
+  const text = String(query || "");
+  const lowerText = text.toLowerCase();
+  const resolved = [];
+  const filters = {};
+  const metrics = [];
+  const datasets = new Set();
+  const clarifications = [];
+
+  if (/dtsv/i.test(text)) {
+    filters.problem_finder_teams = ["DTSV_China"];
+    resolved.push({ term: "DTSV", mapsTo: "problem_finder_teams", value: "DTSV_China" });
+  }
+  if (/最近一周|last\s*7\s*days|recent\s*week/i.test(text)) {
+    filters.recent_days = 7;
+    resolved.push({ term: "最近一周", mapsTo: "recent_days", value: 7 });
+  }
+  if (/新增|新建|创建|提交|提了|opened|created|raised|submitted/i.test(text)) {
+    datasets.add("defects");
+    metrics.push("created_count");
+    resolved.push({ term: "新增/创建/提交", mapsTo: "octane_defects.creation_time" });
+  }
+  if (/ecu|模块/i.test(text)) {
+    datasets.add("defects");
+    resolved.push({ term: "ECU/模块", mapsTo: "assigned_ecus" });
+  }
+  if (/测试覆盖率|coverage|test/i.test(lowerText)) {
+    datasets.add("testing_coverage");
+    resolved.push({ term: "测试覆盖率", mapsTo: "testing_coverage" });
+  }
+  if (/执行效率|发现率/.test(text)) {
+    clarifications.push("执行效率/缺陷发现率需要先确认口径，例如按测试用例数、执行次数、人员维度或缺陷/执行比计算。");
+  }
+
+  return {
+    query: text,
+    datasets: Array.from(datasets),
+    metrics: Array.from(new Set(metrics)),
+    filters,
+    resolved_terms: resolved,
+    confidence: resolved.length ? (clarifications.length ? "medium" : "high") : "low",
+    clarifications,
+  };
+}
+
+function executeResolveBusinessTerms(toolCall) {
+  const args = parseToolArguments(toolCall?.function?.arguments);
+  const payload = resolveBusinessTerms(args.query);
+  return {
+    toolMessage: buildToolMessage(toolCall, JSON.stringify({ ok: true, tool: "resolve_business_terms", result: payload })),
+    contextText: [
+      "# Main agent tool result",
+      "Tool: resolve_business_terms",
+      `Datasets: ${payload.datasets.join(", ") || "unknown"}`,
+      `Metrics: ${payload.metrics.join(", ") || "unknown"}`,
+      `Filters: ${JSON.stringify(payload.filters)}`,
+      `Confidence: ${payload.confidence}`,
+      payload.clarifications.length ? `Clarification needed: ${payload.clarifications.join(" ")}` : "",
+      "Use these normalized terms to choose allowlisted analytics tools. Ask clarification when confidence is low or a clarification is listed.",
+    ].filter(Boolean).join("\n"),
+  };
+}
+
 function formatDashboardSummaryContext(url, payload) {
   const ticketCount = Number(payload?.overview?.ticket_count);
   const resultText = Number.isFinite(ticketCount)
@@ -658,6 +801,12 @@ export async function executeMainAgentToolCall(toolCall, {
 } = {}) {
   const name = toolCall?.function?.name || "";
   try {
+    if (name === "get_data_catalog") {
+      return executeDataCatalog(toolCall);
+    }
+    if (name === "resolve_business_terms") {
+      return executeResolveBusinessTerms(toolCall);
+    }
     if (name === "query_dashboard_summary") {
       return await executeDashboardSummary(toolCall, { analyticsFetch, analyticsApiBase });
     }

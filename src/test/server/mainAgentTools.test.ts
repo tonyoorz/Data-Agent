@@ -11,6 +11,24 @@ describe("main agent analytics tools", () => {
       expect.objectContaining({
         type: "function",
         function: expect.objectContaining({
+          name: "get_data_catalog",
+          parameters: expect.objectContaining({ type: "object" }),
+        }),
+      }),
+    ]));
+    expect(MAIN_AGENT_TOOLS).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "function",
+        function: expect.objectContaining({
+          name: "resolve_business_terms",
+          parameters: expect.objectContaining({ type: "object" }),
+        }),
+      }),
+    ]));
+    expect(MAIN_AGENT_TOOLS).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "function",
+        function: expect.objectContaining({
           name: "query_dashboard_summary",
           parameters: expect.objectContaining({ type: "object" }),
         }),
@@ -61,6 +79,57 @@ describe("main agent analytics tools", () => {
         }),
       }),
     ]));
+  });
+
+  it("executes get_data_catalog without calling data APIs", async () => {
+    const analyticsFetch = vi.fn();
+
+    const result = await executeMainAgentToolCall(
+      {
+        id: "catalog-1",
+        type: "function",
+        function: {
+          name: "get_data_catalog",
+          arguments: "{}",
+        },
+      },
+      { analyticsFetch },
+    );
+
+    expect(analyticsFetch).not.toHaveBeenCalled();
+    expect(result.toolMessage).toEqual({
+      role: "tool",
+      tool_call_id: "catalog-1",
+      name: "get_data_catalog",
+      content: expect.stringContaining('"datasets"'),
+    });
+    expect(result.contextText).toContain("Tool: get_data_catalog");
+    expect(result.contextText).toContain("defects");
+    expect(result.contextText).toContain("testing_coverage");
+    expect(result.contextText).toContain("Do not invent fields");
+  });
+
+  it("normalizes common QGate business terms without calling data APIs", async () => {
+    const analyticsFetch = vi.fn();
+
+    const result = await executeMainAgentToolCall(
+      {
+        id: "terms-1",
+        type: "function",
+        function: {
+          name: "resolve_business_terms",
+          arguments: JSON.stringify({ query: "DTSV 最近一周新增缺陷集中在哪些 ECU？" }),
+        },
+      },
+      { analyticsFetch },
+    );
+
+    expect(analyticsFetch).not.toHaveBeenCalled();
+    expect(result.toolMessage.content).toContain('"problem_finder_teams":["DTSV_China"]');
+    expect(result.toolMessage.content).toContain('"recent_days":7');
+    expect(result.toolMessage.content).toContain('"created_count"');
+    expect(result.contextText).toContain("Tool: resolve_business_terms");
+    expect(result.contextText).toContain("Confidence: high");
   });
 
   it("executes query_dashboard_summary against the analytics API", async () => {

@@ -5,6 +5,8 @@ import { executeMainAgentToolCall, MAIN_AGENT_TOOLS } from "./mainAgentTools.mjs
 const TOOL_PLANNING_CONTEXT = `# Main agent tool policy
 You have access to typed dashboard and duplicate-search tools. Use them only when the user asks for factual QGate dashboard metrics, counts, filtered summaries, defect/test coverage data, or duplicate/similar defect analysis.
 If the supplied context already contains the exact factual result needed, answer normally without calling tools.
+Use get_data_catalog first when the user asks a broad analytics question and you need to discover available datasets, filters, metrics, or modules.
+Use resolve_business_terms when Chinese/English business wording needs normalization before choosing filters or metrics.
 If a tool is needed, call at most one dashboard tool with precise filters. Do not invent fields, filters, or metrics.
 Use ask_clarification when required filters, scope, timeframe, or business meaning are ambiguous. Ask one focused question instead of guessing.
 Use query_defect_high_frequency_analysis for Defect High Frequency / 缺陷高频分析 questions about newly created defects concentrated by ECU/module.

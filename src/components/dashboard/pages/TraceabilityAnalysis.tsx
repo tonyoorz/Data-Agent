@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { AlertTriangle, GitBranch, Link2, Loader2, Route, ShieldAlert } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
@@ -121,6 +121,44 @@ type TraceabilityPayload = {
   testcase_rows: TraceabilityTestcaseRow[];
   gap_rows: TraceabilityGapRow[];
 };
+
+const TRACEABILITY_FILTER_STORAGE_KEY = "vizion.traceability.filters";
+
+function readStoredTraceabilityFilters() {
+  if (typeof window === "undefined") {
+    return { release: "", week: "" };
+  }
+
+  try {
+    const rawValue = window.localStorage.getItem(TRACEABILITY_FILTER_STORAGE_KEY);
+    if (!rawValue) {
+      return { release: "", week: "" };
+    }
+    const parsed = JSON.parse(rawValue) as { release?: unknown; week?: unknown };
+    return {
+      release: typeof parsed.release === "string" ? parsed.release : "",
+      week: typeof parsed.week === "string" ? parsed.week : "",
+    };
+  } catch {
+    return { release: "", week: "" };
+  }
+}
+
+function writeStoredTraceabilityFilters(release: string, week: string) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    if (!release && !week) {
+      window.localStorage.removeItem(TRACEABILITY_FILTER_STORAGE_KEY);
+      return;
+    }
+    window.localStorage.setItem(TRACEABILITY_FILTER_STORAGE_KEY, JSON.stringify({ release, week }));
+  } catch {
+    // Ignore storage errors; the in-memory filter state still works for this page view.
+  }
+}
 
 function currentYear() {
   return String(new Date().getFullYear());
@@ -756,11 +794,13 @@ function TraceabilityGraph({
 
 const TraceabilityAnalysis = () => {
   const year = currentYear();
-  const [selectedRelease, setSelectedRelease] = useState("");
-  const [selectedWeek, setSelectedWeek] = useState("");
+  const [storedFilters] = useState(readStoredTraceabilityFilters);
+  const [selectedRelease, setSelectedRelease] = useState(storedFilters.release);
+  const [selectedWeek, setSelectedWeek] = useState(storedFilters.week);
   const { data, error, isLoading } = useQuery({
     queryKey: ["traceability-analysis", year, selectedRelease, selectedWeek],
     queryFn: () => fetchTraceabilityAnalysis(year, selectedRelease, selectedWeek),
+    placeholderData: keepPreviousData,
     staleTime: 60_000,
     retry: 0,
   });
@@ -816,11 +856,14 @@ const TraceabilityAnalysis = () => {
     }
   }, [releaseOptions, selectedRelease]);
   useEffect(() => {
-    if (!selectedWeek || weekOptions.includes(selectedWeek)) {
+    writeStoredTraceabilityFilters(selectedRelease, selectedWeek);
+  }, [selectedRelease, selectedWeek]);
+  useEffect(() => {
+    if (!data?.filter_options || !selectedWeek || weekOptions.includes(selectedWeek)) {
       return;
     }
     setSelectedWeek("");
-  }, [selectedWeek, weekOptions]);
+  }, [data?.filter_options, selectedWeek, weekOptions]);
   const kpis = [
     {
       label: "Traceability rate",

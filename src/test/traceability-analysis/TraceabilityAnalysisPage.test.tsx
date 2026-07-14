@@ -46,8 +46,39 @@ function renderTraceabilityAnalysis() {
   );
 }
 
+function createTraceabilityPayload() {
+  return {
+    summary: {
+      total_runs: 50,
+      traced_runs: 45,
+      total_testcases: 18,
+      traced_testcases: 16,
+      traceability_rate: 90,
+      feature_count: 12,
+      story_count: 24,
+      defect_count: 5,
+      relation_rows: 86,
+    },
+    filter_options: {
+      years: ["2026"],
+      teams: ["DTSV_China"],
+      releases: ["R-26-06", "R-26-07"],
+      weeks: ["2026-CW26", "2026-CW27", "2026-CW28", "2026-CW29"],
+      statuses: ["Passed", "Failed"],
+      relation_types: ["feature", "story", "defect"],
+    },
+    relation_type_rows: [],
+    status_rows: [],
+    top_related_items: [],
+    traceability_chain_rows: [],
+    testcase_rows: [],
+    gap_rows: [],
+  };
+}
+
 describe("TraceabilityAnalysis page", () => {
   afterEach(() => {
+    window.localStorage.clear();
     vi.unstubAllGlobals();
   });
 
@@ -270,5 +301,65 @@ describe("TraceabilityAnalysis page", () => {
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith("/api/testing/traceability-analysis?years=2026&releases=R-26-06&weeks=2026-CW28");
     });
+  });
+
+  it("restores the selected release and CW filter after a page refresh", async () => {
+    window.localStorage.setItem(
+      "vizion.traceability.filters",
+      JSON.stringify({ release: "R-26-07", week: "2026-CW28" }),
+    );
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url === "/api/testing/traceability-analysis?years=2026&releases=R-26-07&weeks=2026-CW28") {
+        return createJsonResponse(createTraceabilityPayload());
+      }
+
+      throw new Error(`Unhandled fetch URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderTraceabilityAnalysis();
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/testing/traceability-analysis?years=2026&releases=R-26-07&weeks=2026-CW28",
+      );
+    });
+    await waitFor(() => {
+      expect(screen.getByLabelText("Release filter")).toHaveValue("R-26-07");
+    });
+    expect(screen.getByLabelText("CW filter")).toHaveValue("2026-CW28");
+  });
+
+  it("keeps the current page visible while a CW filter request is loading", async () => {
+    window.localStorage.setItem("vizion.traceability.filters", JSON.stringify({ release: "R-26-07", week: "" }));
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if (url === "/api/testing/traceability-analysis?years=2026&releases=R-26-07") {
+        return createJsonResponse(createTraceabilityPayload());
+      }
+      if (url === "/api/testing/traceability-analysis?years=2026&releases=R-26-07&weeks=2026-CW28") {
+        return new Promise<Response>(() => {});
+      }
+
+      throw new Error(`Unhandled fetch URL: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderTraceabilityAnalysis();
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("CW filter")).toHaveValue("");
+    });
+
+    fireEvent.change(screen.getByLabelText("CW filter"), { target: { value: "2026-CW28" } });
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/testing/traceability-analysis?years=2026&releases=R-26-07&weeks=2026-CW28",
+      );
+    });
+    expect(screen.queryByText("正在加载测试追溯关系数据...")).not.toBeInTheDocument();
+    expect(screen.getByRole("article", { name: "Traceability rate" })).toHaveTextContent("90%");
   });
 });
