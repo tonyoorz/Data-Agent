@@ -15,7 +15,9 @@
     "start": "node ./server/index.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
-    "report:qgate-kpi": "python -m backend.analytics_cli generate-qgate-kpi-reports"
+    "report:qgate-kpi": "python -m backend.analytics_cli generate-qgate-kpi-reports",
+    "agent:runtime:migrate": "node scripts/migrateAgentRuntime.mjs",
+    "agent:runtime:check": "node scripts/migrateAgentRuntime.mjs --check"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
