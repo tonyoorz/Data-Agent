@@ -38,9 +38,10 @@ describe("ThreadStore", () => {
       db: fixture.runtimeDb.db,
       now: () => new Date(nowMs).toISOString(),
       randomUUID: () => `id-${++id}`,
-      writeEventsInTransaction: (_tx, events) => {
-        writes.push(...events);
-        return events;
+      writeEventsInTransaction: (_tx, input) => {
+        const eventInputs = Array.isArray(input) ? input : input.eventInputs;
+        writes.push(...eventInputs);
+        return eventInputs;
       },
     });
   });

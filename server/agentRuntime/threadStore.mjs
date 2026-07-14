@@ -190,6 +190,21 @@ export function createThreadStore({ db, now, randomUUID, writeEventsInTransactio
     return { interactionId, runId, kind, status: "pending", threadVersion, payload, expiresAt };
   });
 
+  const appendMessage = db.transaction(({ actor, threadId, runId = null, messageId, parentMessageId = null, role, body, scopeHash }) => {
+    getThreadRow(actor, threadId);
+    const at = now();
+    db.prepare("INSERT INTO agent_messages(message_id,thread_id,run_id,parent_message_id,role,body_json,scope_hash,created_at) VALUES(?,?,?,?,?,?,?,?)").run(messageId, threadId, runId, parentMessageId, role, JSON.stringify(body), scopeHash, at);
+    return mapMessage(db.prepare("SELECT * FROM agent_messages WHERE message_id=?").get(messageId));
+  });
+
+  const renewLease = db.transaction(({ runId, leaseEpoch, workerId, leaseMs }) => {
+    const at = now();
+    const expiresAt = new Date(Date.parse(at) + leaseMs).toISOString();
+    const result = db.prepare("UPDATE agent_runs SET lease_owner=?, lease_expires_at=?, updated_at=? WHERE run_id=? AND lease_epoch=?").run(workerId, expiresAt, at, runId, leaseEpoch);
+    if (result.changes !== 1) fail("STALE_RUN_LEASE");
+    return mapRun(db.prepare("SELECT * FROM agent_runs WHERE run_id=?").get(runId));
+  });
+
   const consumeInteraction = db.transaction(({ actor, runId, interactionId, threadVersion, value }) => {
     const at = now();
     const run = getRunRowByActor(actor, runId);
@@ -219,7 +234,8 @@ export function createThreadStore({ db, now, randomUUID, writeEventsInTransactio
     db.prepare("UPDATE agent_runs SET status=@status, state_version=state_version+1, lease_epoch=lease_epoch+1, updated_at=@updatedAt, terminal_at=@terminalAt, answer_json=COALESCE(@answerJson, answer_json), error_json=COALESCE(@errorJson, error_json) WHERE run_id=@runId").run({ status, updatedAt: at, terminalAt: at, answerJson: patch.answerJson ? JSON.stringify(patch.answerJson) : null, errorJson: patch.errorJson ? JSON.stringify(patch.errorJson) : null, runId });
     db.prepare("UPDATE agent_threads SET thread_version=thread_version+1, updated_at=? WHERE thread_id=?").run(at, run.thread_id);
     const nextThreadVersion = db.prepare("SELECT thread_version FROM agent_threads WHERE thread_id=?").pluck().get(run.thread_id);
-    writeEventsInTransaction(db, [{ ...event, payload: { ...(event.payload || {}), threadVersion: nextThreadVersion } }]);
+    const updatedRun = db.prepare("SELECT * FROM agent_runs WHERE run_id=?").get(runId);
+    writeEventsInTransaction(db, { run: updatedRun, stateVersion: updatedRun.state_version, leaseEpoch: updatedRun.lease_epoch, eventInputs: [{ ...event, payload: { ...(event.payload || {}), threadVersion: nextThreadVersion } }] });
     return mapRun(db.prepare("SELECT * FROM agent_runs WHERE run_id=?").get(runId));
   });
 
@@ -234,12 +250,7 @@ export function createThreadStore({ db, now, randomUUID, writeEventsInTransactio
     },
     importLegacyThread: createThread,
     forkThread: createThread,
-    appendMessage: ({ actor, threadId, runId = null, messageId, parentMessageId = null, role, body, scopeHash }) => {
-      getThreadRow(actor, threadId);
-      const at = now();
-      db.prepare("INSERT INTO agent_messages(message_id,thread_id,run_id,parent_message_id,role,body_json,scope_hash,created_at) VALUES(?,?,?,?,?,?,?,?)").run(messageId, threadId, runId, parentMessageId, role, JSON.stringify(body), scopeHash, at);
-      return mapMessage(db.prepare("SELECT * FROM agent_messages WHERE message_id=?").get(messageId));
-    },
+    appendMessage,
     listMessages: ({ actor, threadId }) => {
       getThreadRow(actor, threadId);
       return db.prepare("SELECT * FROM agent_messages WHERE thread_id=? ORDER BY created_at, message_id").all(threadId).map(mapMessage);
@@ -247,13 +258,7 @@ export function createThreadStore({ db, now, randomUUID, writeEventsInTransactio
     createRun,
     getRun: ({ actor, runId }) => mapRun(getRunRowByActor(actor, runId)),
     claimRun,
-    renewLease: ({ runId, leaseEpoch, workerId, leaseMs }) => {
-      const at = now();
-      const expiresAt = new Date(Date.parse(at) + leaseMs).toISOString();
-      const result = db.prepare("UPDATE agent_runs SET lease_owner=?, lease_expires_at=?, updated_at=? WHERE run_id=? AND lease_epoch=?").run(workerId, expiresAt, at, runId, leaseEpoch);
-      if (result.changes !== 1) fail("STALE_RUN_LEASE");
-      return mapRun(db.prepare("SELECT * FROM agent_runs WHERE run_id=?").get(runId));
-    },
+    renewLease,
     assertLease: ({ runId, leaseEpoch }) => {
       const row = db.prepare("SELECT lease_epoch FROM agent_runs WHERE run_id=?").get(runId);
       if (!row) fail("NOT_FOUND", 404);

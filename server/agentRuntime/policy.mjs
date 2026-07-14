@@ -14,6 +14,15 @@ function deny(code, statusCode = 403, metadata = {}) {
 
 export function createRuntimePolicy({ maxExternalSteps = 6, maxCallsPerStep = 3 } = {}) {
   return Object.freeze({
+    authorizeRunStart({ counts, rateState }) {
+      if (counts.threadActive >= 1) deny("THREAD_BUSY", 409);
+      if (counts.actorActive >= 2) deny("ACTOR_ACTIVE_RUN_LIMIT", 429, { retryAfterSeconds: 1 });
+      if (counts.globalActive >= 20) deny("INSTANCE_ACTIVE_RUN_LIMIT", 429, { retryAfterSeconds: 1 });
+      const elapsedMinutes = Math.max(0, (rateState.nowMs - rateState.updatedAtMs) / 60000);
+      const available = Math.min(5, rateState.tokens + elapsedMinutes * 30);
+      if (available < 1) deny("RUN_RATE_LIMITED", 429, { retryAfterSeconds: Math.ceil((1 - available) * 2) });
+      return { tokens: available - 1, updatedAtMs: rateState.nowMs };
+    },
     authorizeTool({ request, runtimeMode, toolName, externalStepIndex, callsInStep }) {
       if (!REGISTERED.has(toolName)) deny("TOOL_NOT_REGISTERED", 400);
       if (!Number.isInteger(externalStepIndex) || externalStepIndex < 0 || externalStepIndex >= maxExternalSteps) deny("RUN_STEP_BUDGET_EXCEEDED", 429);
