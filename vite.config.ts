@@ -9,6 +9,7 @@ export default defineConfig(({ mode }) => ({
     host: "::",
     allowedHosts: ["bscn1132585", "BSCN1132585"],
     port: 8080,
+    strictPort: true,
     hmr: {
       overlay: false,
     },
