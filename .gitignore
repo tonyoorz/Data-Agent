@@ -44,3 +44,8 @@ database/cold/parquet/**
 docs/qgate-reports/generated_runs/
 !database/**/.gitkeep
 .worktrees/
+
+# Main Agent Runtime local state
+!database/runtime/
+database/runtime/*
+!database/runtime/.gitkeep
