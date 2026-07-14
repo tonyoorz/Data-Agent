@@ -1,4 +1,5 @@
 import { buildChatCompletionRequest, resolveChatModelConfig } from "./chatModelConfig.mjs";
+import { createInternalModelAdapter } from "./agentRuntime/modelAdapter.mjs";
 import { compactChatMessages } from "./chatMessageBudget.mjs";
 import { expandMessagesWithDocumentText } from "./documentText.mjs";
 import { expandImageMessagesWithOcr } from "./imageOcr.mjs";
@@ -71,6 +72,66 @@ function nowMs() {
   return performance.now();
 }
 
+function toAdapterToolCalls(toolCalls) {
+  if (!Array.isArray(toolCalls)) return [];
+  return toolCalls.map((call) => ({
+    toolCallId: String(call?.id || ""),
+    name: String(call?.function?.name || ""),
+    argumentsText: String(call?.function?.arguments || ""),
+  })).filter((call) => call.toolCallId && call.name);
+}
+
+function toProviderToolCalls(toolCalls) {
+  return toolCalls.map((call) => ({
+    id: call.toolCallId,
+    type: "function",
+    function: { name: call.name, arguments: call.argumentsText },
+  }));
+}
+
+function toAdapterMessage(message) {
+  if (message?.role === "assistant") {
+    return {
+      role: "assistant",
+      content: normalizeAssistantContent(message.content),
+      toolCalls: toAdapterToolCalls(message.tool_calls),
+    };
+  }
+  if (message?.role === "tool") {
+    return {
+      role: "tool",
+      toolCallId: message.tool_call_id,
+      name: message.name,
+      content: message.content,
+    };
+  }
+  return { role: message.role, content: message.content };
+}
+
+function createLegacyRegistry(config, env) {
+  const requestConfig = buildChatCompletionRequest({ selectedModel: config.model, messages: [], env });
+  const record = {
+    id: config.model,
+    endpoint: requestConfig.url,
+    requestDialect: config.usesInternalEndpoint ? "internal_chat_completions" : "openai_chat_completions",
+    authScheme: config.authScheme,
+    credential: config.credential,
+    capabilities: {
+      nativeToolCalling: true,
+      structuredOutputMode: "json_prompt",
+      streaming: true,
+      parallelToolCalls: false,
+      contextWindow: 32000,
+      maxOutputTokens: config.usesInternalEndpoint ? 2048 : 900,
+      timeoutMs: 30000,
+      retryPolicy: { maxAttempts: 1, backoffMs: 0 },
+      certificationStatus: "planner_certified",
+    },
+    configVersion: "legacy-chat-config-v1",
+  };
+  return { require: () => record };
+}
+
 function roundMs(value) {
   return Number(value.toFixed(1));
 }
@@ -83,6 +144,7 @@ export async function requestCompanyChatCompletion({
   toolChoice,
   imageOcrRunner,
   documentTextRunner,
+  signal,
 }) {
   const config = resolveChatModelConfig(model || "", process.env);
   if (!config.credential) {
@@ -94,37 +156,21 @@ export async function requestCompanyChatCompletion({
   const documentExpandedMessages = await expandMessagesWithDocumentText(messages, process.env, { documentTextRunner });
   const preparedMessages = await expandImageMessagesWithOcr(documentExpandedMessages, process.env, { imageOcrRunner });
   const mergedMessages = buildMergedMessages(compactChatMessages(preparedMessages), context);
-
-  const requestConfig = buildChatCompletionRequest({
-    selectedModel: config.model,
-    messages: mergedMessages,
-    env: process.env,
+  const adapter = createInternalModelAdapter({ registry: createLegacyRegistry(config, process.env) });
+  const result = await adapter.invoke({
+    modelId: config.model,
+    purpose: "render",
+    messages: mergedMessages.map(toAdapterMessage),
     tools,
     toolChoice,
-  });
-
-  const response = await fetch(requestConfig.url, {
-    method: "POST",
-    headers: requestConfig.headers,
-    body: JSON.stringify(requestConfig.body),
-  });
-
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new Error(`Chat request failed (${response.status}): ${text || response.statusText}`);
-  }
-
-  const payload = await response.json();
-  const message = payload?.choices?.[0]?.message || {};
-  const content = normalizeAssistantContent(message.content);
-  const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
-  if (!content && toolCalls.length === 0) {
-    throw new Error("Chat model returned empty content");
-  }
+    temperature: 0.2,
+    maxOutputTokens: config.usesInternalEndpoint ? 2048 : 900,
+    allowParallelToolCalls: false,
+  }, { signal });
 
   return {
-    content,
-    toolCalls,
+    content: result.text,
+    toolCalls: toProviderToolCalls(result.toolCalls),
     answerModel: config.model,
   };
 }
@@ -138,6 +184,7 @@ export async function streamCompanyChatCompletion({
   onMetrics,
   imageOcrRunner,
   documentTextRunner,
+  signal,
 }) {
   const startedAt = nowMs();
   const config = resolveChatModelConfig(model || "", process.env);
@@ -169,6 +216,7 @@ export async function streamCompanyChatCompletion({
       method: "POST",
       headers: requestConfig.headers,
       body: JSON.stringify(requestConfig.body),
+      signal,
     });
     responseStatus = upstreamResponse.status;
     upstreamConnectMs = roundMs(nowMs() - startedAt);
@@ -209,6 +257,11 @@ export async function streamCompanyChatCompletion({
     response.end();
   } catch (error) {
     streamError = error instanceof Error ? error.message : String(error);
+    if (response.headersSent && !response.writableEnded) {
+      writeSseEvent(response, { type: "error", message: streamError });
+      response.write("data: [DONE]\n\n");
+      response.end();
+    }
     throw error;
   } finally {
     onMetrics?.({

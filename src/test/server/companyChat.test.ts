@@ -223,6 +223,76 @@ describe("streamCompanyChatCompletion", () => {
     expect(systemPrompt).toContain("Do not invent tool use");
     expect(systemPrompt).toContain("Only emit <step>");
   });
+
+  it("passes AbortSignal through to the legacy streaming fetch", async () => {
+    const controller = new AbortController();
+    const encoder = new TextEncoder();
+    const response = {
+      writeHead: vi.fn(),
+      write: vi.fn(),
+      end: vi.fn(),
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      body: new ReadableStream({
+        start(streamController) {
+          streamController.enqueue(encoder.encode("data: [DONE]\n\n"));
+          streamController.close();
+        },
+      }),
+      text: async () => "",
+      status: 200,
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await streamCompanyChatCompletion({
+      messages: [{ role: "user", content: "hello" }],
+      model: "deepseek-v4-flash",
+      response,
+      signal: controller.signal,
+    });
+
+    expect(fetchMock.mock.calls[0][1].signal).toBe(controller.signal);
+  });
+
+  it("closes legacy SSE streams with an error event when upstream reading fails", async () => {
+    const write = vi.fn();
+    const end = vi.fn();
+    const response = {
+      headersSent: false,
+      writableEnded: false,
+      writeHead: vi.fn(() => {
+        response.headersSent = true;
+      }),
+      write,
+      end: vi.fn(() => {
+        response.writableEnded = true;
+        end();
+      }),
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      body: new ReadableStream({
+        start(controller) {
+          controller.error(new Error("reader broke"));
+        },
+      }),
+      text: async () => "",
+      status: 200,
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(streamCompanyChatCompletion({
+      messages: [{ role: "user", content: "hello" }],
+      model: "deepseek-v4-flash",
+      response,
+    })).rejects.toThrow(/reader broke/);
+
+    const written = write.mock.calls.map(([chunk]) => String(chunk)).join("");
+    expect(written).toContain('"type":"error"');
+    expect(written).toContain("data: [DONE]");
+    expect(end).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("requestCompanyChatCompletion", () => {

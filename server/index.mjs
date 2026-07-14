@@ -168,9 +168,11 @@ async function handleAiChatRequest(body, response) {
       error: message,
     });
     if (response.headersSent) {
-      writeSseEvent(response, { type: "error", message });
-      response.write("data: [DONE]\n\n");
-      response.end();
+      if (!response.writableEnded) {
+        writeSseEvent(response, { type: "error", message });
+        response.write("data: [DONE]\n\n");
+        response.end();
+      }
       return;
     }
     throw error;
