@@ -86,6 +86,32 @@ describe("main agent tool loop", () => {
     ]);
   });
 
+  it("uses an injected tool list for policy-filtered legacy planning", async () => {
+    const requestChatCompletion = vi.fn().mockResolvedValue({ content: "No tool needed.", toolCalls: [], answerModel: "deepseek-v4-flash" });
+    const tools = [{ type: "function", function: { name: "query_dashboard_summary", parameters: { type: "object", properties: {}, additionalProperties: false } } }];
+
+    await resolveMainAgentToolContext({
+      messages: [{ role: "user", content: "DTSV 6月份提了多少bug？" }],
+      requestChatCompletion,
+      executeToolCall: vi.fn(),
+      tools,
+    });
+
+    expect(requestChatCompletion.mock.calls[0][0].tools).toBe(tools);
+    expect(requestChatCompletion.mock.calls[0][0].context).not.toContain("ask_clarification");
+    expect(requestChatCompletion.mock.calls[0][0].context).not.toContain("get_data_catalog");
+    expect(requestChatCompletion.mock.calls[0][0].context).not.toContain("resolve_business_terms");
+  });
+
+  it("fails fast on malformed tool execution results", async () => {
+    const toolCalls = [{ id: "call-1", type: "function", function: { name: "query_dashboard_summary", arguments: '{"filters":{}}' } }];
+    await expect(resolveMainAgentToolContext({
+      messages: [{ role: "user", content: "DTSV 6月份提了多少bug？" }],
+      requestChatCompletion: vi.fn().mockResolvedValue({ content: "", toolCalls, answerModel: "deepseek-v4-flash" }),
+      executeToolCall: vi.fn().mockResolvedValue({ contextText: "missing tool message" }),
+    })).rejects.toThrow(/Invalid tool result shape/);
+  });
+
   it("continues planning with prior tool results until the model stops calling tools", async () => {
     const firstToolCalls = [
       {

@@ -2,16 +2,18 @@ import { extractLatestUserQuery } from "./aiContext.mjs";
 import { requestCompanyChatCompletion } from "./companyChat.mjs";
 import { executeMainAgentToolCall, MAIN_AGENT_TOOLS } from "./mainAgentTools.mjs";
 
-const TOOL_PLANNING_CONTEXT = `# Main agent tool policy
+function buildToolPlanningContext(tools = MAIN_AGENT_TOOLS) {
+  const names = new Set((tools || []).map((tool) => tool?.function?.name).filter(Boolean));
+  return `# Main agent tool policy
 You have access to typed dashboard and duplicate-search tools. Use them only when the user asks for factual QGate dashboard metrics, counts, filtered summaries, defect/test coverage data, or duplicate/similar defect analysis.
 If the supplied context already contains the exact factual result needed, answer normally without calling tools.
-Use get_data_catalog first when the user asks a broad analytics question and you need to discover available datasets, filters, metrics, or modules.
-Use resolve_business_terms when Chinese/English business wording needs normalization before choosing filters or metrics.
+${names.has("get_data_catalog") ? "Use get_data_catalog first when the user asks a broad analytics question and you need to discover available datasets, filters, metrics, or modules." : ""}
+${names.has("resolve_business_terms") ? "Use resolve_business_terms when Chinese/English business wording needs normalization before choosing filters or metrics." : ""}
 If a tool is needed, call at most one dashboard tool with precise filters. Do not invent fields, filters, or metrics.
-Use ask_clarification when required filters, scope, timeframe, or business meaning are ambiguous. Ask one focused question instead of guessing.
-Use query_defect_high_frequency_analysis for Defect High Frequency / 缺陷高频分析 questions about newly created defects concentrated by ECU/module.
-For 最近一周 / recent week / last 7 days high-frequency questions, call query_defect_high_frequency_analysis with filters.recent_days: 7 instead of asking the user to switch views.
-Use query_full_picture_module as the fallback for factual Full Picture dashboard questions when no more specific tool fits. Choose only one allowlisted module: dashboard_summary, dashboard_tickets, top_issue_analysis, long_runner_analysis, or defect_high_frequency_analysis.`;
+${names.has("ask_clarification") ? "Use ask_clarification when required filters, scope, timeframe, or business meaning are ambiguous. Ask one focused question instead of guessing." : "If required filters, scope, timeframe, or business meaning are ambiguous, stop planning rather than guessing unsupported tool arguments."}
+${names.has("query_defect_high_frequency_analysis") ? "Use query_defect_high_frequency_analysis for Defect High Frequency / 缺陷高频分析 questions about newly created defects concentrated by ECU/module. For 最近一周 / recent week / last 7 days high-frequency questions, call query_defect_high_frequency_analysis with filters.recent_days: 7 instead of asking the user to switch views." : ""}
+${names.has("query_full_picture_module") ? "Use query_full_picture_module as the fallback for factual Full Picture dashboard questions when no more specific tool fits. Choose only one allowlisted module: dashboard_summary, dashboard_tickets, top_issue_analysis, long_runner_analysis, or defect_high_frequency_analysis." : ""}`;
+}
 
 const TOOL_PLANNING_QUERY_RE = /\b(DTSV|QGate|dashboard|bug|defect|opened|created|raised|submitted|resolved|coverage|test|summary|count|metric|trend|duplicate|similar)\b|缺陷|测试|覆盖率|多少|几个|统计|趋势|创建|提交|新建|解决|关闭|重复|查重|相似/i;
 
@@ -46,6 +48,7 @@ export async function resolveMainAgentToolContext({
   requestChatCompletion = requestCompanyChatCompletion,
   executeToolCall = executeMainAgentToolCall,
   toolDependencies = {},
+  tools = MAIN_AGENT_TOOLS,
   maxSteps = 4,
 } = {}) {
   const allToolCalls = [];
@@ -62,8 +65,8 @@ export async function resolveMainAgentToolContext({
         ...toolConversationMessages,
       ],
       model,
-      context: mergeContext(context, TOOL_PLANNING_CONTEXT),
-      tools: MAIN_AGENT_TOOLS,
+      context: mergeContext(context, buildToolPlanningContext(tools)),
+      tools,
       toolChoice: "auto",
     });
 
@@ -89,6 +92,9 @@ export async function resolveMainAgentToolContext({
         input: parseToolInput(toolCall),
       });
       const result = await executeToolCall(toolCall, toolDependencies);
+      if (!result?.toolMessage || !result?.contextText) {
+        throw new Error(`Invalid tool result shape from ${toolName}`);
+      }
       results.push(result);
       toolConversationMessages.push(result.toolMessage);
       toolEvents.push({
