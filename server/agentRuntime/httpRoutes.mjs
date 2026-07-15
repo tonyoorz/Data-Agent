@@ -81,6 +81,15 @@ export function createAgentHttpRoutes({ runtime, eventStore, modelRegistry, iden
       return true;
     }
 
+    const resumeMatch = /^\/api\/agent\/runs\/([^/]+)\/resume$/.exec(url.pathname);
+    if (request.method === "POST" && resumeMatch) {
+      const runId = resumeMatch[1];
+      const body = await readJsonBody(request, { maxBytes: config.jsonBodyMaxBytes || 1024 * 1024 });
+      const resumed = await runtime.resumeRun({ actor, runId, interactionId: body.interactionId, threadVersion: body.threadVersion, value: body.value });
+      writeJson(response, request, config, 202, { schemaVersion: "1.0", runId, interactionId: resumed.interactionId, status: resumed.status, threadVersion: resumed.threadVersion }, { "X-Agent-Protocol": "1.0", "X-Agent-Run-ID": runId });
+      return true;
+    }
+
     return false;
   };
 }

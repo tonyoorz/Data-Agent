@@ -34,4 +34,24 @@ describe("Agent Runtime", () => {
     const events = fixture.eventStore.listAfter({ actor: alice, runId: started.runId });
     expect(events.filter((event) => event.type === "run.cancelled")).toHaveLength(1);
   });
+
+  it("resumes a pending clarification once and emits run.resumed", async () => {
+    const started = await fixture.runtime.startRun({ actor: alice, request });
+    const run = fixture.threadStore.getRun({ actor: alice, runId: started.runId });
+    const interaction = fixture.threadStore.createInteraction({
+      actor: alice,
+      runId: started.runId,
+      leaseEpoch: run.leaseEpoch,
+      kind: "clarification",
+      payload: { question: "Which project?" },
+      expiresAt: "2026-07-14T01:00:00.000Z",
+    });
+
+    const resumed = await fixture.runtime.resumeRun({ actor: alice, runId: started.runId, interactionId: interaction.interactionId, threadVersion: interaction.threadVersion, value: { project: "SP25" } });
+
+    expect(resumed).toMatchObject({ runId: started.runId, interactionId: interaction.interactionId, status: "running" });
+    const events = fixture.eventStore.listAfter({ actor: alice, runId: started.runId });
+    expect(events.filter((event) => event.type === "run.resumed")).toHaveLength(1);
+    await expect(fixture.runtime.resumeRun({ actor: alice, runId: started.runId, interactionId: interaction.interactionId, threadVersion: resumed.threadVersion, value: { project: "Other" } })).rejects.toMatchObject({ code: "INTERACTION_ALREADY_CONSUMED" });
+  });
 });

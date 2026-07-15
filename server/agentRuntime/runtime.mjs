@@ -54,13 +54,82 @@ export function createAgentRuntime({ db, contracts, threadStore, eventStore, aud
     return { status: run.status, threadVersion: db.prepare("SELECT thread_version FROM agent_threads WHERE thread_id=?").pluck().get(run.threadId) };
   }
 
+  async function resumeRun({ actor, runId, interactionId, threadVersion, value }) {
+    const consumed = threadStore.consumeInteraction({ actor, runId, interactionId, threadVersion, value });
+    const run = threadStore.getRun({ actor, runId });
+    const nextThreadVersion = db.prepare("SELECT thread_version FROM agent_threads WHERE thread_id=?").pluck().get(run.threadId);
+    eventStore.commitTransition({
+      actor,
+      runId,
+      expectedStateVersion: run.stateVersion,
+      leaseEpoch: run.leaseEpoch,
+      patch: {},
+      eventInputs: [{ type: "run.resumed", payload: { interactionId, threadVersion: nextThreadVersion } }],
+    });
+    auditStore.append({ actor, threadId: run.threadId, runId, action: "runtime.resume", details: { interactionId } });
+    void executeClaimedRun({ runId, actor, resume: value }).catch(() => undefined);
+    const updated = threadStore.getRun({ actor, runId });
+    return { runId, interactionId: consumed.interactionId, status: updated.status, threadVersion: nextThreadVersion };
+  }
+
+  function actorFromRunRow(row) {
+    return { actorId: row.actor_id, authSessionId: "recovery", roles: [], scopes: {}, scopeVersion: row.scope_version, scopeHash: row.scope_hash };
+  }
+
+  async function recoverRun({ runId, workerId = randomUUID() }) {
+    const row = db.prepare("SELECT * FROM agent_runs WHERE run_id=?").get(runId);
+    if (!row) fail("NOT_FOUND", 404);
+    const recovered = threadStore.claimRun({ runId, workerId, leaseMs: 30000 });
+    const actor = actorFromRunRow(row);
+    auditStore.append({ actor, threadId: recovered.threadId, runId, action: "runtime.recover", details: { workerId } });
+    void executeClaimedRun({ runId, actor }).catch(() => undefined);
+    return recovered;
+  }
+
+  async function recoverExpiredRuns() {
+    const rows = threadStore.listRecoverableRuns({ asOf: now() });
+    const recovered = [];
+    for (const row of rows) {
+      recovered.push(await recoverRun({ runId: row.runId }));
+    }
+    return recovered;
+  }
+
+  async function reapExpiredWork() {
+    const expiredInteractions = threadStore.listExpiredInteractions({ asOf: now() });
+    const results = [];
+    for (const interaction of expiredInteractions) {
+      const runRow = db.prepare("SELECT * FROM agent_runs WHERE run_id=?").get(interaction.run_id);
+      if (!runRow || ["completed", "failed", "cancelled"].includes(runRow.status)) continue;
+      const actor = actorFromRunRow(runRow);
+      db.prepare("UPDATE agent_interactions SET status='expired' WHERE interaction_id=? AND status='pending'").run(interaction.interaction_id);
+      db.prepare("UPDATE agent_threads SET thread_version=thread_version+1, updated_at=? WHERE thread_id=?").run(now(), runRow.thread_id);
+      const threadVersion = db.prepare("SELECT thread_version FROM agent_threads WHERE thread_id=?").pluck().get(runRow.thread_id);
+      const code = "INTERACTION_EXPIRED";
+      eventStore.commitTransition({
+        actor,
+        runId: runRow.run_id,
+        expectedStateVersion: runRow.state_version,
+        leaseEpoch: runRow.lease_epoch,
+        patch: { status: "failed", errorJson: { code, safeMessage: code, retryable: false } },
+        eventInputs: [
+          { type: "interaction.expired", payload: { interactionId: interaction.interaction_id, kind: interaction.kind, threadVersion } },
+          { type: "run.failed", payload: { code, safeMessage: code, retryable: false, threadVersion } },
+        ],
+      });
+      auditStore.append({ actor, threadId: runRow.thread_id, runId: runRow.run_id, action: "runtime.reap", details: { code, interactionId: interaction.interaction_id } });
+      results.push({ runId: runRow.run_id, code });
+    }
+    return results;
+  }
+
   return Object.freeze({
     startRun,
     cancelRun,
-    resumeRun: async () => fail("NOT_IMPLEMENTED", 501),
-    recoverRun: async () => null,
-    recoverExpiredRuns: async () => [],
-    reapExpiredWork: async () => [],
+    resumeRun,
+    recoverRun,
+    recoverExpiredRuns,
+    reapExpiredWork,
     startBackgroundLoops: () => undefined,
     stopBackgroundLoops: async () => undefined,
     getActiveWorkerCount: () => 0,

@@ -1865,6 +1865,16 @@ def _build_full_picture_dataset(
 def build_full_picture_summary_payload(**kwargs: Any) -> dict[str, Any]:
     query = normalize_query(**kwargs)
     snapshot_metadata = _read_snapshot_metadata()
+    active_snapshot_version = _resolve_snapshot_version(snapshot_metadata)
+    if active_snapshot_version:
+        active_cache_key = normalize_summary_cache_key(
+            snapshot_version=active_snapshot_version,
+            filters=_serialize_query_filters(query),
+        )
+        cached_payload = get_summary_cache().get(active_cache_key)
+        if cached_payload is not None:
+            return cached_payload
+
     snapshot_version = _resolve_effective_snapshot_version(snapshot_metadata)
     cache_key = normalize_summary_cache_key(
         snapshot_version=snapshot_version,

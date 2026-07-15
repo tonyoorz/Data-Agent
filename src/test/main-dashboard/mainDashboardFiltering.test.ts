@@ -13,6 +13,9 @@ function createEmptyFilters(): MainDashboardFilters {
   return {
     years: [],
     months: [],
+    creationTimeStart: "",
+    creationTimeEnd: "",
+    requirements: [],
     chinaScopes: [],
     projects: [],
     assignedEcus: [],
@@ -35,6 +38,10 @@ const viewModel: MainDashboardViewModel = {
   },
   filters: {
     years: ["2025", "2026"],
+    months: [],
+    creationTimeStart: "",
+    creationTimeEnd: "",
+    requirements: [],
     projects: ["G68", "U12", "NA6"],
     assignedEcus: ["ECU-A", "ECU-B", "ECU-C"],
     problemFinderTeams: ["DTSV_China", "[AT]W72-FIT"],

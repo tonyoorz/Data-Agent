@@ -70,4 +70,11 @@ describe("Phase 1 graph", () => {
   it("exposes named graph nodes for tests and future LangGraph wiring", () => {
     expect(Object.keys(createGraphNodes({}))).toEqual(expect.arrayContaining(["receiveRequest", "resolveSemantics", "createPlan", "executeTool", "validateClaims", "publishAnswer"]));
   });
+
+  it("compiles a real LangGraph graph with invoke and stream entry points", () => {
+    const graph = createMainAgentGraph({ policy: createRuntimePolicy(), toolRegistry: { execute: vi.fn() }, emitEvent: vi.fn() });
+
+    expect(typeof graph.invoke).toBe("function");
+    expect(typeof graph.stream).toBe("function");
+  });
 });

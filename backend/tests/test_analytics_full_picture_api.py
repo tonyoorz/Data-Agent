@@ -268,6 +268,31 @@ def test_full_picture_summary_endpoint_returns_snapshot_version(tmp_path, monkey
     assert payload["filters"]["china_scopes"] == ["Global"]
 
 
+def test_full_picture_summary_endpoint_reuses_query_cache(tmp_path, monkeypatch):
+    from backend.analytics import api
+
+    monkeypatch.setenv("VIZION_ANALYTICS_QUERY_CACHE_DB_PATH", str(tmp_path / "query_cache.db"))
+    calls = {"count": 0}
+
+    def fake_summary_payload(**kwargs):
+        calls["count"] += 1
+        return {"ok": True, "filters": kwargs, "call_count": calls["count"]}
+
+    monkeypatch.setattr(api, "build_full_picture_summary_payload", fake_summary_payload)
+    client = TestClient(app)
+
+    first = client.get("/api/full-picture/dashboard/summary?years=2026")
+    second = client.get("/api/full-picture/dashboard/summary?years=2026")
+    third = client.get("/api/full-picture/dashboard/summary?years=2025")
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert third.status_code == 200
+    assert first.json() == second.json()
+    assert third.json()["call_count"] == 2
+    assert calls["count"] == 2
+
+
 def test_top_issue_analysis_endpoint_returns_workday_trend(tmp_path, monkeypatch):
     db_path = tmp_path / "qgate_data.db"
     hot_db_path = _default_hot_db_path(tmp_path)

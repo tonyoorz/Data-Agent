@@ -29,7 +29,7 @@ function preprocessCitations(md: string) {
 }
 
 export default function MessageRenderer({ content, streaming }: Props) {
-  const segs = parseAgentStream(content);
+  const segs = parseAgentStream(content).filter((segment) => segment.kind !== "think");
   return (
     <div className="space-y-3">
       {segs.map((s, i) => {

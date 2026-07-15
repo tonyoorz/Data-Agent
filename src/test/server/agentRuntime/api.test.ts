@@ -73,4 +73,20 @@ describe("Agent HTTP application", () => {
     expect(cancelled.status).toBe(202);
     await expect(eventText).resolves.toContain("run.cancelled");
   });
+
+  it("resumes a pending clarification through the HTTP API", async () => {
+    fixture = await startTestAgentServer();
+    const request = { schemaVersion: "1.0", messageId: "msg-resume-1", threadVersion: 0, message: { role: "user", text: "hello", artifactRefs: [] }, selectedModel: "deepseek-v4-flash", useDefectContext: false, useAnalyticsContext: true, eventProtocolVersion: "1.0" };
+    const started = await fixture.fetch("/api/agent/runs", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(request) });
+    const body = await started.json();
+    const run = fixture.threadStore.getRun({ actor: fixture.alice, runId: body.runId });
+    const interaction = fixture.threadStore.createInteraction({ actor: fixture.alice, runId: body.runId, leaseEpoch: run.leaseEpoch, kind: "clarification", payload: { question: "Which project?" }, expiresAt: "2026-07-14T00:10:00.000Z" });
+
+    const resumed = await fixture.fetch(`/api/agent/runs/${body.runId}/resume`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ schemaVersion: "1.0", interactionId: interaction.interactionId, threadVersion: interaction.threadVersion, value: { answer: "SP25" } }) });
+
+    expect(resumed.status).toBe(202);
+    expect(await resumed.json()).toMatchObject({ schemaVersion: "1.0", runId: body.runId, interactionId: interaction.interactionId, status: "running" });
+    const events = await fixture.fetch(body.eventsUrl, { headers: { accept: 'text/event-stream; profile="agent-v1"' } });
+    expect(await events.text()).toContain("run.resumed");
+  });
 });

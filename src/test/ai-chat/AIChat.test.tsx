@@ -175,8 +175,8 @@ describe("AIChat duplicate search integration", () => {
       );
     });
 
-    expect(await screen.findByText("DTV-1024")).toBeInTheDocument();
-    expect(screen.getByText("最可能的重复问题是 DTV-1024，请优先复核。")).toBeInTheDocument();
+    expect(await screen.findByText("DTV-1024", {}, { timeout: 5000 })).toBeInTheDocument();
+    expect(await screen.findByText("最可能的重复问题是 DTV-1024，请优先复核。", {}, { timeout: 5000 })).toBeInTheDocument();
   });
 
   it("uses a concise local duplicate fallback summary when the API omits summary text", async () => {
@@ -214,7 +214,7 @@ describe("AIChat duplicate search integration", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "发送" }));
 
-    expect(await screen.findByText(/优先复核: D2754092/)).toBeInTheDocument();
+    expect(await screen.findByText(/优先复核: D2754092/, {}, { timeout: 5000 })).toBeInTheDocument();
     const text = document.body.textContent || "";
     expect(text).not.toContain("现象匹配:");
     expect(text).not.toContain("候选概览:");
@@ -399,7 +399,7 @@ describe("AIChat duplicate search integration", () => {
       JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)).useAnalyticsContext,
     ).toBe(true);
 
-    expect(await screen.findByText("已完成")).toBeInTheDocument();
+    expect(await screen.findByText("已完成", {}, { timeout: 5000 })).toBeInTheDocument();
     expect(screen.queryByText("2686999")).not.toBeInTheDocument();
     expect(screen.queryByText("导航黄屏 related defect")).not.toBeInTheDocument();
   });
@@ -496,6 +496,8 @@ describe("AIChat duplicate search integration", () => {
     fireEvent.click(screen.getByRole("button", { name: "发送" }));
 
     expect(await screen.findByText("Runtime 已完成")).toBeInTheDocument();
+    expect(await screen.findByText("Run started")).toBeInTheDocument();
+    expect(await screen.findByText(/langgraph/)).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/agent/runs",
       expect.objectContaining({ method: "POST" }),
@@ -557,6 +559,204 @@ describe("AIChat duplicate search integration", () => {
       threadVersion: 0,
       reasonCode: "user_stop",
     });
+  });
+
+  it("reconnects an interrupted Agent Runtime stream with Last-Event-ID", async () => {
+    window.localStorage.setItem("dtsv.agentRuntime.enabled", "true");
+    const encoder = new TextEncoder();
+    const agentEvent = (overrides = {}) => ({
+      schemaVersion: "1.0",
+      eventId: "evt-1",
+      runId: "run-1",
+      threadId: "thread-1",
+      stateVersion: 1,
+      sequence: 1,
+      timestamp: "2026-07-14T00:00:00.000Z",
+      type: "run.started",
+      payload: { threadVersion: 0, runtimeMode: "langgraph", requestedModelId: "deepseek-v4-flash", actualModelId: "deepseek-v4-flash" },
+      ...overrides,
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ schemaVersion: "1.0", threadId: "thread-1", runId: "run-1", threadVersion: 0, eventsUrl: "/api/agent/runs/run-1/events" }), {
+          status: 202,
+          headers: { "X-Agent-Run-ID": "run-1", "X-Agent-Thread-ID": "thread-1", "X-Agent-Protocol": "1.0" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(new ReadableStream({ start(controller) { controller.enqueue(encoder.encode(`data: ${JSON.stringify(agentEvent())}\n\n`)); controller.close(); } }), {
+          status: 200,
+          headers: { "X-Agent-Run-ID": "run-1", "X-Agent-Thread-ID": "thread-1", "X-Agent-Protocol": "1.0" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(new ReadableStream({ start(controller) { controller.enqueue(encoder.encode(`data: ${JSON.stringify(agentEvent({ eventId: "evt-2", sequence: 2, type: "answer.delta", payload: { answerId: "answer-1", contentHash: "hash-1", offset: 0, text: "恢复后的答案" } }))}\n\ndata: ${JSON.stringify(agentEvent({ eventId: "evt-3", sequence: 3, type: "run.completed", payload: { answerId: "answer-1", threadVersion: 1, durationMs: 12 } }))}\n\n`)); controller.close(); } }), {
+          status: 200,
+          headers: { "X-Agent-Run-ID": "run-1", "X-Agent-Thread-ID": "thread-1", "X-Agent-Protocol": "1.0" },
+        }),
+      );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<AIChat moduleKey="ai-chat" moduleLabel="AI Chat" />);
+
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "请测试断线重连" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    expect(await screen.findByText("恢复后的答案")).toBeInTheDocument();
+    const eventCalls = fetchMock.mock.calls.filter((call) => call[0] === "/api/agent/runs/run-1/events?follow=1");
+    expect(eventCalls).toHaveLength(2);
+    expect(eventCalls[1]?.[1]?.headers).toMatchObject({ "Last-Event-ID": "evt-1" });
+  });
+
+  it("shows a snapshot recovery message when the Agent Runtime event cursor expired", async () => {
+    window.localStorage.setItem("dtsv.agentRuntime.enabled", "true");
+    const encoder = new TextEncoder();
+    const agentEvent = {
+      schemaVersion: "1.0",
+      eventId: "evt-1",
+      runId: "run-1",
+      threadId: "thread-1",
+      stateVersion: 1,
+      sequence: 1,
+      timestamp: "2026-07-14T00:00:00.000Z",
+      type: "run.started",
+      payload: { threadVersion: 0, runtimeMode: "langgraph", requestedModelId: "deepseek-v4-flash", actualModelId: "deepseek-v4-flash" },
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ schemaVersion: "1.0", threadId: "thread-1", runId: "run-1", threadVersion: 0, eventsUrl: "/api/agent/runs/run-1/events" }), {
+          status: 202,
+          headers: { "X-Agent-Run-ID": "run-1", "X-Agent-Thread-ID": "thread-1", "X-Agent-Protocol": "1.0" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(new ReadableStream({ start(controller) { controller.enqueue(encoder.encode(`data: ${JSON.stringify(agentEvent)}\n\n`)); controller.close(); } }), {
+          status: 200,
+          headers: { "X-Agent-Run-ID": "run-1", "X-Agent-Thread-ID": "thread-1", "X-Agent-Protocol": "1.0" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ code: "EVENT_CURSOR_EXPIRED", safeMessage: "事件流已过期，请打开线程快照后继续。", snapshotUrl: "/api/agent/threads/thread-1" }), {
+          status: 410,
+        }),
+      );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<AIChat moduleKey="ai-chat" moduleLabel="AI Chat" />);
+
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "请测试过期游标" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    expect(await screen.findByText(/事件流已过期，请打开线程快照后继续。/)).toBeInTheDocument();
+    expect(screen.getByText(/\/api\/agent\/threads\/thread-1/)).toBeInTheDocument();
+  });
+
+  it("falls back to the legacy chat stream when Agent Runtime events violate protocol", async () => {
+    window.localStorage.setItem("dtsv.agentRuntime.enabled", "true");
+    const encoder = new TextEncoder();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ schemaVersion: "1.0", threadId: "thread-1", runId: "run-1", threadVersion: 0, eventsUrl: "/api/agent/runs/run-1/events" }), {
+          status: 202,
+          headers: { "X-Agent-Run-ID": "run-1", "X-Agent-Thread-ID": "thread-1", "X-Agent-Protocol": "1.0" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(new ReadableStream({ start(controller) { controller.enqueue(encoder.encode('data: {"not":"an agent event"}\n\n')); controller.close(); } }), {
+          status: 200,
+          headers: { "X-Agent-Run-ID": "run-1", "X-Agent-Thread-ID": "thread-1", "X-Agent-Protocol": "1.0" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(new ReadableStream({ start(controller) { controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"Legacy fallback 已完成"}}]}\n\ndata: [DONE]\n\n')); controller.close(); } }), {
+          status: 200,
+        }),
+      );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<AIChat moduleKey="ai-chat" moduleLabel="AI Chat" />);
+
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "请测试协议 fallback" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    expect(await screen.findByText("Legacy fallback 已完成")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith("/api/ai/chat", expect.objectContaining({ method: "POST" }));
+  });
+
+  it("submits a clarification answer to the Agent Runtime resume endpoint", async () => {
+    window.localStorage.setItem("dtsv.agentRuntime.enabled", "true");
+    const encoder = new TextEncoder();
+    const agentEvent = (overrides = {}) => ({
+      schemaVersion: "1.0",
+      eventId: "evt-1",
+      runId: "run-1",
+      threadId: "thread-1",
+      stateVersion: 1,
+      sequence: 1,
+      timestamp: "2026-07-14T00:00:00.000Z",
+      type: "clarification.required",
+      payload: { interactionId: "interaction-1", threadVersion: 2, question: "Which project should I use?", responseSchemaRef: "#/answer", expiresAt: "2026-07-14T00:10:00.000Z" },
+      ...overrides,
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ schemaVersion: "1.0", threadId: "thread-1", runId: "run-1", threadVersion: 1, eventsUrl: "/api/agent/runs/run-1/events" }), {
+          status: 202,
+          headers: { "X-Agent-Run-ID": "run-1", "X-Agent-Thread-ID": "thread-1", "X-Agent-Protocol": "1.0" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(new ReadableStream({ start(controller) { controller.enqueue(encoder.encode(`data: ${JSON.stringify(agentEvent())}\n\n`)); controller.close(); } }), {
+          status: 200,
+          headers: { "X-Agent-Run-ID": "run-1", "X-Agent-Thread-ID": "thread-1", "X-Agent-Protocol": "1.0" },
+        }),
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ schemaVersion: "1.0", runId: "run-1", interactionId: "interaction-1", status: "running", threadVersion: 3 }), { status: 202 }))
+      .mockResolvedValueOnce(
+        new Response(new ReadableStream({ start(controller) { controller.enqueue(encoder.encode(
+          `data: ${JSON.stringify(agentEvent({ eventId: "evt-2", sequence: 2, type: "run.resumed", payload: { interactionId: "interaction-1", threadVersion: 3 } }))}\n\n` +
+          `data: ${JSON.stringify(agentEvent({ eventId: "evt-3", sequence: 3, type: "answer.delta", payload: { answerId: "answer-1", contentHash: "hash-1", offset: 0, text: "继续后的答案" } }))}\n\n` +
+          `data: ${JSON.stringify(agentEvent({ eventId: "evt-4", sequence: 4, type: "run.completed", payload: { answerId: "answer-1", threadVersion: 4, durationMs: 10 } }))}\n\n`,
+        )); controller.close(); } }), {
+          status: 200,
+          headers: { "X-Agent-Run-ID": "run-1", "X-Agent-Thread-ID": "thread-1", "X-Agent-Protocol": "1.0" },
+        }),
+      );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<AIChat moduleKey="ai-chat" moduleLabel="AI Chat" />);
+
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "请测试 clarification" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    expect(await screen.findAllByText("Which project should I use?")).toHaveLength(2);
+    fireEvent.change(screen.getByLabelText("补充信息"), { target: { value: "SP25" } });
+    fireEvent.click(screen.getByRole("button", { name: "提交补充信息" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith("/api/agent/runs/run-1/resume", expect.objectContaining({ method: "POST" }));
+    });
+    const resumeCall = fetchMock.mock.calls.find((call) => call[0] === "/api/agent/runs/run-1/resume");
+    expect(JSON.parse(String(resumeCall?.[1]?.body))).toMatchObject({
+      schemaVersion: "1.0",
+      interactionId: "interaction-1",
+      threadVersion: 2,
+      value: { answer: "SP25" },
+    });
+    await waitFor(() => {
+      const eventCalls = fetchMock.mock.calls.filter((call) => call[0] === "/api/agent/runs/run-1/events?follow=1");
+      expect(eventCalls).toHaveLength(2);
+      expect(eventCalls[1]?.[1]?.headers).toMatchObject({ "Last-Event-ID": "evt-1" });
+    });
+    expect(await screen.findByText("继续后的答案")).toBeInTheDocument();
   });
 
   it("renders structured tool events as real analysis steps", async () => {

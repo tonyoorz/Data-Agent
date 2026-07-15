@@ -1,5 +1,32 @@
 import { createAnswerEnvelope, createLegacyEvidence, renderDeterministicFallback, validateLegacyClaims, validateRenderedAnswer } from "./evidence.mjs";
 import { createLegacySemanticAdapter, validateLegacyPlan } from "./legacyAdapter.mjs";
+import { Annotation, END, START, StateGraph } from "@langchain/langgraph";
+
+const replace = (_left, right) => right;
+const appendById = (key) => (left = [], right = []) => {
+  const map = new Map(left.map((item) => [item?.[key], item]));
+  for (const item of right || []) map.set(item?.[key], { ...map.get(item?.[key]), ...item });
+  return [...map.values()].filter((item) => item?.[key] != null);
+};
+
+export const AgentState = Annotation.Root({
+  schemaVersion: Annotation({ reducer: replace, default: () => "1.0" }),
+  runId: Annotation({ reducer: replace }),
+  threadId: Annotation({ reducer: replace }),
+  actor: Annotation({ reducer: replace }),
+  request: Annotation({ reducer: replace }),
+  warnings: Annotation({ reducer: replace, default: () => [] }),
+  messages: Annotation({ reducer: appendById("messageId"), default: () => [] }),
+  summaries: Annotation({ reducer: appendById("summaryId"), default: () => [] }),
+  modelTurns: Annotation({ reducer: appendById("turnId"), default: () => [] }),
+  semanticFrame: Annotation({ reducer: replace }),
+  plan: Annotation({ reducer: replace }),
+  evidence: Annotation({ reducer: appendById("evidenceId"), default: () => [] }),
+  claims: Annotation({ reducer: appendById("claimId"), default: () => [] }),
+  claimValidation: Annotation({ reducer: replace }),
+  pendingInteraction: Annotation({ reducer: replace }),
+  answer: Annotation({ reducer: replace }),
+});
 
 function makeClaimFromEvidence(evidence) {
   const payload = evidence.preview?.payload || {};
@@ -75,16 +102,25 @@ export function createGraphNodes(deps = {}) {
 
 export function createMainAgentGraph(deps = {}) {
   const nodes = createGraphNodes(deps);
-  return {
-    async invoke(input) {
-      let state = nodes.receiveRequest(input);
-      state = nodes.prepareInputs(state);
-      state = nodes.resolveSemantics(state);
-      state = nodes.createPlan(state);
-      state = await nodes.executeTool(state);
-      state = nodes.validateClaims(state);
-      state = nodes.publishAnswer(state);
-      return state;
-    },
-  };
+  const builder = new StateGraph(AgentState)
+    .addNode("receive_request", nodes.receiveRequest)
+    .addNode("prepare_inputs", nodes.prepareInputs)
+    .addNode("resolve_semantics", nodes.resolveSemantics)
+    .addNode("create_plan", nodes.createPlan)
+    .addNode("execute_tool", nodes.executeTool)
+    .addNode("validate_claims", nodes.validateClaims)
+    .addNode("publish_answer", nodes.publishAnswer)
+    .addEdge(START, "receive_request")
+    .addEdge("receive_request", "prepare_inputs")
+    .addEdge("prepare_inputs", "resolve_semantics")
+    .addEdge("resolve_semantics", "create_plan")
+    .addEdge("create_plan", "execute_tool")
+    .addEdge("execute_tool", "validate_claims")
+    .addEdge("validate_claims", "publish_answer")
+    .addEdge("publish_answer", END);
+
+  if (deps.checkpointCoordinator?.saver) {
+    return builder.compile({ checkpointer: deps.checkpointCoordinator.saver });
+  }
+  return builder.compile();
 }

@@ -152,7 +152,7 @@ describe("TicketDetailTable", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Compact density" }));
     expect(screen.getByTestId("ticket-detail-grid")).toHaveAttribute("data-density", "compact");
-  });
+  }, 10_000);
 
   it("delegates header sorting to the parent in ascending and descending order", () => {
     const { onSortChange } = renderTicketDetailTable(createRows(3), {

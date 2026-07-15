@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { cancelAgentRun, fetchAgentModels, openAgentEvents, startAgentRun, uploadAgentArtifact, AgentApiError } from "../../lib/agentApi";
+import { cancelAgentRun, fetchAgentModels, openAgentEvents, resumeAgentRun, startAgentRun, uploadAgentArtifact, AgentApiError } from "../../lib/agentApi";
 
 describe("agent API client", () => {
   it("fetches public models", async () => {
@@ -23,6 +23,12 @@ describe("agent API client", () => {
     const opened = await openAgentEvents({ fetchImpl, runId: "run-1", profile: "agent-v1", lastEventId: "evt-1" });
     expect(fetchImpl).toHaveBeenCalledWith("/api/agent/runs/run-1/events?follow=1", expect.objectContaining({ headers: expect.objectContaining({ "Last-Event-ID": "evt-1" }) }));
     expect(opened.headers.runId).toBe("run-1");
+  });
+
+  it("resumes runs and parses the async HTTP response", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify({ schemaVersion: "1.0", runId: "run-1", interactionId: "interaction-1", status: "running", threadVersion: 3 }), { status: 202 }));
+    await expect(resumeAgentRun({ fetchImpl, runId: "run-1", interactionId: "interaction-1", threadVersion: 2, value: { answer: "SP25" } })).resolves.toMatchObject({ runId: "run-1", threadVersion: 3 });
+    expect(fetchImpl).toHaveBeenCalledWith("/api/agent/runs/run-1/resume", expect.objectContaining({ method: "POST" }));
   });
 
   it("uploads raw artifact bytes and maps typed errors", async () => {
