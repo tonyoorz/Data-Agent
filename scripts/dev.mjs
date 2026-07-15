@@ -3,7 +3,12 @@ import { spawn, spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { getTerminationCommand, hasHealthyServiceOnPort } from "./devHelpers.mjs";
+import {
+  getTerminationCommand,
+  hasHealthyServiceOnPort,
+  hasViteDevServerOnPort,
+  waitForHealthyService,
+} from "./devHelpers.mjs";
 import { assertSupportedNodeVersion } from "./nodeVersion.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -11,6 +16,7 @@ const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "..");
 const analyticsPort = Number(process.env.VIZION_ANALYTICS_PORT || "3003");
 const apiPort = Number(process.env.VIZION_API_PORT || "3004");
+const webPort = Number(process.env.VIZION_WEB_PORT || "8080");
 
 assertSupportedNodeVersion();
 
@@ -55,15 +61,20 @@ function resolvePythonCommand() {
   return "python";
 }
 
-function launch(command, args, name) {
+function launch(command, args, name, isHealthy) {
   const child = spawn(command, args, {
     cwd: repoRoot,
     env: process.env,
     stdio: "inherit",
   });
 
-  child.on("exit", (code, signal) => {
+  child.on("exit", async (code, signal) => {
     if (exiting) {
+      return;
+    }
+
+    if (await waitForHealthyService(isHealthy)) {
+      console.warn(`[vizion-dev] ${name} process exited but service is still healthy; keeping dev stack running`);
       return;
     }
 
@@ -88,7 +99,7 @@ async function launchIfNeeded({ name, command, args, port, expectedService }) {
     return;
   }
 
-  launch(command, args, name);
+  launch(command, args, name, () => hasHealthyServiceOnPort({ port, expectedService }));
 }
 
 await launchIfNeeded({
@@ -112,7 +123,16 @@ await launchIfNeeded({
   args: [path.join(repoRoot, "server", "index.mjs")],
   port: apiPort,
 });
-launch(process.execPath, [path.join(repoRoot, "node_modules", "vite", "bin", "vite.js")], "vite");
+if (await hasViteDevServerOnPort({ port: webPort })) {
+  console.log(`[vizion-dev] reusing existing vite on http://127.0.0.1:${webPort}`);
+} else {
+  launch(
+    process.execPath,
+    [path.join(repoRoot, "node_modules", "vite", "bin", "vite.js"), "--port", String(webPort)],
+    "vite",
+    () => hasViteDevServerOnPort({ port: webPort }),
+  );
+}
 
 function shutdown(signal) {
   if (exiting) {

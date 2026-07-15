@@ -45,3 +45,38 @@ export async function hasHealthyServiceOnPort({
     return false;
   }
 }
+
+export async function waitForHealthyService(isHealthy, { attempts = 8, delayMs = 250 } = {}) {
+  if (typeof isHealthy !== "function") {
+    return false;
+  }
+
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (await isHealthy()) {
+      return true;
+    }
+
+    if (attempt < attempts - 1) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+
+  return false;
+}
+
+
+export async function hasViteDevServerOnPort({
+  port,
+  fetchImpl = globalThis.fetch,
+}) {
+  if (!Number.isInteger(port) || port <= 0 || typeof fetchImpl !== "function") {
+    return false;
+  }
+
+  try {
+    const response = await fetchImpl(`http://127.0.0.1:${port}/@vite/client`);
+    return response?.ok === true;
+  } catch {
+    return false;
+  }
+}

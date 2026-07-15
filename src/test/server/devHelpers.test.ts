@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   getTerminationCommand,
   hasHealthyServiceOnPort,
+  hasViteDevServerOnPort,
+  waitForHealthyService,
 } from "../../../scripts/devHelpers.mjs";
 
 describe("getTerminationCommand", () => {
@@ -22,6 +24,31 @@ describe("getTerminationCommand", () => {
 
   it("returns null for invalid pids", () => {
     expect(getTerminationCommand("win32", 0)).toBeNull();
+  });
+});
+
+describe("hasViteDevServerOnPort", () => {
+  it("returns true when the Vite client endpoint responds", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({ ok: true });
+
+    await expect(
+      hasViteDevServerOnPort({
+        port: 8080,
+        fetchImpl,
+      }),
+    ).resolves.toBe(true);
+    expect(fetchImpl).toHaveBeenCalledWith("http://127.0.0.1:8080/@vite/client");
+  });
+
+  it("returns false when the Vite client endpoint is unavailable", async () => {
+    const fetchImpl = vi.fn().mockRejectedValue(new Error("connection refused"));
+
+    await expect(
+      hasViteDevServerOnPort({
+        port: 8080,
+        fetchImpl,
+      }),
+    ).resolves.toBe(false);
   });
 });
 
@@ -67,5 +94,21 @@ describe("hasHealthyServiceOnPort", () => {
       }),
     ).resolves.toBe(false);
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
+describe("waitForHealthyService", () => {
+  it("waits for a service to become healthy", async () => {
+    const isHealthy = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+
+    await expect(waitForHealthyService(isHealthy, { attempts: 3, delayMs: 0 })).resolves.toBe(true);
+    expect(isHealthy).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns false when the service never becomes healthy", async () => {
+    const isHealthy = vi.fn().mockResolvedValue(false);
+
+    await expect(waitForHealthyService(isHealthy, { attempts: 3, delayMs: 0 })).resolves.toBe(false);
+    expect(isHealthy).toHaveBeenCalledTimes(3);
   });
 });
