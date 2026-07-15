@@ -11,7 +11,7 @@ export default defineConfig(({ mode }) => ({
     port: 8080,
     strictPort: true,
     watch: {
-      ignored: ["**/.worktrees/**", "**/dist/**"],
+      ignored: ["**/.worktrees/**", "**/dist/**", "**/src/test/**"],
     },
     hmr: {
       overlay: false,
