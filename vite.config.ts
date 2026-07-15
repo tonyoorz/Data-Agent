@@ -10,6 +10,9 @@ export default defineConfig(({ mode }) => ({
     allowedHosts: ["bscn1132585", "BSCN1132585"],
     port: 8080,
     strictPort: true,
+    watch: {
+      ignored: ["**/.worktrees/**", "**/dist/**"],
+    },
     hmr: {
       overlay: false,
     },
