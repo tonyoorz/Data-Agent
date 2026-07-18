@@ -62,4 +62,16 @@ describe("StepJournal", () => {
       fixture.cleanup();
     }
   });
+
+  it("persists only a normalized failure code", async () => {
+    const { fixture, journal, input } = await setupJournalFixture();
+    try {
+      await expect(journal.run(input, vi.fn().mockRejectedValue(new Error("TOP SECRET PROVIDER DETAIL")))).rejects.toThrow("TOP SECRET");
+      const errorJson = fixture.runtimeDb.db.prepare("SELECT error_json FROM agent_step_journal WHERE run_id=?").pluck().get(input.runId);
+      expect(JSON.parse(String(errorJson))).toEqual({ code: "STEP_FAILED", retryable: false });
+      expect(String(errorJson)).not.toContain("TOP SECRET");
+    } finally {
+      fixture.cleanup();
+    }
+  });
 });

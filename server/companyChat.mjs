@@ -1,5 +1,7 @@
+import { createHash } from "node:crypto";
 import { buildChatCompletionRequest, resolveChatModelConfig } from "./chatModelConfig.mjs";
 import { createInternalModelAdapter } from "./agentRuntime/modelAdapter.mjs";
+import { safeTelemetryErrorCode, summarizeNumericText } from "./agentRuntime/telemetry.mjs";
 import { compactChatMessages } from "./chatMessageBudget.mjs";
 import { expandMessagesWithDocumentText } from "./documentText.mjs";
 import { expandImageMessagesWithOcr } from "./imageOcr.mjs";
@@ -24,6 +26,52 @@ Before the final answer, show only grounded, visible analysis steps using these 
 - Concise markdown: short paragraphs, bullet lists, small tables.
 - Numbers and concrete reasoning, not vague claims.
 - Respond in the user's language (Chinese or English).`;
+
+function createSseAnswerDigest() {
+  const decoder = new TextDecoder();
+  const hash = createHash("sha256");
+  let buffer = "";
+  let characterCount = 0;
+  let observed = false;
+  let answerText = "";
+
+  function consume(flush = false) {
+    const lines = buffer.split(/\r?\n/);
+    buffer = flush ? "" : lines.pop() || "";
+    for (const line of lines) {
+      if (!line.startsWith("data:")) continue;
+      const data = line.slice(5).trimStart();
+      if (!data || data === "[DONE]") continue;
+      try {
+        const content = JSON.parse(data)?.choices?.[0]?.delta?.content;
+        if (typeof content !== "string" || !content) continue;
+        observed = true;
+        characterCount += [...content].length;
+        answerText += content;
+        hash.update(content, "utf8");
+      } catch {
+        // Upstream status/tool events are not answer text and are intentionally ignored.
+      }
+    }
+  }
+
+  return {
+    update(value) {
+      buffer += decoder.decode(value, { stream: true });
+      consume(false);
+    },
+    finish() {
+      buffer += decoder.decode();
+      if (buffer) buffer += "\n";
+      consume(true);
+      return {
+        answerContentHash: observed ? hash.digest("hex") : null,
+        answerCharacterCount: observed ? characterCount : 0,
+        ...summarizeNumericText(answerText),
+      };
+    },
+  };
+}
 
 function normalizeAssistantContent(content) {
   if (typeof content === "string") {
@@ -210,6 +258,7 @@ export async function streamCompanyChatCompletion({
   let byteCount = 0;
   let responseStatus = null;
   let streamError = null;
+  const answerDigest = createSseAnswerDigest();
 
   try {
     const upstreamResponse = await fetch(requestConfig.url, {
@@ -250,13 +299,14 @@ export async function streamCompanyChatCompletion({
         if (firstChunkMs === null) {
           firstChunkMs = roundMs(nowMs() - startedAt);
         }
+        answerDigest.update(value);
         response.write(Buffer.from(value));
       }
     }
 
     response.end();
   } catch (error) {
-    streamError = error instanceof Error ? error.message : String(error);
+    streamError = safeTelemetryErrorCode(error, "COMPANY_CHAT_STREAM_FAILED");
     if (response.headersSent && !response.writableEnded) {
       writeSseEvent(response, { type: "error", message: streamError });
       response.write("data: [DONE]\n\n");
@@ -264,6 +314,7 @@ export async function streamCompanyChatCompletion({
     }
     throw error;
   } finally {
+    const answerMetrics = answerDigest.finish();
     onMetrics?.({
       model: config.model,
       status: responseStatus,
@@ -272,6 +323,7 @@ export async function streamCompanyChatCompletion({
       streamTotalMs: roundMs(nowMs() - startedAt),
       chunkCount,
       byteCount,
+      ...answerMetrics,
       error: streamError,
     });
   }

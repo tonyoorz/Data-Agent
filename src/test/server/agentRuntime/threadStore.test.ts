@@ -59,6 +59,29 @@ describe("ThreadStore", () => {
     expect(() => store.listMessages({ actor: bob, threadId: thread.threadId })).toThrow(/NOT_FOUND/);
   });
 
+  it("persists idempotent semantic summaries and only loads the current actor scope", () => {
+    const thread = store.createThread({ actor, title: "多轮问数" });
+    const input = {
+      actor,
+      threadId: thread.threadId,
+      summaryId: "summary-run-1",
+      body: { runId: "run-1", semanticFrame: { metricIds: ["defect.count"], timeScopes: [{ start: "2026-06-01", end: "2026-06-30" }] } },
+      sourceMessageIds: ["msg-1"],
+      semanticFrameRefs: [{ runId: "run-1", ontologyVersion: "v1", schemaFingerprint: "fingerprint" }],
+      evidenceRefs: ["ev-1"],
+      scopeHash: actor.scopeHash,
+    };
+
+    expect(store.appendSummary(input)).toMatchObject({ summaryId: "summary-run-1", scopeHash: "scope-a" });
+    expect(store.appendSummary(input).body.semanticFrame.metricIds).toEqual(["defect.count"]);
+    expect(store.listSummaries({ actor, threadId: thread.threadId })).toHaveLength(1);
+    expect(() => store.appendSummary({ ...input, body: { changed: true } })).toThrow(/SUMMARY_IDEMPOTENCY_CONFLICT/);
+    store.appendSummary({ ...input, summaryId: "summary-run-0", body: { runId: "run-2", semanticFrame: { metricIds: ["defect.count"] } } });
+    expect(store.listSummaries({ actor, threadId: thread.threadId }).map((item) => item.body.runId)).toEqual(["run-1", "run-2"]);
+    expect(() => store.appendSummary({ ...input, summaryId: "summary-run-2", scopeHash: "scope-other" })).toThrow(/SUMMARY_SCOPE_MISMATCH/);
+    expect(() => store.listSummaries({ actor: bob, threadId: thread.threadId })).toThrow(/NOT_FOUND/);
+  });
+
   it("creates idempotent runs and keeps one active run per thread", () => {
     const thread = store.createThread({ actor, title: "新对话" });
     const input = {

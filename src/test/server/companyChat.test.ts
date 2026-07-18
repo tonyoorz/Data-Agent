@@ -78,6 +78,8 @@ describe("streamCompanyChatCompletion", () => {
         upstreamConnectMs: expect.any(Number),
         firstChunkMs: expect.any(Number),
         streamTotalMs: expect.any(Number),
+        numericTokenCount: 0,
+        numericSignature: expect.stringMatching(/^[a-f0-9]{64}$/),
       }),
     );
   });
@@ -290,6 +292,8 @@ describe("streamCompanyChatCompletion", () => {
 
     const written = write.mock.calls.map(([chunk]) => String(chunk)).join("");
     expect(written).toContain('"type":"error"');
+    expect(written).toContain("COMPANY_CHAT_STREAM_FAILED");
+    expect(written).not.toContain("reader broke");
     expect(written).toContain("data: [DONE]");
     expect(end).toHaveBeenCalledTimes(1);
   });

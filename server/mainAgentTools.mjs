@@ -1,3 +1,5 @@
+import { semanticQuerySchema } from "./ontology/queryCompiler.mjs";
+
 const DEFAULT_ANALYTICS_API_BASE = process.env.VIZION_ANALYTICS_API_BASE || "http://127.0.0.1:3003";
 
 const DASHBOARD_SUMMARY_FILTER_KEYS = new Set([
@@ -44,6 +46,8 @@ const FULL_PICTURE_MODULE_ENDPOINTS = {
   defect_high_frequency_analysis: "/api/full-picture/defect-high-frequency-analysis",
 };
 
+const SEMANTIC_TOOL_NAMES = new Set(["query_semantic_metrics", "query_semantic_records", "query_traceability"]);
+
 export const MAIN_AGENT_TOOLS = [
   {
     type: "function",
@@ -72,6 +76,45 @@ export const MAIN_AGENT_TOOLS = [
         },
         required: ["query"],
         additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "query_semantic_metrics",
+      description: "Execute a validated Ontology metric query against the semantic analytics API. The query must come from the governed query planner.",
+      parameters: {
+        type: "object",
+        required: ["query"],
+        additionalProperties: false,
+        properties: { query: semanticQuerySchema },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "query_semantic_records",
+      description: "Execute a validated Ontology record or drill-down query against the semantic analytics API.",
+      parameters: {
+        type: "object",
+        required: ["query"],
+        additionalProperties: false,
+        properties: { query: semanticQuerySchema },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "query_traceability",
+      description: "Execute a validated Ontology traceability query across requirement, testcase, test-run, and defect relationships.",
+      parameters: {
+        type: "object",
+        required: ["query"],
+        additionalProperties: false,
+        properties: { query: semanticQuerySchema },
       },
     },
   },
@@ -424,6 +467,76 @@ function buildToolMessage(toolCall, content) {
     tool_call_id: toolCall?.id || "",
     name: toolCall?.function?.name || "",
     content,
+  };
+}
+
+function buildActorScope(actor) {
+  const scopes = actor?.scopes || {};
+  return {
+    actorId: String(actor?.actorId || ""),
+    scopeHash: String(actor?.scopeHash || ""),
+    workspaceIds: Array.isArray(scopes.workspaceIds) ? scopes.workspaceIds.map(String) : [],
+    projectIds: Array.isArray(scopes.projectIds) ? scopes.projectIds.map(String) : [],
+    teamIds: Array.isArray(scopes.teamIds) ? scopes.teamIds.map(String) : [],
+    allowedObjectTypes: Array.isArray(scopes.allowedObjectTypes) ? scopes.allowedObjectTypes.map(String) : [],
+    allowedPropertyIds: Array.isArray(scopes.allowedPropertyIds) ? scopes.allowedPropertyIds.map(String) : [],
+    rowPolicyIds: Array.isArray(scopes.rowPolicyIds) ? scopes.rowPolicyIds.map(String) : [],
+    sensitiveFieldPolicyIds: Array.isArray(scopes.sensitiveFieldPolicyIds) ? scopes.sensitiveFieldPolicyIds.map(String) : [],
+  };
+}
+
+function formatSemanticContext(name, payload) {
+  const metrics = payload?.summary?.metrics || {};
+  const metricLines = Object.entries(metrics).map(([metricId, value]) => `${metricId}: ${value}`);
+  const rows = Array.isArray(payload?.data) ? payload.data.length : 0;
+  return [
+    "# Main agent semantic tool result",
+    `Tool: ${name}`,
+    `Ontology: ${payload?.ontologyVersion || "unknown"} (${payload?.schemaFingerprint || "no fingerprint"})`,
+    `Source revision: ${payload?.sourceRevision?.revisionId || "unpinned"}`,
+    `Rows: ${rows}`,
+    ...metricLines,
+    `Completeness: ${payload?.quality?.completeness || "unknown"}`,
+    "Use only the returned governed metrics, scope, source revision, and quality metadata as factual evidence.",
+  ].join("\n");
+}
+
+async function executeSemanticQuery(toolCall, { analyticsFetch, analyticsApiBase, actor }) {
+  const args = parseToolArguments(toolCall?.function?.arguments);
+  const query = args.query;
+  const url = new URL("/api/semantic/query", analyticsApiBase).toString();
+  const body = {
+    schemaVersion: "1.0",
+    queryId: String(toolCall?.id || `semantic-${Date.now()}`),
+    ontologyVersion: query?.ontologyVersion,
+    schemaFingerprint: query?.schemaFingerprint,
+    query,
+    actorScope: buildActorScope(actor),
+  };
+  const response = await analyticsFetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response?.ok) {
+    let failure = {};
+    try {
+      failure = await response.json();
+    } catch {
+      failure = {};
+    }
+    const code = String(failure?.code || `SEMANTIC_API_HTTP_${response?.status || "UNKNOWN"}`);
+    throw Object.assign(new Error(code), {
+      code,
+      status: response?.status === 403 ? "denied" : "failed",
+      statusCode: response?.status || 502,
+      retryable: response?.status === 429 || Number(response?.status || 0) >= 500,
+    });
+  }
+  const payload = await response.json();
+  return {
+    toolMessage: buildToolMessage(toolCall, JSON.stringify({ ok: true, tool: toolCall.function.name, result: payload })),
+    contextText: formatSemanticContext(toolCall.function.name, payload),
   };
 }
 
@@ -797,6 +910,7 @@ export async function executeMainAgentToolCall(toolCall, {
   analyticsApiBase = DEFAULT_ANALYTICS_API_BASE,
   runDuplicateBridge,
   ensureDuplicateWarmup,
+  actor,
   now,
 } = {}) {
   const name = toolCall?.function?.name || "";
@@ -806,6 +920,9 @@ export async function executeMainAgentToolCall(toolCall, {
     }
     if (name === "resolve_business_terms") {
       return executeResolveBusinessTerms(toolCall);
+    }
+    if (SEMANTIC_TOOL_NAMES.has(name)) {
+      return await executeSemanticQuery(toolCall, { analyticsFetch, analyticsApiBase, actor });
     }
     if (name === "query_dashboard_summary") {
       return await executeDashboardSummary(toolCall, { analyticsFetch, analyticsApiBase });
@@ -831,6 +948,7 @@ export async function executeMainAgentToolCall(toolCall, {
       contextText: `# Main agent tool result\nTool: ${name || "unknown"}\nResult: Unsupported tool: ${name}`,
     };
   } catch (error) {
+    if (SEMANTIC_TOOL_NAMES.has(name)) throw error;
     const message = error instanceof Error ? error.message : String(error);
     const content = JSON.stringify({ error: message });
     return {

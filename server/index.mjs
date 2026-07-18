@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 import duplicateBridgeRuntime from "./duplicateBridgeRuntime.cjs";
@@ -8,10 +9,12 @@ import { resolveAiAnalyticsContext } from "./aiAnalyticsContext.mjs";
 import { resolveMainAgentToolContext, shouldPlanMainAgentTools } from "./mainAgentToolLoop.mjs";
 import { createDuplicateWarmupManager } from "./duplicateWarmup.mjs";
 import { extractLatestUserQuery, resolveAiDefectContext } from "./aiContext.mjs";
-import { streamCompanyChatCompletion, writeSseEvent } from "./companyChat.mjs";
+import { streamCompanyChatCompletion, writeSseEvent, writeSseResponse } from "./companyChat.mjs";
 import { attachDuplicateSummary } from "./duplicateResultEnrichment.mjs";
 import { loadLocalEnv } from "./loadLocalEnv.mjs";
 import { buildProductionDependencies, createAgentApp } from "./app.mjs";
+import { createShadowDispatcher } from "./agentRuntime/shadow.mjs";
+import { safeTelemetryErrorCode, safeTelemetryReference, summarizeSensitiveText } from "./agentRuntime/telemetry.mjs";
 import {
   defaultQGateReportsRoot,
   findLatestQGateDashboardReport,
@@ -32,10 +35,12 @@ const duplicateWarmupManager = createDuplicateWarmupManager({
   logger: console,
 });
 let agentRuntimeApp = null;
+let agentRuntimeDeps = null;
+let shadowDispatcher = null;
 let cleanupAgentRuntime = async () => undefined;
 
 try {
-  const agentRuntimeDeps = await buildProductionDependencies({
+  agentRuntimeDeps = await buildProductionDependencies({
     env: process.env,
     root: repoRoot,
     logger: console,
@@ -43,11 +48,12 @@ try {
     ensureDuplicateWarmup: () => duplicateWarmupManager.ensureWarm({ reason: "agent-runtime-search-duplicates" }),
   });
   agentRuntimeApp = createAgentApp(agentRuntimeDeps);
+  shadowDispatcher = createShadowDispatcher(agentRuntimeDeps);
+  agentRuntimeDeps.runtime.startBackgroundLoops();
   cleanupAgentRuntime = agentRuntimeDeps.cleanup || cleanupAgentRuntime;
   console.info(`[main-agent] runtime API enabled in ${agentRuntimeDeps.config.mode} mode`);
 } catch (error) {
-  const message = error instanceof Error ? error.message : String(error);
-  console.warn(`[main-agent] runtime API disabled: ${message}`);
+  console.warn(`[main-agent] runtime API disabled: ${safeTelemetryErrorCode(error, "AGENT_RUNTIME_UNAVAILABLE")}`);
 }
 
 function nowMs() {
@@ -63,11 +69,7 @@ function buildRequestId(prefix) {
 }
 
 function summarizeQuery(queryText) {
-  const normalized = String(queryText || "").replace(/\s+/g, " ").trim();
-  return {
-    length: normalized.length,
-    preview: normalized.slice(0, 80),
-  };
+  return summarizeSensitiveText(queryText);
 }
 
 function logMetric(event, payload) {
@@ -75,21 +77,114 @@ function logMetric(event, payload) {
 }
 
 function isAgentRuntimeRoute(url) {
-  return url.pathname === "/api/ai/models" || url.pathname.startsWith("/api/agent/");
+  return url.pathname === "/health" || url.pathname === "/api/ai/models" || url.pathname.startsWith("/api/agent/");
 }
 
-async function handleAiChatRequest(body, response) {
+const COMPATIBILITY_END_EVENTS = new Set(["run.completed", "run.failed", "run.cancelled", "clarification.required"]);
+
+async function waitForCompatibilityRun({ actor, runId, timeoutMs = 120000 }) {
+  const collected = [];
+  let afterSequence = 0;
+  const collect = () => {
+    const fresh = agentRuntimeDeps.eventStore.listAfter({ actor, runId, afterSequence });
+    if (fresh.length) {
+      collected.push(...fresh);
+      afterSequence = fresh.at(-1).sequence;
+    }
+    return fresh.find((event) => COMPATIBILITY_END_EVENTS.has(event.type));
+  };
+  const immediate = collect();
+  if (immediate) return { events: collected, endEvent: immediate };
+  return new Promise((resolve, reject) => {
+    const finish = (error, endEvent) => {
+      clearTimeout(timer);
+      agentRuntimeDeps.eventStore.notifier.off(runId, onEvents);
+      if (error) reject(error);
+      else resolve({ events: collected, endEvent });
+    };
+    const onEvents = () => {
+      try {
+        const endEvent = collect();
+        if (endEvent) finish(null, endEvent);
+      } catch (error) {
+        finish(error);
+      }
+    };
+    const timer = setTimeout(() => finish(Object.assign(new Error("LEGACY_COMPATIBILITY_TIMEOUT"), { code: "LEGACY_COMPATIBILITY_TIMEOUT" })), timeoutMs);
+    agentRuntimeDeps.eventStore.notifier.on(runId, onEvents);
+    onEvents();
+  });
+}
+
+async function runRuntimeCompatibility({ request, body, queryText, selectedModel }) {
+  if (!agentRuntimeDeps?.runtime) throw Object.assign(new Error("MAIN_AGENT_RUNTIME_UNAVAILABLE"), { code: "MAIN_AGENT_RUNTIME_UNAVAILABLE" });
+  const actor = await agentRuntimeDeps.identityResolver(request);
+  const started = await agentRuntimeDeps.runtime.startRun({
+    actor,
+    runtimeMode: "langgraph",
+    request: {
+      schemaVersion: "1.0",
+      messageId: buildRequestId("legacy-runtime-message"),
+      threadVersion: 0,
+      message: { role: "user", text: queryText, artifactRefs: [] },
+      selectedModel: selectedModel || agentRuntimeDeps.modelRegistry.defaultModelId,
+      useDefectContext: body?.useDefectContext === true,
+      useAnalyticsContext: true,
+      eventProtocolVersion: "1.0",
+    },
+  });
+  const observed = await waitForCompatibilityRun({ actor, runId: started.runId });
+  if (observed.endEvent.type === "clarification.required") {
+    return {
+      runId: started.runId,
+      events: observed.events,
+      interaction: observed.endEvent.payload,
+      answer: { text: observed.endEvent.payload.question, citations: [], groundingStatus: "insufficient_evidence" },
+    };
+  }
+  const run = agentRuntimeDeps.threadStore.getRun({ actor, runId: started.runId });
+  if (run.status !== "completed" || !run.answer) {
+    const code = run.error?.code || observed.endEvent.payload?.code || observed.endEvent.payload?.reasonCode || "MAIN_AGENT_RUNTIME_FAILED";
+    throw Object.assign(new Error(code), { code });
+  }
+  return { runId: started.runId, events: observed.events, answer: run.answer };
+}
+
+async function handleAiChatRequest(body, response, request) {
   const startedAt = nowMs();
   const requestId = buildRequestId("ai-chat");
   const queryText = extractLatestUserQuery(body?.messages);
   const useDefectContext = body?.useDefectContext === true;
   const useAnalyticsContext = body?.useAnalyticsContext === true;
+  if (useAnalyticsContext && !agentRuntimeDeps?.identityResolver) {
+    throw Object.assign(new Error("MAIN_AGENT_RUNTIME_UNAVAILABLE"), { code: "MAIN_AGENT_RUNTIME_UNAVAILABLE" });
+  }
+  const analyticsActor = useAnalyticsContext ? await agentRuntimeDeps.identityResolver(request) : null;
   const analyticsContext = useAnalyticsContext
-    ? await resolveAiAnalyticsContext({ messages: body?.messages })
+    ? await resolveAiAnalyticsContext({ messages: body?.messages, actor: analyticsActor, ontologyRegistry: agentRuntimeDeps.ontologyRegistry })
     : null;
   let aiContext = null;
   let mainAgentToolContext = null;
   let streamMetrics = null;
+  const shadowDispatch = shadowDispatcher
+    ? shadowDispatcher.dispatch({
+        request,
+        correlationId: requestId,
+        queryText: analyticsContext?.shadowQueryText || queryText,
+        selectedModel: body?.model,
+        useDefectContext,
+        useAnalyticsContext,
+      }).catch((error) => {
+        console.warn("[main-agent] shadow dispatch failed", safeTelemetryErrorCode(error, "SHADOW_DISPATCH_FAILED"));
+        return null;
+      })
+    : Promise.resolve(null);
+
+  const recordShadowLegacyOutcome = (status, code = null) => {
+    void shadowDispatch.then((shadow) => {
+      shadowDispatcher?.recordLegacyOutcome({ shadow, status, metrics: streamMetrics || {}, code });
+    }).catch(() => undefined);
+  };
 
   try {
     if (useDefectContext && !analyticsContext?.skipDefectContext) {
@@ -107,7 +202,7 @@ async function handleAiChatRequest(body, response) {
     }
 
     const baseContext = [body?.context, analyticsContext?.contextText, aiContext?.contextText].filter(Boolean).join("\n\n");
-    if (useAnalyticsContext && !analyticsContext?.skipDefectContext && shouldPlanMainAgentTools(body?.messages)) {
+    if (useAnalyticsContext && !analyticsContext?.skipDefectContext && shouldPlanMainAgentTools(body?.messages) && agentRuntimeDeps?.config?.mode !== "shadow") {
       writeSseEvent(response, {
         type: "status",
         message: "正在判断是否需要调用 dashboard 工具…",
@@ -117,10 +212,7 @@ async function handleAiChatRequest(body, response) {
           messages: body?.messages,
           model: body?.model,
           context: baseContext,
-          toolDependencies: {
-            runDuplicateBridge,
-            ensureDuplicateWarmup: () => duplicateWarmupManager.ensureWarm({ reason: "main-agent-tool-search-duplicates" }),
-          },
+          runAgent: ({ queryText: compatibilityQuery, selectedModel }) => runRuntimeCompatibility({ request, body, queryText: compatibilityQuery, selectedModel }),
         });
         if (mainAgentToolContext.toolCalls.length) {
           writeSseEvent(response, {
@@ -129,12 +221,42 @@ async function handleAiChatRequest(body, response) {
           });
         }
       } catch (error) {
-        console.warn("[ai-chat] main agent tool planning failed", error);
+        console.warn("[ai-chat] main agent tool planning failed", safeTelemetryErrorCode(error, "MAIN_AGENT_RUNTIME_FAILED"));
         writeSseEvent(response, {
           type: "status",
           message: "dashboard 工具暂不可用，改用已检索上下文回答…",
         });
       }
+    }
+
+    if (mainAgentToolContext?.answer) {
+      for (const event of mainAgentToolContext.toolEvents || []) writeSseEvent(response, event);
+      const citations = mainAgentToolContext.answer.citations || [];
+      const citationText = citations.length
+        ? `\n\n${citations.map((citation) => `<cite source="${citation.citationId}">${citation.label}</cite>`).join(" ")}`
+        : "";
+      const answerText = `${mainAgentToolContext.answer.text}${citationText}`;
+      writeSseResponse(response, answerText);
+      streamMetrics = {
+        model: body?.model || agentRuntimeDeps.modelRegistry.defaultModelId,
+        status: 200,
+        streamTotalMs: roundMs(nowMs() - startedAt),
+        answerContentHash: createHash("sha256").update(answerText).digest("hex"),
+        answerCharacterCount: [...answerText].length,
+      };
+      recordShadowLegacyOutcome("completed");
+      logMetric("ai_chat_request", {
+        requestId,
+        model: String(body?.model || ""),
+        query: summarizeQuery(queryText),
+        aiContextEnabled: useDefectContext,
+        analyticsContextEnabled: useAnalyticsContext,
+        mainAgentToolCallCount: mainAgentToolContext.toolCalls.length,
+        runtimeCompatibilityRunRef: safeTelemetryReference(mainAgentToolContext.runId),
+        streamMetrics,
+        totalMs: roundMs(nowMs() - startedAt),
+      });
+      return;
     }
 
     const mergedContext = [baseContext, mainAgentToolContext?.contextText].filter(Boolean).join("\n\n");
@@ -161,9 +283,10 @@ async function handleAiChatRequest(body, response) {
           : []),
       ],
       onMetrics: (metrics) => {
-        streamMetrics = metrics;
+        streamMetrics = { ...metrics, ...(analyticsContext?.shadowObservation || {}) };
       },
     });
+    recordShadowLegacyOutcome("completed");
 
     logMetric("ai_chat_request", {
       requestId,
@@ -177,7 +300,9 @@ async function handleAiChatRequest(body, response) {
       totalMs: roundMs(nowMs() - startedAt),
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown server error";
+    const errorCode = safeTelemetryErrorCode(error, "LEGACY_CHAT_FAILED");
+    const message = errorCode;
+    recordShadowLegacyOutcome("failed", errorCode);
     logMetric("ai_chat_request_failed", {
       requestId,
       model: String(body?.model || ""),
@@ -188,7 +313,7 @@ async function handleAiChatRequest(body, response) {
       aiContextTimings: aiContext?.timings || null,
       streamMetrics,
       totalMs: roundMs(nowMs() - startedAt),
-      error: message,
+      errorCode,
     });
     if (response.headersSent) {
       if (!response.writableEnded) {
@@ -198,7 +323,7 @@ async function handleAiChatRequest(body, response) {
       }
       return;
     }
-    throw error;
+    throw Object.assign(new Error(errorCode), { code: errorCode });
   }
 }
 
@@ -354,7 +479,7 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === "POST" && url.pathname === "/api/ai/chat") {
       const body = await readJsonBody(request);
-      await handleAiChatRequest(body, response);
+      await handleAiChatRequest(body, response, request);
       return;
     }
 
@@ -367,7 +492,7 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === "POST" && url.pathname === "/api/chat") {
       const body = await readJsonBody(request);
-      await handleAiChatRequest(body, response);
+      await handleAiChatRequest(body, response, request);
       return;
     }
 
@@ -452,7 +577,7 @@ server.listen(port, () => {
 
 async function shutdown() {
   stopDuplicateBridgeRuntime();
-  await cleanupAgentRuntime().catch((error) => console.warn("[main-agent] runtime cleanup failed", error));
+  await cleanupAgentRuntime().catch((error) => console.warn("[main-agent] runtime cleanup failed", safeTelemetryErrorCode(error, "AGENT_RUNTIME_CLEANUP_FAILED")));
   server.close(() => process.exit(0));
 }
 

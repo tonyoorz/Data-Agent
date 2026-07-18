@@ -1,0 +1,43 @@
+{
+  "$id": "https://vizion-lab.local/ontology/schema/policies.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["schemaVersion", "ontologyVersion", "policies"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "ontologyVersion": { "const": "v1" },
+    "policies": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "version", "kind", "rules", "allowedOperations", "governance"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]+$" },
+          "version": { "type": "string", "minLength": 1 },
+          "kind": { "enum": ["mandatory_scope", "capability", "redaction"] },
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["scopeKey", "entityId", "dimensionId", "intents"],
+              "additionalProperties": false,
+              "properties": {
+                "scopeKey": { "enum": ["workspaceIds", "teamIds", "projectIds"] },
+                "entityId": { "type": "string", "minLength": 1 },
+                "dimensionId": { "type": "string", "minLength": 1 },
+                "intents": { "type": "array", "items": { "enum": ["aggregate", "trend", "compare", "rank", "list", "drilldown", "trace", "similarity"] }, "uniqueItems": true },
+                "normalizer": { "enum": ["identity", "dtsv_team"] }
+              }
+            }
+          },
+          "allowedOperations": { "type": "array", "items": { "enum": ["semantic_metric_query", "semantic_record_query", "traceability_query", "similarity_search"] }, "uniqueItems": true },
+          "sensitivityLevels": { "type": "array", "items": { "enum": ["public", "internal", "confidential", "restricted"] }, "uniqueItems": true },
+          "governance": { "$ref": "common.schema.json#/$defs/governance" }
+        }
+      }
+    }
+  }
+}

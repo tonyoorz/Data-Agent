@@ -136,8 +136,8 @@ describe("InternalModelAdapter", () => {
     const encoder = new TextEncoder();
     const chunks = [
       'data: {"choices":[{"delta":{"content":"你',
-      '好","tool_calls":[{"index":0,"id":"call-1","type":"function","function":{"name":"query_dashboard_summary","arguments":"{\\\"filters"}}]},"finish_reason":null}],"usage":{"prompt_tokens":3,"completion_tokens":1}}\n\n',
-      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\\\":{}}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":3,"completion_tokens":2}}\n\n',
+      '好","tool_calls":[{"index":0,"id":"call-1","type":"function","function":{"name":"query_dashboard_summary","arguments":"{\\"filters"}}]},"finish_reason":null}],"usage":{"prompt_tokens":3,"completion_tokens":1}}\n\n',
+      'data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\\":{}}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":3,"completion_tokens":2}}\n\n',
       'data: [DONE]\n\n',
     ];
     const fetchImpl = vi.fn().mockResolvedValue(new Response(new ReadableStream({

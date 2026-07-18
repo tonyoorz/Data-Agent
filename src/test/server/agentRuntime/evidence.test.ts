@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   createAnswerEnvelope,
+  createClaimsFromEvidence,
   createLegacyEvidence,
+  createSemanticEvidence,
   renderDeterministicFallback,
   validateLegacyClaims,
   validateRenderedAnswer,
 } from "../../../../server/agentRuntime/evidence.mjs";
+import { createOntologyRegistry } from "../../../../server/ontology/registry.mjs";
 
 const actor = { actorId: "alice", scopeHash: "scope-a" };
 
@@ -32,6 +35,127 @@ const duplicateEvidence = createLegacyEvidence({
 });
 
 describe("legacy-v0 evidence", () => {
+  it("creates grouped comparison claims instead of collapsing groups into one total", () => {
+    const ontologyRegistry = createOntologyRegistry();
+    const query = {
+      schemaVersion: "1.0",
+      ontologyVersion: ontologyRegistry.version,
+      schemaFingerprint: ontologyRegistry.fingerprint,
+      intent: "compare",
+      entityIds: ["quality.defect"],
+      metricIds: ["defect.count"],
+      dimensionIds: ["product.os"],
+      filters: [{ dimensionId: "product.os", operator: "in", values: ["OS8", "OS9"], source: "user" }],
+      timeScopes: [],
+      comparison: { kind: "dimension_values", dimensionId: "product.os", groups: ["OS8", "OS9"] },
+      sort: [],
+      limit: 20,
+    };
+    const payload = {
+      schemaVersion: "1.0",
+      queryId: "attempt-compare",
+      ontologyVersion: ontologyRegistry.version,
+      schemaFingerprint: ontologyRegistry.fingerprint,
+      sourceRevision: { sourceId: "analytics.fixture", revisionId: "snapshot-compare", status: "pinned", asOf: "2026-07-14T00:00:00.000Z", ingestionWatermark: "snapshot-compare" },
+      scope: { actorScopeHash: actor.scopeHash, filters: query.filters, timeScopes: [], grain: ["one defect"] },
+      data: [{ "product.os": "OS9", "defect.count": 2 }, { "product.os": "OS8", "defect.count": 1 }],
+      summary: { metrics: { "defect.count": 3 }, rowCount: 3 },
+      quality: { completeness: "complete", missingness: "not_applicable", truncated: false, warnings: [] },
+    };
+    const evidence = createSemanticEvidence({
+      evidenceId: "ev-compare",
+      actor,
+      attemptId: "attempt-compare",
+      toolName: "query_semantic_metrics",
+      toolVersion: "ontology-semantic-v1",
+      canonicalArgs: { query },
+      rawResult: { toolMessage: { content: JSON.stringify({ ok: true, result: payload }) }, contextText: JSON.stringify(payload) },
+      retrievedAt: "2026-07-14T00:00:00.000Z",
+      ontologyRegistry,
+    });
+    const claims = createClaimsFromEvidence({ evidence: [evidence], ontologyRegistry });
+
+    expect(claims).toHaveLength(3);
+    expect(claims).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "comparison", metricId: "defect.count", value: 2, dimensions: { "product.os": "OS9" }, evidenceIds: ["ev-compare"] }),
+      expect.objectContaining({ type: "comparison", metricId: "defect.count", value: 1, dimensions: { "product.os": "OS8" }, evidenceIds: ["ev-compare"] }),
+      expect.objectContaining({
+        type: "derived",
+        metricId: "defect.count",
+        value: 1,
+        derivation: expect.objectContaining({ formula: "sum(comparison)-sum(baseline)", inputClaimIds: expect.any(Array) }),
+      }),
+    ]));
+    expect(validateLegacyClaims({ actor, claims, evidence: [evidence] }).acceptedClaimIds).toHaveLength(3);
+
+    const tamperedClaims = claims.map((claim) => claim.type === "derived" ? { ...claim, value: 99, fact: { ...claim.fact, value: 99 } } : claim);
+    expect(validateLegacyClaims({ actor, claims: tamperedClaims, evidence: [evidence] }).rejected).toContainEqual(expect.objectContaining({ reason: "DERIVATION_MISMATCH" }));
+
+    const crossGroupTamper = claims.map((claim) => claim.dimensions?.["product.os"] === "OS9"
+      ? { ...claim, value: 1, text: claim.text.replace("为 2", "为 1"), fact: { ...claim.fact, value: 1 } }
+      : claim);
+    expect(validateLegacyClaims({ actor, claims: crossGroupTamper, evidence: [evidence] }).rejected).toContainEqual(expect.objectContaining({ reason: "EVIDENCE_VALUE_MISMATCH" }));
+
+    const mismatchedPayload = { ...payload, scope: { ...payload.scope, filters: [] } };
+    expect(() => createSemanticEvidence({
+      evidenceId: "ev-mismatch",
+      actor,
+      attemptId: "attempt-compare",
+      toolName: "query_semantic_metrics",
+      toolVersion: "ontology-semantic-v1",
+      canonicalArgs: { query },
+      rawResult: { toolMessage: { content: JSON.stringify({ ok: true, result: mismatchedPayload }) }, contextText: JSON.stringify(mismatchedPayload) },
+      retrievedAt: "2026-07-14T00:00:00.000Z",
+      ontologyRegistry,
+    })).toThrow("SEMANTIC_EVIDENCE_SCOPE_MISMATCH");
+
+    const missingDimensionPayload = { ...payload, data: [{ "defect.count": 3 }] };
+    expect(() => createSemanticEvidence({
+      evidenceId: "ev-dimension-mismatch",
+      actor,
+      attemptId: "attempt-compare",
+      toolName: "query_semantic_metrics",
+      toolVersion: "ontology-semantic-v1",
+      canonicalArgs: { query },
+      rawResult: { toolMessage: { content: JSON.stringify({ ok: true, result: missingDimensionPayload }) }, contextText: JSON.stringify(missingDimensionPayload) },
+      retrievedAt: "2026-07-14T00:00:00.000Z",
+      ontologyRegistry,
+    })).toThrow("SEMANTIC_EVIDENCE_DIMENSION_MISMATCH");
+
+    const wrongGroupPayload = { ...payload, data: [{ "product.os": "OS8", "defect.count": 3 }, { "product.os": "OS7", "defect.count": 1 }] };
+    expect(() => createSemanticEvidence({
+      evidenceId: "ev-comparison-mismatch",
+      actor,
+      attemptId: "attempt-compare",
+      toolName: "query_semantic_metrics",
+      toolVersion: "ontology-semantic-v1",
+      canonicalArgs: { query },
+      rawResult: { toolMessage: { content: JSON.stringify({ ok: true, result: wrongGroupPayload }) }, contextText: JSON.stringify(wrongGroupPayload) },
+      retrievedAt: "2026-07-14T00:00:00.000Z",
+      ontologyRegistry,
+    })).toThrow("SEMANTIC_EVIDENCE_COMPARISON_MISMATCH");
+
+    const untracedFilters = [{ dimensionId: "testing.trace_status", operator: "in", values: ["Untraced"], source: "user" }];
+    const untracedEvidence = {
+      ...evidence,
+      evidenceId: "ev-untraced",
+      evidenceType: "relationship",
+      scope: { ...evidence.scope, intent: "trace", filters: { items: untracedFilters }, dimensionIds: [] },
+      preview: {
+        payload: {
+          ...payload,
+          scope: { ...payload.scope, filters: untracedFilters },
+          data: [{ test_id: "TC-1" }],
+          summary: { metrics: {}, rowCount: 1 },
+        },
+      },
+    };
+    const [untracedClaim] = createClaimsFromEvidence({ evidence: [untracedEvidence], ontologyRegistry });
+    expect(untracedClaim).toMatchObject({ fact: { predicateId: "traceability.untraced_testcases", value: 1 } });
+    expect(untracedClaim.text).toContain("1 个未关联 Requirement 的 TestCase");
+    expect(validateLegacyClaims({ actor, claims: [untracedClaim], evidence: [untracedEvidence] }).status).toBe("valid");
+  });
+
   it("never upgrades provisional results to grounded and hashes content deterministically", () => {
     expect(analyticsEvidence).toMatchObject({
       schemaVersion: "1.0",
@@ -70,7 +194,7 @@ describe("legacy-v0 evidence", () => {
     expect(() => validateRenderedAnswer({ text: "2026 年共有 12 个缺陷，示例 ID 为 9999999。", acceptedClaims, evidence: [analyticsEvidence] })).toThrow(/UNSUPPORTED_RENDERED_TOKEN/);
     expect(renderDeterministicFallback({ acceptedClaims, limitations: ["数据来源为 Phase 1 legacy equivalence。"] })).toContain("2026 年共有 12 个缺陷");
     const answer = createAnswerEnvelope({ answerId: "answer-1", text: "2026 年共有 12 个缺陷。", acceptedClaims, citations: [], assumptions: [], limitations: [], groundingStatus: "grounded", sourceRevisionSet: {} });
-    expect(answer.groundingStatus).toBe("legacy_equivalence");
+    expect(answer.groundingStatus).toBe("grounded");
     expect(answer.contentHash).toHaveLength(64);
     expect(renderDeterministicFallback({ acceptedClaims: undefined, limitations: [] })).toBe("");
     expect(createAnswerEnvelope({ answerId: "answer-2", text: "没有足够证据。", groundingStatus: "insufficient_evidence", sourceRevisionSet: {} }).acceptedClaimIds).toEqual([]);

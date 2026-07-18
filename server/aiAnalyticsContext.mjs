@@ -1,4 +1,8 @@
 import { extractLatestUserQuery } from "./aiContext.mjs";
+import { buildShadowSemanticObservation } from "./agentRuntime/shadow.mjs";
+import { safeTelemetryErrorCode } from "./agentRuntime/telemetry.mjs";
+import { createQueryPlanner } from "./ontology/queryPlanner.mjs";
+import { createSemanticResolver } from "./ontology/resolver.mjs";
 
 const ANALYTICS_API_BASE = process.env.VIZION_ANALYTICS_API_BASE || "http://127.0.0.1:3003";
 
@@ -108,7 +112,7 @@ function detectMonthWindow(queryText, now) {
   };
 }
 
-function detectOpenedDtsvMetric(queryText, now) {
+function detectOpenedDtsvMetric(queryText, now, semanticFrame) {
   const text = String(queryText || "");
   if (!/DTSV/i.test(text)) {
     return null;
@@ -131,12 +135,37 @@ function detectOpenedDtsvMetric(queryText, now) {
     creation_time_start: window.start,
     creation_time_end: window.end,
   });
+  for (const filter of semanticFrame?.filters || []) {
+    if (!Array.isArray(filter.values) || !filter.values.length) continue;
+    if (filter.dimensionId === "org.problem_finder_team") searchParams.set("problem_finder_teams", filter.values.join(","));
+    if (filter.dimensionId === "product.project") searchParams.set("projects", filter.values.join(","));
+  }
 
   return {
     ...window,
     team: "DTSV_China",
     url: `${ANALYTICS_API_BASE}/api/full-picture/dashboard/summary?${searchParams.toString()}`,
   };
+}
+
+function governedContext(frame, plan, registry) {
+  const metrics = (frame.metricIds || []).map((metricId) => {
+    const metric = registry.getMetric(metricId);
+    return `${metric.id}@${metric.definitionVersion} [${metric.governance.status}] ${metric.labels?.["zh-CN"] || metric.id}`;
+  });
+  const scope = (frame.filters || []).map((filter) => `${filter.source}:${filter.dimensionId}:${filter.operator}:${(filter.values || []).join("|")}`);
+  const times = (frame.timeScopes || []).map((time) => `${time.role}:${time.fieldId}:${time.start}..${time.end}:${time.timezone}`);
+  return [
+    "# Governed Ontology interpretation",
+    `Intent: ${frame.intent}`,
+    `Metrics: ${metrics.join(", ") || "none"}`,
+    `Dimensions: ${(frame.dimensionIds || []).join(", ") || "none"}`,
+    `Authorized filters: ${scope.join("; ") || "none"}`,
+    `Time scopes: ${times.join("; ") || "none"}`,
+    `Plan status: ${plan.status}`,
+    `Approved tools: ${(plan.steps || []).map((step) => step.toolName).join(", ") || "none"}`,
+    "This interpretation is authoritative. Do not redefine metrics, remove policy filters, or infer unavailable values.",
+  ].join("\n");
 }
 
 async function resolveDetectedMetricContext(metric, analyticsFetch) {
@@ -176,32 +205,51 @@ async function resolveDetectedMetricContext(metric, analyticsFetch) {
       "Do not invent modules such as ai-chat, user-auth, payment, or data-pipeline.",
     ].filter(Boolean).join("\n");
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const code = safeTelemetryErrorCode(error, "ANALYTICS_QUERY_FAILED");
     return [
       "# Resolved analytics query",
       `Intent: count defects opened/created by DTSV in ${metric.year}-${pad2(metric.month)}.`,
       "DTSV maps to problem_finder_team=DTSV_China.",
       "opened/created means octane_defects.creation_time.",
       `Source query: GET ${metric.url}`,
-      `Result: unavailable because the analytics summary query failed: ${message}`,
+      `Result: unavailable because the analytics summary query failed: ${code}`,
       "Do not invent modules such as ai-chat, user-auth, payment, or data-pipeline.",
     ].join("\n");
   }
 }
 
-export async function resolveAiAnalyticsContext({ messages, analyticsFetch = globalThis.fetch, now = new Date() }) {
+export async function resolveAiAnalyticsContext({ messages, analyticsFetch = globalThis.fetch, now = new Date(), actor, ontologyRegistry }) {
   const queryText = extractLatestUserQuery(messages);
   if (!queryText) {
     return { queryText: "", contextText: "" };
   }
 
   const recentUserText = extractRecentUserText(messages);
-  const detectedMetric = detectOpenedDtsvMetric(recentUserText, now);
+  let semanticFrame;
+  let semanticPlan;
+  let semanticContext = "";
+  let shadowObservation = {};
+  let governanceFailed = false;
+  if (actor && ontologyRegistry) {
+    try {
+      const resolver = createSemanticResolver({ registry: ontologyRegistry, now: () => now.toISOString() });
+      semanticFrame = resolver.resolve({ query: recentUserText || queryText, actor, requestAnchorAt: now.toISOString() });
+      semanticPlan = createQueryPlanner({ registry: ontologyRegistry }).createPlan({ frame: semanticFrame, actor, query: recentUserText || queryText });
+      semanticContext = governedContext(semanticFrame, semanticPlan, ontologyRegistry);
+      shadowObservation = buildShadowSemanticObservation({ semanticFrame, plan: semanticPlan });
+    } catch (error) {
+      governanceFailed = true;
+      semanticContext = `# Governed Ontology interpretation\nStatus: ${safeTelemetryErrorCode(error, "SEMANTIC_CONTEXT_UNAVAILABLE")}\nDo not answer analytics questions without governed evidence.`;
+    }
+  }
+  const detectedMetric = governanceFailed ? null : detectOpenedDtsvMetric(recentUserText, now, semanticFrame);
   const detectedMetricContext = await resolveDetectedMetricContext(detectedMetric, analyticsFetch);
 
   return {
     queryText,
-    contextText: [ANALYTICS_CONTEXT, detectedMetricContext].filter(Boolean).join("\n\n"),
+    contextText: [ANALYTICS_CONTEXT, semanticContext, detectedMetricContext].filter(Boolean).join("\n\n"),
     skipDefectContext: Boolean(detectedMetric),
+    shadowObservation,
+    shadowQueryText: recentUserText || queryText,
   };
 }

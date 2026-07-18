@@ -137,6 +137,8 @@ export function createEventStore({ db, contracts, now, randomUUID, authorizeRun 
       offset += Buffer.byteLength(text, "utf8");
       return event;
     });
+    const { text: _text, schemaVersion: _schemaVersion, ...answerMetadata } = input.answer;
+    eventInputs.push({ type: "answer.completed", payload: answerMetadata });
     eventInputs.push({ type: "run.completed", payload: { answerId: input.answer.answerId, threadVersion: nextThreadVersion, durationMs: input.durationMs } });
     return insertEvents(db, { contracts, now: txTime, randomUUID, run: updated, stateVersion: updated.state_version, leaseEpoch: updated.lease_epoch, eventInputs });
   });
@@ -180,7 +182,7 @@ export function mapEventToLegacy(event, { resolveToolName } = {}) {
   if (event.type === "answer.delta") return { choices: [{ delta: { content: event.payload.text } }] };
   if (event.type === "run.failed") return { type: "error", message: event.payload.safeMessage };
   if (event.type === "run.cancelled") return { type: "error", message: "Request cancelled" };
-  if (["run.started", "input.prepared", "intent.resolved", "ontology.resolved", "clarification.required", "plan.updated", "plan.validated", "evidence.added", "claims.validated", "run.resumed", "interaction.expired"].includes(event.type)) return { type: "status", message: event.type };
+  if (["run.started", "input.prepared", "intent.resolved", "ontology.resolved", "clarification.required", "plan.updated", "plan.validated", "evidence.added", "claims.validated", "answer.completed", "run.resumed", "interaction.expired"].includes(event.type)) return { type: "status", message: event.type };
   return null;
 }
 

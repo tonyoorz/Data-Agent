@@ -33,4 +33,13 @@ describe("Phase 1 Runtime config", () => {
     expect(() => createRuntimeConfig({ MAIN_AGENT_IDENTITY_MODE: "cookie" })).toThrow(/INVALID_MAIN_AGENT_IDENTITY_MODE/);
     expect(() => createRuntimeConfig({ MAIN_AGENT_JSON_BODY_MAX_BYTES: "0" })).toThrow(/INVALID_MAIN_AGENT_JSON_BODY_MAX_BYTES/);
   });
+
+  it("returns a stable server-authoritative canary decision", () => {
+    const config = createRuntimeConfig({ MAIN_AGENT_RUNTIME_MODE: "canary", MAIN_AGENT_CANARY_PERCENTAGE: "10", MAIN_AGENT_CANARY_ACTOR_ALLOWLIST: "always-v2" });
+
+    expect(config.resolveRuntimeDecision("always-v2")).toEqual({ runtimeMode: "langgraph", agentApiEnabled: true, serverControlled: true });
+    expect(config.resolveRuntimeDecision("actor-42")).toEqual(config.resolveRuntimeDecision("actor-42"));
+    expect(config.resolveRuntimeDecision("actor-42").agentApiEnabled).toBe(config.resolveRuntimeMode("actor-42") === "langgraph");
+    expect(createRuntimeConfig({ MAIN_AGENT_RUNTIME_MODE: "canary", MAIN_AGENT_CANARY_PERCENTAGE: "0" }).resolveRuntimeDecision("actor-42")).toEqual({ runtimeMode: "legacy", agentApiEnabled: false, serverControlled: true });
+  });
 });

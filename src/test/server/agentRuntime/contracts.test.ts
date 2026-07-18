@@ -48,7 +48,7 @@ describe("Agent Runtime contracts", () => {
 
   it("accepts the versioned run contract and rejects unknown input", () => {
     expect(EVENT_PROTOCOL_VERSION).toBe("1.0");
-    expect(GRAPH_DEFINITION_VERSION).toBe("main-agent-v1");
+    expect(GRAPH_DEFINITION_VERSION).toBe("main-agent-v2");
     expect(contracts.validateRunRequest(validRun)).toBe(validRun);
     expect(() => contracts.validateRunRequest({ ...validRun, useAnalyticsContext: undefined })).toThrow(/useAnalyticsContext/);
     expect(() => contracts.validateRunRequest({ ...validRun, actorId: "alice" })).toThrow(/actorId|additionalProperties/);
@@ -78,9 +78,34 @@ describe("Agent Runtime contracts", () => {
       type: "answer.delta",
       payload: { answerId: "a1", contentHash: "hash", offset: 0, text: "ok", reasoning: "private" },
     })).toThrow(/reasoning|additionalProperties/);
+    expect(contracts.validateAgentEvent({
+      ...validEvent,
+      type: "model.completed",
+      payload: { modelId: "deepseek-v4-flash", purpose: "planning", finishReason: "stop", inputTokens: 10, outputTokens: 5 },
+    }).payload.outputTokens).toBe(5);
+    expect(() => contracts.validateAgentEvent({
+      ...validEvent,
+      type: "model.completed",
+      payload: { modelId: "deepseek-v4-flash", purpose: "planning", finishReason: "stop", inputTokens: 10, outputTokens: 5, text: "private candidate" },
+    })).toThrow(/text|additionalProperties/);
+    const answerCompleted = contracts.validateAgentEvent({
+      ...validEvent,
+      type: "answer.completed",
+      payload: { answerId: "a1", contentHash: "hash", acceptedClaimIds: ["c1"], citations: [{ citationId: "cite-1", label: "defect.count@1 · analytics", claimIds: ["c1"], evidenceIds: ["ev-1"] }], assumptions: [], limitations: [], groundingStatus: "grounded", sourceRevisionSet: { "ev-1": { sourceId: "analytics", status: "pinned", revisionId: "r1" } } },
+    });
+    expect(answerCompleted.payload.citations[0].claimIds).toEqual(["c1"]);
+    expect(() => contracts.validateAgentEvent({ ...answerCompleted, payload: { ...answerCompleted.payload, text: "must not be duplicated" } })).toThrow(/text|additionalProperties/);
+    expect(contracts.validateAgentEvent({
+      ...validEvent,
+      type: "clarification.required",
+      payload: { interactionId: "i1", threadVersion: 2, question: "请明确口径", options: ["补充其他明确口径", "取消本次查询"], responseSchemaRef: "interaction:i1:response", expiresAt: "2026-07-14T00:10:00.000Z" },
+    }).payload.options).toEqual(["补充其他明确口径", "取消本次查询"]);
   });
 
-  it("validates resume, cancel, fork and thread patch requests strictly", () => {
+  it("validates create, resume, cancel, fork and thread patch requests strictly", () => {
+    expect(contracts.validateCreateThread({ schemaVersion: "1.0", title: "新对话" }).title).toBe("新对话");
+    expect(contracts.validateCreateThread({ schemaVersion: "1.0" })).toEqual({ schemaVersion: "1.0" });
+    expect(() => contracts.validateCreateThread({ schemaVersion: "1.0", actorId: "alice" })).toThrow(/actorId|additionalProperties/);
     expect(contracts.validateResumeRequest({ schemaVersion: "1.0", interactionId: "i1", threadVersion: 2, value: { answer: "SP25" } }).value.answer).toBe("SP25");
     expect(() => contracts.validateResumeRequest({ schemaVersion: "1.0", interactionId: "i1", threadVersion: 2, value: null, actorId: "alice" })).toThrow(/actorId|additionalProperties/);
     expect(contracts.validateCancelRequest({ schemaVersion: "1.0", threadVersion: 2, reasonCode: "user_stop" }).reasonCode).toBe("user_stop");

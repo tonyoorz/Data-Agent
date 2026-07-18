@@ -36,7 +36,7 @@ export function corsHeaders(origin, { allowedOrigins = [] }) {
     "Access-Control-Allow-Credentials": "true",
     "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Agent-Protocol, X-Agent-Thread-ID, X-Artifact-File-Name, Last-Event-ID",
     "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS",
-    "Access-Control-Expose-Headers": "X-Agent-Protocol, X-Agent-Run-ID, X-Agent-Thread-ID",
+    "Access-Control-Expose-Headers": "X-Agent-Protocol, X-Agent-Run-ID, X-Agent-Thread-ID, X-Agent-Runtime-Mode, X-Agent-API-Enabled, X-Agent-Server-Controlled",
     Vary: "Origin",
   };
 }
@@ -82,7 +82,8 @@ export function writeHttpError(response, request, config, error) {
     effectiveError = corsError;
   }
   const statusCode = Number(effectiveError?.statusCode || 500);
-  const code = String(effectiveError?.code || "INTERNAL_ERROR");
+  const rawCode = String(effectiveError?.code || "");
+  const code = /^[A-Z][A-Z0-9_:-]{2,79}$/.test(rawCode) ? rawCode : statusCode >= 500 ? "INTERNAL_ERROR" : "INVALID_REQUEST";
   const safeMessage = statusCode >= 500 ? "Agent service is temporarily unavailable." : String(effectiveError?.safeMessage || code);
   response.writeHead(statusCode, {
     "content-type": "application/json; charset=utf-8",

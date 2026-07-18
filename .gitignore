@@ -26,6 +26,7 @@ backend/database/octane_data.db
 backend/database/*.sqlite
 backend/cache/
 __pycache__/
+.venv/
 .octane-browser-profile/
 .understand-anything/
 graphify-out/

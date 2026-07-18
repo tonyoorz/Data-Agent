@@ -72,9 +72,13 @@ describe("Agent event outbox", () => {
       answer: { schemaVersion: "1.0", answerId: "answer-1", text: "中文A", contentHash: "hash", acceptedClaimIds: [], citations: [], assumptions: [], limitations: [], groundingStatus: "legacy_equivalence", sourceRevisionSet: {} },
     });
     expect(terminal.type).toBe("run.completed");
-    const chunks = events.listAfter({ runId: run.runId, actor }).filter((event) => event.type === "answer.delta");
+    const persisted = events.listAfter({ runId: run.runId, actor });
+    const chunks = persisted.filter((event) => event.type === "answer.delta");
     expect(chunks.map((event) => event.payload.offset)).toEqual([0, 3, 6]);
     expect(Buffer.byteLength(chunks.map((item) => item.payload.text).join(""), "utf8")).toBe(7);
+    expect(persisted.slice(-2).map((event) => event.type)).toEqual(["answer.completed", "run.completed"]);
+    expect(persisted.at(-2)?.payload).toMatchObject({ answerId: "answer-1", contentHash: "hash", groundingStatus: "legacy_equivalence", citations: [] });
+    expect(persisted.at(-2)?.payload).not.toHaveProperty("text");
     expect(store.listMessages({ actor, threadId: run.threadId }).at(-1)).toMatchObject({ messageId: "assistant-1", role: "assistant" });
     expect(() => events.appendAnswer({ actor, runId: run.runId, expectedStateVersion: 1, leaseEpoch: run.leaseEpoch, assistantMessageId: "assistant-1", threadVersion: 0, durationMs: -1, maxChunkCharacters: 1, answer: { schemaVersion: "1.0", answerId: "answer-1", text: "中文A", contentHash: "hash", acceptedClaimIds: [], citations: [], assumptions: [], limitations: [], groundingStatus: "legacy_equivalence", sourceRevisionSet: {} } })).toThrow(/INVALID_RUN_DURATION|THREAD_VERSION_CONFLICT/);
     expect(events.appendAnswer({ actor, runId: run.runId, expectedStateVersion: 1, leaseEpoch: run.leaseEpoch, assistantMessageId: "assistant-1", threadVersion: 1, durationMs: 10, maxChunkCharacters: 1, answer: { schemaVersion: "1.0", answerId: "answer-1", text: "中文A", contentHash: "hash", acceptedClaimIds: [], citations: [], assumptions: [], limitations: [], groundingStatus: "legacy_equivalence", sourceRevisionSet: {} } })).toMatchObject({ type: "run.completed" });

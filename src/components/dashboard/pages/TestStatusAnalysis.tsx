@@ -275,9 +275,9 @@ const TestStatusAnalysis = () => {
     { years: selectedYears },
     { enabled: shouldLoadStatusRows },
   );
-  const statusRows = statusRowsData ?? [];
-  const aidaStatusRows = aidaStatusRowsData ?? [];
-  const testcaseDetailRows = testcaseDetailRowsData ?? [];
+  const statusRows = useMemo(() => statusRowsData ?? [], [statusRowsData]);
+  const aidaStatusRows = useMemo(() => aidaStatusRowsData ?? [], [aidaStatusRowsData]);
+  const testcaseDetailRows = useMemo(() => testcaseDetailRowsData ?? [], [testcaseDetailRowsData]);
   const statusPie = useMemo(() => buildStatusPieRows(statusRows), [statusRows]);
   const weeklyData = useMemo(() => buildWeeklyRows(statusRows), [statusRows]);
   const projectRows = useMemo(() => buildProjectStatusRows(testcaseDetailRows), [testcaseDetailRows]);

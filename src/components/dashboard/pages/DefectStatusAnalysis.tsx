@@ -218,7 +218,7 @@ function StatusMixBarCard({
 
 const DefectStatusAnalysis = () => {
   const { data, error, isLoading } = useMainDashboardData({ years: [DEFAULT_ANALYSIS_YEAR] });
-  const ticketRows = data?.ticketRows ?? [];
+  const ticketRows = useMemo(() => data?.ticketRows ?? [], [data?.ticketRows]);
   const statusPie = useMemo(() => buildStatusPieRows(ticketRows), [ticketRows]);
   const flowData = useMemo(() => buildFlowRows(ticketRows), [ticketRows]);
   const projectStatusRows = useMemo(

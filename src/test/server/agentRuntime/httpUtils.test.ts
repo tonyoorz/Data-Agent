@@ -47,10 +47,17 @@ describe("Agent HTTP utilities", () => {
     expect(response.headers).toMatchObject({
       "Access-Control-Allow-Origin": "https://vizion.example",
       "Access-Control-Allow-Credentials": "true",
-      "Access-Control-Expose-Headers": "X-Agent-Protocol, X-Agent-Run-ID, X-Agent-Thread-ID",
       "content-type": "application/json; charset=utf-8",
       "X-Agent-Run-ID": "run-1",
     });
+    expect(response.headers["Access-Control-Expose-Headers"].split(", ")).toEqual(expect.arrayContaining([
+      "X-Agent-Protocol",
+      "X-Agent-Run-ID",
+      "X-Agent-Thread-ID",
+      "X-Agent-Runtime-Mode",
+      "X-Agent-API-Enabled",
+      "X-Agent-Server-Controlled",
+    ]));
     expect(JSON.parse(response.body)).toEqual({ ok: true });
 
     response = responseDouble();

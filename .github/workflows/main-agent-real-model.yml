@@ -1,0 +1,47 @@
+name: Main Agent controlled real-model qualification
+
+on:
+  workflow_dispatch:
+    inputs:
+      model_id:
+        description: Planner-certified model ID configured in staging
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: main-agent-real-model-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  qualify:
+    environment: main-agent-qualification
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      MAIN_AGENT_QUALIFICATION_HEADERS_JSON: ${{ secrets.MAIN_AGENT_QUALIFICATION_HEADERS_JSON }}
+      STAGING_BASE_URL: ${{ vars.MAIN_AGENT_QUALIFICATION_BASE_URL }}
+      STAGING_MODEL_ID: ${{ inputs.model_id }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run ontology:check
+      - name: Execute staging Runs with the configured real model
+        run: >-
+          npm run eval:agent:real-model --
+          --strict
+          --base-url "$STAGING_BASE_URL"
+          --model "$STAGING_MODEL_ID"
+          --json-output artifacts/real-model-eval.json
+          --junit-output artifacts/real-model-eval.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: main-agent-real-model-qualification
+          path: artifacts/

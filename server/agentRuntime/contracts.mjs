@@ -1,8 +1,10 @@
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
+import { validateSemanticFrame } from "../ontology/semanticFrame.mjs";
+import { validatePlan as validateQueryPlan } from "../ontology/queryPlanner.mjs";
 
 export const EVENT_PROTOCOL_VERSION = "1.0";
-export const GRAPH_DEFINITION_VERSION = "main-agent-v1";
+export const GRAPH_DEFINITION_VERSION = "main-agent-v2";
 export const EVENT_TYPES = Object.freeze([
   "run.started",
   "input.prepared",
@@ -11,6 +13,7 @@ export const EVENT_TYPES = Object.freeze([
   "clarification.required",
   "plan.updated",
   "plan.validated",
+  "model.completed",
   "model.fallback",
   "tool.started",
   "tool.progress",
@@ -18,6 +21,7 @@ export const EVENT_TYPES = Object.freeze([
   "tool.failed",
   "evidence.added",
   "claims.validated",
+  "answer.completed",
   "approval.required",
   "interaction.expired",
   "run.resumed",
@@ -64,6 +68,8 @@ const timeScopeSchema = objectSchema({
   anchorAt: string,
 }, ["role", "fieldId", "start", "end", "timezone"]);
 
+const citationSchema = objectSchema({ citationId: string, label: string, claimIds: stringArray, evidenceIds: stringArray });
+
 const payloadSchemas = {
   "run.started": objectSchema({
     threadVersion: integer,
@@ -89,11 +95,19 @@ const payloadSchemas = {
     interactionId: string,
     threadVersion: integer,
     question: string,
+    options: stringArray,
     responseSchemaRef: string,
     expiresAt: dateTime,
-  }),
+  }, ["interactionId", "threadVersion", "question", "responseSchemaRef", "expiresAt"]),
   "plan.updated": objectSchema({ planId: string, version: integer, stepIds: stringArray }),
   "plan.validated": objectSchema({ planId: string, toolNames: stringArray, warnings: stringArray }),
+  "model.completed": objectSchema({
+    modelId: string,
+    purpose: { const: "planning" },
+    finishReason: { enum: ["stop", "tool_calls", "length", "content_filter", "cancelled", "error"] },
+    inputTokens: integer,
+    outputTokens: integer,
+  }),
   "model.fallback": objectSchema({ fromModelId: string, toModelId: string, reasonCode: string }),
   "tool.started": objectSchema({
     attemptId: string,
@@ -127,6 +141,16 @@ const payloadSchemas = {
     validationRef: string,
     acceptedClaimIds: stringArray,
     rejectedClaimIds: stringArray,
+  }),
+  "answer.completed": objectSchema({
+    answerId: string,
+    contentHash: string,
+    acceptedClaimIds: stringArray,
+    citations: { type: "array", items: citationSchema },
+    assumptions: stringArray,
+    limitations: stringArray,
+    groundingStatus: { enum: ["grounded", "legacy_equivalence", "insufficient_evidence"] },
+    sourceRevisionSet: { type: "object", additionalProperties: sourceRevisionSchema },
   }),
   "approval.required": objectSchema({
     interactionId: string,
@@ -198,6 +222,11 @@ const legacyImportSchema = objectSchema({
   messages: { type: "array", items: legacyMessageSchema },
 });
 
+const createThreadSchema = objectSchema({
+  schemaVersion: { const: "1.0" },
+  title: string,
+}, ["schemaVersion"]);
+
 const forkRequestSchema = objectSchema({
   schemaVersion: { const: "1.0" },
   threadVersion: integer,
@@ -252,8 +281,11 @@ const evidenceSchema = objectSchema({
   sourceRevision: sourceRevisionSchema,
   scope: objectSchema({
     objectType: string,
+    intent: { enum: ["aggregate", "trend", "compare", "rank", "list", "drilldown", "trace", "similarity"] },
+    dimensionIds: stringArray,
     filters: record,
     timeScopes: { type: "array", items: timeScopeSchema },
+    comparison: anyValue,
     grain: string,
   }, ["objectType", "timeScopes"]),
   metric: objectSchema({
@@ -304,7 +336,7 @@ const answerEnvelopeSchema = objectSchema({
   acceptedClaimIds: stringArray,
   citations: {
     type: "array",
-    items: objectSchema({ citationId: string, label: string, claimIds: stringArray, evidenceIds: stringArray }),
+    items: citationSchema,
   },
   assumptions: stringArray,
   limitations: stringArray,
@@ -393,6 +425,7 @@ export function createContractRegistry() {
   const validateResumeRequest = compileOrThrow(ajv, resumeRequestSchema, "INVALID_RESUME_REQUEST");
   const validateCancelRequest = compileOrThrow(ajv, cancelRequestSchema, "INVALID_CANCEL_REQUEST");
   const validateForkRequest = compileOrThrow(ajv, forkRequestSchema, "INVALID_FORK_REQUEST");
+  const validateCreateThread = compileOrThrow(ajv, createThreadSchema, "INVALID_CREATE_THREAD");
   const validateThreadPatch = compileOrThrow(ajv, threadPatchSchema, "INVALID_THREAD_PATCH");
   const validateModelResponse = compileOrThrow(ajv, modelResponseSchema, "INVALID_MODEL_RESPONSE");
   const validateEvidence = compileOrThrow(ajv, evidenceSchema, "INVALID_EVIDENCE");
@@ -411,11 +444,14 @@ export function createContractRegistry() {
     validateResumeRequest,
     validateCancelRequest,
     validateForkRequest,
+    validateCreateThread,
     validateThreadPatch,
     validateModelResponse,
     validateEvidence,
     validateClaimValidation,
     validateAnswerEnvelope,
+    validateSemanticFrame,
+    validateQueryPlan,
     validateLegacyImport(value) {
       const validated = validateLegacyImportSchema(value);
       validateLegacyImportBounds(validated);

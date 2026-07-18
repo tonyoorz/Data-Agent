@@ -49,7 +49,7 @@ describe("Runtime modes", () => {
       expect(deps.config.mode).toBe("langgraph");
       expect(deps.modelRegistry.listPublic()).toHaveLength(1);
       expect(deps.runtime).toBeTruthy();
-      await expect(deps.identityResolver({ headers: {}, socket: { remoteAddress: "127.0.0.1" } } as any)).resolves.toMatchObject({ actorId: "dev-local" });
+      await expect(deps.identityResolver({ headers: {}, socket: { remoteAddress: "127.0.0.1" } } as never)).resolves.toMatchObject({ actorId: "dev-local" });
       await deps.cleanup?.();
     } finally {
       fixture.cleanup();

@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 const LOOPBACKS = new Set(["127.0.0.1", "::1", "localhost"]);
 
 const csv = (value) => String(value || "").split(",").map((item) => item.trim()).filter(Boolean);
@@ -14,7 +16,7 @@ function isLoopback(value) {
 
 export function createRuntimeConfig(env = {}) {
   const mode = String(env.MAIN_AGENT_RUNTIME_MODE || "legacy");
-  if (!["legacy", "shadow", "langgraph"].includes(mode)) throw new Error("INVALID_MAIN_AGENT_RUNTIME_MODE");
+  if (!["legacy", "shadow", "canary", "langgraph"].includes(mode)) throw new Error("INVALID_MAIN_AGENT_RUNTIME_MODE");
 
   const host = String(env.VIZION_API_HOST || "127.0.0.1");
   const devHost = String(env.VIZION_DEV_HOST || "127.0.0.1");
@@ -35,6 +37,20 @@ export function createRuntimeConfig(env = {}) {
     throw new Error("LAN_BIND_REQUIRES_TRUSTED_TLS_PROXY");
   }
 
+  const canaryPercentage = Number(env.MAIN_AGENT_CANARY_PERCENTAGE || 0);
+  if (!Number.isFinite(canaryPercentage) || canaryPercentage < 0 || canaryPercentage > 100) throw new Error("INVALID_MAIN_AGENT_CANARY_PERCENTAGE");
+  const canaryActorAllowlist = new Set(csv(env.MAIN_AGENT_CANARY_ACTOR_ALLOWLIST));
+  const resolveRuntimeMode = (actorId) => {
+    if (mode !== "canary") return mode;
+    if (canaryActorAllowlist.has(String(actorId))) return "langgraph";
+    const bucket = Number.parseInt(createHash("sha256").update(String(actorId)).digest("hex").slice(0, 8), 16) % 10_000;
+    return bucket < Math.round(canaryPercentage * 100) ? "langgraph" : "legacy";
+  };
+  const resolveRuntimeDecision = (actorId) => {
+    const runtimeMode = resolveRuntimeMode(actorId);
+    return Object.freeze({ runtimeMode, agentApiEnabled: runtimeMode === "langgraph", serverControlled: true });
+  };
+
   return Object.freeze({
     mode,
     host,
@@ -49,5 +65,9 @@ export function createRuntimeConfig(env = {}) {
     legacyImportMaxBytes: positiveInt(env.MAIN_AGENT_LEGACY_IMPORT_MAX_BYTES, 28 * 1024 * 1024, "MAIN_AGENT_LEGACY_IMPORT_MAX_BYTES"),
     runStartRatePerMinute: 30,
     runStartBurst: 5,
+    canaryPercentage,
+    canaryActorAllowlist: Object.freeze([...canaryActorAllowlist]),
+    resolveRuntimeMode,
+    resolveRuntimeDecision,
   });
 }

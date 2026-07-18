@@ -1,0 +1,147 @@
+name: Main Agent quality gate
+
+on:
+  pull_request:
+    paths:
+      - "server/agentRuntime/**"
+      - "server/ontology/**"
+      - "server/app.mjs"
+      - "server/aiAnalyticsContext.mjs"
+      - "server/companyChat.mjs"
+      - "server/index.mjs"
+      - "server/mainAgentToolLoop.mjs"
+      - "server/mainAgentTools.mjs"
+      - "backend/**/*.py"
+      - "requirements.txt"
+      - "scripts/*.ps1"
+      - "scripts/*AgentRuntime.mjs"
+      - "scripts/compileOntology.mjs"
+      - "scripts/qualifyAgentRollout.mjs"
+      - "scripts/generateRuntimeTarget.mjs"
+      - "scripts/generateSemanticGolden.mjs"
+      - "scripts/lib/**"
+      - "evals/main-agent/**"
+      - "ontology/**"
+      - "src/test/server/**"
+      - "src/lib/agentApi.ts"
+      - "src/lib/agentEventStream.ts"
+      - "src/components/dashboard/pages/AIChat.tsx"
+      - "src/components/dashboard/chat/**"
+      - "src/test/ai-chat/**"
+      - ".github/workflows/main-agent.yml"
+      - ".github/workflows/main-agent-real-model.yml"
+      - "package.json"
+      - "package-lock.json"
+  push:
+    branches:
+      - main
+      - "feature/**"
+      - "upgrade/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: main-agent-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  runtime-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run ontology:check
+      - run: npm run semantic-golden:check
+      - run: npm run runtime-target:check
+      - name: Lint changed Runtime surface
+        run: >-
+          npx eslint
+          server/app.mjs
+          server/aiAnalyticsContext.mjs
+          server/companyChat.mjs
+          server/mainAgentToolLoop.mjs
+          server/agentRuntime
+          server/ontology
+          scripts/evaluateAgentRuntime.mjs
+          scripts/generateRuntimeTarget.mjs
+          scripts/loadAgentRuntime.mjs
+          scripts/lib
+          src/test/server
+      - run: npm run test:agent-runtime
+      - run: npm test
+      - run: npm run build
+      - run: npm run eval:agent:baseline -- --strict --json-output artifacts/baseline-eval.json --junit-output artifacts/baseline-eval.xml
+      - run: npm run load:agent-runtime -- --strict --iterations 100 --concurrency 10 --output artifacts/load-qualification.json
+      - run: npm run qualify:agent:rollout -- --output artifacts/rollout-preflight.json
+      - name: Run strict target qualification
+        run: npm run eval:agent:target -- --strict --json-output artifacts/target-eval.json --junit-output artifacts/target-eval.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: main-agent-qualification
+          path: artifacts/
+
+  repository-lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Full repository lint
+        run: npm run lint
+
+  python-analytics-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install test-time analytics dependencies
+        run: python -m pip install pytest numpy pandas requests fastapi httpx
+      - name: Python analytics suite
+        run: python -m pytest backend/tests -q
+
+  windows-nightly-script-gate:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install pytest
+      - name: Validate Windows nightly refresh scripts
+        run: python -m pytest backend/tests/test_nightly_source_refresh_script.py -q
+
+  python-semantic-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install semantic API test dependencies
+        run: python -m pip install pytest numpy pandas requests fastapi httpx
+      - name: Run Ontology and semantic read-path gate
+        run: >-
+          python -m pytest
+          backend/tests/test_ontology_contract.py
+          backend/tests/test_semantic_query_api.py
+          backend/tests/test_analytics_full_picture_api.py
+          -q

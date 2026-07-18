@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { resolveAiAnalyticsContext } from "../../../server/aiAnalyticsContext.mjs";
+import { createOntologyRegistry } from "../../../server/ontology/registry.mjs";
+
+const governedActor = { actorId: "alice", scopeHash: "scope-a", scopes: { workspaceIds: ["DTSV"], teamIds: ["DTSV"], projectIds: ["SP25"] } };
 
 describe("resolveAiAnalyticsContext", () => {
   it("builds compact business context for analytics questions", async () => {
@@ -45,5 +48,37 @@ describe("resolveAiAnalyticsContext", () => {
 
   it("stays silent for empty questions", async () => {
     expect((await resolveAiAnalyticsContext({ messages: [] })).contextText).toBe("");
+  });
+
+  it("does not expose analytics provider errors in model context", async () => {
+    const resolved = await resolveAiAnalyticsContext({
+      messages: [{ role: "user", content: "2026 年 6 月 DTSV 创建了多少缺陷？" }],
+      analyticsFetch: vi.fn().mockRejectedValue(new Error("TOP SECRET PROVIDER DETAIL")),
+      now: new Date("2026-07-07T00:00:00Z"),
+    });
+
+    expect(resolved.contextText).toContain("ANALYTICS_QUERY_FAILED");
+    expect(resolved.contextText).not.toContain("TOP SECRET");
+  });
+
+  it("injects the same governed semantic, scope, and tool signatures used by shadow Runtime", async () => {
+    const analyticsFetch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ overview: { ticket_count: 12 } }) });
+    const resolved = await resolveAiAnalyticsContext({
+      messages: [{ role: "user", content: "2026 年 6 月 DTSV 创建了多少缺陷？" }],
+      analyticsFetch,
+      now: new Date("2026-07-07T00:00:00Z"),
+      actor: governedActor,
+      ontologyRegistry: createOntologyRegistry(),
+    });
+
+    expect(resolved.contextText).toContain("# Governed Ontology interpretation");
+    expect(resolved.contextText).toContain("defect.created_count");
+    expect(resolved.contextText).toContain("policy:product.project:in:SP25");
+    expect(resolved.shadowObservation).toMatchObject({
+      semanticSignature: expect.stringMatching(/^[a-f0-9]{64}$/),
+      scopeSignature: expect.stringMatching(/^[a-f0-9]{64}$/),
+      toolSignature: expect.stringMatching(/^[a-f0-9]{64}$/),
+    });
+    expect(String(analyticsFetch.mock.calls[0][0])).toContain("projects=SP25");
   });
 });

@@ -3,7 +3,13 @@ import { spawn, spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { getTerminationCommand, hasHealthyServiceOnPort } from "./devHelpers.mjs";
+import {
+  getTerminationCommand,
+  hasHealthyServiceOnPort,
+  hasTcpServiceOnPort,
+  hasViteDevServerOnPort,
+  waitForHealthyService,
+} from "./devHelpers.mjs";
 import { assertSupportedNodeVersion } from "./nodeVersion.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -11,11 +17,13 @@ const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "..");
 const analyticsPort = Number(process.env.VIZION_ANALYTICS_PORT || "3003");
 const apiPort = Number(process.env.VIZION_API_PORT || "3004");
+const webPort = Number(process.env.VIZION_WEB_PORT || "8080");
 
 assertSupportedNodeVersion();
 
 const children = [];
 let exiting = false;
+const serviceWaitOptions = { attempts: 30, delayMs: 500 };
 
 function terminateChild(child, signal = "SIGTERM") {
   if (!child || child.killed) {
@@ -55,15 +63,20 @@ function resolvePythonCommand() {
   return "python";
 }
 
-function launch(command, args, name) {
+function launch(command, args, name, isHealthy) {
   const child = spawn(command, args, {
     cwd: repoRoot,
     env: process.env,
     stdio: "inherit",
   });
 
-  child.on("exit", (code, signal) => {
+  child.on("exit", async (code, signal) => {
     if (exiting) {
+      return;
+    }
+
+    if (await waitForHealthyService(isHealthy, serviceWaitOptions)) {
+      console.warn(`[vizion-dev] ${name} process exited but service is still healthy; keeping dev stack running`);
       return;
     }
 
@@ -82,13 +95,30 @@ function launch(command, args, name) {
   console.log(`[vizion-dev] started ${name}`);
 }
 
-async function launchIfNeeded({ name, command, args, port, expectedService }) {
-  if (await hasHealthyServiceOnPort({ port, expectedService })) {
+async function launchIfNeeded({ name, command, args, port, expectedService, isHealthy: checkHealth }) {
+  const isHealthy = checkHealth || (() => hasHealthyServiceOnPort({ port, expectedService }));
+
+  if (await isHealthy()) {
     console.log(`[vizion-dev] reusing existing ${name} on http://127.0.0.1:${port}`);
     return;
   }
 
-  launch(command, args, name);
+  if (await hasTcpServiceOnPort({ port })) {
+    console.log(`[vizion-dev] waiting for existing ${name} on http://127.0.0.1:${port} to become healthy`);
+    if (await waitForHealthyService(isHealthy, serviceWaitOptions)) {
+      console.log(`[vizion-dev] reusing existing ${name} on http://127.0.0.1:${port}`);
+      return;
+    }
+
+    console.error(`[vizion-dev] port ${port} is already in use, but ${name} did not report a healthy /health response`);
+    exiting = true;
+    for (const child of children) {
+      terminateChild(child);
+    }
+    process.exit(1);
+  }
+
+  launch(command, args, name, isHealthy);
 }
 
 await launchIfNeeded({
@@ -112,7 +142,13 @@ await launchIfNeeded({
   args: [path.join(repoRoot, "server", "index.mjs")],
   port: apiPort,
 });
-launch(process.execPath, [path.join(repoRoot, "node_modules", "vite", "bin", "vite.js")], "vite");
+await launchIfNeeded({
+  name: "vite",
+  command: process.execPath,
+  args: [path.join(repoRoot, "node_modules", "vite", "bin", "vite.js"), "--port", String(webPort)],
+  port: webPort,
+  isHealthy: () => hasViteDevServerOnPort({ port: webPort }),
+});
 
 function shutdown(signal) {
   if (exiting) {

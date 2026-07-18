@@ -51,7 +51,7 @@ function buildProjectRows(ticketRows: MainDashboardTicketRow[]): ProjectSummaryR
 
 const ProjectAnalysis = () => {
   const { data, error, isLoading } = useMainDashboardData({ years: [DEFAULT_ANALYSIS_YEAR] });
-  const ticketRows = data?.ticketRows ?? [];
+  const ticketRows = useMemo(() => data?.ticketRows ?? [], [data?.ticketRows]);
   const projectData = useMemo(() => buildProjectRows(ticketRows), [ticketRows]);
   const closedCount = projectData.reduce((total, row) => total + row.closed, 0);
   const pendingCount = projectData.reduce((total, row) => total + row.pending, 0);

@@ -448,14 +448,14 @@ function mockMainDashboardQueries(
     isLoading: false,
     isFetching: false,
     refetch: vi.fn(),
-  } as any);
+  } as ReturnType<typeof useMainDashboardRefreshStatus>);
   vi.mocked(useMainDashboardSummary).mockImplementation((filters) => ({
     data: createSummaryData(currentData(), filters, currentSnapshotVersion()),
     error: null,
     isLoading: false,
     isFetching: false,
     isPlaceholderData: false,
-  }) as any);
+  }) as ReturnType<typeof useMainDashboardSummary>);
   vi.mocked(useMainDashboardTickets).mockImplementation((filters, pageRequest) => ({
     data: createTicketsPageData(
       currentData(),
@@ -467,7 +467,7 @@ function mockMainDashboardQueries(
     isLoading: false,
     isFetching: false,
     isPlaceholderData: false,
-  }) as any);
+  }) as ReturnType<typeof useMainDashboardTickets>);
 }
 
 function renderIndexWithMockedData(initialData = createSampleViewModel()) {
@@ -520,20 +520,20 @@ describe("Index main dashboard integration", () => {
       isLoading: false,
       isFetching: false,
       refetch: vi.fn(),
-    } as any);
+    } as ReturnType<typeof useMainDashboardRefreshStatus>);
     vi.mocked(useMainDashboardSummary).mockReturnValue({
       data: null,
       error: null,
       isLoading: true,
       isFetching: true,
       isPlaceholderData: false,
-    } as any);
+    } as ReturnType<typeof useMainDashboardSummary>);
     vi.mocked(useMainDashboardTickets).mockReturnValue({
       data: null,
       error: null,
       isLoading: false,
       isFetching: false,
-    } as any);
+    } as ReturnType<typeof useMainDashboardTickets>);
 
     renderIndex();
 
@@ -548,20 +548,20 @@ describe("Index main dashboard integration", () => {
       isLoading: false,
       isFetching: false,
       refetch: vi.fn(),
-    } as any);
+    } as ReturnType<typeof useMainDashboardRefreshStatus>);
     vi.mocked(useMainDashboardSummary).mockReturnValue({
       data: null,
       error: new Error("Service unavailable"),
       isLoading: false,
       isFetching: false,
       isPlaceholderData: false,
-    } as any);
+    } as ReturnType<typeof useMainDashboardSummary>);
     vi.mocked(useMainDashboardTickets).mockReturnValue({
       data: null,
       error: null,
       isLoading: false,
       isFetching: false,
-    } as any);
+    } as ReturnType<typeof useMainDashboardTickets>);
 
     renderIndex();
 

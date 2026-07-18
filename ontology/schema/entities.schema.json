@@ -1,0 +1,61 @@
+{
+  "$id": "https://vizion-lab.local/ontology/schema/entities.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["schemaVersion", "ontologyVersion", "entities"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "ontologyVersion": { "const": "v1" },
+    "entities": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "version", "labels", "descriptions", "aliases", "source", "primaryKey", "properties", "sensitivity", "allowedOperations", "governance"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]+(\\.[a-z][a-z0-9_]+)+$" },
+          "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+          "labels": { "$ref": "common.schema.json#/$defs/labels" },
+          "descriptions": { "$ref": "common.schema.json#/$defs/labels" },
+          "aliases": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "source": {
+            "type": "object",
+            "required": ["sourceId", "system", "readModel", "table"],
+            "additionalProperties": false,
+            "properties": {
+              "sourceId": { "type": "string", "minLength": 1 },
+              "system": { "type": "string", "minLength": 1 },
+              "readModel": { "type": "string", "minLength": 1 },
+              "table": { "type": "string", "minLength": 1 }
+            }
+          },
+          "primaryKey": { "type": "string", "minLength": 1 },
+          "properties": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["id", "type", "nullable", "sensitivity"],
+              "additionalProperties": false,
+              "properties": {
+                "id": { "type": "string", "minLength": 1 },
+                "type": { "enum": ["string", "integer", "number", "boolean", "date", "datetime", "json"] },
+                "nullable": { "type": "boolean" },
+                "sensitivity": { "enum": ["public", "internal", "confidential", "restricted"] }
+              }
+            }
+          },
+          "sensitivity": { "enum": ["public", "internal", "confidential", "restricted"] },
+          "allowedOperations": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "enum": ["read", "aggregate", "traverse", "similarity"] }
+          },
+          "governance": { "$ref": "common.schema.json#/$defs/governance" }
+        }
+      }
+    }
+  }
+}

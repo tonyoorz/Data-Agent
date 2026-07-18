@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
+import type { ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import TicketDetailTable from "@/components/dashboard/main-dashboard/TicketDetailTable";
@@ -40,7 +41,7 @@ function renderTicketDetailTable(
   const onSearchChange = vi.fn();
   const onSortChange = vi.fn();
 
-  const props: any = {
+  const props: ComponentProps<typeof TicketDetailTable> = {
     rows,
     totalRows: 120,
     page: 1,
