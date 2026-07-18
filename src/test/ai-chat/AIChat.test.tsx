@@ -27,6 +27,39 @@ class MockMediaRecorder {
   }
 }
 
+const runtimeConfigResponse = () => new Response(JSON.stringify({
+  schemaVersion: "1.0",
+  runtimeMode: "langgraph",
+  agentApiEnabled: true,
+  serverControlled: true,
+}), {
+  status: 200,
+  headers: {
+    "X-Agent-Runtime-Mode": "langgraph",
+    "X-Agent-API-Enabled": "true",
+    "X-Agent-Server-Controlled": "true",
+  },
+});
+
+const legacyConfigResponse = () => new Response(JSON.stringify({
+  schemaVersion: "1.0",
+  runtimeMode: "legacy",
+  agentApiEnabled: false,
+  serverControlled: true,
+}), {
+  status: 200,
+  headers: {
+    "X-Agent-Runtime-Mode": "legacy",
+    "X-Agent-API-Enabled": "false",
+    "X-Agent-Server-Controlled": "true",
+  },
+});
+
+const threadResponse = () => new Response(JSON.stringify({
+  schemaVersion: "1.0",
+  thread: { threadId: "thread-1", threadVersion: 0, title: "新对话" },
+}), { status: 201 });
+
 describe("AIChat duplicate search integration", () => {
   beforeEach(() => {
     window.localStorage.clear();
@@ -57,7 +90,7 @@ describe("AIChat duplicate search integration", () => {
     vi.useRealTimers();
   });
 
-  it("renders even when crypto.randomUUID is unavailable", () => {
+  it("renders even when crypto.randomUUID is unavailable", async () => {
     const originalCrypto = globalThis.crypto;
 
     Object.defineProperty(globalThis, "crypto", {
@@ -70,6 +103,9 @@ describe("AIChat duplicate search integration", () => {
 
     try {
       render(<AIChat moduleKey="ai-chat" moduleLabel="AI Chat" />);
+      await act(async () => {
+        await Promise.resolve();
+      });
 
       expect(screen.getByRole("button", { name: /ai chat/i })).toBeInTheDocument();
       expect(screen.getByRole("textbox")).toBeInTheDocument();
@@ -81,8 +117,11 @@ describe("AIChat duplicate search integration", () => {
     }
   });
 
-  it("shows duplicate search mode controls and defaults to deepseek v4 flash", () => {
+  it("shows duplicate search mode controls and defaults to deepseek v4 flash", async () => {
     render(<AIChat moduleKey="ai-chat" moduleLabel="AI Chat" />);
+    await act(async () => {
+      await Promise.resolve();
+    });
 
     expect(
       screen.getByRole("button", { name: /duplicate search/i }),
@@ -92,8 +131,11 @@ describe("AIChat duplicate search integration", () => {
     expect(screen.getByRole("switch", { name: /缺陷上下文/i })).not.toBeChecked();
   });
 
-  it("keeps the defect context control inside the composer context chip", () => {
+  it("keeps the defect context control inside the composer context chip", async () => {
     render(<AIChat moduleKey="ai-chat" moduleLabel="AI Chat" />);
+    await act(async () => {
+      await Promise.resolve();
+    });
 
     const contextChip = screen.getByRole("group", { name: "输入上下文" });
 
@@ -355,6 +397,7 @@ describe("AIChat duplicate search integration", () => {
     const encoder = new TextEncoder();
     const fetchMock = vi
       .fn()
+      .mockResolvedValueOnce(legacyConfigResponse())
       .mockResolvedValue({
         ok: true,
         body: new ReadableStream({
@@ -383,7 +426,7 @@ describe("AIChat duplicate search integration", () => {
     fireEvent.click(screen.getByRole("button", { name: "发送" }));
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
       expect(fetchMock).toHaveBeenCalledWith(
         "/api/ai/chat",
         expect.objectContaining({
@@ -393,10 +436,10 @@ describe("AIChat duplicate search integration", () => {
     });
 
     expect(
-      JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)).useDefectContext,
+      JSON.parse(String(fetchMock.mock.calls.find((call) => call[0] === "/api/ai/chat")?.[1]?.body)).useDefectContext,
     ).toBe(false);
     expect(
-      JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)).useAnalyticsContext,
+      JSON.parse(String(fetchMock.mock.calls.find((call) => call[0] === "/api/ai/chat")?.[1]?.body)).useAnalyticsContext,
     ).toBe(true);
 
     expect(await screen.findByText("已完成", {}, { timeout: 5000 })).toBeInTheDocument();
@@ -412,7 +455,9 @@ describe("AIChat duplicate search integration", () => {
       resolveChatResponse = resolve;
     });
 
-    const fetchMock = vi.fn().mockImplementation(() => chatResponse as Promise<Response>);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(legacyConfigResponse())
+      .mockImplementation(() => chatResponse as Promise<Response>);
 
     vi.stubGlobal("fetch", fetchMock);
 
@@ -446,7 +491,6 @@ describe("AIChat duplicate search integration", () => {
   });
 
   it("uses the Agent Runtime event stream when the runtime client is enabled", async () => {
-    window.localStorage.setItem("dtsv.agentRuntime.enabled", "true");
     const encoder = new TextEncoder();
     const agentEvent = (overrides = {}) => ({
       schemaVersion: "1.0",
@@ -462,6 +506,8 @@ describe("AIChat duplicate search integration", () => {
     });
     const fetchMock = vi
       .fn()
+      .mockResolvedValueOnce(runtimeConfigResponse())
+      .mockResolvedValueOnce(threadResponse())
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ schemaVersion: "1.0", threadId: "thread-1", runId: "run-1", threadVersion: 0, eventsUrl: "/api/agent/runs/run-1/events" }), {
           status: 202,
@@ -476,7 +522,8 @@ describe("AIChat duplicate search integration", () => {
                 encoder.encode(
                   `data: ${JSON.stringify(agentEvent())}\n\n` +
                     `data: ${JSON.stringify(agentEvent({ eventId: "evt-2", sequence: 2, type: "answer.delta", payload: { answerId: "answer-1", contentHash: "hash-1", offset: 0, text: "Runtime 已完成" } }))}\n\n` +
-                    `data: ${JSON.stringify(agentEvent({ eventId: "evt-3", sequence: 3, type: "run.completed", payload: { answerId: "answer-1", threadVersion: 1, durationMs: 12 } }))}\n\n`,
+                    `data: ${JSON.stringify(agentEvent({ eventId: "evt-3", sequence: 3, type: "answer.completed", payload: { answerId: "answer-1", contentHash: "hash-1", acceptedClaimIds: ["claim-1"], citations: [{ citationId: "cite-1", label: "defect.count@1 · analytics.fixture · revision-7", claimIds: ["claim-1"], evidenceIds: ["ev-1"] }], assumptions: [], limitations: ["数据截至 2026-07-14"], groundingStatus: "grounded", sourceRevisionSet: { "ev-1": { sourceId: "analytics.fixture", revisionId: "revision-7", status: "pinned" } } } }))}\n\n` +
+                    `data: ${JSON.stringify(agentEvent({ eventId: "evt-4", sequence: 4, type: "run.completed", payload: { answerId: "answer-1", threadVersion: 1, durationMs: 12 } }))}\n\n`,
                 ),
               );
               controller.close();
@@ -498,6 +545,13 @@ describe("AIChat duplicate search integration", () => {
     expect(await screen.findByText("Runtime 已完成")).toBeInTheDocument();
     expect(await screen.findByText("Run started")).toBeInTheDocument();
     expect(await screen.findByText(/langgraph/)).toBeInTheDocument();
+    expect(await screen.findByText("证据与引用")).toBeInTheDocument();
+    expect(screen.getByText("defect.count@1 · analytics.fixture · revision-7")).toBeInTheDocument();
+    expect(screen.getByText(/数据截至 2026-07-14/)).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/agent/threads",
+      expect.objectContaining({ method: "POST" }),
+    );
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/agent/runs",
       expect.objectContaining({ method: "POST" }),
@@ -510,9 +564,10 @@ describe("AIChat duplicate search integration", () => {
   });
 
   it("cancels the active Agent Runtime run when generation is stopped", async () => {
-    window.localStorage.setItem("dtsv.agentRuntime.enabled", "true");
     const fetchMock = vi
       .fn()
+      .mockResolvedValueOnce(runtimeConfigResponse())
+      .mockResolvedValueOnce(threadResponse())
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ schemaVersion: "1.0", threadId: "thread-1", runId: "run-1", threadVersion: 0, eventsUrl: "/api/agent/runs/run-1/events" }), {
           status: 202,
@@ -562,7 +617,6 @@ describe("AIChat duplicate search integration", () => {
   });
 
   it("reconnects an interrupted Agent Runtime stream with Last-Event-ID", async () => {
-    window.localStorage.setItem("dtsv.agentRuntime.enabled", "true");
     const encoder = new TextEncoder();
     const agentEvent = (overrides = {}) => ({
       schemaVersion: "1.0",
@@ -578,6 +632,8 @@ describe("AIChat duplicate search integration", () => {
     });
     const fetchMock = vi
       .fn()
+      .mockResolvedValueOnce(runtimeConfigResponse())
+      .mockResolvedValueOnce(threadResponse())
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ schemaVersion: "1.0", threadId: "thread-1", runId: "run-1", threadVersion: 0, eventsUrl: "/api/agent/runs/run-1/events" }), {
           status: 202,
@@ -611,7 +667,6 @@ describe("AIChat duplicate search integration", () => {
   });
 
   it("shows a snapshot recovery message when the Agent Runtime event cursor expired", async () => {
-    window.localStorage.setItem("dtsv.agentRuntime.enabled", "true");
     const encoder = new TextEncoder();
     const agentEvent = {
       schemaVersion: "1.0",
@@ -626,6 +681,8 @@ describe("AIChat duplicate search integration", () => {
     };
     const fetchMock = vi
       .fn()
+      .mockResolvedValueOnce(runtimeConfigResponse())
+      .mockResolvedValueOnce(threadResponse())
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ schemaVersion: "1.0", threadId: "thread-1", runId: "run-1", threadVersion: 0, eventsUrl: "/api/agent/runs/run-1/events" }), {
           status: 202,
@@ -656,10 +713,11 @@ describe("AIChat duplicate search integration", () => {
   });
 
   it("falls back to the legacy chat stream when Agent Runtime events violate protocol", async () => {
-    window.localStorage.setItem("dtsv.agentRuntime.enabled", "true");
     const encoder = new TextEncoder();
     const fetchMock = vi
       .fn()
+      .mockResolvedValueOnce(runtimeConfigResponse())
+      .mockResolvedValueOnce(threadResponse())
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ schemaVersion: "1.0", threadId: "thread-1", runId: "run-1", threadVersion: 0, eventsUrl: "/api/agent/runs/run-1/events" }), {
           status: 202,
@@ -690,7 +748,6 @@ describe("AIChat duplicate search integration", () => {
   });
 
   it("submits a clarification answer to the Agent Runtime resume endpoint", async () => {
-    window.localStorage.setItem("dtsv.agentRuntime.enabled", "true");
     const encoder = new TextEncoder();
     const agentEvent = (overrides = {}) => ({
       schemaVersion: "1.0",
@@ -701,11 +758,13 @@ describe("AIChat duplicate search integration", () => {
       sequence: 1,
       timestamp: "2026-07-14T00:00:00.000Z",
       type: "clarification.required",
-      payload: { interactionId: "interaction-1", threadVersion: 2, question: "Which project should I use?", responseSchemaRef: "#/answer", expiresAt: "2026-07-14T00:10:00.000Z" },
+      payload: { interactionId: "interaction-1", threadVersion: 2, question: "Which project should I use?", options: ["补充其他明确口径", "取消本次查询"], responseSchemaRef: "#/answer", expiresAt: "2026-07-14T00:10:00.000Z" },
       ...overrides,
     });
     const fetchMock = vi
       .fn()
+      .mockResolvedValueOnce(runtimeConfigResponse())
+      .mockResolvedValueOnce(threadResponse())
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ schemaVersion: "1.0", threadId: "thread-1", runId: "run-1", threadVersion: 1, eventsUrl: "/api/agent/runs/run-1/events" }), {
           status: 202,
@@ -749,7 +808,7 @@ describe("AIChat duplicate search integration", () => {
       schemaVersion: "1.0",
       interactionId: "interaction-1",
       threadVersion: 2,
-      value: { answer: "SP25" },
+      value: { selection: "补充其他明确口径", text: "SP25" },
     });
     await waitFor(() => {
       const eventCalls = fetchMock.mock.calls.filter((call) => call[0] === "/api/agent/runs/run-1/events?follow=1");
@@ -796,8 +855,62 @@ describe("AIChat duplicate search integration", () => {
     expect(await screen.findByText("已完成")).toBeInTheDocument();
   });
 
+  it("creates a Runtime thread, uploads attachments, and binds artifact IDs to the same run", async () => {
+    const encoder = new TextEncoder();
+    const event = (overrides = {}) => ({
+      schemaVersion: "1.0",
+      eventId: "evt-1",
+      runId: "run-1",
+      threadId: "thread-1",
+      stateVersion: 1,
+      sequence: 1,
+      timestamp: "2026-07-14T00:00:00.000Z",
+      type: "answer.delta",
+      payload: { answerId: "answer-1", contentHash: "hash-1", offset: 0, text: "附件已分析" },
+      ...overrides,
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(runtimeConfigResponse())
+      .mockResolvedValueOnce(threadResponse())
+      .mockResolvedValueOnce(new Response(JSON.stringify({ schemaVersion: "1.0", artifactId: "artifact-1", fileName: "invoice.pdf", mimeType: "application/pdf" }), { status: 201 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ schemaVersion: "1.0", threadId: "thread-1", runId: "run-1", threadVersion: 0, eventsUrl: "/api/agent/runs/run-1/events" }), { status: 202, headers: { "X-Agent-Run-ID": "run-1", "X-Agent-Thread-ID": "thread-1", "X-Agent-Protocol": "1.0" } }))
+      .mockResolvedValueOnce(new Response(new ReadableStream({ start(controller) {
+        controller.enqueue(encoder.encode(
+          `data: ${JSON.stringify(event())}\n\n` +
+          `data: ${JSON.stringify(event({ eventId: "evt-2", sequence: 2, type: "run.completed", payload: { answerId: "answer-1", threadVersion: 1, durationMs: 10 } }))}\n\n`,
+        ));
+        controller.close();
+      } }), { status: 200, headers: { "X-Agent-Run-ID": "run-1", "X-Agent-Thread-ID": "thread-1", "X-Agent-Protocol": "1.0" } }));
+
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AIChat moduleKey="ai-chat" moduleLabel="AI Chat" />);
+
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const pdf = new File(["%PDF-1.4 invoice text"], "invoice.pdf", { type: "application/pdf" });
+    fireEvent.change(fileInput, { target: { files: [pdf] } });
+    await screen.findByText("invoice.pdf");
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "PDF 里说了什么" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    expect(await screen.findByText("附件已分析")).toBeInTheDocument();
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "/api/agent/config",
+      "/api/agent/threads",
+      "/api/agent/artifacts",
+      "/api/agent/runs",
+      "/api/agent/runs/run-1/events?follow=1",
+    ]);
+    expect(fetchMock.mock.calls[2][1].body).toBe(pdf);
+    expect(JSON.parse(String(fetchMock.mock.calls[3][1].body))).toMatchObject({
+      threadId: "thread-1",
+      threadVersion: 0,
+      message: { artifactRefs: ["artifact-1"] },
+    });
+    expect(fetchMock).not.toHaveBeenCalledWith("/api/ai/chat", expect.anything());
+  });
+
   it("sends uploaded PDF attachments to the AI chat gateway", async () => {
-    window.localStorage.setItem("dtsv.agentRuntime.enabled", "true");
     const encoder = new TextEncoder();
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -831,7 +944,8 @@ describe("AIChat duplicate search integration", () => {
       );
     });
 
-    const payload = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    const chatCall = fetchMock.mock.calls.find((call) => call[0] === "/api/ai/chat");
+    const payload = JSON.parse(String(chatCall?.[1]?.body));
     const userMessage = payload.messages.find((message: { role: string }) => message.role === "user");
     expect(userMessage.content).toEqual(
       expect.arrayContaining([
@@ -851,7 +965,7 @@ describe("AIChat duplicate search integration", () => {
 
   it("includes defect context for AI chat only after the toggle is enabled", async () => {
     const encoder = new TextEncoder();
-    const fetchMock = vi.fn().mockResolvedValue({
+    const fetchMock = vi.fn().mockResolvedValueOnce(legacyConfigResponse()).mockResolvedValue({
       ok: true,
       body: new ReadableStream({
         start(controller) {
@@ -889,7 +1003,7 @@ describe("AIChat duplicate search integration", () => {
     });
 
     expect(
-      JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)).useDefectContext,
+      JSON.parse(String(fetchMock.mock.calls.find((call) => call[0] === "/api/ai/chat")?.[1]?.body)).useDefectContext,
     ).toBe(true);
     expect(await screen.findByText("正在检索 qgate 相关缺陷…")).toBeInTheDocument();
     expect(await screen.findByText("已完成")).toBeInTheDocument();
@@ -907,6 +1021,7 @@ describe("AIChat duplicate search integration", () => {
 
     const fetchMock = vi
       .fn()
+      .mockResolvedValueOnce(legacyConfigResponse())
       .mockImplementation(() => chatResponse as Promise<Response>);
 
     vi.stubGlobal("fetch", fetchMock);
@@ -921,7 +1036,7 @@ describe("AIChat duplicate search integration", () => {
     fireEvent.click(screen.getByRole("button", { name: "发送" }));
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
       expect(fetchMock).toHaveBeenCalledWith(
         "/api/ai/chat",
         expect.objectContaining({
@@ -968,7 +1083,9 @@ describe("AIChat duplicate search integration", () => {
       resolveChatResponse = resolve;
     });
 
-    const fetchMock = vi.fn().mockImplementation(() => chatResponse as Promise<Response>);
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(legacyConfigResponse())
+      .mockImplementation(() => chatResponse as Promise<Response>);
 
     vi.stubGlobal("fetch", fetchMock);
 

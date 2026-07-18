@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createTeamExpansionChartData } from "@/components/dashboard/main-dashboard/TeamExpansionPanel";
+import { createTeamExpansionChartData } from "@/components/dashboard/main-dashboard/teamExpansionChartData";
 
 describe("TeamExpansionPanel chart data", () => {
   it("uses team outcome ticket counts for the plotted bar values", () => {

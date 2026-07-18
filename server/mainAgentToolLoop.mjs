@@ -1,129 +1,53 @@
 import { extractLatestUserQuery } from "./aiContext.mjs";
-import { requestCompanyChatCompletion } from "./companyChat.mjs";
-import { executeMainAgentToolCall, MAIN_AGENT_TOOLS } from "./mainAgentTools.mjs";
 
-function buildToolPlanningContext(tools = MAIN_AGENT_TOOLS) {
-  const names = new Set((tools || []).map((tool) => tool?.function?.name).filter(Boolean));
-  return `# Main agent tool policy
-You have access to typed dashboard and duplicate-search tools. Use them only when the user asks for factual QGate dashboard metrics, counts, filtered summaries, defect/test coverage data, or duplicate/similar defect analysis.
-If the supplied context already contains the exact factual result needed, answer normally without calling tools.
-${names.has("get_data_catalog") ? "Use get_data_catalog first when the user asks a broad analytics question and you need to discover available datasets, filters, metrics, or modules." : ""}
-${names.has("resolve_business_terms") ? "Use resolve_business_terms when Chinese/English business wording needs normalization before choosing filters or metrics." : ""}
-If a tool is needed, call at most one dashboard tool with precise filters. Do not invent fields, filters, or metrics.
-${names.has("ask_clarification") ? "Use ask_clarification when required filters, scope, timeframe, or business meaning are ambiguous. Ask one focused question instead of guessing." : "If required filters, scope, timeframe, or business meaning are ambiguous, stop planning rather than guessing unsupported tool arguments."}
-${names.has("query_defect_high_frequency_analysis") ? "Use query_defect_high_frequency_analysis for Defect High Frequency / 缺陷高频分析 questions about newly created defects concentrated by ECU/module. For 最近一周 / recent week / last 7 days high-frequency questions, call query_defect_high_frequency_analysis with filters.recent_days: 7 instead of asking the user to switch views." : ""}
-${names.has("query_full_picture_module") ? "Use query_full_picture_module as the fallback for factual Full Picture dashboard questions when no more specific tool fits. Choose only one allowlisted module: dashboard_summary, dashboard_tickets, top_issue_analysis, long_runner_analysis, or defect_high_frequency_analysis." : ""}`;
-}
-
-const TOOL_PLANNING_QUERY_RE = /\b(DTSV|QGate|dashboard|bug|defect|opened|created|raised|submitted|resolved|coverage|test|summary|count|metric|trend|duplicate|similar)\b|缺陷|测试|覆盖率|多少|几个|统计|趋势|创建|提交|新建|解决|关闭|重复|查重|相似/i;
+// This expression is only a compatibility routing hint. Business semantics,
+// metric selection, policy, planning, and tool execution belong to the V2 Runtime.
+const ANALYTICS_QUERY_RE = /\b(DTSV|QGate|dashboard|bug|defect|opened|created|raised|submitted|resolved|coverage|test|summary|count|metric|trend|duplicate|similar)\b|缺陷|测试|覆盖率|多少|几个|统计|趋势|创建|提交|新建|解决|关闭|重复|查重|相似/i;
 
 export function shouldPlanMainAgentTools(messages) {
+  return ANALYTICS_QUERY_RE.test(extractLatestUserQuery(messages));
+}
+
+function compatibilityEvents(events = []) {
+  const toolNames = new Map(events.filter((event) => event.type === "tool.started").map((event) => [event.payload.attemptId, event.payload.toolName]));
+  return events.flatMap((event) => {
+    if (event.type === "tool.started") {
+      return [{ type: "tool-input-available", toolCallId: event.payload.attemptId, toolName: event.payload.toolName, input: event.payload.redactedCanonicalArgs }];
+    }
+    if (event.type === "tool.completed") {
+      return [{ type: "tool-output-available", toolCallId: event.payload.attemptId, toolName: toolNames.get(event.payload.attemptId), outputSummary: `${event.payload.status}: ${event.payload.evidenceIds.join(",")}` }];
+    }
+    if (["intent.resolved", "ontology.resolved", "plan.validated", "claims.validated"].includes(event.type)) {
+      return [{ type: "status", message: event.type }];
+    }
+    return [];
+  });
+}
+
+export async function resolveMainAgentToolContext({ messages, model, runAgent } = {}) {
+  if (typeof runAgent !== "function") {
+    throw Object.assign(new Error("MAIN_AGENT_RUNTIME_ADAPTER_REQUIRED"), { code: "MAIN_AGENT_RUNTIME_ADAPTER_REQUIRED" });
+  }
   const queryText = extractLatestUserQuery(messages);
-  return TOOL_PLANNING_QUERY_RE.test(queryText);
-}
-
-function mergeContext(...parts) {
-  return parts.filter(Boolean).join("\n\n");
-}
-
-function parseToolInput(toolCall) {
-  const rawArguments = toolCall?.function?.arguments;
-  if (!rawArguments) {
-    return {};
+  const result = await runAgent({ queryText, selectedModel: model });
+  if (!result?.answer?.text) {
+    throw Object.assign(new Error("MAIN_AGENT_RUNTIME_ANSWER_REQUIRED"), { code: "MAIN_AGENT_RUNTIME_ANSWER_REQUIRED" });
   }
-  if (typeof rawArguments === "object") {
-    return rawArguments;
-  }
-  try {
-    return JSON.parse(String(rawArguments));
-  } catch {
-    return { raw: String(rawArguments) };
-  }
-}
-
-export async function resolveMainAgentToolContext({
-  messages,
-  model,
-  context,
-  requestChatCompletion = requestCompanyChatCompletion,
-  executeToolCall = executeMainAgentToolCall,
-  toolDependencies = {},
-  tools = MAIN_AGENT_TOOLS,
-  maxSteps = 4,
-} = {}) {
-  const allToolCalls = [];
-  const results = [];
-  const toolConversationMessages = [];
-  const toolEvents = [];
-  const stepLimit = Math.max(1, Math.min(10, Number(maxSteps || 4)));
-  let stoppedReason = "no_tool_calls";
-
-  for (let stepIndex = 0; stepIndex < stepLimit; stepIndex += 1) {
-    const planningResult = await requestChatCompletion({
-      messages: [
-        ...(Array.isArray(messages) ? messages : []),
-        ...toolConversationMessages,
-      ],
-      model,
-      context: mergeContext(context, buildToolPlanningContext(tools)),
-      tools,
-      toolChoice: "auto",
-    });
-
-    const stepToolCalls = Array.isArray(planningResult.toolCalls) ? planningResult.toolCalls.slice(0, 3) : [];
-    if (stepToolCalls.length === 0) {
-      stoppedReason = "no_tool_calls";
-      break;
-    }
-
-    allToolCalls.push(...stepToolCalls);
-    toolConversationMessages.push({
-      role: "assistant",
-      content: "",
-      tool_calls: stepToolCalls,
-    });
-
-    for (const toolCall of stepToolCalls) {
-      const toolName = toolCall?.function?.name || "unknown_tool";
-      toolEvents.push({
-        type: "tool-input-available",
-        toolCallId: toolCall?.id || "",
-        toolName,
-        input: parseToolInput(toolCall),
-      });
-      const result = await executeToolCall(toolCall, toolDependencies);
-      if (!result?.toolMessage || !result?.contextText) {
-        throw new Error(`Invalid tool result shape from ${toolName}`);
-      }
-      results.push(result);
-      toolConversationMessages.push(result.toolMessage);
-      toolEvents.push({
-        type: "tool-output-available",
-        toolCallId: toolCall?.id || "",
-        toolName,
-        outputSummary: result.contextText,
-      });
-      if (result.requiresUserInput) {
-        stoppedReason = "clarification_requested";
-        break;
-      }
-    }
-
-    if (stoppedReason === "clarification_requested") {
-      break;
-    }
-
-    if (stepIndex === stepLimit - 1) {
-      stoppedReason = "max_steps";
-    }
-  }
-
+  const toolEvents = compatibilityEvents(result.events);
+  const toolCalls = (result.events || []).filter((event) => event.type === "tool.started").map((event) => ({
+    id: event.payload.attemptId,
+    type: "function",
+    function: { name: event.payload.toolName, arguments: JSON.stringify(event.payload.redactedCanonicalArgs || {}) },
+  }));
   return {
-    contextText: results.map((result) => result.contextText).filter(Boolean).join("\n\n"),
-    toolCalls: allToolCalls,
-    toolMessages: results.map((result) => result.toolMessage),
-    toolConversationMessages,
+    contextText: "",
+    toolCalls,
+    toolMessages: [],
+    toolConversationMessages: [],
     toolEvents,
-    stoppedReason,
+    stoppedReason: result.interaction ? "clarification_requested" : "runtime_completed",
+    answer: result.answer,
+    runId: result.runId,
+    interaction: result.interaction || null,
   };
 }

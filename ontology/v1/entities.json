@@ -1,0 +1,167 @@
+{
+  "schemaVersion": "1.0",
+  "ontologyVersion": "v1",
+  "entities": [
+    {
+      "id": "quality.defect", "version": "1.0.0",
+      "labels": { "zh-CN": "缺陷", "en-US": "Defect" },
+      "descriptions": { "zh-CN": "Octane 中唯一标识的质量缺陷。", "en-US": "A uniquely identified quality defect in Octane." },
+      "aliases": ["defect", "bug", "问题单", "缺陷单"],
+      "source": { "sourceId": "analytics.full_picture_defects", "system": "analytics", "readModel": "full_picture_outcomes", "table": "octane_defects" },
+      "primaryKey": "defect_id", "sensitivity": "internal", "allowedOperations": ["read", "aggregate", "traverse", "similarity"],
+      "properties": [
+        { "id": "defect_id", "type": "string", "nullable": false, "sensitivity": "internal" },
+        { "id": "creation_time", "type": "datetime", "nullable": true, "sensitivity": "internal" },
+        { "id": "resolution_time", "type": "datetime", "nullable": true, "sensitivity": "internal" },
+        { "id": "status", "type": "string", "nullable": true, "sensitivity": "internal" },
+        { "id": "severity", "type": "string", "nullable": true, "sensitivity": "internal" },
+        { "id": "phase", "type": "string", "nullable": true, "sensitivity": "internal" },
+        { "id": "china_scope", "type": "string", "nullable": true, "sensitivity": "internal" },
+        { "id": "problem_finder_team", "type": "string", "nullable": true, "sensitivity": "internal" },
+        { "id": "project", "type": "string", "nullable": true, "sensitivity": "internal" },
+        { "id": "service_pack", "type": "string", "nullable": true, "sensitivity": "internal" },
+        { "id": "pu", "type": "string", "nullable": true, "sensitivity": "internal" },
+        { "id": "i_step", "type": "string", "nullable": true, "sensitivity": "internal" },
+        { "id": "os", "type": "string", "nullable": true, "sensitivity": "internal" },
+        { "id": "platform", "type": "string", "nullable": true, "sensitivity": "internal" },
+        { "id": "assigned_ecu", "type": "string", "nullable": true, "sensitivity": "internal" },
+        { "id": "model_series", "type": "string", "nullable": true, "sensitivity": "internal" },
+        { "id": "aida", "type": "string", "nullable": true, "sensitivity": "internal" },
+        { "id": "detected_run_id", "type": "string", "nullable": true, "sensitivity": "internal" }
+      ],
+      "governance": { "status": "approved", "owner": "Quality Analytics" }
+    },
+    {
+      "id": "testing.test_case", "version": "1.0.0",
+      "labels": { "zh-CN": "测试用例", "en-US": "Test Case" },
+      "descriptions": { "zh-CN": "定义可重复执行的测试意图。", "en-US": "A reusable definition of a test intent." },
+      "aliases": ["testcase", "TC", "用例"],
+      "source": { "sourceId": "analytics.testing_coverage", "system": "analytics", "readModel": "testing_coverage_hot", "table": "octane_testcases" },
+      "primaryKey": "test_id", "sensitivity": "internal", "allowedOperations": ["read", "aggregate", "traverse"],
+      "properties": [
+        { "id": "test_id", "type": "string", "nullable": false, "sensitivity": "internal" },
+        { "id": "name", "type": "string", "nullable": true, "sensitivity": "internal" },
+        { "id": "project", "type": "string", "nullable": true, "sensitivity": "internal" },
+        { "id": "pu", "type": "string", "nullable": true, "sensitivity": "internal" },
+        { "id": "aida", "type": "string", "nullable": true, "sensitivity": "internal" },
+        { "id": "trace_status", "type": "string", "nullable": false, "sensitivity": "internal" }
+      ],
+      "governance": { "status": "approved", "owner": "Testing Analytics" }
+    },
+    {
+      "id": "testing.test_run", "version": "1.0.0",
+      "labels": { "zh-CN": "测试执行", "en-US": "Test Run" },
+      "descriptions": { "zh-CN": "测试用例的一次可追溯执行。", "en-US": "One traceable execution of a test case." },
+      "aliases": ["manual run", "MR", "Run", "TestRun", "测试运行", "执行记录"],
+      "source": { "sourceId": "analytics.testing_coverage", "system": "analytics", "readModel": "testing_coverage_hot", "table": "octane_manual_runs" },
+      "primaryKey": "mr_id", "sensitivity": "internal", "allowedOperations": ["read", "aggregate", "traverse"],
+      "properties": [
+        { "id": "mr_id", "type": "string", "nullable": false, "sensitivity": "internal" },
+        { "id": "test_id", "type": "string", "nullable": true, "sensitivity": "internal" },
+        { "id": "status", "type": "string", "nullable": true, "sensitivity": "internal" },
+        { "id": "finished", "type": "datetime", "nullable": true, "sensitivity": "internal" },
+        { "id": "test_week", "type": "string", "nullable": true, "sensitivity": "internal" },
+        { "id": "tester", "type": "string", "nullable": true, "sensitivity": "confidential" },
+        { "id": "team", "type": "string", "nullable": true, "sensitivity": "internal" },
+        { "id": "project", "type": "string", "nullable": true, "sensitivity": "internal" },
+        { "id": "pu", "type": "string", "nullable": true, "sensitivity": "internal" },
+        { "id": "aida", "type": "string", "nullable": true, "sensitivity": "internal" },
+        { "id": "defect_id", "type": "string", "nullable": true, "sensitivity": "internal" }
+      ],
+      "governance": { "status": "approved", "owner": "Testing Analytics" }
+    },
+    {
+      "id": "requirements.aida_node", "version": "1.0.0",
+      "labels": { "zh-CN": "AIDA 需求节点", "en-US": "AIDA Requirement Node" },
+      "descriptions": { "zh-CN": "AIDA 需求层级中的节点。", "en-US": "A node in the AIDA requirement hierarchy." },
+      "aliases": ["AIDA", "需求节点", "requirement"],
+      "source": { "sourceId": "analytics.traceability", "system": "analytics", "readModel": "traceability_models", "table": "octane_traceability_nodes" },
+      "primaryKey": "aida_id", "sensitivity": "internal", "allowedOperations": ["read", "aggregate", "traverse"],
+      "properties": [
+        { "id": "aida_id", "type": "string", "nullable": false, "sensitivity": "internal" },
+        { "id": "parent_id", "type": "string", "nullable": true, "sensitivity": "internal" },
+        { "id": "name", "type": "string", "nullable": true, "sensitivity": "internal" },
+        { "id": "node_type", "type": "string", "nullable": true, "sensitivity": "internal" }
+      ],
+      "governance": { "status": "approved", "owner": "Requirements Analytics" }
+    },
+    {
+      "id": "requirements.epic", "version": "1.0.0",
+      "labels": { "zh-CN": "Epic", "en-US": "Epic" }, "descriptions": { "zh-CN": "Epic 级需求工作项。", "en-US": "An epic-level requirement work item." }, "aliases": ["epic"],
+      "source": { "sourceId": "analytics.traceability", "system": "analytics", "readModel": "traceability_models", "table": "octane_work_items" }, "primaryKey": "epic_id", "sensitivity": "internal", "allowedOperations": ["read", "aggregate", "traverse"],
+      "properties": [{ "id": "epic_id", "type": "string", "nullable": false, "sensitivity": "internal" }, { "id": "name", "type": "string", "nullable": true, "sensitivity": "internal" }], "governance": { "status": "approved", "owner": "Requirements Analytics" }
+    },
+    {
+      "id": "requirements.feature", "version": "1.0.0",
+      "labels": { "zh-CN": "Feature", "en-US": "Feature" }, "descriptions": { "zh-CN": "Feature 级需求工作项。", "en-US": "A feature-level requirement work item." }, "aliases": ["feature", "特性"],
+      "source": { "sourceId": "analytics.traceability", "system": "analytics", "readModel": "traceability_models", "table": "octane_work_items" }, "primaryKey": "feature_id", "sensitivity": "internal", "allowedOperations": ["read", "aggregate", "traverse"],
+      "properties": [{ "id": "feature_id", "type": "string", "nullable": false, "sensitivity": "internal" }, { "id": "name", "type": "string", "nullable": true, "sensitivity": "internal" }], "governance": { "status": "approved", "owner": "Requirements Analytics" }
+    },
+    {
+      "id": "requirements.story", "version": "1.0.0",
+      "labels": { "zh-CN": "Story", "en-US": "Story" }, "descriptions": { "zh-CN": "Story 级需求工作项。", "en-US": "A story-level requirement work item." }, "aliases": ["story", "用户故事"],
+      "source": { "sourceId": "analytics.traceability", "system": "analytics", "readModel": "traceability_models", "table": "octane_work_items" }, "primaryKey": "story_id", "sensitivity": "internal", "allowedOperations": ["read", "aggregate", "traverse"],
+      "properties": [{ "id": "story_id", "type": "string", "nullable": false, "sensitivity": "internal" }, { "id": "name", "type": "string", "nullable": true, "sensitivity": "internal" }], "governance": { "status": "approved", "owner": "Requirements Analytics" }
+    },
+    {
+      "id": "product.project", "version": "1.0.0", "labels": { "zh-CN": "项目", "en-US": "Project" }, "descriptions": { "zh-CN": "产品或交付项目。", "en-US": "A product or delivery project." }, "aliases": ["project", "项目"],
+      "source": { "sourceId": "analytics.full_picture_defects", "system": "analytics", "readModel": "full_picture_outcomes", "table": "octane_defects" }, "primaryKey": "project_id", "sensitivity": "internal", "allowedOperations": ["read", "aggregate", "traverse"],
+      "properties": [{ "id": "project_id", "type": "string", "nullable": false, "sensitivity": "internal" }, { "id": "name", "type": "string", "nullable": false, "sensitivity": "internal" }], "governance": { "status": "approved", "owner": "Product Analytics" }
+    },
+    {
+      "id": "product.service_pack", "version": "1.0.0", "labels": { "zh-CN": "Service Pack", "en-US": "Service Pack" }, "descriptions": { "zh-CN": "产品交付 Service Pack。", "en-US": "A product delivery service pack." }, "aliases": ["SP", "service pack"],
+      "source": { "sourceId": "analytics.full_picture_defects", "system": "analytics", "readModel": "full_picture_outcomes", "table": "octane_defects" }, "primaryKey": "service_pack_id", "sensitivity": "internal", "allowedOperations": ["read", "aggregate", "traverse"],
+      "properties": [{ "id": "service_pack_id", "type": "string", "nullable": false, "sensitivity": "internal" }, { "id": "name", "type": "string", "nullable": false, "sensitivity": "internal" }], "governance": { "status": "approved", "owner": "Product Analytics" }
+    },
+    {
+      "id": "product.pu", "version": "1.0.0", "labels": { "zh-CN": "PU", "en-US": "Product Unit" }, "descriptions": { "zh-CN": "产品单元。", "en-US": "A product unit." }, "aliases": ["PU", "product unit"],
+      "source": { "sourceId": "analytics.full_picture_defects", "system": "analytics", "readModel": "full_picture_outcomes", "table": "octane_defects" }, "primaryKey": "pu_id", "sensitivity": "internal", "allowedOperations": ["read", "aggregate", "traverse"],
+      "properties": [{ "id": "pu_id", "type": "string", "nullable": false, "sensitivity": "internal" }, { "id": "service_pack_id", "type": "string", "nullable": true, "sensitivity": "internal" }, { "id": "name", "type": "string", "nullable": false, "sensitivity": "internal" }], "governance": { "status": "approved", "owner": "Product Analytics" }
+    },
+    {
+      "id": "product.i_step", "version": "1.0.0", "labels": { "zh-CN": "I-Step", "en-US": "I-Step" }, "descriptions": { "zh-CN": "软件集成级别。", "en-US": "A software integration level." }, "aliases": ["i-step", "istep"],
+      "source": { "sourceId": "analytics.full_picture_defects", "system": "analytics", "readModel": "full_picture_outcomes", "table": "octane_defects" }, "primaryKey": "i_step_id", "sensitivity": "internal", "allowedOperations": ["read", "aggregate", "traverse"],
+      "properties": [{ "id": "i_step_id", "type": "string", "nullable": false, "sensitivity": "internal" }, { "id": "pu_id", "type": "string", "nullable": true, "sensitivity": "internal" }, { "id": "name", "type": "string", "nullable": false, "sensitivity": "internal" }], "governance": { "status": "approved", "owner": "Product Analytics" }
+    },
+    {
+      "id": "product.os", "version": "1.0.0", "labels": { "zh-CN": "操作系统代际", "en-US": "Operating System Generation" }, "descriptions": { "zh-CN": "车辆软件 OS 代际。", "en-US": "A vehicle software OS generation." }, "aliases": ["OS7", "OS8", "OS9", "operating system"],
+      "source": { "sourceId": "analytics.full_picture_defects", "system": "analytics", "readModel": "full_picture_outcomes", "table": "octane_defects" }, "primaryKey": "os_id", "sensitivity": "internal", "allowedOperations": ["read", "aggregate", "traverse"],
+      "properties": [{ "id": "os_id", "type": "string", "nullable": false, "sensitivity": "internal" }, { "id": "name", "type": "string", "nullable": false, "sensitivity": "internal" }], "governance": { "status": "approved", "owner": "Product Analytics" }
+    },
+    {
+      "id": "product.platform", "version": "1.0.0", "labels": { "zh-CN": "平台", "en-US": "Platform" }, "descriptions": { "zh-CN": "产品技术平台。", "en-US": "A product technology platform." }, "aliases": ["platform", "平台"],
+      "source": { "sourceId": "analytics.full_picture_defects", "system": "analytics", "readModel": "full_picture_outcomes", "table": "octane_defects" }, "primaryKey": "platform_id", "sensitivity": "internal", "allowedOperations": ["read", "aggregate", "traverse"],
+      "properties": [{ "id": "platform_id", "type": "string", "nullable": false, "sensitivity": "internal" }, { "id": "os_id", "type": "string", "nullable": true, "sensitivity": "internal" }, { "id": "name", "type": "string", "nullable": false, "sensitivity": "internal" }], "governance": { "status": "approved", "owner": "Product Analytics" }
+    },
+    {
+      "id": "product.ecu", "version": "1.0.0", "labels": { "zh-CN": "ECU/模块", "en-US": "ECU or Module" }, "descriptions": { "zh-CN": "分配缺陷或功能的 ECU/模块。", "en-US": "An ECU or module assigned to a defect or feature." }, "aliases": ["ECU", "模块", "module"],
+      "source": { "sourceId": "analytics.full_picture_defects", "system": "analytics", "readModel": "full_picture_outcomes", "table": "octane_defects" }, "primaryKey": "ecu_id", "sensitivity": "internal", "allowedOperations": ["read", "aggregate", "traverse"],
+      "properties": [{ "id": "ecu_id", "type": "string", "nullable": false, "sensitivity": "internal" }, { "id": "name", "type": "string", "nullable": false, "sensitivity": "internal" }], "governance": { "status": "approved", "owner": "Product Analytics" }
+    },
+    {
+      "id": "vehicle.model_series", "version": "1.0.0", "labels": { "zh-CN": "车型系列", "en-US": "Model Series" }, "descriptions": { "zh-CN": "车辆车型系列。", "en-US": "A vehicle model series." }, "aliases": ["车型", "model series", "lead model"],
+      "source": { "sourceId": "analytics.full_picture_defects", "system": "analytics", "readModel": "full_picture_outcomes", "table": "octane_defects" }, "primaryKey": "model_series_id", "sensitivity": "internal", "allowedOperations": ["read", "aggregate", "traverse"],
+      "properties": [{ "id": "model_series_id", "type": "string", "nullable": false, "sensitivity": "internal" }, { "id": "platform_id", "type": "string", "nullable": true, "sensitivity": "internal" }, { "id": "name", "type": "string", "nullable": false, "sensitivity": "internal" }], "governance": { "status": "approved", "owner": "Vehicle Analytics" }
+    },
+    {
+      "id": "organization.team", "version": "1.0.0", "labels": { "zh-CN": "团队", "en-US": "Team" }, "descriptions": { "zh-CN": "组织中的交付或测试团队。", "en-US": "A delivery or testing team in the organization." }, "aliases": ["team", "团队", "problem finder team"],
+      "source": { "sourceId": "analytics.full_picture_defects", "system": "analytics", "readModel": "full_picture_outcomes", "table": "octane_defects" }, "primaryKey": "team_id", "sensitivity": "internal", "allowedOperations": ["read", "aggregate", "traverse"],
+      "properties": [{ "id": "team_id", "type": "string", "nullable": false, "sensitivity": "internal" }, { "id": "name", "type": "string", "nullable": false, "sensitivity": "internal" }], "governance": { "status": "approved", "owner": "Organization Analytics" }
+    },
+    {
+      "id": "organization.tester", "version": "1.0.0", "labels": { "zh-CN": "测试人员", "en-US": "Tester" }, "descriptions": { "zh-CN": "执行测试运行的人员。", "en-US": "A person who executes a test run." }, "aliases": ["tester", "测试人员", "run by"],
+      "source": { "sourceId": "analytics.testing_coverage", "system": "analytics", "readModel": "testing_coverage_hot", "table": "octane_manual_runs" }, "primaryKey": "tester_id", "sensitivity": "confidential", "allowedOperations": ["read", "aggregate", "traverse"],
+      "properties": [{ "id": "tester_id", "type": "string", "nullable": false, "sensitivity": "confidential" }, { "id": "team_id", "type": "string", "nullable": true, "sensitivity": "internal" }, { "id": "display_name", "type": "string", "nullable": true, "sensitivity": "confidential" }], "governance": { "status": "approved", "owner": "Testing Analytics" }
+    },
+    {
+      "id": "quality.qgate", "version": "1.0.0", "labels": { "zh-CN": "质量门", "en-US": "Quality Gate" }, "descriptions": { "zh-CN": "按照已批准规则评估产品质量的门禁。", "en-US": "A gate that evaluates product quality under approved rules." }, "aliases": ["QGate", "quality gate", "质量门"],
+      "source": { "sourceId": "analytics.qgate", "system": "analytics", "readModel": "qgate_kpi", "table": "qgate_results" }, "primaryKey": "qgate_id", "sensitivity": "internal", "allowedOperations": ["read", "aggregate", "traverse"],
+      "properties": [{ "id": "qgate_id", "type": "string", "nullable": false, "sensitivity": "internal" }, { "id": "pu_id", "type": "string", "nullable": true, "sensitivity": "internal" }, { "id": "result", "type": "string", "nullable": true, "sensitivity": "internal" }], "governance": { "status": "draft", "owner": "Quality Governance", "decisionRef": "docs/main-agent-v2/metric-decisions.md" }
+    },
+    {
+      "id": "evidence.artifact", "version": "1.0.0", "labels": { "zh-CN": "证据附件", "en-US": "Evidence Artifact" }, "descriptions": { "zh-CN": "由 Agent 授权读取并可用于支持 Claim 的附件。", "en-US": "An actor-authorized artifact that can support an Agent claim." }, "aliases": ["attachment", "artifact", "附件", "证据"],
+      "source": { "sourceId": "artifact.runtime_store", "system": "artifact", "readModel": "agent_artifacts", "table": "agent_artifacts" }, "primaryKey": "artifact_id", "sensitivity": "confidential", "allowedOperations": ["read", "traverse"],
+      "properties": [{ "id": "artifact_id", "type": "string", "nullable": false, "sensitivity": "internal" }, { "id": "content_hash", "type": "string", "nullable": false, "sensitivity": "internal" }, { "id": "media_type", "type": "string", "nullable": false, "sensitivity": "internal" }], "governance": { "status": "approved", "owner": "Agent Platform" }
+    }
+  ]
+}

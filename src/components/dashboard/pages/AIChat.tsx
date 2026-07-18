@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ArrowUp,
   Check,
   Copy,
+  Database,
   Loader2,
   MessageSquarePlus,
   Mic,
@@ -18,16 +19,18 @@ import {
   Trash2,
   User,
   X,
+  type LucideIcon,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import MessageRenderer from "../chat/MessageRenderer";
 import AgentRunTimeline from "../chat/AgentRunTimeline";
-import SlashMenu, { SLASH_COMMANDS, SlashCommand } from "../chat/SlashMenu";
+import SlashMenu from "../chat/SlashMenu";
+import { SLASH_COMMANDS, type SlashCommand } from "../chat/slashCommands";
 import { segmentsToPlainText, parseAgentStream } from "../chat/agentParser";
 import DuplicateSearchResults from "../chat/DuplicateSearchResults";
 import { createStreamTextAnimator, type StreamTextAnimator } from "../chat/streamTextAnimator";
-import { AgentApiError, cancelAgentRun, openAgentEvents, resumeAgentRun, startAgentRun } from "@/lib/agentApi";
-import { AgentEventProtocolError } from "@/lib/agentEventStream";
+import { AgentApiError, cancelAgentRun, createAgentThread, fetchAgentRuntimeConfig, openAgentEvents, resumeAgentRun, startAgentRun, uploadAgentArtifact } from "@/lib/agentApi";
+import { AgentEventProtocolError, type AgentAnswerCompletedPayload, type PublicAgentEvent } from "@/lib/agentEventStream";
 import {
   COMPANY_CHAT_MODELS,
   DEFAULT_COMPANY_CHAT_MODEL,
@@ -45,6 +48,7 @@ interface Attachment {
   mimeType?: string;
   dataUrl?: string;
   size: number;
+  file?: File;
 }
 interface Msg {
   id: string;
@@ -53,14 +57,16 @@ interface Msg {
   mode?: ChatMode;
   duplicateResult?: DuplicateSearchResult;
   attachments?: Attachment[];
-  agentEvents?: any[];
+  agentEvents?: PublicAgentEvent[];
   agentInteraction?: AgentInteraction;
+  agentAnswer?: AgentAnswerCompletedPayload;
 }
 interface AgentInteraction {
   runId: string;
   interactionId: string;
   threadVersion: number;
   question: string;
+  options?: string[];
   expiresAt?: string;
   lastEventId?: string;
   status: "pending" | "submitted";
@@ -76,7 +82,22 @@ interface Conversation {
 }
 
 const STORAGE_KEY = "dtsv.chat.v2";
-const AGENT_RUNTIME_ENABLED_KEY = "dtsv.agentRuntime.enabled";
+
+type GatewayContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } }
+  | { type: "file_data"; file_data: { name: string; mime_type: string; url: string } };
+
+interface LegacyToolStreamEvent {
+  type?: string;
+  toolName?: string;
+  input?: unknown;
+  outputSummary?: unknown;
+}
+
+function errorName(error: unknown) {
+  return error instanceof Error ? error.name : "";
+}
 function createId() {
   if (typeof globalThis.crypto?.randomUUID === "function") {
     return globalThis.crypto.randomUUID();
@@ -108,14 +129,6 @@ const newConversation = (): Conversation => ({
 
 const newId = () => createId();
 
-function isAgentRuntimeEnabled() {
-  try {
-    return localStorage.getItem(AGENT_RUNTIME_ENABLED_KEY) === "true";
-  } catch {
-    return false;
-  }
-}
-
 function pickPreferredAudioInputId(devices: MediaDeviceInfo[], current = "") {
   const preferred = devices.find((device) => {
     const label = device.label.toLowerCase();
@@ -139,7 +152,9 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
         const parsed = JSON.parse(raw) as Conversation[];
         if (Array.isArray(parsed) && parsed.length) return parsed;
       }
-    } catch {}
+    } catch {
+      // Ignore corrupt local-only conversation state and start a clean thread.
+    }
     return [newConversation()];
   });
   const [activeId, setActiveId] = useState<string>(() => conversations[0].id);
@@ -181,7 +196,9 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations));
-    } catch {}
+    } catch {
+      // Storage may be disabled by the browser; chat remains usable in memory.
+    }
   }, [conversations]);
 
   useEffect(() => {
@@ -306,6 +323,7 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
         mimeType: f.type || (isPdf ? "application/pdf" : "application/octet-stream"),
         dataUrl,
         size: f.size,
+        file: f,
       });
     }
     setAttachments((prev) => [...prev, ...adds]);
@@ -445,7 +463,7 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
   const buildGatewayMessages = (history: Msg[]) =>
     history.map((m) => {
       if (m.role === "user" && m.attachments?.some((a) => a.dataUrl && (a.kind === "image" || a.mimeType === "application/pdf"))) {
-        const parts: any[] = [{ type: "text", text: m.content || "(附件)" }];
+        const parts: GatewayContentPart[] = [{ type: "text", text: m.content || "(附件)" }];
         for (const a of m.attachments) {
           if (a.kind === "image" && a.dataUrl) {
             parts.push({ type: "image_url", image_url: { url: a.dataUrl } });
@@ -536,7 +554,7 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
     return normalized.length > maxLength ? `${normalized.slice(0, maxLength - 3).trimEnd()}...` : normalized;
   };
 
-  const formatToolEventStep = (event: any) => {
+  const formatToolEventStep = (event: LegacyToolStreamEvent) => {
     if (event?.type === "tool-input-available") {
       return `<step title="调用工具" source="${escapeAgentAttr(event.toolName || "tool")}">${escapeAgentAttr(summarizeToolEventPayload(event.input))}</step>`;
     }
@@ -546,10 +564,22 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
     return "";
   };
 
-  const shouldUseAgentRuntime = (history: Msg[]) => {
-    if (!isAgentRuntimeEnabled()) return false;
-    const lastUserMessage = [...history].reverse().find((message) => message.role === "user");
-    return !lastUserMessage?.attachments?.length;
+  const shouldUseAgentRuntime = async (history: Msg[]) => {
+    try {
+      const runtimeConfig = await fetchAgentRuntimeConfig();
+      return runtimeConfig.serverControlled === true
+        && runtimeConfig.agentApiEnabled === true
+        && runtimeConfig.runtimeMode === "langgraph";
+    } catch {
+      return false;
+    }
+  };
+
+  const attachmentFile = async (attachment: Attachment) => {
+    if (attachment.file) return attachment.file;
+    if (!attachment.dataUrl) throw new Error(`附件 ${attachment.name} 的本地内容已不可用，请重新选择。`);
+    const blob = await fetch(attachment.dataUrl).then((response) => response.blob());
+    return new File([blob], attachment.name, { type: attachment.mimeType || blob.type || "application/octet-stream" });
   };
 
   const runAgentRuntimeStream = async (history: Msg[], assistantMsgId: string) => {
@@ -582,11 +612,24 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
     streamAnimatorRef.current = animator;
 
     try {
+      let runtimeThreadId = active.runtimeThreadId;
+      let runtimeThreadVersion = active.runtimeThreadVersion ?? 0;
+      if (!runtimeThreadId) {
+        const created = await createAgentThread({ title: lastUserMessage?.content?.slice(0, 80) || "附件问答" });
+        runtimeThreadId = created.thread.threadId;
+        runtimeThreadVersion = created.thread.threadVersion;
+        updateActive((c) => ({ ...c, runtimeThreadId, runtimeThreadVersion, updatedAt: Date.now() }));
+      }
+      const artifactRefs: string[] = [];
+      for (const attachment of lastUserMessage?.attachments || []) {
+        const uploaded = await uploadAgentArtifact({ threadId: runtimeThreadId, file: await attachmentFile(attachment), signal: controller.signal });
+        artifactRefs.push(uploaded.artifactId);
+      }
       const started = await startAgentRun({
         messageId: lastUserMessage?.id || newId(),
-        threadId: active.runtimeThreadId,
-        threadVersion: active.runtimeThreadVersion ?? 0,
-        message: { role: "user", text: lastUserMessage?.content || "", artifactRefs: [] },
+        threadId: runtimeThreadId,
+        threadVersion: runtimeThreadVersion,
+        message: { role: "user", text: lastUserMessage?.content || "", artifactRefs },
         selectedModel: model,
         useDefectContext: chatContextEnabled,
         useAnalyticsContext: true,
@@ -632,6 +675,13 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
             if (event.type === "answer.delta" && typeof event.payload?.text === "string") {
               animator.push(event.payload.text);
             }
+            if (event.type === "answer.completed") {
+              updateActive((c) => ({
+                ...c,
+                messages: c.messages.map((m) => m.id === assistantMsgId ? { ...m, agentAnswer: event.payload as AgentAnswerCompletedPayload } : m),
+                updatedAt: Date.now(),
+              }));
+            }
             if (event.type === "clarification.required") {
               terminal = true;
               activeAgentRunRef.current = null;
@@ -647,6 +697,7 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
                           interactionId: event.payload.interactionId,
                           threadVersion: event.payload.threadVersion,
                           question: event.payload.question,
+                          options: Array.isArray(event.payload.options) ? event.payload.options.filter((item): item is string => typeof item === "string") : [],
                           expiresAt: event.payload.expiresAt,
                           lastEventId: event.eventId,
                           status: "pending",
@@ -683,8 +734,8 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
       }
 
       await animator.finish();
-    } catch (error: any) {
-      if (activeRequestRef.current === requestId && error?.name !== "AbortError") {
+    } catch (error: unknown) {
+      if (activeRequestRef.current === requestId && errorName(error) !== "AbortError") {
         if (error instanceof AgentApiError && error.status === 410) {
           const recoveryText = error.snapshotUrl
             ? `⚠️ ${error.message}\n\nSnapshot: ${error.snapshotUrl}`
@@ -869,8 +920,8 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
       }
 
       await animator.finish();
-    } catch (e: any) {
-      if (e.name !== "AbortError") {
+    } catch (error: unknown) {
+      if (errorName(error) !== "AbortError") {
         updateActive((c) => ({
           ...c,
           messages: c.messages.map((m) =>
@@ -889,7 +940,16 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
   };
 
   const runStream = async (history: Msg[], assistantMsgId: string) => {
-    if (shouldUseAgentRuntime(history)) {
+    if (!chatContextEnabled) {
+      updateActive((conversation) => ({
+        ...conversation,
+        messages: conversation.messages.map((message) =>
+          message.id === assistantMsgId ? { ...message, content: "正在生成回答…" } : message,
+        ),
+        updatedAt: Date.now(),
+      }));
+    }
+    if (await shouldUseAgentRuntime(history)) {
       await runAgentRuntimeStream(history, assistantMsgId);
       return;
     }
@@ -897,9 +957,10 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
     await runLegacyChatStream(history, assistantMsgId);
   };
 
-  const resumeClarification = async (messageId: string, interaction: AgentInteraction) => {
+  const resumeClarification = async (messageId: string, interaction: AgentInteraction, selection = "补充其他明确口径") => {
     const answer = (clarificationDrafts[messageId] || "").trim();
-    if (!answer || streaming) return;
+    const requiresText = selection === "补充其他明确口径";
+    if ((requiresText && !answer) || streaming) return;
 
     setStreaming(true);
     const controller = new AbortController();
@@ -911,7 +972,7 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
         runId: interaction.runId,
         interactionId: interaction.interactionId,
         threadVersion: interaction.threadVersion,
-        value: { answer },
+        value: { selection, ...(requiresText ? { text: answer } : {}) },
       });
       updateActive((c) => ({
         ...c,
@@ -968,6 +1029,13 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
           }
           if (event.type === "answer.delta" && typeof event.payload?.text === "string") {
             animator.push(event.payload.text);
+          }
+          if (event.type === "answer.completed") {
+            updateActive((c) => ({
+              ...c,
+              messages: c.messages.map((m) => m.id === messageId ? { ...m, agentAnswer: event.payload as AgentAnswerCompletedPayload } : m),
+              updatedAt: Date.now(),
+            }));
           }
           if (event.type === "run.completed" && Number.isInteger(event.payload?.threadVersion)) {
             terminal = true;
@@ -1540,6 +1608,24 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
                           <div className="space-y-3">
                             {m.agentEvents?.length ? <AgentRunTimeline events={m.agentEvents} /> : null}
                             <MessageRenderer content={m.content} streaming={streaming && isLastAsst} />
+                            {m.agentAnswer ? (
+                              <div aria-label="答案引用" className="rounded-lg border border-border bg-muted/20 p-3">
+                                <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-foreground">
+                                  <Database className="h-3.5 w-3.5 text-primary" />
+                                  <span>证据与引用</span>
+                                  <span className="ml-auto rounded-full bg-primary/10 px-2 py-0.5 text-[10px] text-primary">{m.agentAnswer.groundingStatus}</span>
+                                </div>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {m.agentAnswer.citations.map((citation) => (
+                                    <span key={citation.citationId} title={`Claims: ${citation.claimIds.join(", ")}`} className="rounded-md border border-primary/20 bg-card px-2 py-1 text-[11px] text-muted-foreground">
+                                      {citation.label}
+                                    </span>
+                                  ))}
+                                  {!m.agentAnswer.citations.length ? <span className="text-[11px] text-muted-foreground">当前没有可用引用</span> : null}
+                                </div>
+                                {m.agentAnswer.limitations.length ? <p className="mt-2 text-[11px] text-muted-foreground">限制：{m.agentAnswer.limitations.join("；")}</p> : null}
+                              </div>
+                            ) : null}
                             {m.agentInteraction?.status === "pending" ? (
                               <div className="rounded-md border border-border bg-muted/30 p-3 text-sm">
                                 <p className="mb-2 font-medium text-foreground">{m.agentInteraction.question}</p>
@@ -1559,6 +1645,21 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
                                     提交补充信息
                                   </button>
                                 </div>
+                                {(m.agentInteraction.options || []).some((option) => option !== "补充其他明确口径") ? (
+                                  <div className="mt-2 flex flex-wrap gap-2" aria-label="澄清选项">
+                                    {(m.agentInteraction.options || []).filter((option) => option !== "补充其他明确口径").map((option) => (
+                                      <button
+                                        key={option}
+                                        type="button"
+                                        onClick={() => resumeClarification(m.id, m.agentInteraction!, option)}
+                                        className="rounded-md border border-border bg-card px-2.5 py-1.5 text-xs text-foreground hover:bg-muted disabled:opacity-60"
+                                        disabled={streaming}
+                                      >
+                                        {option}
+                                      </button>
+                                    ))}
+                                  </div>
+                                ) : null}
                               </div>
                             ) : null}
                             {showDuplicateResults ? (
@@ -1792,7 +1893,7 @@ const ActionBtn = ({
   label,
   onClick,
 }: {
-  icon: any;
+  icon: LucideIcon;
   label: string;
   onClick: () => void;
 }) => (
@@ -1826,8 +1927,8 @@ const MenuItem = ({
   onClick,
   destructive,
 }: {
-  icon: any;
-  children: any;
+  icon: LucideIcon;
+  children: ReactNode;
   onClick: () => void;
   destructive?: boolean;
 }) => (

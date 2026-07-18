@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { Worker } from "node:worker_threads";
+import { inspectUntrustedText } from "./untrustedContent.mjs";
 
 const DEFAULT_LIMITS = Object.freeze({
   perArtifactBytes: 8 * 1024 * 1024,
@@ -172,5 +173,30 @@ export function createArtifactStore({ db, artifactRoot, now, randomUUID, limits 
     return { expiredArtifacts: expired.length, removedBlobs: removedBlobs.length };
   });
 
-  return { put: async (input) => putTx(input), get, attachToRun, extractText, cleanupExpired };
+  async function prepareForRun({ actor, runId, artifactIds }) {
+    const run = db.prepare("SELECT 1 FROM agent_runs WHERE run_id=? AND actor_id=?").get(runId, actor.actorId);
+    if (!run) fail("RUN_NOT_FOUND", 404);
+    const prepared = [];
+    for (const artifactId of artifactIds || []) {
+      const attached = db.prepare("SELECT 1 FROM agent_run_artifacts WHERE run_id=? AND artifact_id=?").get(runId, artifactId);
+      if (!attached) fail("ARTIFACT_NOT_ATTACHED", 404);
+      const artifact = get({ actor, artifactId });
+      const extracted = await extractText({ actor, artifactId });
+      const inspection = inspectUntrustedText(extracted.text);
+      prepared.push({
+        artifactId,
+        contentHash: artifact.contentHash,
+        mimeType: artifact.mimeType,
+        textRef: extracted.textRef,
+        parserVersion: extracted.parserVersion,
+        truncated: extracted.truncated,
+        classification: inspection.classification,
+        directiveLikeContent: inspection.directiveLikeContent,
+        warningCodes: inspection.warningCodes,
+      });
+    }
+    return prepared;
+  }
+
+  return { put: async (input) => putTx(input), get, attachToRun, extractText, prepareForRun, cleanupExpired };
 }

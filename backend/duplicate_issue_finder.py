@@ -6,6 +6,7 @@ import pickle
 import sqlite3
 import time
 import logging
+from collections import Counter
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -19,12 +20,109 @@ except Exception:  # pragma: no cover
 
 logger = logging.getLogger(__name__)
 
+class _SparseMatrix:
+    """Small pickle-safe sparse matrix used when scikit-learn is unavailable."""
+
+    def __init__(self, rows: Sequence[Dict[int, float]], feature_count: int):
+        self.rows = [dict(row) for row in rows]
+        self.shape = (len(self.rows), int(feature_count))
+
+
+class _FallbackTfidfVectorizer:
+    """Dependency-free char n-gram TF-IDF fallback for offline deployments."""
+
+    def __init__(
+        self,
+        *,
+        analyzer: str = "char_wb",
+        ngram_range: Tuple[int, int] = (3, 5),
+        max_features: int = 200_000,
+        lowercase: bool = True,
+    ):
+        if analyzer != "char_wb":
+            raise ValueError("fallback TF-IDF supports only analyzer='char_wb'")
+        self.ngram_range = ngram_range
+        self.max_features = max(1, int(max_features))
+        self.lowercase = bool(lowercase)
+        self.vocabulary_: Dict[str, int] = {}
+        self.idf_: np.ndarray = np.empty(0, dtype=np.float32)
+
+    def _ngrams(self, value: Any) -> Counter[str]:
+        text = str(value or "")
+        if self.lowercase:
+            text = text.lower()
+        counts: Counter[str] = Counter()
+        minimum, maximum = self.ngram_range
+        for word in re.findall(r"\S+", text):
+            padded = f" {word} "
+            for size in range(minimum, maximum + 1):
+                counts.update(
+                    padded[index : index + size]
+                    for index in range(max(0, len(padded) - size + 1))
+                )
+        return counts
+
+    def _transform_counts(self, rows: Sequence[Counter[str]]) -> _SparseMatrix:
+        transformed: List[Dict[int, float]] = []
+        for counts in rows:
+            weights: Dict[int, float] = {}
+            for term, count in counts.items():
+                index = self.vocabulary_.get(term)
+                if index is None:
+                    continue
+                weights[index] = (1.0 + float(np.log(max(1, count)))) * float(self.idf_[index])
+            norm = float(np.sqrt(sum(weight * weight for weight in weights.values())))
+            if norm > 0:
+                weights = {index: weight / norm for index, weight in weights.items()}
+            transformed.append(weights)
+        return _SparseMatrix(transformed, len(self.vocabulary_))
+
+    def fit_transform(self, values: Sequence[Any]) -> _SparseMatrix:
+        rows = [self._ngrams(value) for value in values]
+        document_frequency: Counter[str] = Counter()
+        for counts in rows:
+            document_frequency.update(counts.keys())
+        ranked_terms = sorted(
+            document_frequency,
+            key=lambda term: (-document_frequency[term], term),
+        )[: self.max_features]
+        self.vocabulary_ = {term: index for index, term in enumerate(ranked_terms)}
+        document_count = max(1, len(rows))
+        self.idf_ = np.asarray(
+            [
+                np.log((1.0 + document_count) / (1.0 + document_frequency[term])) + 1.0
+                for term in ranked_terms
+            ],
+            dtype=np.float32,
+        )
+        return self._transform_counts(rows)
+
+    def transform(self, values: Sequence[Any]) -> _SparseMatrix:
+        return self._transform_counts([self._ngrams(value) for value in values])
+
+
+def _fallback_cosine_similarity(left: _SparseMatrix, right: _SparseMatrix) -> np.ndarray:
+    similarities = np.zeros((len(left.rows), len(right.rows)), dtype=np.float32)
+    for left_index, left_row in enumerate(left.rows):
+        for right_index, right_row in enumerate(right.rows):
+            smaller, larger = (
+                (left_row, right_row)
+                if len(left_row) <= len(right_row)
+                else (right_row, left_row)
+            )
+            similarities[left_index, right_index] = sum(
+                weight * larger.get(feature, 0.0)
+                for feature, weight in smaller.items()
+            )
+    return similarities
+
+
 try:
     from sklearn.feature_extraction.text import TfidfVectorizer
     from sklearn.metrics.pairwise import cosine_similarity as sklearn_cosine_similarity
 except Exception:  # pragma: no cover
-    TfidfVectorizer = None
-    sklearn_cosine_similarity = None
+    TfidfVectorizer = _FallbackTfidfVectorizer
+    sklearn_cosine_similarity = _fallback_cosine_similarity
 
 # ---------------------------------------------------------------------------
 # Sentence-transformer embedding (preferred, semantic understanding)
@@ -221,7 +319,7 @@ _INDEX_SNAPSHOT_DIR = os.getenv(
     "DUPLICATE_INDEX_SNAPSHOT_DIR",
     os.path.join(os.path.dirname(os.path.abspath(__file__)), "cache", "index_snapshots"),
 )
-_INDEX_SNAPSHOT_VERSION = "v1"
+_INDEX_SNAPSHOT_VERSION = "v2"
 
 _DDL = """
 CREATE TABLE IF NOT EXISTS ticket_embeddings (
@@ -1209,4 +1307,3 @@ def get_or_build_index(cache_key: str, df: pd.DataFrame, excluded_phase_prefixes
         excluded_phase_prefixes=excluded_phase_prefixes,
     )
     return idx
-

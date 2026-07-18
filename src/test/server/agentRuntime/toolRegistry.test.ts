@@ -28,8 +28,11 @@ const makeRegistry = (overrides = {}) => createToolRegistry({
 });
 
 describe("typed main Agent tools", () => {
-  it("publishes only the five read-only graph tools", () => {
+  it("publishes governed semantic and compatibility read-only tools", () => {
     expect(makeRegistry().listForPlanner({ request: { useAnalyticsContext: true, useDefectContext: true }, runtimeMode: "langgraph" }).map((tool) => tool.name)).toEqual([
+      "query_semantic_metrics",
+      "query_semantic_records",
+      "query_traceability",
       "query_dashboard_summary",
       "query_testing_coverage_project_status",
       "query_defect_high_frequency_analysis",
@@ -63,5 +66,28 @@ describe("typed main Agent tools", () => {
     const assertCurrentLease = vi.fn().mockRejectedValue(Object.assign(new Error("STALE"), { code: "STALE_RUN_LEASE" }));
     const lateRegistry = makeRegistry();
     await expect(lateRegistry.execute({ call: { toolCallId: "call-1", name: "query_dashboard_summary", argumentsText: JSON.stringify({ filters: {} }) }, request: { useAnalyticsContext: true, useDefectContext: false }, runtimeMode: "langgraph", externalStepIndex: 0, callsInStep: 1, context: { ...baseContext, assertCurrentLease } })).rejects.toMatchObject({ code: "STALE_RUN_LEASE" });
+  });
+
+  it("turns failure-shaped legacy results into safe tool failures", async () => {
+    const executeLegacyTool = vi.fn().mockResolvedValue({
+      toolMessage: { role: "tool", tool_call_id: "call-1", name: "query_dashboard_summary", content: JSON.stringify({ error: "TOP SECRET PROVIDER DETAIL" }) },
+      contextText: "TOP SECRET PROVIDER DETAIL",
+    });
+    const registry = makeRegistry({ executeLegacyTool });
+
+    await expect(registry.execute({ call: { toolCallId: "call-1", name: "query_dashboard_summary", argumentsText: JSON.stringify({ filters: {} }) }, request: { useAnalyticsContext: true, useDefectContext: false }, runtimeMode: "langgraph", externalStepIndex: 0, callsInStep: 1, context: baseContext })).rejects.toMatchObject({ code: "ANALYTICS_QUERY_FAILED" });
+    expect(executeLegacyTool).toHaveBeenCalledTimes(2);
+  });
+
+  it("fails closed when the duplicate bridge reports an unsuccessful result", async () => {
+    const registry = createToolRegistry({
+      policy: createRuntimePolicy(),
+      runDuplicateBridge: vi.fn().mockResolvedValue({ success: false, error: "TOP SECRET PROVIDER DETAIL" }),
+      ensureDuplicateWarmup: vi.fn(),
+      analyticsFetch: vi.fn(),
+      analyticsApiBase: "http://127.0.0.1:3003",
+    });
+
+    await expect(registry.execute({ call: { toolCallId: "call-1", name: "search_duplicates", argumentsText: JSON.stringify({ query: "camera black screen", top_k: 3 }) }, request: { useAnalyticsContext: false, useDefectContext: true }, runtimeMode: "langgraph", externalStepIndex: 0, callsInStep: 1, context: baseContext })).rejects.toMatchObject({ code: "DUPLICATE_SEARCH_FAILED" });
   });
 });

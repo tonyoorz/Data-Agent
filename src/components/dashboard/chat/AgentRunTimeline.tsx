@@ -1,21 +1,17 @@
 import { CheckCircle2, CircleAlert, Clock3, Database, Wrench } from "lucide-react";
-
-type AgentEvent = {
-  type: string;
-  payload?: Record<string, any>;
-};
+import type { PublicAgentEvent } from "@/lib/agentEventStream";
 
 interface Props {
-  events: AgentEvent[];
+  events: PublicAgentEvent[];
 }
 
 const SECRET_KEYS = /credential|secret|token|cookie|access.?code|authorization|password/i;
 
-function redact(value: any): any {
+function redact(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(redact);
   if (value && typeof value === "object") {
     return Object.fromEntries(
-      Object.entries(value)
+      Object.entries(value as Record<string, unknown>)
         .filter(([key]) => !SECRET_KEYS.test(key))
         .map(([key, item]) => [key, redact(item)]),
     );
@@ -23,17 +19,21 @@ function redact(value: any): any {
   return value;
 }
 
-function compact(value: any) {
+function compact(value: unknown) {
   const text = typeof value === "string" ? value : JSON.stringify(redact(value));
   return text.length > 180 ? `${text.slice(0, 177)}...` : text;
 }
 
-function timelineItem(event: AgentEvent) {
+function timelineItem(event: PublicAgentEvent) {
   switch (event.type) {
     case "run.started":
       return { icon: Clock3, label: "Run started", detail: `${event.payload?.runtimeMode || "runtime"} · ${event.payload?.actualModelId || "model"}` };
     case "ontology.resolved":
       return { icon: Database, label: "Semantics", detail: `${event.payload?.mode || "unknown"} · ${event.payload?.semanticFrameRef?.ontologyVersion || "legacy-provisional"}` };
+    case "model.completed":
+      return { icon: CheckCircle2, label: "Planning model", detail: `${event.payload?.modelId || "model"} · ${event.payload?.finishReason || "completed"}` };
+    case "model.fallback":
+      return { icon: CircleAlert, label: "Model fallback", detail: `${event.payload?.fromModelId || "model"} → ${event.payload?.toModelId || "deterministic-ontology"} · ${event.payload?.reasonCode || "fallback"}` };
     case "plan.validated":
       return { icon: CheckCircle2, label: "Plan validated", detail: (event.payload?.toolNames || []).join(", ") || "no tools" };
     case "tool.started":
@@ -46,6 +46,8 @@ function timelineItem(event: AgentEvent) {
       return { icon: Database, label: "Evidence", detail: `${event.payload?.groundingStatus || "legacy_equivalence"} · ${(event.payload?.evidenceIds || []).join(", ")}` };
     case "claims.validated":
       return { icon: CheckCircle2, label: "Claims validated", detail: `${(event.payload?.acceptedClaimIds || []).length} accepted · ${(event.payload?.rejectedClaimIds || []).length} rejected` };
+    case "answer.completed":
+      return { icon: Database, label: "Answer grounded", detail: `${event.payload?.groundingStatus || "insufficient_evidence"} · ${(event.payload?.citations || []).length} citations` };
     case "clarification.required":
       return { icon: CircleAlert, label: "Clarification required", detail: event.payload?.question || "waiting for input" };
     case "run.completed":

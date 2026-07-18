@@ -365,8 +365,8 @@ function TraceabilityGraph({
   totalChainCount: number;
 }) {
   const layers = graph?.layers?.length ? graph.layers : GRAPH_LAYERS;
-  const nodes = graph?.nodes ?? [];
-  const edges = graph?.edges ?? [];
+  const nodes = useMemo(() => graph?.nodes ?? [], [graph?.nodes]);
+  const edges = useMemo(() => graph?.edges ?? [], [graph?.edges]);
   const [collapsedNodeIds, setCollapsedNodeIds] = useState<Set<string>>(() => new Set());
   const [expandedFeatureGroupIds, setExpandedFeatureGroupIds] = useState<Set<string>>(() => new Set());
   const [expandedStoryGroupIds, setExpandedStoryGroupIds] = useState<Set<string>>(() => new Set());
@@ -817,10 +817,10 @@ const TraceabilityAnalysis = () => {
     relation_rows: 0,
   };
   const relationTypeRows = data?.relation_type_rows ?? [];
-  const statusRows = data?.status_rows ?? [];
-  const traceabilityChainRows = data?.traceability_chain_rows ?? [];
-  const releaseOptions = data?.filter_options?.releases ?? [];
-  const weekOptions = data?.filter_options?.weeks ?? [];
+  const statusRows = useMemo(() => data?.status_rows ?? [], [data?.status_rows]);
+  const traceabilityChainRows = useMemo(() => data?.traceability_chain_rows ?? [], [data?.traceability_chain_rows]);
+  const releaseOptions = useMemo(() => data?.filter_options?.releases ?? [], [data?.filter_options?.releases]);
+  const weekOptions = useMemo(() => data?.filter_options?.weeks ?? [], [data?.filter_options?.weeks]);
   const graph = useMemo(() => {
     if (data?.graph?.nodes?.length) {
       return data.graph;

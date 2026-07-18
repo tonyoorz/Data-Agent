@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 const TERMINAL = new Set(["completed", "failed", "cancelled"]);
 
 function fail(code, statusCode = 409) {
@@ -74,6 +76,21 @@ function mapMessage(row) {
     parentMessageId: row.parent_message_id,
     role: row.role,
     body: JSON.parse(row.body_json),
+    scopeHash: row.scope_hash,
+    createdAt: row.created_at,
+  };
+}
+
+function mapSummary(row) {
+  return {
+    summaryId: row.summary_id,
+    threadId: row.thread_id,
+    body: JSON.parse(row.body_json),
+    sourceMessageIds: JSON.parse(row.source_message_ids_json),
+    semanticFrameRefs: JSON.parse(row.semantic_frame_refs_json),
+    evidenceRefs: JSON.parse(row.evidence_refs_json),
+    summaryVersion: row.summary_version,
+    promptVersion: row.prompt_version,
     scopeHash: row.scope_hash,
     createdAt: row.created_at,
   };
@@ -184,7 +201,7 @@ export function createThreadStore({ db, now, randomUUID, writeEventsInTransactio
     if (run.lease_epoch !== leaseEpoch) fail("STALE_RUN_LEASE");
     const interactionId = randomUUID();
     db.prepare("INSERT INTO agent_interactions(interaction_id,run_id,kind,status,payload_json,scope_hash,expires_at,created_at) VALUES(?,?,?,'pending',?,?,?,?)").run(interactionId, runId, kind, JSON.stringify(payload), actor.scopeHash, expiresAt, at);
-    db.prepare("UPDATE agent_runs SET status=?, state_version=state_version+1, updated_at=? WHERE run_id=?").run(kind === "approval" ? "waiting_for_approval" : "waiting_for_clarification", at, runId);
+    db.prepare("UPDATE agent_runs SET status=?, state_version=state_version+1, lease_owner=NULL, lease_expires_at=NULL, updated_at=? WHERE run_id=?").run(kind === "approval" ? "waiting_for_approval" : "waiting_for_clarification", at, runId);
     db.prepare("UPDATE agent_threads SET thread_version=thread_version+1, updated_at=? WHERE thread_id=?").run(at, run.thread_id);
     const threadVersion = db.prepare("SELECT thread_version FROM agent_threads WHERE thread_id=?").pluck().get(run.thread_id);
     return { interactionId, runId, kind, status: "pending", threadVersion, payload, expiresAt };
@@ -195,6 +212,33 @@ export function createThreadStore({ db, now, randomUUID, writeEventsInTransactio
     const at = now();
     db.prepare("INSERT INTO agent_messages(message_id,thread_id,run_id,parent_message_id,role,body_json,scope_hash,created_at) VALUES(?,?,?,?,?,?,?,?)").run(messageId, threadId, runId, parentMessageId, role, JSON.stringify(body), scopeHash, at);
     return mapMessage(db.prepare("SELECT * FROM agent_messages WHERE message_id=?").get(messageId));
+  });
+
+  const appendSummary = db.transaction(({ actor, threadId, summaryId, body, sourceMessageIds = [], semanticFrameRefs = [], evidenceRefs = [], summaryVersion = "semantic-context-v1", promptVersion = "deterministic-v1", scopeHash }) => {
+    getThreadRow(actor, threadId);
+    if (scopeHash !== actor.scopeHash) fail("SUMMARY_SCOPE_MISMATCH", 403);
+    const values = {
+      bodyJson: stableJson(body),
+      sourceMessageIdsJson: stableJson(sourceMessageIds),
+      semanticFrameRefsJson: stableJson(semanticFrameRefs),
+      evidenceRefsJson: stableJson(evidenceRefs),
+    };
+    const existing = db.prepare("SELECT * FROM agent_summaries WHERE summary_id=?").get(summaryId);
+    if (existing) {
+      if (existing.thread_id !== threadId || existing.scope_hash !== scopeHash || existing.body_json !== values.bodyJson) fail("SUMMARY_IDEMPOTENCY_CONFLICT");
+      return mapSummary(existing);
+    }
+    db.prepare(`INSERT INTO agent_summaries(summary_id,thread_id,body_json,source_message_ids_json,semantic_frame_refs_json,evidence_refs_json,summary_version,prompt_version,scope_hash,created_at)
+      VALUES(@summaryId,@threadId,@bodyJson,@sourceMessageIdsJson,@semanticFrameRefsJson,@evidenceRefsJson,@summaryVersion,@promptVersion,@scopeHash,@createdAt)`).run({
+      summaryId,
+      threadId,
+      ...values,
+      summaryVersion,
+      promptVersion,
+      scopeHash,
+      createdAt: now(),
+    });
+    return mapSummary(db.prepare("SELECT * FROM agent_summaries WHERE summary_id=?").get(summaryId));
   });
 
   const renewLease = db.transaction(({ runId, leaseEpoch, workerId, leaseMs }) => {
@@ -242,18 +286,52 @@ export function createThreadStore({ db, now, randomUUID, writeEventsInTransactio
   return {
     createThread,
     getThread: ({ actor, threadId }) => mapThread(getThreadRow(actor, threadId)),
-    updateThread: ({ actor, threadId, patch }) => {
+    updateThread: ({ actor, threadId, threadVersion, patch }) => {
       const thread = getThreadRow(actor, threadId);
+      if (threadVersion !== undefined && thread.thread_version !== threadVersion) fail("THREAD_VERSION_CONFLICT");
       const at = now();
       db.prepare("UPDATE agent_threads SET title=COALESCE(@title,title), pinned=COALESCE(@pinned,pinned), archived=COALESCE(@archived,archived), deleted_at=COALESCE(@deletedAt,deleted_at), thread_version=thread_version+1, updated_at=@updatedAt WHERE thread_id=@threadId").run({ threadId, title: patch.title ?? null, pinned: patch.pinned == null ? null : Number(patch.pinned), archived: patch.archived == null ? null : Number(patch.archived), deletedAt: patch.deleted ? at : null, updatedAt: at });
       return mapThread(db.prepare("SELECT * FROM agent_threads WHERE thread_id=?").get(thread.thread_id));
     },
-    importLegacyThread: createThread,
-    forkThread: createThread,
+    importLegacyThread: ({ actor, clientConversationId, messages }) => db.transaction(() => {
+      const contentHash = createHash("sha256").update(stableJson(messages)).digest("hex");
+      const existing = db.prepare("SELECT thread_id,content_hash FROM agent_legacy_imports WHERE actor_id=? AND client_conversation_id=?").get(actor.actorId, clientConversationId);
+      if (existing) {
+        if (existing.content_hash !== contentHash) fail("IDEMPOTENCY_CONFLICT");
+        return mapThread(getThreadRow(actor, existing.thread_id));
+      }
+      const thread = createThread({ actor, title: "导入的对话" });
+      for (const message of messages) {
+        appendMessage({
+          actor,
+          threadId: thread.threadId,
+          messageId: randomUUID(),
+          role: message.role,
+          body: { text: message.text, artifactRefs: message.artifactRefs || [], importedClientMessageId: message.clientMessageId, createdAt: message.createdAt, metadata: message.metadata || {} },
+          scopeHash: actor.scopeHash,
+        });
+      }
+      db.prepare("INSERT INTO agent_legacy_imports(actor_id,client_conversation_id,content_hash,thread_id,created_at) VALUES(?,?,?,?,?)").run(actor.actorId, clientConversationId, contentHash, thread.threadId, now());
+      return thread;
+    })(),
+    forkThread: ({ actor, threadId, threadVersion, parentRunId, parentCheckpointId, supersedesMessageId }) => db.transaction(() => {
+      const parent = getThreadRow(actor, threadId);
+      if (parent.thread_version !== threadVersion) fail("THREAD_VERSION_CONFLICT");
+      const run = getRunRowByActor(actor, parentRunId);
+      if (run.thread_id !== threadId) fail("PARENT_RUN_THREAD_MISMATCH");
+      if (run.canonical_checkpoint_id !== parentCheckpointId) fail("PARENT_CHECKPOINT_MISMATCH");
+      return createThread({ actor, title: `${parent.title}（分支）`, parentThreadId: threadId, parentRunId, parentCheckpointId, supersedesMessageId });
+    })(),
     appendMessage,
+    appendSummary,
     listMessages: ({ actor, threadId }) => {
       getThreadRow(actor, threadId);
       return db.prepare("SELECT * FROM agent_messages WHERE thread_id=? ORDER BY created_at, message_id").all(threadId).map(mapMessage);
+    },
+    listSummaries: ({ actor, threadId, limit = 20 }) => {
+      getThreadRow(actor, threadId);
+      const boundedLimit = Math.max(1, Math.min(100, Number.isInteger(limit) ? limit : 20));
+      return db.prepare("SELECT * FROM agent_summaries WHERE thread_id=? AND scope_hash=? ORDER BY created_at DESC, rowid DESC LIMIT ?").all(threadId, actor.scopeHash, boundedLimit).map(mapSummary).reverse();
     },
     createRun,
     getRun: ({ actor, runId }) => mapRun(getRunRowByActor(actor, runId)),
@@ -273,6 +351,7 @@ export function createThreadStore({ db, now, randomUUID, writeEventsInTransactio
     failRun: ({ actor, runId, threadVersion, error }) => terminalize({ actor, runId, expectedThreadVersion: threadVersion, status: "failed", patch: { errorJson: error }, event: { type: "run.failed", payload: error } }),
     listExpiredInteractions: ({ asOf }) => db.prepare("SELECT * FROM agent_interactions WHERE status='pending' AND expires_at <= ?").all(asOf),
     listRecoverableRuns: ({ asOf }) => db.prepare("SELECT * FROM agent_runs WHERE status IN ('queued','running') AND lease_expires_at IS NOT NULL AND lease_expires_at <= ?").all(asOf).map(mapRun),
+    listDeadlineExceededRuns: ({ asOf }) => db.prepare("SELECT * FROM agent_runs WHERE status IN ('queued','running','waiting_for_clarification','waiting_for_approval') AND hard_expires_at <= ?").all(asOf).map(mapRun),
     reapExpiredRun: ({ actor, runId, code = "RUN_DEADLINE_EXCEEDED" }) => terminalize({ actor, runId, status: "failed", event: { type: "run.failed", payload: { code, safeMessage: code, retryable: false } }, patch: { errorJson: { code, safeMessage: code, retryable: false } } }),
   };
 }

@@ -14,7 +14,7 @@ const request = {
   eventProtocolVersion: "1.0",
 };
 
-describe("Runtime recovery placeholders", () => {
+describe("Runtime recovery workers", () => {
   it("exposes recovery and reaper public methods", async () => {
     const fixture = await createTestRuntime();
     try {
@@ -30,6 +30,7 @@ describe("Runtime recovery placeholders", () => {
     const fixture = await createTestRuntime({ executeClaimedRun });
     try {
       const started = await fixture.runtime.startRun({ actor: alice, request });
+      await vi.waitFor(() => expect(fixture.runtime.getActiveWorkerCount()).toBe(0));
       executeClaimedRun.mockClear();
       fixture.clock.advance(30001);
 

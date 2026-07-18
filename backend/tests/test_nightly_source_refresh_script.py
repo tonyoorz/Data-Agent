@@ -1,20 +1,31 @@
 from __future__ import annotations
 
+import os
+import shutil
 import subprocess
+from datetime import datetime
 from pathlib import Path
+
+import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 RUN_SCRIPT = REPO_ROOT / "scripts" / "run-nightly-source-refresh.ps1"
 REGISTER_SCRIPT = REPO_ROOT / "scripts" / "register-nightly-source-refresh-task.ps1"
 STUB_CMD = REPO_ROOT / "scripts" / "test-nightly-refresh-stub.cmd"
+POWERSHELL_EXE = shutil.which("powershell") or shutil.which("pwsh")
+
+pytestmark = pytest.mark.skipif(
+    os.name != "nt" or POWERSHELL_EXE is None,
+    reason="nightly refresh integration scripts require Windows PowerShell and cmd.exe",
+)
 
 
 def _run_nightly_stub(tmp_path: Path, *extra_args: str) -> subprocess.CompletedProcess[str]:
     log_path = tmp_path / "nightly.log"
     return subprocess.run(
         [
-            "powershell",
+            POWERSHELL_EXE or "powershell",
             "-NoProfile",
             "-ExecutionPolicy",
             "Bypass",
@@ -65,11 +76,11 @@ def test_nightly_source_refresh_can_still_skip_comments_explicitly(tmp_path: Pat
     assert "--skip-comments" in result.stdout
 
 
-def test_nightly_source_refresh_defaults_to_2025_and_2026_testing_years(tmp_path: Path) -> None:
+def test_nightly_source_refresh_defaults_to_2025_through_current_testing_year(tmp_path: Path) -> None:
     log_path = tmp_path / "nightly-default-years.log"
     result = subprocess.run(
         [
-            "powershell",
+            POWERSHELL_EXE or "powershell",
             "-NoProfile",
             "-ExecutionPolicy",
             "Bypass",
@@ -89,16 +100,17 @@ def test_nightly_source_refresh_defaults_to_2025_and_2026_testing_years(tmp_path
     )
 
     assert result.returncode == 0, result.stderr
-    assert "years=2025,2026" in result.stdout
-    assert "manual_years=2025,2026" in result.stdout
-    assert "--years 2025,2026" in result.stdout
-    assert "--manual-years 2025,2026" in result.stdout
+    expected_years = ",".join(str(year) for year in range(2025, datetime.now().year + 1))
+    assert f"years={expected_years}" in result.stdout
+    assert f"manual_years={expected_years}" in result.stdout
+    assert f"--years {expected_years}" in result.stdout
+    assert f"--manual-years {expected_years}" in result.stdout
 
 
 def test_register_nightly_task_prepares_duplicate_index_by_default() -> None:
     result = subprocess.run(
         [
-            "powershell",
+            POWERSHELL_EXE or "powershell",
             "-NoProfile",
             "-ExecutionPolicy",
             "Bypass",

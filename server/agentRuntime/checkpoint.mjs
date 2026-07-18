@@ -21,16 +21,20 @@ export function createReadySqliteSaver({ dbPath, runtimeDb }) {
   return saver;
 }
 
-export const checkpointConfig = ({ threadId, checkpointId }) => ({
+export const checkpointConfig = ({ threadId, checkpointNamespace = "", checkpointId }) => ({
   configurable: {
     thread_id: threadId,
-    checkpoint_ns: "",
+    checkpoint_ns: checkpointNamespace,
     ...(checkpointId ? { checkpoint_id: checkpointId } : {}),
   },
 });
 
 function fail(code) {
   throw Object.assign(new Error(code), { code, retryable: false });
+}
+
+function checkpointThreadIdForRun(run) {
+  return `${run.threadId}:run:${run.runId}`;
 }
 
 export function createCheckpointCoordinator({ saver, threadStore, graphDefinitionVersion, projectCommittedTransitions, hashState }) {
@@ -40,9 +44,43 @@ export function createCheckpointCoordinator({ saver, threadStore, graphDefinitio
 
   function canonicalConfigForRun(run) {
     assertGraphVersion(run);
-    if (run.canonicalCheckpointId) return checkpointConfig({ threadId: run.threadId, checkpointId: run.canonicalCheckpointId });
-    if (run.stateVersion === 0) return checkpointConfig({ threadId: run.threadId });
+    const threadId = checkpointThreadIdForRun(run);
+    if (run.canonicalCheckpointId) return checkpointConfig({ threadId, checkpointId: run.canonicalCheckpointId });
+    if (run.stateVersion === 0) return checkpointConfig({ threadId });
     fail("CANONICAL_CHECKPOINT_MISSING");
+  }
+
+  function invocationConfigForRun(run, { allowUnpromoted = false } = {}) {
+    assertGraphVersion(run);
+    const threadId = checkpointThreadIdForRun(run);
+    if (run.canonicalCheckpointId) {
+      return checkpointConfig({ threadId, checkpointId: run.canonicalCheckpointId });
+    }
+    if (allowUnpromoted) return checkpointConfig({ threadId });
+    fail("CANONICAL_CHECKPOINT_MISSING");
+  }
+
+  async function captureCanonicalCheckpoint({ graph, run, config }) {
+    assertGraphVersion(run);
+    // Invocation from an explicit canonical checkpoint creates descendants. Resolve
+    // the latest state only inside this Run's isolated checkpoint thread, then pin it.
+    const latestConfig = {
+      ...config,
+      configurable: Object.fromEntries(Object.entries(config.configurable || {}).filter(([key]) => key !== "checkpoint_id")),
+    };
+    const snapshot = await graph.getState(latestConfig);
+    const checkpointId = snapshot?.config?.configurable?.checkpoint_id;
+    if (!checkpointId) fail("CANDIDATE_CHECKPOINT_MISSING");
+    const values = snapshot?.values || snapshot?.checkpoint?.channel_values || {};
+    const stateHash = hashState(values);
+    const promoted = await threadStore.promoteCanonicalCheckpoint({
+      runId: run.runId,
+      expectedStateVersion: run.stateVersion,
+      leaseEpoch: run.leaseEpoch,
+      checkpointId,
+      stateHash,
+    });
+    return { snapshot, checkpointId: promoted?.canonicalCheckpointId || checkpointId, stateHash };
   }
 
   async function ensureCheckpointCaughtUp({ graph, run }) {
@@ -58,8 +96,8 @@ export function createCheckpointCoordinator({ saver, threadStore, graphDefinitio
     if (!checkpointId) fail("CANDIDATE_CHECKPOINT_MISSING");
     const promoted = await threadStore.promoteCanonicalCheckpoint({ runId: run.runId, expectedStateVersion: run.stateVersion, leaseEpoch: run.leaseEpoch, checkpointId, stateHash });
     const canonicalCheckpointId = promoted?.canonicalCheckpointId || checkpointId;
-    return { config: checkpointConfig({ threadId: run.threadId, checkpointId: canonicalCheckpointId }), checkpointId: canonicalCheckpointId, stateHash };
+    return { config: checkpointConfig({ threadId: checkpointThreadIdForRun(run), checkpointId: canonicalCheckpointId }), checkpointId: canonicalCheckpointId, stateHash };
   }
 
-  return Object.freeze({ saver, canonicalConfigForRun, ensureCheckpointCaughtUp });
+  return Object.freeze({ saver, canonicalConfigForRun, invocationConfigForRun, captureCanonicalCheckpoint, ensureCheckpointCaughtUp });
 }

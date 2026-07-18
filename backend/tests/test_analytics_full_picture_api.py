@@ -217,7 +217,9 @@ def test_health_endpoint_returns_ok():
     response = client.get("/health")
 
     assert response.status_code == 200
-    assert response.json() == {"ok": True, "service": "analytics"}
+    assert response.json()["ok"] is True
+    assert response.json()["service"] == "analytics"
+    assert len(response.json()["ontologyFingerprint"]) == 64
 
 
 def test_health_endpoint_starts_app_lifespan():
@@ -225,7 +227,9 @@ def test_health_endpoint_starts_app_lifespan():
         response = client.get("/health")
 
     assert response.status_code == 200
-    assert response.json() == {"ok": True, "service": "analytics"}
+    assert response.json()["ok"] is True
+    assert response.json()["service"] == "analytics"
+    assert len(response.json()["ontologyFingerprint"]) == 64
 
 
 def test_full_picture_dashboard_endpoint_exists(monkeypatch):
