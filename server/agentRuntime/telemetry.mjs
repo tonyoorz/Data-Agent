@@ -5,7 +5,7 @@ const SAFE_ATTRIBUTE_KEYS = new Set([
   "runId", "threadId", "node", "toolName", "toolVersion", "graphVersion", "ontologyVersion", "ontologyFingerprint",
   "modelId", "status", "code", "retryable", "attempt", "evidenceCount", "claimCount", "citationCount", "groundingStatus",
   "inputTokens", "outputTokens", "durationMs", "firstEventMs", "timeToFinalMs", "recovered", "runtimeMode",
-  "intent", "metricCount", "ambiguityCount", "messageCount", "summaryCount", "toolCount",
+  "intent", "metricCount", "ambiguityCount", "messageCount", "summaryCount", "toolCount", "queryHash", "heuristicMetric",
 ]);
 
 export function safeTelemetryReference(value) {

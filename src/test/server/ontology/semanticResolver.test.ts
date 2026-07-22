@@ -215,4 +215,23 @@ describe("Ontology semantic resolver", () => {
     expect(runs.entityIds).not.toContain("quality.defect");
     expect(runs.filters).not.toContainEqual(expect.objectContaining({ dimensionId: "product.os" }));
   });
+
+  it("surfaces an unmatched signal when a metric-bearing query hits no governed term", () => {
+    const calls = [];
+    const spyingResolver = createSemanticResolver({ registry, now: () => anchorAt, onUnmatched: (signal) => calls.push(signal) });
+    const frame = spyingResolver.resolve({ query: "各楼层工位利用率", actor, requestAnchorAt: anchorAt });
+
+    expect(frame.intent).toBe("aggregate");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({ intent: "aggregate", heuristicMetric: "defect.count" });
+    expect(calls[0].query).toBe("各楼层工位利用率");
+  });
+
+  it("does not surface an unmatched signal for a query that matches a governed term", () => {
+    const calls = [];
+    const spyingResolver = createSemanticResolver({ registry, now: () => anchorAt, onUnmatched: (signal) => calls.push(signal) });
+    spyingResolver.resolve({ query: "上周缺陷数是多少", actor, requestAnchorAt: anchorAt });
+
+    expect(calls).toHaveLength(0);
+  });
 });

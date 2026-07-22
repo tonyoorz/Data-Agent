@@ -4,6 +4,7 @@ import { createSemanticResolver } from "../ontology/resolver.mjs";
 import { createQueryPlanner, validatePlan as validateQueryPlan } from "../ontology/queryPlanner.mjs";
 import { buildFocusedClarification, validateSemanticFrame } from "../ontology/semanticFrame.mjs";
 import { createSemanticCandidateMessages, createSemanticCandidateSchema, parseSemanticCandidate } from "../ontology/semanticCandidate.mjs";
+import { summarizeSensitiveText } from "./telemetry.mjs";
 import { createHash } from "node:crypto";
 import { Annotation, END, START, StateGraph, interrupt } from "@langchain/langgraph";
 
@@ -89,7 +90,17 @@ export const AgentState = Annotation.Root({
 
 export function createGraphNodes(deps = {}) {
   const ontologyRegistry = deps.ontologyRegistry || createOntologyRegistry();
-  const semanticResolver = deps.semanticResolver || createSemanticResolver({ registry: ontologyRegistry, now: deps.now });
+  const semanticResolver = deps.semanticResolver || createSemanticResolver({
+    registry: ontologyRegistry,
+    now: deps.now,
+    onUnmatched: (signal) => deps.telemetry?.record("semantic_resolver_unmatched", {
+      ontologyVersion: ontologyRegistry.version,
+      ontologyFingerprint: ontologyRegistry.fingerprint,
+      intent: signal.intent,
+      heuristicMetric: signal.heuristicMetric,
+      queryHash: summarizeSensitiveText(signal.query).contentHash,
+    }),
+  });
   const queryPlanner = deps.queryPlanner || createQueryPlanner({ registry: ontologyRegistry });
   const emit = deps.emitEvent || (() => {});
   return {

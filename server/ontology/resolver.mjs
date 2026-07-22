@@ -205,7 +205,7 @@ function clarifiedTraceSubject(query, clarification) {
   return value && value.length <= 200 ? value : null;
 }
 
-export function createSemanticResolver({ registry, now = () => new Date().toISOString() } = {}) {
+export function createSemanticResolver({ registry, now = () => new Date().toISOString(), onUnmatched } = {}) {
   if (!registry) throw new Error("ONTOLOGY_REGISTRY_REQUIRED");
   return Object.freeze({
     resolve({ query, actor, requestAnchorAt = now(), clarification = null, candidate = null, priorSemanticFrame = null }) {
@@ -375,7 +375,7 @@ export function createSemanticResolver({ registry, now = () => new Date().toISOS
 
       const maximumLimit = registry.getConstraint("query.max_limit").parameters.maximum;
       const timeSeries = intent === "trend" || comparison?.kind === "time_periods" || comparisonTrend;
-      return validateSemanticFrame({
+      const frame = validateSemanticFrame({
         schemaVersion: "1.0",
         ontologyVersion: registry.version,
         schemaFingerprint: registry.fingerprint,
@@ -395,6 +395,15 @@ export function createSemanticResolver({ registry, now = () => new Date().toISOS
         assumptions,
         confidence: Math.max(0, Math.min(1, 0.72 + Math.min(0.22, matchedTerms.length * 0.04) - (ambiguitiesByCode.size ? 0.25 : 0))),
       });
+      // Ontology-evolution signal (FAOS-style learn-from-usage loop): when a metric-bearing
+      // question matches zero governed vocabulary terms, surface it so stewards can decide
+      // whether a new term/metric is warranted. Trace/similarity intents and follow-ups are
+      // intentionally excluded; the caller is responsible for privacy-safe logging.
+      if (typeof onUnmatched === "function" && matchedTerms.length === 0 && !followUp
+        && intent !== "trace" && intent !== "similarity" && !selectedFallback && !clarificationOverridesMetric) {
+        onUnmatched({ query: text, intent, heuristicMetric: metricIds[0] || null });
+      }
+      return frame;
     },
   });
 }

@@ -1048,6 +1048,156 @@
           "nullable": true,
           "sensitivity": "internal",
           "type": "string"
+        },
+        {
+          "id": "name",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "description",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "last_modified",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "datetime"
+        },
+        {
+          "id": "team",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "owner",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "author",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "detected_by",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "detected_in_release",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "solution_cluster",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "defect_category",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "reporting_class",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "product_areas",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "user_tags",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "software_version",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "lead_model",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "market",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "vin",
+          "nullable": true,
+          "sensitivity": "confidential",
+          "type": "string"
+        },
+        {
+          "id": "risk_score",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "number"
+        },
+        {
+          "id": "tqr",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "parent_id",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "parent_child_type",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "fv",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "fvp",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "year",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "comments",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
         }
       ],
       "sensitivity": "internal",
@@ -1056,6 +1206,173 @@
         "sourceId": "analytics.full_picture_defects",
         "system": "analytics",
         "table": "octane_defects"
+      },
+      "version": "1.0.0"
+    },
+    {
+      "aliases": [
+        "defect history",
+        "history event",
+        "缺陷变更"
+      ],
+      "allowedOperations": [
+        "read",
+        "traverse",
+        "aggregate"
+      ],
+      "descriptions": {
+        "en-US": "A historical change record for a defect, used to determine resolution outcomes.",
+        "zh-CN": "缺陷单状态或字段变更的历史记录，用于判定缺陷是否解决。"
+      },
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "quality.defect_history_event",
+      "labels": {
+        "en-US": "Defect History Event",
+        "zh-CN": "缺陷历史事件"
+      },
+      "primaryKey": "change_index",
+      "properties": [
+        {
+          "id": "defect_id",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "event_timestamp",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "datetime"
+        },
+        {
+          "id": "field_name",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "old_value",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "new_value",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "action",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "user_name",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "team",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "entry_index",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "integer"
+        },
+        {
+          "id": "change_index",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "integer"
+        }
+      ],
+      "sensitivity": "internal",
+      "source": {
+        "readModel": "defect_history_events",
+        "sourceId": "analytics.defect_history",
+        "system": "analytics",
+        "table": "octane_defect_history_events"
+      },
+      "version": "1.0.0"
+    },
+    {
+      "aliases": [
+        "defect outcome",
+        "outcome",
+        "缺陷结果"
+      ],
+      "allowedOperations": [
+        "read",
+        "aggregate"
+      ],
+      "descriptions": {
+        "en-US": "Materialized outcome verdict for a defect, including forward resolution and direct rejection.",
+        "zh-CN": "缺陷的归一化结果判定，包括正向解决和直接拒绝。"
+      },
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "quality.defect_outcome",
+      "labels": {
+        "en-US": "Defect Outcome",
+        "zh-CN": "缺陷结果"
+      },
+      "primaryKey": "defect_id",
+      "properties": [
+        {
+          "id": "defect_id",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "is_resolved_forward",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "boolean"
+        },
+        {
+          "id": "is_rejected_directly",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "boolean"
+        },
+        {
+          "id": "resolved_forward_at",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "datetime"
+        },
+        {
+          "id": "rejected_directly_at",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "datetime"
+        },
+        {
+          "id": "source_history_event_count",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "integer"
+        }
+      ],
+      "sensitivity": "internal",
+      "source": {
+        "readModel": "defect_outcomes",
+        "sourceId": "analytics.defect_outcomes",
+        "system": "analytics",
+        "table": "defect_outcomes"
       },
       "version": "1.0.0"
     },
@@ -1375,6 +1692,66 @@
           "nullable": false,
           "sensitivity": "internal",
           "type": "string"
+        },
+        {
+          "id": "test_name",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "run_count",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "integer"
+        },
+        {
+          "id": "scope_team",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "scope_release",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "source",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "year",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "test_subtype",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "defect_ids",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "feature_ids",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "story_ids",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
         }
       ],
       "sensitivity": "internal",
@@ -1480,6 +1857,120 @@
           "nullable": true,
           "sensitivity": "internal",
           "type": "string"
+        },
+        {
+          "id": "name",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "test_name",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "started",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "datetime"
+        },
+        {
+          "id": "creation_time",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "datetime"
+        },
+        {
+          "id": "last_modified",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "datetime"
+        },
+        {
+          "id": "year",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "release",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "feature_region",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "product_areas",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "domain",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "test_phase",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "testing_tool_type",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "lead_model",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "target_ecu_conf",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "run_by",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "run_team",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "is_completed",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "boolean"
+        },
+        {
+          "id": "steps_num",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "integer"
+        },
+        {
+          "id": "version_stamp",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
         }
       ],
       "sensitivity": "internal",
@@ -1488,6 +1979,246 @@
         "sourceId": "analytics.testing_coverage",
         "system": "analytics",
         "table": "octane_manual_runs"
+      },
+      "version": "1.0.0"
+    },
+    {
+      "aliases": [
+        "traceability",
+        "link",
+        "追溯"
+      ],
+      "allowedOperations": [
+        "read",
+        "traverse",
+        "aggregate"
+      ],
+      "descriptions": {
+        "en-US": "Traceability relationship between a test run and defects, features, or stories.",
+        "zh-CN": "测试执行与缺陷、Feature、Story之间的追溯关系。"
+      },
+      "governance": {
+        "owner": "Requirements Analytics",
+        "status": "approved"
+      },
+      "id": "traceability.link",
+      "labels": {
+        "en-US": "Traceability Link",
+        "zh-CN": "追溯链接"
+      },
+      "primaryKey": "link_id",
+      "properties": [
+        {
+          "id": "link_id",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "run_id",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "test_id",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "relation_type",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "related_id",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "related_name",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "related_subtype",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "related_path",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "parent_id",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "parent_name",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        }
+      ],
+      "sensitivity": "internal",
+      "source": {
+        "readModel": "traceability_links",
+        "sourceId": "analytics.traceability_links",
+        "system": "analytics",
+        "table": "octane_run_traceability"
+      },
+      "version": "1.0.0"
+    },
+    {
+      "aliases": [
+        "testcase summary",
+        "traceability testcase",
+        "用例汇总"
+      ],
+      "allowedOperations": [
+        "read",
+        "traverse",
+        "aggregate"
+      ],
+      "descriptions": {
+        "en-US": "Summary of test case relationships with runs, defects, and requirements work items.",
+        "zh-CN": "测试用例与其执行、缺陷、需求工作项之间的汇总关系。"
+      },
+      "governance": {
+        "owner": "Requirements Analytics",
+        "status": "approved"
+      },
+      "id": "traceability.testcase_summary",
+      "labels": {
+        "en-US": "Traceability Test Case Summary",
+        "zh-CN": "测试用例追溯汇总"
+      },
+      "primaryKey": "summary_id",
+      "properties": [
+        {
+          "id": "summary_id",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "test_id",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "scope_team",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "scope_release",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "source",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "year",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "test_name",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "run_count",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "integer"
+        },
+        {
+          "id": "run_ids",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "run_status_distribution",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "defect_ids",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "defect_names",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "feature_ids",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "feature_names",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "story_ids",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "story_names",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "epic_ids",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "epic_names",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        }
+      ],
+      "sensitivity": "internal",
+      "source": {
+        "readModel": "traceability_testcases",
+        "sourceId": "analytics.traceability_testcases",
+        "system": "analytics",
+        "table": "octane_traceability_testcases"
       },
       "version": "1.0.0"
     },
@@ -2874,6 +3605,34 @@
       "database": "database/source/qgate_raw.db",
       "freshnessSloMinutes": 1440,
       "governance": {
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md",
+        "owner": "Quality Governance",
+        "status": "draft"
+      },
+      "id": "analytics.defect_history",
+      "readModel": "defect_history_events",
+      "revisionStrategy": "snapshot",
+      "system": "analytics",
+      "table": "octane_defect_history"
+    },
+    {
+      "database": "database/source/qgate_raw.db",
+      "freshnessSloMinutes": 1440,
+      "governance": {
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md",
+        "owner": "Quality Governance",
+        "status": "draft"
+      },
+      "id": "analytics.defect_outcomes",
+      "readModel": "defect_outcomes",
+      "revisionStrategy": "snapshot",
+      "system": "analytics",
+      "table": "octane_defect_outcomes"
+    },
+    {
+      "database": "database/source/qgate_raw.db",
+      "freshnessSloMinutes": 1440,
+      "governance": {
         "owner": "Quality Analytics",
         "status": "approved"
       },
@@ -2922,6 +3681,34 @@
       "revisionStrategy": "snapshot",
       "system": "analytics",
       "table": "octane_traceability_links"
+    },
+    {
+      "database": "database/source/qgate_raw.db",
+      "freshnessSloMinutes": 1440,
+      "governance": {
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md",
+        "owner": "Requirements Analytics",
+        "status": "draft"
+      },
+      "id": "analytics.traceability_links",
+      "readModel": "traceability_links",
+      "revisionStrategy": "snapshot",
+      "system": "analytics",
+      "table": "semantic_trace_edges"
+    },
+    {
+      "database": "database/source/qgate_raw.db",
+      "freshnessSloMinutes": 1440,
+      "governance": {
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md",
+        "owner": "Requirements Analytics",
+        "status": "draft"
+      },
+      "id": "analytics.traceability_testcases",
+      "readModel": "traceability_testcases",
+      "revisionStrategy": "snapshot",
+      "system": "analytics",
+      "table": "semantic_traceability_testcases"
     },
     {
       "governance": {
