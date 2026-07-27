@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { resolveAiAnalyticsContext } from "../../../server/aiAnalyticsContext.mjs";
+import { createOntologyRegistry } from "../../../server/ontology/registry.mjs";
 
 describe("resolveAiAnalyticsContext", () => {
   it("builds compact business context for analytics questions", async () => {
@@ -45,5 +46,23 @@ describe("resolveAiAnalyticsContext", () => {
 
   it("stays silent for empty questions", async () => {
     expect((await resolveAiAnalyticsContext({ messages: [] })).contextText).toBe("");
+  });
+
+  it("adds governed ontology interpretation when registry and actor are provided", async () => {
+    const resolved = await resolveAiAnalyticsContext({
+      messages: [{ role: "user", content: "最近一周 DTSV 新增缺陷按 ECU Top 5" }],
+      now: new Date("2026-07-15T04:00:00.000Z"),
+      actor: { actorId: "alice", scopeHash: "scope-a", scopes: { workspaceIds: ["DTSV"], teamIds: ["DTSV"] } },
+      ontologyRegistry: createOntologyRegistry(),
+    });
+
+    expect(resolved.contextText).toContain("# Governed Ontology interpretation");
+    expect(resolved.contextText).toContain("Intent: rank");
+    expect(resolved.contextText).toContain("defect.created_count");
+    expect(resolved.contextText).toContain("Plan status: valid");
+    expect(resolved.shadowObservation).toMatchObject({
+      status: "completed",
+      tools: ["query_semantic_metrics"],
+    });
   });
 });

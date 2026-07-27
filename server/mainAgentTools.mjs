@@ -1,3 +1,5 @@
+import { semanticQuerySchema } from "./ontology/queryCompiler.mjs";
+
 const DEFAULT_ANALYTICS_API_BASE = process.env.VIZION_ANALYTICS_API_BASE || "http://127.0.0.1:3003";
 
 const DASHBOARD_SUMMARY_FILTER_KEYS = new Set([
@@ -34,6 +36,26 @@ const STRING_OR_STRING_ARRAY_SCHEMA = {
   oneOf: [{ type: "string" }, { type: "array", items: { type: "string" } }],
 };
 
+const DEFECT_METRIC_VALUES = [
+  "defect_count",
+  "resolved_forward_count",
+  "rejected_directly_count",
+  "resolved_forward_rate",
+  "rejected_directly_rate",
+];
+
+const DEFECT_DIMENSION_VALUES = [
+  "business_module",
+  "assigned_ecu",
+  "solution_cluster",
+  "defect_category",
+  "phase",
+  "aida",
+  "project",
+  "problem_finder_team",
+  "outcome_flag",
+];
+
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 const FULL_PICTURE_MODULE_ENDPOINTS = {
@@ -44,6 +66,8 @@ const FULL_PICTURE_MODULE_ENDPOINTS = {
   defect_high_frequency_analysis: "/api/full-picture/defect-high-frequency-analysis",
 };
 
+const SEMANTIC_TOOL_NAMES = new Set(["query_semantic_metrics", "query_semantic_records", "query_traceability"]);
+
 export const MAIN_AGENT_TOOLS = [
   {
     type: "function",
@@ -53,6 +77,44 @@ export const MAIN_AGENT_TOOLS = [
       parameters: {
         type: "object",
         properties: {},
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_ontology_catalog",
+      description: "Fetch the ontology catalog with entity types, relationship types, action capability states, guardrails, and available ontology-backed agent tools.",
+      parameters: {
+        type: "object",
+        properties: {},
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "search_octane_fields",
+      description: "Search the local Octane field catalog for a small top-k set of relevant API/database fields. Use this for schema discovery before choosing metrics, dimensions, filters, or Octane action fields; do not ask for or return the full field catalog.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "Business wording or field meaning to search for, such as DTSV, 车系, owner, phase, testcase, or software version.",
+          },
+          entity: {
+            type: "string",
+            description: "Optional normalized entity filter such as defect, manual_run, testcase, or feature.",
+          },
+          top_k: {
+            type: "number",
+            description: "Maximum field candidates to return. Use 10 unless the user asks for a broader schema audit.",
+          },
+        },
+        required: ["query"],
         additionalProperties: false,
       },
     },
@@ -72,6 +134,45 @@ export const MAIN_AGENT_TOOLS = [
         },
         required: ["query"],
         additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "query_semantic_metrics",
+      description: "Execute a validated Ontology metric query against the semantic analytics API. The query must come from the governed query planner.",
+      parameters: {
+        type: "object",
+        required: ["query"],
+        additionalProperties: false,
+        properties: { query: semanticQuerySchema },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "query_semantic_records",
+      description: "Execute a validated Ontology record or drill-down query against the semantic analytics API.",
+      parameters: {
+        type: "object",
+        required: ["query"],
+        additionalProperties: false,
+        properties: { query: semanticQuerySchema },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "query_traceability",
+      description: "Execute a validated Ontology traceability query across requirement, testcase, test-run, and defect relationships.",
+      parameters: {
+        type: "object",
+        required: ["query"],
+        additionalProperties: false,
+        properties: { query: semanticQuerySchema },
       },
     },
   },
@@ -144,6 +245,34 @@ export const MAIN_AGENT_TOOLS = [
   {
     type: "function",
     function: {
+      name: "get_test_case_context",
+      description: "Fetch ontology-backed context for creating or extending a test case from a test_id or defect_id anchor, including tested scope, run results, traceability, gaps, and provenance.",
+      parameters: {
+        type: "object",
+        properties: {
+          anchor: {
+            type: "object",
+            properties: {
+              type: { type: "string", enum: ["test_id", "defect_id"] },
+              value: { type: "string" },
+            },
+            required: ["type", "value"],
+            additionalProperties: false,
+          },
+          purpose: {
+            type: "string",
+            enum: ["create_test_case"],
+            description: "The intended use of the context. Use create_test_case for testcase drafting or coverage-gap explanation.",
+          },
+        },
+        required: ["anchor"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "query_defect_high_frequency_analysis",
       description: "Query Defect High Frequency analysis through the analytics API. Use this for newly created defects concentrated by ECU/module, repeat rate, or high-frequency defect modules.",
       parameters: {
@@ -178,6 +307,97 @@ export const MAIN_AGENT_TOOLS = [
           },
         },
         required: ["filters"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "query_defect_aggregate",
+      description: "Query governed defect aggregates from the Analytics Query Kernel using allowlisted metrics, one dimension, filters, and creation-time windows. Prefer this for flexible defect count, compare, concentration, and outcome-rate questions.",
+      parameters: {
+        type: "object",
+        properties: {
+          metrics: {
+            type: "array",
+            items: { type: "string", enum: DEFECT_METRIC_VALUES },
+            description: "Defect metrics to compute. Use explicit rate metrics instead of generic ratios.",
+          },
+          dimensions: {
+            type: "array",
+            items: { type: "string", enum: DEFECT_DIMENSION_VALUES },
+            maxItems: 1,
+            description: "At most one v1 grouping dimension. Use business_module for solution_cluster else defect_category else UNCLASSIFIED.",
+          },
+          derived_metrics: {
+            type: "array",
+            items: { type: "string", enum: ["delta", "growth_pct"] },
+            description: "Optional comparison metrics. When previous count is 0, growth_pct is null and is_new marks new groups.",
+          },
+          filters: {
+            type: "object",
+            properties: {
+              years: { oneOf: [{ type: "string" }, { type: "number" }, { type: "array", items: { type: "string" } }] },
+              months: STRING_OR_STRING_ARRAY_SCHEMA,
+              requirements: STRING_OR_STRING_ARRAY_SCHEMA,
+              china_scopes: STRING_OR_STRING_ARRAY_SCHEMA,
+              projects: STRING_OR_STRING_ARRAY_SCHEMA,
+              assigned_ecus: STRING_OR_STRING_ARRAY_SCHEMA,
+              problem_finder_teams: STRING_OR_STRING_ARRAY_SCHEMA,
+              aidas: STRING_OR_STRING_ARRAY_SCHEMA,
+              phases: STRING_OR_STRING_ARRAY_SCHEMA,
+              solution_clusters: STRING_OR_STRING_ARRAY_SCHEMA,
+              pus: STRING_OR_STRING_ARRAY_SCHEMA,
+              markets: STRING_OR_STRING_ARRAY_SCHEMA,
+              lead_models: STRING_OR_STRING_ARRAY_SCHEMA,
+              groups: STRING_OR_STRING_ARRAY_SCHEMA,
+            },
+            additionalProperties: false,
+          },
+          time: {
+            type: "object",
+            properties: {
+              field: { type: "string", enum: ["creation_time"] },
+              current: { type: "array", items: { type: "string" }, minItems: 2, maxItems: 2 },
+              comparison: { type: "array", items: { type: "string" }, minItems: 2, maxItems: 2 },
+              timezone: { type: "string", enum: ["Asia/Shanghai"] },
+            },
+            required: ["field", "current", "timezone"],
+            additionalProperties: false,
+          },
+          order_by: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                field: { type: "string" },
+                direction: { type: "string", enum: ["asc", "desc"] },
+              },
+              required: ["field", "direction"],
+              additionalProperties: false,
+            },
+          },
+          min_baseline_count: { type: "number" },
+          limit: { type: "number" },
+        },
+        required: ["metrics", "dimensions", "filters", "time"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "query_defect_records",
+      description: "Fetch example defect records for a query_defect_aggregate row using its drilldown_ref. Records illustrate cases; they do not prove causality.",
+      parameters: {
+        type: "object",
+        properties: {
+          drilldown_ref: { type: "string", description: "Opaque drilldown_ref returned by query_defect_aggregate." },
+          limit: { type: "number", description: "Maximum records to return, capped by the server." },
+        },
+        required: ["drilldown_ref"],
         additionalProperties: false,
       },
     },
@@ -418,6 +638,31 @@ function buildFullPictureModuleUrl(args, analyticsApiBase, now) {
   return { url: url.toString(), moduleName };
 }
 
+async function postAnalyticsJson(path, payload, { analyticsFetch, analyticsApiBase }) {
+  const url = new URL(path, analyticsApiBase).toString();
+  const response = await analyticsFetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return { url, response };
+}
+
+function buildActorScope(actor) {
+  const scopes = actor?.scopes || {};
+  return {
+    actorId: String(actor?.actorId || ""),
+    scopeHash: String(actor?.scopeHash || ""),
+    workspaceIds: Array.isArray(scopes.workspaceIds) ? scopes.workspaceIds.map(String) : [],
+    projectIds: Array.isArray(scopes.projectIds) ? scopes.projectIds.map(String) : [],
+    teamIds: Array.isArray(scopes.teamIds) ? scopes.teamIds.map(String) : [],
+    allowedObjectTypes: Array.isArray(scopes.allowedObjectTypes) ? scopes.allowedObjectTypes.map(String) : [],
+    allowedPropertyIds: Array.isArray(scopes.allowedPropertyIds) ? scopes.allowedPropertyIds.map(String) : [],
+    rowPolicyIds: Array.isArray(scopes.rowPolicyIds) ? scopes.rowPolicyIds.map(String) : [],
+    sensitiveFieldPolicyIds: Array.isArray(scopes.sensitiveFieldPolicyIds) ? scopes.sensitiveFieldPolicyIds.map(String) : [],
+  };
+}
+
 function buildToolMessage(toolCall, content) {
   return {
     role: "tool",
@@ -427,14 +672,70 @@ function buildToolMessage(toolCall, content) {
   };
 }
 
+function formatSemanticContext(name, payload) {
+  const metrics = payload?.summary?.metrics || {};
+  const metricLines = Object.entries(metrics).map(([metricId, value]) => `${metricId}: ${value}`);
+  const rows = Array.isArray(payload?.data) ? payload.data.length : 0;
+  return [
+    "# Main agent semantic tool result",
+    `Tool: ${name}`,
+    `Ontology: ${payload?.ontologyVersion || "unknown"} (${payload?.schemaFingerprint || "no fingerprint"})`,
+    `Source revision: ${payload?.sourceRevision?.revisionId || "unpinned"}`,
+    `Rows: ${rows}`,
+    ...metricLines,
+    `Completeness: ${payload?.quality?.completeness || "unknown"}`,
+    "Use only the returned governed metrics, scope, source revision, and quality metadata as factual evidence.",
+  ].join("\n");
+}
+
+async function executeSemanticQuery(toolCall, { analyticsFetch, analyticsApiBase, actor }) {
+  const args = parseToolArguments(toolCall?.function?.arguments);
+  const query = args.query;
+  const url = new URL("/api/semantic/query", analyticsApiBase).toString();
+  const body = {
+    schemaVersion: "1.0",
+    queryId: String(toolCall?.id || `semantic-${Date.now()}`),
+    ontologyVersion: query?.ontologyVersion,
+    schemaFingerprint: query?.schemaFingerprint,
+    query,
+    actorScope: buildActorScope(actor),
+  };
+  const response = await analyticsFetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response?.ok) {
+    let failure = {};
+    try {
+      failure = await response.json();
+    } catch {
+      failure = {};
+    }
+    const code = String(failure?.code || `SEMANTIC_API_HTTP_${response?.status || "UNKNOWN"}`);
+    throw Object.assign(new Error(code), {
+      code,
+      status: response?.status === 403 ? "denied" : "failed",
+      statusCode: response?.status || 502,
+      retryable: response?.status === 429 || Number(response?.status || 0) >= 500,
+    });
+  }
+
+  const payload = await response.json();
+  return {
+    toolMessage: buildToolMessage(toolCall, JSON.stringify({ ok: true, tool: toolCall.function.name, result: payload })),
+    contextText: formatSemanticContext(toolCall.function.name, payload),
+  };
+}
+
 function buildDataCatalogPayload() {
   return {
     datasets: [
       {
         id: "defects",
         description: "QGate/Octane defect records for Main Dashboard, outcome, phase, team, project, AIDA, ECU, PU, market, lead model, and China/Global analysis.",
-        metrics: ["ticket_count", "created_count", "resolved_forward_count", "rejected_directly_count"],
-        dimensions: Array.from(DASHBOARD_SUMMARY_FILTER_KEYS).filter((key) => !key.startsWith("creation_time_")),
+        metrics: DEFECT_METRIC_VALUES,
+        dimensions: DEFECT_DIMENSION_VALUES,
         filters: Array.from(DASHBOARD_SUMMARY_FILTER_KEYS),
       },
       {
@@ -455,6 +756,7 @@ function buildDataCatalogPayload() {
     },
     guardrails: [
       "Use only listed filters, dimensions, and modules.",
+      "Use query_defect_aggregate for flexible defect analysis, then query_defect_records only for examples from a returned drilldown_ref.",
       "Ask clarification when metric meaning or filter scope is ambiguous.",
       "Regression-commit causality is not available from these dashboard datasets alone.",
     ],
@@ -474,6 +776,89 @@ function executeDataCatalog(toolCall) {
       `Testing Coverage filters: ${payload.datasets[1].filters.join(", ")}`,
       "Use this catalog to choose an allowlisted analytics tool. Do not invent fields, filters, modules, or SQL.",
     ].join("\n"),
+  };
+}
+
+function summarizeCapabilityItems(items) {
+  return (Array.isArray(items) ? items : [])
+    .slice(0, 12)
+    .map((item) => `${item.id || "unknown"} ${item.capability_state || "unknown"}`)
+    .join(", ");
+}
+
+function formatOntologyCatalogContext(url, payload) {
+  const entities = summarizeCapabilityItems(payload?.entity_types);
+  const relationships = summarizeCapabilityItems(payload?.relationship_types);
+  const agentTools = summarizeCapabilityItems(payload?.agent_tools);
+  const actions = summarizeCapabilityItems(payload?.actions);
+  const guardrails = Array.isArray(payload?.guardrails) ? payload.guardrails.slice(0, 5) : [];
+  return [
+    "# Main agent tool result",
+    "Tool: get_ontology_catalog",
+    `Source query: GET ${url}`,
+    `Ontology version: ${payload?.ontology_version || "unknown"}`,
+    entities ? `Entities: ${entities}` : "Entities: none",
+    relationships ? `Relationships: ${relationships}` : "Relationships: none",
+    agentTools ? `Agent tools: ${agentTools}` : "Agent tools: none",
+    actions ? `Actions: ${actions}` : "Actions: none",
+    guardrails.length ? `Guardrails: ${guardrails.join(" | ")}` : "Guardrails: none",
+    "Use available capabilities normally, partial capabilities with caveats, and unavailable, disabled, or blocked capabilities as not executable.",
+  ].join("\n");
+}
+
+async function executeOntologyCatalog(toolCall, { analyticsFetch, analyticsApiBase }) {
+  const url = new URL("/api/ontology/catalog", analyticsApiBase).toString();
+  const response = await analyticsFetch(url);
+  if (!response?.ok) {
+    const content = JSON.stringify({ error: `Analytics API request failed for get_ontology_catalog: ${response?.status || "unknown"}` });
+    return {
+      toolMessage: buildToolMessage(toolCall, content),
+      contextText: `# Main agent tool result\nTool: get_ontology_catalog\nSource query: GET ${url}\nResult: unavailable because the analytics API request failed.`,
+    };
+  }
+
+  const payload = await response.json();
+  return {
+    toolMessage: buildToolMessage(toolCall, JSON.stringify({ ok: true, tool: "get_ontology_catalog", url, result: payload })),
+    contextText: formatOntologyCatalogContext(url, payload),
+  };
+}
+
+function formatOctaneFieldSearchContext(url, payload) {
+  const rows = (Array.isArray(payload?.results) ? payload.results : []).slice(0, 12).map((field, index) => (
+    `${index + 1}. ${field.id || "unknown"} entity=${field.entity || "unknown"} bucket=${field.businessBucket || "unknown"} status=${field.ontologyStatus || "unknown"} score=${field.score || 0}`
+  ));
+  return [
+    "# Main agent tool result",
+    "Tool: search_octane_fields",
+    `Source query: POST ${url}`,
+    `Catalog fields: ${payload?.summary?.fieldCount ?? "unknown"}; raw JSON fields: ${payload?.summary?.rawJsonFieldCount ?? "unknown"}; candidates: ${payload?.summary?.candidateFieldCount ?? "unknown"}`,
+    rows.length ? "Field candidates:" : "Field candidates: none",
+    ...rows,
+    "Use these field candidates only as schema hints. Do not treat a field candidate as a governed metric or factual data result until an ontology or analytics tool validates it.",
+  ].join("\n");
+}
+
+async function executeOctaneFieldSearch(toolCall, { analyticsFetch, analyticsApiBase }) {
+  const args = parseToolArguments(toolCall?.function?.arguments);
+  const payload = {
+    query: String(args.query || "").trim(),
+    ...(args.entity ? { entity: String(args.entity).trim() } : {}),
+    top_k: Math.max(1, Math.min(50, Number(args.top_k || 10))),
+  };
+  const { url, response } = await postAnalyticsJson("/api/ontology/fields/search", payload, { analyticsFetch, analyticsApiBase });
+  if (!response?.ok) {
+    const content = JSON.stringify({ error: `Analytics API request failed for search_octane_fields: ${response?.status || "unknown"}` });
+    return {
+      toolMessage: buildToolMessage(toolCall, content),
+      contextText: `# Main agent tool result\nTool: search_octane_fields\nSource query: POST ${url}\nResult: unavailable because the analytics API request failed.`,
+    };
+  }
+
+  const result = await response.json();
+  return {
+    toolMessage: buildToolMessage(toolCall, JSON.stringify({ ok: true, tool: "search_octane_fields", url, result })),
+    contextText: formatOctaneFieldSearchContext(url, result),
   };
 }
 
@@ -605,6 +990,65 @@ async function executeCoverageProjectStatus(toolCall, { analyticsFetch, analytic
   };
 }
 
+function formatTestCaseContext(url, payload) {
+  const anchor = payload?.anchor || {};
+  const defectContext = payload?.defect_context || {};
+  const scope = payload?.business_scope || {};
+  const summary = payload?.coverage_summary || {};
+  const traceability = payload?.traceability || {};
+  const features = Array.isArray(traceability.features) ? traceability.features : [];
+  const stories = Array.isArray(traceability.stories) ? traceability.stories : [];
+  const defects = Array.isArray(traceability.defects) ? traceability.defects : [];
+  const gaps = Array.isArray(payload?.gaps) ? payload.gaps : [];
+  const featureLines = features.slice(0, 5).map((feature) => `Feature: ${feature.name || feature.id}`);
+  const storyLines = stories.slice(0, 5).map((story) => `Story: ${story.name || story.id}`);
+  const defectLines = defects.slice(0, 5).map((defect) => `Linked defect: ${defect.id}${defect.name ? ` ${defect.name}` : ""}`);
+  const gapLines = gaps.slice(0, 5).map((gap) => `Gap: ${gap.gap_type}${gap.description ? ` - ${gap.description}` : ""}`);
+  const defectContextLines = [];
+  if (defectContext.defect_id || defectContext.name) {
+    defectContextLines.push(`Defect: ${defectContext.defect_id || "unknown"}${defectContext.name ? ` ${defectContext.name}` : ""}`);
+  }
+  if (defectContext.description) {
+    defectContextLines.push(`Defect description: ${String(defectContext.description).slice(0, 800)}`);
+  }
+  if (defectContext.requirement) {
+    defectContextLines.push(`Requirement: ${defectContext.requirement}`);
+  }
+
+  return [
+    "# Main agent tool result",
+    "Tool: get_test_case_context",
+    `Source query: POST ${url}`,
+    `Anchor: ${anchor.node_id || "unknown"}${anchor.label ? ` (${anchor.label})` : ""}`,
+    `Scope: project ${scope.project || "unknown"}; release ${scope.release || "unknown"}; week ${scope.planned_week || "unknown"}; AIDA ${scope.aida || "unknown"}`,
+    `Runs: ${Number(summary.latest_runs || 0)}; passed ${Number(summary.passed || 0)}; failed ${Number(summary.failed || 0)}; requires_attention ${Number(summary.requires_attention || 0)}; linked_defects ${Number(summary.linked_defects || 0)}`,
+    ...defectContextLines,
+    ...featureLines,
+    ...storyLines,
+    ...defectLines,
+    ...gapLines,
+    "Use this ontology context as factual background for testcase drafting. Missing data is unknown, not zero.",
+  ].join("\n");
+}
+
+async function executeTestCaseContext(toolCall, { analyticsFetch, analyticsApiBase }) {
+  const args = parseToolArguments(toolCall?.function?.arguments);
+  const { url, response } = await postAnalyticsJson("/api/ontology/context", args, { analyticsFetch, analyticsApiBase });
+  if (!response?.ok) {
+    const content = JSON.stringify({ error: `Analytics API request failed for get_test_case_context: ${response?.status || "unknown"}` });
+    return {
+      toolMessage: buildToolMessage(toolCall, content),
+      contextText: `# Main agent tool result\nTool: get_test_case_context\nSource query: POST ${url}\nResult: unavailable because the analytics API request failed.`,
+    };
+  }
+
+  const payload = await response.json();
+  return {
+    toolMessage: buildToolMessage(toolCall, JSON.stringify({ ok: true, tool: "get_test_case_context", url, result: payload })),
+    contextText: formatTestCaseContext(url, payload),
+  };
+}
+
 function formatDefectHighFrequencyContext(url, payload) {
   const rows = Array.isArray(payload?.frequency_rows) ? payload.frequency_rows : [];
   const overview = payload?.overview || {};
@@ -643,6 +1087,86 @@ async function executeDefectHighFrequency(toolCall, { analyticsFetch, analyticsA
   return {
     toolMessage: buildToolMessage(toolCall, JSON.stringify({ ok: true, tool: "query_defect_high_frequency_analysis", url, result: payload })),
     contextText: formatDefectHighFrequencyContext(url, payload),
+  };
+}
+
+function formatDefectAggregateContext(payload) {
+  const rows = Array.isArray(payload?.rows) ? payload.rows : [];
+  const metrics = Array.isArray(payload?.applied_query?.metrics) ? payload.applied_query.metrics : ["defect_count"];
+  const dimensions = Array.isArray(payload?.applied_query?.dimensions) ? payload.applied_query.dimensions : [];
+  const dimension = dimensions[0] || "scope";
+  const rowLines = rows.slice(0, 8).map((row, index) => {
+    const label = String(row[dimension] || row.business_module || row.assigned_ecu || row.project || "all_defects").trim();
+    const metricText = metrics
+      .map((metric) => `${metric} ${row[metric] ?? "N/A"}`)
+      .join(", ");
+    const drilldownRef = row.drilldown_ref ? `; drilldown_ref: ${row.drilldown_ref}` : "";
+    return `${index + 1}. ${label}: ${metricText}${drilldownRef}`;
+  });
+
+  return [
+    "# Main agent tool result",
+    "Tool: query_defect_aggregate",
+    `Snapshot: ${payload?.snapshot_version || "unknown"}`,
+    `Query fingerprint: ${payload?.query_fingerprint || "unknown"}`,
+    `Groups: ${Number(payload?.returned_groups || 0)} returned of ${Number(payload?.total_groups || 0)}${payload?.truncated ? " (truncated)" : ""}`,
+    rowLines.length ? "Aggregate rows:" : "Aggregate rows: none",
+    ...rowLines,
+    Array.isArray(payload?.warnings) && payload.warnings.length ? `Warnings: ${payload.warnings.join(" | ")}` : "",
+    "Use aggregate results for counts/rates. Use drilldown_ref with query_defect_records only for example tickets, not causality proof.",
+  ].filter(Boolean).join("\n");
+}
+
+async function executeDefectAggregate(toolCall, { analyticsFetch, analyticsApiBase }) {
+  const args = parseToolArguments(toolCall?.function?.arguments);
+  const { url, response } = await postAnalyticsJson("/api/analytics/defects/aggregate", args, { analyticsFetch, analyticsApiBase });
+  if (!response?.ok) {
+    const content = JSON.stringify({ error: `Analytics API request failed for query_defect_aggregate: ${response?.status || "unknown"}` });
+    return {
+      toolMessage: buildToolMessage(toolCall, content),
+      contextText: `# Main agent tool result\nTool: query_defect_aggregate\nSource query: POST ${url}\nResult: unavailable because the analytics API request failed.`,
+    };
+  }
+  const payload = await response.json();
+  return {
+    toolMessage: buildToolMessage(toolCall, JSON.stringify({ ok: true, tool: "query_defect_aggregate", url, result: payload })),
+    contextText: formatDefectAggregateContext(payload),
+  };
+}
+
+function formatDefectRecordsContext(payload) {
+  const rows = Array.isArray(payload?.rows) ? payload.rows : [];
+  const rowLines = rows.slice(0, 8).map((row, index) => {
+    const ticketId = String(row.ticket_id || "N/A").trim();
+    const ticketName = String(row.ticket_name || "Untitled").replace(/\s+/g, " ").trim();
+    return `${index + 1}. ${ticketId}: ${ticketName}`;
+  });
+  return [
+    "# Main agent tool result",
+    "Tool: query_defect_records",
+    `Snapshot: ${payload?.snapshot_version || "unknown"}`,
+    `Query fingerprint: ${payload?.query_fingerprint || "unknown"}`,
+    `Rows: ${Number(payload?.returned_rows || 0)} returned of ${Number(payload?.total_rows || 0)}${payload?.truncated ? " (truncated)" : ""}`,
+    rowLines.length ? "Example records:" : "Example records: none",
+    ...rowLines,
+    Array.isArray(payload?.warnings) && payload.warnings.length ? `Warnings: ${payload.warnings.join(" | ")}` : "",
+  ].filter(Boolean).join("\n");
+}
+
+async function executeDefectRecords(toolCall, { analyticsFetch, analyticsApiBase }) {
+  const args = parseToolArguments(toolCall?.function?.arguments);
+  const { url, response } = await postAnalyticsJson("/api/analytics/defects/records", args, { analyticsFetch, analyticsApiBase });
+  if (!response?.ok) {
+    const content = JSON.stringify({ error: `Analytics API request failed for query_defect_records: ${response?.status || "unknown"}` });
+    return {
+      toolMessage: buildToolMessage(toolCall, content),
+      contextText: `# Main agent tool result\nTool: query_defect_records\nSource query: POST ${url}\nResult: unavailable because the analytics API request failed.`,
+    };
+  }
+  const payload = await response.json();
+  return {
+    toolMessage: buildToolMessage(toolCall, JSON.stringify({ ok: true, tool: "query_defect_records", url, result: payload })),
+    contextText: formatDefectRecordsContext(payload),
   };
 }
 
@@ -797,6 +1321,7 @@ export async function executeMainAgentToolCall(toolCall, {
   analyticsApiBase = DEFAULT_ANALYTICS_API_BASE,
   runDuplicateBridge,
   ensureDuplicateWarmup,
+  actor,
   now,
 } = {}) {
   const name = toolCall?.function?.name || "";
@@ -804,8 +1329,17 @@ export async function executeMainAgentToolCall(toolCall, {
     if (name === "get_data_catalog") {
       return executeDataCatalog(toolCall);
     }
+    if (name === "get_ontology_catalog") {
+      return await executeOntologyCatalog(toolCall, { analyticsFetch, analyticsApiBase });
+    }
+    if (name === "search_octane_fields") {
+      return await executeOctaneFieldSearch(toolCall, { analyticsFetch, analyticsApiBase });
+    }
     if (name === "resolve_business_terms") {
       return executeResolveBusinessTerms(toolCall);
+    }
+    if (SEMANTIC_TOOL_NAMES.has(name)) {
+      return await executeSemanticQuery(toolCall, { analyticsFetch, analyticsApiBase, actor });
     }
     if (name === "query_dashboard_summary") {
       return await executeDashboardSummary(toolCall, { analyticsFetch, analyticsApiBase });
@@ -813,8 +1347,17 @@ export async function executeMainAgentToolCall(toolCall, {
     if (name === "query_testing_coverage_project_status") {
       return await executeCoverageProjectStatus(toolCall, { analyticsFetch, analyticsApiBase });
     }
+    if (name === "get_test_case_context") {
+      return await executeTestCaseContext(toolCall, { analyticsFetch, analyticsApiBase });
+    }
     if (name === "query_defect_high_frequency_analysis") {
       return await executeDefectHighFrequency(toolCall, { analyticsFetch, analyticsApiBase, now });
+    }
+    if (name === "query_defect_aggregate") {
+      return await executeDefectAggregate(toolCall, { analyticsFetch, analyticsApiBase });
+    }
+    if (name === "query_defect_records") {
+      return await executeDefectRecords(toolCall, { analyticsFetch, analyticsApiBase });
     }
     if (name === "query_full_picture_module") {
       return await executeFullPictureModule(toolCall, { analyticsFetch, analyticsApiBase, now });
@@ -831,6 +1374,9 @@ export async function executeMainAgentToolCall(toolCall, {
       contextText: `# Main agent tool result\nTool: ${name || "unknown"}\nResult: Unsupported tool: ${name}`,
     };
   } catch (error) {
+    if (SEMANTIC_TOOL_NAMES.has(name)) {
+      throw error;
+    }
     const message = error instanceof Error ? error.message : String(error);
     const content = JSON.stringify({ error: message });
     return {

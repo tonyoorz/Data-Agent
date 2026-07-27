@@ -935,6 +935,259 @@ def test_full_picture_creation_time_date_range_filters_summary_and_tickets(tmp_p
     assert [row["ticket_id"] for row in tickets_payload["rows"]] == ["D-001"]
 
 
+def test_defect_aggregate_groups_by_business_module_and_returns_drilldown_ref(tmp_path, monkeypatch):
+    db_path = tmp_path / "qgate_data.db"
+    hot_db_path = _default_hot_db_path(tmp_path)
+    _seed_qgate_source_db(db_path, defect_count=3)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("ALTER TABLE octane_defects ADD COLUMN defect_category TEXT")
+        conn.execute(
+            """
+            UPDATE octane_defects
+            SET solution_cluster = ?, defect_category = ?, assigned_ecu = ?, creation_time = ?, last_modified = ?
+            WHERE defect_id = ?
+            """,
+            ("Navigation CN", "", "HU-H", "2026-03-15T00:00:00Z", "2026-03-16T00:00:00Z", "D-001"),
+        )
+        conn.execute(
+            """
+            UPDATE octane_defects
+            SET solution_cluster = ?, defect_category = ?, assigned_ecu = ?, creation_time = ?, last_modified = ?
+            WHERE defect_id = ?
+            """,
+            ("", "CN Nav", "ADCAM", "2026-03-20T00:00:00Z", "2026-03-21T00:00:00Z", "D-002"),
+        )
+        conn.execute(
+            """
+            UPDATE octane_defects
+            SET solution_cluster = ?, defect_category = ?, assigned_ecu = ?, creation_time = ?, last_modified = ?
+            WHERE defect_id = ?
+            """,
+            ("", "", "MGU", "2026-03-22T00:00:00Z", "2026-03-23T00:00:00Z", "D-003"),
+        )
+        conn.commit()
+    _refresh_full_picture_hot_outcomes(db_path, hot_db_path)
+    _record_active_snapshot(hot_db_path, snapshot_version="snapshot-defect-query", source_db_path=db_path)
+    _configure_full_picture_env(
+        monkeypatch,
+        defect_db_path=db_path,
+        hot_db_path=hot_db_path,
+    )
+
+    payload = read_models.build_defect_aggregate_payload(
+        metrics=["defect_count"],
+        dimensions=["business_module"],
+        filters={"problem_finder_teams": ["DTSV_China"]},
+        time={
+            "field": "creation_time",
+            "current": ["2026-03-01", "2026-03-31"],
+            "timezone": "Asia/Shanghai",
+        },
+        order_by=[{"field": "defect_count", "direction": "desc"}],
+        limit=10,
+    )
+
+    assert payload["schema_version"] == "1.0"
+    assert payload["snapshot_version"] == "snapshot-defect-query"
+    assert payload["applied_query"]["time"]["field"] == "creation_time"
+    assert payload["total_groups"] == 3
+    assert payload["returned_groups"] == 3
+    assert payload["truncated"] is False
+    assert [(row["business_module"], row["defect_count"]) for row in payload["rows"]] == [
+        ("CN Nav", 1),
+        ("Navigation CN", 1),
+        ("UNCLASSIFIED", 1),
+    ]
+    assert all(row["drilldown_ref"] for row in payload["rows"])
+
+
+def test_defect_records_reuse_drilldown_ref_and_snapshot(tmp_path, monkeypatch):
+    db_path = tmp_path / "qgate_data.db"
+    hot_db_path = _default_hot_db_path(tmp_path)
+    _seed_qgate_source_db(db_path, defect_count=2)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("ALTER TABLE octane_defects ADD COLUMN defect_category TEXT")
+        conn.execute(
+            """
+            UPDATE octane_defects
+            SET solution_cluster = ?, defect_category = ?, assigned_ecu = ?, creation_time = ?, last_modified = ?
+            WHERE defect_id = ?
+            """,
+            ("Navigation CN", "", "HU-H", "2026-03-15T00:00:00Z", "2026-03-16T00:00:00Z", "D-001"),
+        )
+        conn.execute(
+            """
+            UPDATE octane_defects
+            SET solution_cluster = ?, defect_category = ?, assigned_ecu = ?, creation_time = ?, last_modified = ?
+            WHERE defect_id = ?
+            """,
+            ("Speech CN", "", "HU-H", "2026-03-20T00:00:00Z", "2026-03-21T00:00:00Z", "D-002"),
+        )
+        conn.commit()
+    _refresh_full_picture_hot_outcomes(db_path, hot_db_path)
+    _record_active_snapshot(hot_db_path, snapshot_version="snapshot-defect-records", source_db_path=db_path)
+    _configure_full_picture_env(
+        monkeypatch,
+        defect_db_path=db_path,
+        hot_db_path=hot_db_path,
+    )
+    aggregate_payload = read_models.build_defect_aggregate_payload(
+        metrics=["defect_count"],
+        dimensions=["business_module"],
+        filters={"problem_finder_teams": ["DTSV_China"]},
+        time={"field": "creation_time", "current": ["2026-03-01", "2026-03-31"], "timezone": "Asia/Shanghai"},
+        order_by=[{"field": "business_module", "direction": "asc"}],
+        limit=10,
+    )
+    drilldown_ref = aggregate_payload["rows"][0]["drilldown_ref"]
+
+    records_payload = read_models.build_defect_records_payload(
+        drilldown_ref=drilldown_ref,
+        limit=5,
+    )
+
+    assert records_payload["schema_version"] == "1.0"
+    assert records_payload["snapshot_version"] == "snapshot-defect-records"
+    assert records_payload["query_fingerprint"] == aggregate_payload["query_fingerprint"]
+    assert records_payload["total_rows"] == 1
+    assert records_payload["returned_rows"] == 1
+    assert records_payload["truncated"] is False
+    assert records_payload["rows"][0]["ticket_id"] == "D-001"
+    assert records_payload["rows"][0]["solution_cluster"] == "Navigation CN"
+
+
+def test_defect_aggregate_comparison_returns_delta_growth_and_new_group(tmp_path, monkeypatch):
+    db_path = tmp_path / "qgate_data.db"
+    hot_db_path = _default_hot_db_path(tmp_path)
+    _seed_qgate_source_db(db_path, defect_count=3)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("ALTER TABLE octane_defects ADD COLUMN defect_category TEXT")
+        conn.execute(
+            """
+            UPDATE octane_defects
+            SET solution_cluster = ?, creation_time = ?, last_modified = ?
+            WHERE defect_id = ?
+            """,
+            ("Speech CN", "2026-03-15T00:00:00Z", "2026-03-16T00:00:00Z", "D-001"),
+        )
+        conn.execute(
+            """
+            UPDATE octane_defects
+            SET solution_cluster = ?, creation_time = ?, last_modified = ?
+            WHERE defect_id = ?
+            """,
+            ("Navigation CN", "2026-04-15T00:00:00Z", "2026-04-16T00:00:00Z", "D-002"),
+        )
+        conn.execute(
+            """
+            UPDATE octane_defects
+            SET solution_cluster = ?, creation_time = ?, last_modified = ?
+            WHERE defect_id = ?
+            """,
+            ("Navigation CN", "2026-04-20T00:00:00Z", "2026-04-21T00:00:00Z", "D-003"),
+        )
+        conn.commit()
+    _refresh_full_picture_hot_outcomes(db_path, hot_db_path)
+    _record_active_snapshot(hot_db_path, snapshot_version="snapshot-defect-compare", source_db_path=db_path)
+    _configure_full_picture_env(
+        monkeypatch,
+        defect_db_path=db_path,
+        hot_db_path=hot_db_path,
+    )
+
+    payload = read_models.build_defect_aggregate_payload(
+        metrics=["defect_count"],
+        dimensions=["business_module"],
+        filters={"problem_finder_teams": ["DTSV_China"]},
+        time={
+            "field": "creation_time",
+            "current": ["2026-04-01", "2026-04-30"],
+            "comparison": ["2026-03-01", "2026-03-31"],
+            "timezone": "Asia/Shanghai",
+        },
+        derived_metrics=["delta", "growth_pct"],
+        order_by=[{"field": "delta", "direction": "desc"}],
+        limit=10,
+    )
+
+    rows_by_module = {row["business_module"]: row for row in payload["rows"]}
+    assert rows_by_module["Navigation CN"]["current_count"] == 2
+    assert rows_by_module["Navigation CN"]["previous_count"] == 0
+    assert rows_by_module["Navigation CN"]["delta"] == 2
+    assert rows_by_module["Navigation CN"]["growth_pct"] is None
+    assert rows_by_module["Navigation CN"]["is_new"] is True
+    assert rows_by_module["Speech CN"]["current_count"] == 0
+    assert rows_by_module["Speech CN"]["previous_count"] == 1
+    assert rows_by_module["Speech CN"]["delta"] == -1
+    assert rows_by_module["Speech CN"]["growth_pct"] == -100.0
+    assert rows_by_module["Speech CN"]["is_new"] is False
+
+
+def test_defect_query_api_posts_aggregate_and_records(tmp_path, monkeypatch):
+    db_path = tmp_path / "qgate_data.db"
+    hot_db_path = _default_hot_db_path(tmp_path)
+    _seed_qgate_source_db(db_path, defect_count=2)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("ALTER TABLE octane_defects ADD COLUMN defect_category TEXT")
+        conn.execute(
+            """
+            UPDATE octane_defects
+            SET solution_cluster = ?, defect_category = ?, creation_time = ?, last_modified = ?
+            WHERE defect_id = ?
+            """,
+            ("Navigation CN", "", "2026-03-15T00:00:00Z", "2026-03-16T00:00:00Z", "D-001"),
+        )
+        conn.execute(
+            """
+            UPDATE octane_defects
+            SET solution_cluster = ?, defect_category = ?, creation_time = ?, last_modified = ?
+            WHERE defect_id = ?
+            """,
+            ("Navigation CN", "", "2026-03-20T00:00:00Z", "2026-03-21T00:00:00Z", "D-002"),
+        )
+        conn.commit()
+    _refresh_full_picture_hot_outcomes(db_path, hot_db_path)
+    _record_active_snapshot(hot_db_path, snapshot_version="snapshot-defect-api", source_db_path=db_path)
+    _configure_full_picture_env(
+        monkeypatch,
+        defect_db_path=db_path,
+        hot_db_path=hot_db_path,
+    )
+    client = TestClient(app)
+
+    aggregate_response = client.post(
+        "/api/analytics/defects/aggregate",
+        json={
+            "metrics": ["defect_count", "resolved_forward_rate"],
+            "dimensions": ["business_module"],
+            "filters": {"problem_finder_teams": ["DTSV_China"]},
+            "time": {"field": "creation_time", "current": ["2026-03-01", "2026-03-31"], "timezone": "Asia/Shanghai"},
+            "order_by": [{"field": "defect_count", "direction": "desc"}],
+            "limit": 5,
+        },
+    )
+
+    assert aggregate_response.status_code == 200
+    aggregate_payload = aggregate_response.json()
+    assert aggregate_payload["snapshot_version"] == "snapshot-defect-api"
+    assert aggregate_payload["rows"][0]["business_module"] == "Navigation CN"
+    assert aggregate_payload["rows"][0]["defect_count"] == 2
+    assert aggregate_payload["rows"][0]["resolved_forward_rate_numerator"] == 2
+    assert aggregate_payload["rows"][0]["resolved_forward_rate_denominator"] == 2
+
+    records_response = client.post(
+        "/api/analytics/defects/records",
+        json={"drilldown_ref": aggregate_payload["rows"][0]["drilldown_ref"], "limit": 1},
+    )
+
+    assert records_response.status_code == 200
+    records_payload = records_response.json()
+    assert records_payload["snapshot_version"] == "snapshot-defect-api"
+    assert records_payload["total_rows"] == 2
+    assert records_payload["returned_rows"] == 1
+    assert records_payload["truncated"] is True
+
+
 def test_full_picture_tickets_endpoint_returns_paged_rows(tmp_path, monkeypatch):
     db_path = tmp_path / "qgate_data.db"
     hot_db_path = _default_hot_db_path(tmp_path)

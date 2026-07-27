@@ -4,6 +4,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import duplicateBridgeRuntime from "./duplicateBridgeRuntime.cjs";
+import { streamLangGraphChatResponse } from "./agentRuntime/langGraphChatHandler.mjs";
+import { createLangGraphChatRuntime, resolveAgentRuntimeMode } from "./agentRuntime/langGraphChatRuntime.mjs";
+import { createFileAgentRuntimeStore } from "./agentRuntime/runtimeAuditStore.mjs";
 import { resolveAiAnalyticsContext } from "./aiAnalyticsContext.mjs";
 import { resolveMainAgentToolContext, shouldPlanMainAgentTools } from "./mainAgentToolLoop.mjs";
 import { createDuplicateWarmupManager } from "./duplicateWarmup.mjs";
@@ -29,6 +32,9 @@ const staticDir = fs.existsSync(path.join(repoRoot, "dist")) ? path.join(repoRoo
 const duplicateWarmupManager = createDuplicateWarmupManager({
   runDuplicateBridge,
   logger: console,
+});
+const langGraphChatRuntime = createLangGraphChatRuntime({
+  runtimeStore: createFileAgentRuntimeStore(),
 });
 
 function nowMs() {
@@ -59,6 +65,7 @@ async function handleAiChatRequest(body, response) {
   const startedAt = nowMs();
   const requestId = buildRequestId("ai-chat");
   const queryText = extractLatestUserQuery(body?.messages);
+  const runtimeMode = resolveAgentRuntimeMode(process.env);
   const useDefectContext = body?.useDefectContext === true;
   const useAnalyticsContext = body?.useAnalyticsContext === true;
   const analyticsContext = useAnalyticsContext
@@ -69,6 +76,32 @@ async function handleAiChatRequest(body, response) {
   let streamMetrics = null;
 
   try {
+    if (runtimeMode === "langgraph") {
+      const graphResult = await streamLangGraphChatResponse({
+        body,
+        response,
+        runtime: langGraphChatRuntime,
+        toolDependencies: {
+          runDuplicateBridge,
+          ensureDuplicateWarmup: () => duplicateWarmupManager.ensureWarm({ reason: "langgraph-agent-tool" }),
+        },
+      });
+      streamMetrics = graphResult.streamMetrics;
+      logMetric("ai_chat_request", {
+        requestId,
+        runtime: runtimeMode,
+        model: String(body?.model || ""),
+        query: summarizeQuery(graphResult.runtimeResult?.queryText || queryText),
+        aiContextEnabled: graphResult.runtimeResult?.metrics?.aiContextEnabled || false,
+        analyticsContextEnabled: graphResult.runtimeResult?.metrics?.analyticsContextEnabled || false,
+        mainAgentToolCallCount: graphResult.runtimeResult?.metrics?.mainAgentToolCallCount || 0,
+        aiContextTimings: graphResult.runtimeResult?.metrics?.aiContextTimings || null,
+        streamMetrics,
+        totalMs: roundMs(nowMs() - startedAt),
+      });
+      return;
+    }
+
     if (useDefectContext && !analyticsContext?.skipDefectContext) {
       writeSseEvent(response, {
         type: "status",
@@ -144,6 +177,7 @@ async function handleAiChatRequest(body, response) {
 
     logMetric("ai_chat_request", {
       requestId,
+      runtime: runtimeMode,
       model: String(body?.model || ""),
       query: summarizeQuery(aiContext?.queryText || queryText),
       aiContextEnabled: useDefectContext,
@@ -157,6 +191,7 @@ async function handleAiChatRequest(body, response) {
     const message = error instanceof Error ? error.message : "Unknown server error";
     logMetric("ai_chat_request_failed", {
       requestId,
+      runtime: runtimeMode,
       model: String(body?.model || ""),
       query: summarizeQuery(aiContext?.queryText || queryText),
       aiContextEnabled: useDefectContext,

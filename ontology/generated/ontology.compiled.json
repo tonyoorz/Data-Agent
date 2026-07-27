@@ -1,0 +1,4656 @@
+{
+  "actions": [
+    {
+      "apiBinding": {
+        "endpointTemplate": "/api/shared_spaces/{sharedSpaceId}/workspaces/{workspaceId}/work_items/{defect_id}/comments",
+        "method": "POST",
+        "sourceId": "analytics.full_picture_defects",
+        "system": "octane"
+      },
+      "audit": {
+        "externalRequestAudit": true,
+        "rollbackStrategy": "manual",
+        "runAudit": true,
+        "toolCallAudit": true
+      },
+      "capabilityState": "dry_run_only",
+      "description": "Draft action for posting a governed comment to an Octane defect. The current system supports dry-run preview and explicit apply through the duplicate-comment workflow, but this ontology action is not approved for autonomous execution.",
+      "execution": {
+        "executor": "backend.analytics_cli.post-duplicate-search-comment",
+        "mode": "dry_run_only",
+        "requiresActorScope": true,
+        "requiresDryRun": true,
+        "requiresHumanApproval": true,
+        "sideEffects": [
+          "comment_create",
+          "octane_write",
+          "audit_log"
+        ]
+      },
+      "fieldBindings": [
+        {
+          "fieldId": "octane_defects.table_column.defect_id",
+          "localPropertyId": "defect_id",
+          "required": true,
+          "role": "target"
+        },
+        {
+          "fieldId": "octane_defects.table_column.comments",
+          "localPropertyId": "comments",
+          "required": true,
+          "role": "editable"
+        }
+      ],
+      "governance": {
+        "decisionRef": "docs/ontology/octane-field-catalog.md",
+        "owner": "Agent Platform",
+        "status": "draft"
+      },
+      "id": "octane.defect.add_comment",
+      "inputSchema": {
+        "properties": {
+          "comment_html": {
+            "type": "string"
+          },
+          "defect_id": {
+            "type": "string"
+          },
+          "rationale": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "defect_id",
+          "comment_html",
+          "rationale"
+        ],
+        "type": "object"
+      },
+      "intentHints": [
+        "add comment",
+        "post comment",
+        "write comment",
+        "添加评论",
+        "写评论",
+        "duplicate analysis comment"
+      ],
+      "labels": {
+        "en-US": "Add Defect Comment",
+        "zh-CN": "添加缺陷评论"
+      },
+      "operation": "comment",
+      "policies": [
+        "actor.scope.mandatory"
+      ],
+      "targetEntityId": "quality.defect",
+      "version": "0.1.0"
+    },
+    {
+      "apiBinding": {
+        "endpointTemplate": "/api/shared_spaces/{sharedSpaceId}/workspaces/{workspaceId}/work_items/{defect_id}",
+        "method": "DELETE",
+        "sourceId": "analytics.full_picture_defects",
+        "system": "octane"
+      },
+      "audit": {
+        "externalRequestAudit": true,
+        "rollbackStrategy": "not_supported",
+        "runAudit": true,
+        "toolCallAudit": true
+      },
+      "capabilityState": "blocked",
+      "description": "Blocked action documenting that destructive Octane defect deletion is outside autonomous agent capability. Keep this explicit so delete intents are routed to policy explanation instead of ad-hoc tool use.",
+      "execution": {
+        "executor": "none",
+        "mode": "blocked",
+        "requiresActorScope": true,
+        "requiresDryRun": true,
+        "requiresHumanApproval": true,
+        "sideEffects": [
+          "destructive_delete",
+          "octane_write",
+          "audit_log"
+        ]
+      },
+      "fieldBindings": [
+        {
+          "fieldId": "octane_defects.table_column.defect_id",
+          "localPropertyId": "defect_id",
+          "required": true,
+          "role": "target"
+        }
+      ],
+      "governance": {
+        "decisionRef": "docs/ontology/octane-field-catalog.md",
+        "owner": "Agent Security",
+        "status": "draft"
+      },
+      "id": "octane.defect.delete_work_item",
+      "inputSchema": {
+        "properties": {
+          "business_approval_ref": {
+            "type": "string"
+          },
+          "defect_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "defect_id",
+          "business_approval_ref"
+        ],
+        "type": "object"
+      },
+      "intentHints": [
+        "delete defect",
+        "remove defect",
+        "删除缺陷",
+        "删除问题单"
+      ],
+      "labels": {
+        "en-US": "Delete Defect Work Item",
+        "zh-CN": "删除缺陷单"
+      },
+      "operation": "delete",
+      "policies": [
+        "actor.scope.mandatory"
+      ],
+      "targetEntityId": "quality.defect",
+      "version": "0.1.0"
+    },
+    {
+      "apiBinding": {
+        "endpointTemplate": "/api/shared_spaces/{sharedSpaceId}/workspaces/{workspaceId}/work_items/{defect_id}",
+        "method": "PUT",
+        "sourceId": "analytics.full_picture_defects",
+        "system": "octane"
+      },
+      "audit": {
+        "externalRequestAudit": true,
+        "rollbackStrategy": "manual",
+        "runAudit": true,
+        "toolCallAudit": true
+      },
+      "capabilityState": "disabled",
+      "description": "Disabled draft action for future governed updates to selected Octane defect triage fields. It records field candidates and guardrails before any executor is implemented.",
+      "execution": {
+        "executor": "none",
+        "mode": "disabled",
+        "requiresActorScope": true,
+        "requiresDryRun": true,
+        "requiresHumanApproval": true,
+        "sideEffects": [
+          "field_update",
+          "octane_write",
+          "audit_log"
+        ]
+      },
+      "fieldBindings": [
+        {
+          "fieldId": "octane_defects.table_column.defect_id",
+          "localPropertyId": "defect_id",
+          "required": true,
+          "role": "target"
+        },
+        {
+          "fieldId": "octane_defects.raw_json.problem_finder_team_udf",
+          "localPropertyId": "problem_finder_team",
+          "required": false,
+          "role": "editable"
+        },
+        {
+          "fieldId": "octane_defects.raw_json.model_series_udf",
+          "localPropertyId": "model_series",
+          "required": false,
+          "role": "editable"
+        },
+        {
+          "fieldId": "octane_defects.raw_json.assigned_ecu_udf",
+          "localPropertyId": "assigned_ecu",
+          "required": false,
+          "role": "editable"
+        },
+        {
+          "fieldId": "octane_defects.table_column.severity",
+          "localPropertyId": "severity",
+          "required": false,
+          "role": "editable"
+        },
+        {
+          "fieldId": "octane_defects.table_column.phase",
+          "localPropertyId": "phase",
+          "required": false,
+          "role": "editable"
+        },
+        {
+          "fieldId": "octane_defects.raw_json.software_version_udf",
+          "localPropertyId": "software_version",
+          "required": false,
+          "role": "editable"
+        }
+      ],
+      "governance": {
+        "decisionRef": "docs/ontology/octane-field-catalog.md",
+        "owner": "Quality Governance",
+        "status": "draft"
+      },
+      "id": "octane.defect.update_triage_fields",
+      "inputSchema": {
+        "properties": {
+          "changes": {
+            "type": "object"
+          },
+          "defect_id": {
+            "type": "string"
+          },
+          "rationale": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "defect_id",
+          "changes",
+          "rationale"
+        ],
+        "type": "object"
+      },
+      "intentHints": [
+        "update defect",
+        "edit field",
+        "change triage",
+        "更新缺陷",
+        "修改字段",
+        "分诊"
+      ],
+      "labels": {
+        "en-US": "Update Defect Triage Fields",
+        "zh-CN": "更新缺陷分诊字段"
+      },
+      "operation": "update",
+      "policies": [
+        "actor.scope.mandatory"
+      ],
+      "targetEntityId": "quality.defect",
+      "version": "0.1.0"
+    }
+  ],
+  "compilerVersion": "ontology-compiler-v1",
+  "constraints": [
+    {
+      "enforcement": "claim",
+      "governance": {
+        "owner": "Agent Platform",
+        "status": "approved"
+      },
+      "id": "answer.claim_evidence_binding",
+      "kind": "claim_evidence_binding",
+      "parameters": {
+        "coverage": 1
+      },
+      "version": "1.0.0"
+    },
+    {
+      "enforcement": "plan",
+      "governance": {
+        "owner": "Metric Governance",
+        "status": "approved"
+      },
+      "id": "planner.approved_metric_only",
+      "kind": "approved_metric_only",
+      "parameters": {
+        "enabled": true
+      },
+      "version": "1.0.0"
+    },
+    {
+      "enforcement": "compile",
+      "governance": {
+        "owner": "Agent Security",
+        "status": "approved"
+      },
+      "id": "planner.forbid_arbitrary_sql",
+      "kind": "forbid_arbitrary_sql",
+      "parameters": {
+        "enabled": true
+      },
+      "version": "1.0.0"
+    },
+    {
+      "enforcement": "plan",
+      "governance": {
+        "owner": "Agent Platform",
+        "status": "approved"
+      },
+      "id": "query.max_limit",
+      "kind": "query_limit",
+      "parameters": {
+        "maximum": 200
+      },
+      "version": "1.0.0"
+    },
+    {
+      "enforcement": "claim",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "similarity.not_population_statistic",
+      "kind": "similarity_not_statistic",
+      "parameters": {
+        "enabled": true
+      },
+      "version": "1.0.0"
+    }
+  ],
+  "dimensions": [
+    {
+      "entityId": "quality.defect",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "org.problem_finder_team",
+      "labels": {
+        "en-US": "Problem Finder Team",
+        "zh-CN": "问题发现团队"
+      },
+      "propertyId": "problem_finder_team",
+      "sourceReadModel": "full_picture_outcomes",
+      "type": "categorical"
+    },
+    {
+      "entityId": "testing.test_run",
+      "governance": {
+        "owner": "Testing Analytics",
+        "status": "approved"
+      },
+      "id": "org.team",
+      "labels": {
+        "en-US": "Execution Team",
+        "zh-CN": "执行团队"
+      },
+      "propertyId": "team",
+      "sourceReadModel": "testing_coverage_hot",
+      "type": "categorical"
+    },
+    {
+      "entityId": "testing.test_run",
+      "governance": {
+        "owner": "Testing Analytics",
+        "status": "approved"
+      },
+      "id": "org.tester",
+      "labels": {
+        "en-US": "Tester",
+        "zh-CN": "测试人员"
+      },
+      "propertyId": "tester",
+      "sourceReadModel": "testing_coverage_hot",
+      "type": "categorical"
+    },
+    {
+      "entityId": "quality.defect",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "product.ecu",
+      "labels": {
+        "en-US": "ECU or Module",
+        "zh-CN": "ECU/模块"
+      },
+      "propertyId": "assigned_ecu",
+      "sourceReadModel": "full_picture_outcomes",
+      "type": "categorical"
+    },
+    {
+      "entityId": "quality.defect",
+      "governance": {
+        "owner": "Product Analytics",
+        "status": "approved"
+      },
+      "id": "product.i_step",
+      "labels": {
+        "en-US": "I-Step",
+        "zh-CN": "I-Step"
+      },
+      "propertyId": "i_step",
+      "sourceReadModel": "full_picture_outcomes",
+      "type": "categorical"
+    },
+    {
+      "entityId": "quality.defect",
+      "governance": {
+        "owner": "Product Analytics",
+        "status": "approved"
+      },
+      "id": "product.os",
+      "labels": {
+        "en-US": "Operating System",
+        "zh-CN": "OS"
+      },
+      "propertyId": "os",
+      "sourceReadModel": "full_picture_outcomes",
+      "type": "categorical"
+    },
+    {
+      "entityId": "quality.defect",
+      "governance": {
+        "owner": "Product Analytics",
+        "status": "approved"
+      },
+      "id": "product.platform",
+      "labels": {
+        "en-US": "Platform",
+        "zh-CN": "平台"
+      },
+      "propertyId": "platform",
+      "sourceReadModel": "full_picture_outcomes",
+      "type": "categorical"
+    },
+    {
+      "entityId": "quality.defect",
+      "governance": {
+        "owner": "Product Analytics",
+        "status": "approved"
+      },
+      "id": "product.project",
+      "labels": {
+        "en-US": "Project",
+        "zh-CN": "项目"
+      },
+      "propertyId": "project",
+      "sourceReadModel": "full_picture_outcomes",
+      "type": "categorical"
+    },
+    {
+      "entityId": "quality.defect",
+      "governance": {
+        "owner": "Product Analytics",
+        "status": "approved"
+      },
+      "id": "product.pu",
+      "labels": {
+        "en-US": "Product Unit",
+        "zh-CN": "PU"
+      },
+      "propertyId": "pu",
+      "sourceReadModel": "full_picture_outcomes",
+      "type": "categorical"
+    },
+    {
+      "entityId": "quality.defect",
+      "governance": {
+        "owner": "Product Analytics",
+        "status": "approved"
+      },
+      "id": "product.service_pack",
+      "labels": {
+        "en-US": "Service Pack",
+        "zh-CN": "Service Pack"
+      },
+      "propertyId": "service_pack",
+      "sourceReadModel": "full_picture_outcomes",
+      "type": "categorical"
+    },
+    {
+      "entityId": "quality.defect",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "quality.china_scope",
+      "labels": {
+        "en-US": "China Scope",
+        "zh-CN": "China Scope"
+      },
+      "propertyId": "china_scope",
+      "sourceReadModel": "full_picture_outcomes",
+      "type": "categorical"
+    },
+    {
+      "entityId": "quality.defect",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "quality.phase",
+      "labels": {
+        "en-US": "Defect Phase",
+        "zh-CN": "缺陷阶段"
+      },
+      "propertyId": "phase",
+      "sourceReadModel": "full_picture_outcomes",
+      "type": "categorical"
+    },
+    {
+      "entityId": "quality.defect",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "quality.severity",
+      "labels": {
+        "en-US": "Severity",
+        "zh-CN": "严重程度"
+      },
+      "propertyId": "severity",
+      "sourceReadModel": "full_picture_outcomes",
+      "type": "categorical"
+    },
+    {
+      "entityId": "quality.defect",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "quality.status",
+      "labels": {
+        "en-US": "Defect Status",
+        "zh-CN": "缺陷状态"
+      },
+      "propertyId": "status",
+      "sourceReadModel": "full_picture_outcomes",
+      "type": "categorical"
+    },
+    {
+      "entityId": "quality.defect",
+      "governance": {
+        "owner": "Requirements Analytics",
+        "status": "approved"
+      },
+      "id": "requirements.aida",
+      "labels": {
+        "en-US": "AIDA Requirement",
+        "zh-CN": "AIDA 需求"
+      },
+      "propertyId": "aida",
+      "sourceReadModel": "full_picture_outcomes",
+      "type": "categorical"
+    },
+    {
+      "entityId": "testing.test_run",
+      "governance": {
+        "owner": "Testing Analytics",
+        "status": "approved"
+      },
+      "id": "testing.run_status",
+      "labels": {
+        "en-US": "Test Run Status",
+        "zh-CN": "测试运行状态"
+      },
+      "propertyId": "status",
+      "sourceReadModel": "testing_coverage_hot",
+      "type": "categorical"
+    },
+    {
+      "entityId": "testing.test_case",
+      "governance": {
+        "owner": "Requirements Analytics",
+        "status": "approved"
+      },
+      "id": "testing.trace_status",
+      "labels": {
+        "en-US": "Requirement Trace Status",
+        "zh-CN": "需求追溯状态"
+      },
+      "propertyId": "trace_status",
+      "sourceReadModel": "traceability_models",
+      "type": "categorical"
+    },
+    {
+      "entityId": "quality.defect",
+      "eventTimeSemantics": "The event time at which the defect was created; never a resolution or snapshot timestamp.",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "time.defect_creation_date",
+      "labels": {
+        "en-US": "Defect Creation Date",
+        "zh-CN": "缺陷创建时间"
+      },
+      "propertyId": "creation_time",
+      "sourceReadModel": "full_picture_outcomes",
+      "timezone": "Asia/Shanghai",
+      "type": "datetime"
+    },
+    {
+      "entityId": "quality.defect",
+      "eventTimeSemantics": "The event time at which an approved resolution outcome became effective.",
+      "governance": {
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md",
+        "owner": "Quality Governance",
+        "status": "draft"
+      },
+      "id": "time.defect_resolution_date",
+      "labels": {
+        "en-US": "Defect Resolution Date",
+        "zh-CN": "缺陷解决时间"
+      },
+      "propertyId": "resolution_time",
+      "sourceReadModel": "full_picture_outcomes",
+      "timezone": "Asia/Shanghai",
+      "type": "datetime"
+    },
+    {
+      "entityId": "testing.test_run",
+      "eventTimeSemantics": "The completion event time of a manual test run.",
+      "governance": {
+        "owner": "Testing Analytics",
+        "status": "approved"
+      },
+      "id": "time.test_finished_date",
+      "labels": {
+        "en-US": "Test Finished Date",
+        "zh-CN": "测试完成时间"
+      },
+      "propertyId": "finished",
+      "sourceReadModel": "testing_coverage_hot",
+      "timezone": "Asia/Shanghai",
+      "type": "datetime"
+    },
+    {
+      "entityId": "testing.test_run",
+      "governance": {
+        "owner": "Testing Analytics",
+        "status": "approved"
+      },
+      "id": "time.test_week",
+      "labels": {
+        "en-US": "Test Week",
+        "zh-CN": "测试周"
+      },
+      "propertyId": "test_week",
+      "sourceReadModel": "testing_coverage_hot",
+      "type": "categorical"
+    },
+    {
+      "entityId": "quality.defect",
+      "governance": {
+        "owner": "Vehicle Analytics",
+        "status": "approved"
+      },
+      "id": "vehicle.model_series",
+      "labels": {
+        "en-US": "Model Series",
+        "zh-CN": "车型系列"
+      },
+      "propertyId": "model_series",
+      "sourceReadModel": "full_picture_outcomes",
+      "type": "categorical"
+    }
+  ],
+  "entities": [
+    {
+      "aliases": [
+        "attachment",
+        "artifact",
+        "附件",
+        "证据"
+      ],
+      "allowedOperations": [
+        "read",
+        "traverse"
+      ],
+      "descriptions": {
+        "en-US": "An actor-authorized artifact that can support an Agent claim.",
+        "zh-CN": "由 Agent 授权读取并可用于支持 Claim 的附件。"
+      },
+      "governance": {
+        "owner": "Agent Platform",
+        "status": "approved"
+      },
+      "id": "evidence.artifact",
+      "labels": {
+        "en-US": "Evidence Artifact",
+        "zh-CN": "证据附件"
+      },
+      "primaryKey": "artifact_id",
+      "properties": [
+        {
+          "id": "artifact_id",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "content_hash",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "media_type",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        }
+      ],
+      "sensitivity": "confidential",
+      "source": {
+        "readModel": "agent_artifacts",
+        "sourceId": "artifact.runtime_store",
+        "system": "artifact",
+        "table": "agent_artifacts"
+      },
+      "version": "1.0.0"
+    },
+    {
+      "aliases": [
+        "team",
+        "团队",
+        "problem finder team"
+      ],
+      "allowedOperations": [
+        "read",
+        "aggregate",
+        "traverse"
+      ],
+      "descriptions": {
+        "en-US": "A delivery or testing team in the organization.",
+        "zh-CN": "组织中的交付或测试团队。"
+      },
+      "governance": {
+        "owner": "Organization Analytics",
+        "status": "approved"
+      },
+      "id": "organization.team",
+      "labels": {
+        "en-US": "Team",
+        "zh-CN": "团队"
+      },
+      "primaryKey": "team_id",
+      "properties": [
+        {
+          "id": "team_id",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "name",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        }
+      ],
+      "sensitivity": "internal",
+      "source": {
+        "readModel": "full_picture_outcomes",
+        "sourceId": "analytics.full_picture_defects",
+        "system": "analytics",
+        "table": "octane_defects"
+      },
+      "version": "1.0.0"
+    },
+    {
+      "aliases": [
+        "tester",
+        "测试人员",
+        "run by"
+      ],
+      "allowedOperations": [
+        "read",
+        "aggregate",
+        "traverse"
+      ],
+      "descriptions": {
+        "en-US": "A person who executes a test run.",
+        "zh-CN": "执行测试运行的人员。"
+      },
+      "governance": {
+        "owner": "Testing Analytics",
+        "status": "approved"
+      },
+      "id": "organization.tester",
+      "labels": {
+        "en-US": "Tester",
+        "zh-CN": "测试人员"
+      },
+      "primaryKey": "tester_id",
+      "properties": [
+        {
+          "id": "tester_id",
+          "nullable": false,
+          "sensitivity": "confidential",
+          "type": "string"
+        },
+        {
+          "id": "team_id",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "display_name",
+          "nullable": true,
+          "sensitivity": "confidential",
+          "type": "string"
+        }
+      ],
+      "sensitivity": "confidential",
+      "source": {
+        "readModel": "testing_coverage_hot",
+        "sourceId": "analytics.testing_coverage",
+        "system": "analytics",
+        "table": "octane_manual_runs"
+      },
+      "version": "1.0.0"
+    },
+    {
+      "aliases": [
+        "ECU",
+        "模块",
+        "module"
+      ],
+      "allowedOperations": [
+        "read",
+        "aggregate",
+        "traverse"
+      ],
+      "descriptions": {
+        "en-US": "An ECU or module assigned to a defect or feature.",
+        "zh-CN": "分配缺陷或功能的 ECU/模块。"
+      },
+      "governance": {
+        "owner": "Product Analytics",
+        "status": "approved"
+      },
+      "id": "product.ecu",
+      "labels": {
+        "en-US": "ECU or Module",
+        "zh-CN": "ECU/模块"
+      },
+      "primaryKey": "ecu_id",
+      "properties": [
+        {
+          "id": "ecu_id",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "name",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        }
+      ],
+      "sensitivity": "internal",
+      "source": {
+        "readModel": "full_picture_outcomes",
+        "sourceId": "analytics.full_picture_defects",
+        "system": "analytics",
+        "table": "octane_defects"
+      },
+      "version": "1.0.0"
+    },
+    {
+      "aliases": [
+        "i-step",
+        "istep"
+      ],
+      "allowedOperations": [
+        "read",
+        "aggregate",
+        "traverse"
+      ],
+      "descriptions": {
+        "en-US": "A software integration level.",
+        "zh-CN": "软件集成级别。"
+      },
+      "governance": {
+        "owner": "Product Analytics",
+        "status": "approved"
+      },
+      "id": "product.i_step",
+      "labels": {
+        "en-US": "I-Step",
+        "zh-CN": "I-Step"
+      },
+      "primaryKey": "i_step_id",
+      "properties": [
+        {
+          "id": "i_step_id",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "pu_id",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "name",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        }
+      ],
+      "sensitivity": "internal",
+      "source": {
+        "readModel": "full_picture_outcomes",
+        "sourceId": "analytics.full_picture_defects",
+        "system": "analytics",
+        "table": "octane_defects"
+      },
+      "version": "1.0.0"
+    },
+    {
+      "aliases": [
+        "OS7",
+        "OS8",
+        "OS9",
+        "operating system"
+      ],
+      "allowedOperations": [
+        "read",
+        "aggregate",
+        "traverse"
+      ],
+      "descriptions": {
+        "en-US": "A vehicle software OS generation.",
+        "zh-CN": "车辆软件 OS 代际。"
+      },
+      "governance": {
+        "owner": "Product Analytics",
+        "status": "approved"
+      },
+      "id": "product.os",
+      "labels": {
+        "en-US": "Operating System Generation",
+        "zh-CN": "操作系统代际"
+      },
+      "primaryKey": "os_id",
+      "properties": [
+        {
+          "id": "os_id",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "name",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        }
+      ],
+      "sensitivity": "internal",
+      "source": {
+        "readModel": "full_picture_outcomes",
+        "sourceId": "analytics.full_picture_defects",
+        "system": "analytics",
+        "table": "octane_defects"
+      },
+      "version": "1.0.0"
+    },
+    {
+      "aliases": [
+        "platform",
+        "平台"
+      ],
+      "allowedOperations": [
+        "read",
+        "aggregate",
+        "traverse"
+      ],
+      "descriptions": {
+        "en-US": "A product technology platform.",
+        "zh-CN": "产品技术平台。"
+      },
+      "governance": {
+        "owner": "Product Analytics",
+        "status": "approved"
+      },
+      "id": "product.platform",
+      "labels": {
+        "en-US": "Platform",
+        "zh-CN": "平台"
+      },
+      "primaryKey": "platform_id",
+      "properties": [
+        {
+          "id": "platform_id",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "os_id",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "name",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        }
+      ],
+      "sensitivity": "internal",
+      "source": {
+        "readModel": "full_picture_outcomes",
+        "sourceId": "analytics.full_picture_defects",
+        "system": "analytics",
+        "table": "octane_defects"
+      },
+      "version": "1.0.0"
+    },
+    {
+      "aliases": [
+        "project",
+        "项目"
+      ],
+      "allowedOperations": [
+        "read",
+        "aggregate",
+        "traverse"
+      ],
+      "descriptions": {
+        "en-US": "A product or delivery project.",
+        "zh-CN": "产品或交付项目。"
+      },
+      "governance": {
+        "owner": "Product Analytics",
+        "status": "approved"
+      },
+      "id": "product.project",
+      "labels": {
+        "en-US": "Project",
+        "zh-CN": "项目"
+      },
+      "primaryKey": "project_id",
+      "properties": [
+        {
+          "id": "project_id",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "name",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        }
+      ],
+      "sensitivity": "internal",
+      "source": {
+        "readModel": "full_picture_outcomes",
+        "sourceId": "analytics.full_picture_defects",
+        "system": "analytics",
+        "table": "octane_defects"
+      },
+      "version": "1.0.0"
+    },
+    {
+      "aliases": [
+        "PU",
+        "product unit"
+      ],
+      "allowedOperations": [
+        "read",
+        "aggregate",
+        "traverse"
+      ],
+      "descriptions": {
+        "en-US": "A product unit.",
+        "zh-CN": "产品单元。"
+      },
+      "governance": {
+        "owner": "Product Analytics",
+        "status": "approved"
+      },
+      "id": "product.pu",
+      "labels": {
+        "en-US": "Product Unit",
+        "zh-CN": "PU"
+      },
+      "primaryKey": "pu_id",
+      "properties": [
+        {
+          "id": "pu_id",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "service_pack_id",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "name",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        }
+      ],
+      "sensitivity": "internal",
+      "source": {
+        "readModel": "full_picture_outcomes",
+        "sourceId": "analytics.full_picture_defects",
+        "system": "analytics",
+        "table": "octane_defects"
+      },
+      "version": "1.0.0"
+    },
+    {
+      "aliases": [
+        "SP",
+        "service pack"
+      ],
+      "allowedOperations": [
+        "read",
+        "aggregate",
+        "traverse"
+      ],
+      "descriptions": {
+        "en-US": "A product delivery service pack.",
+        "zh-CN": "产品交付 Service Pack。"
+      },
+      "governance": {
+        "owner": "Product Analytics",
+        "status": "approved"
+      },
+      "id": "product.service_pack",
+      "labels": {
+        "en-US": "Service Pack",
+        "zh-CN": "Service Pack"
+      },
+      "primaryKey": "service_pack_id",
+      "properties": [
+        {
+          "id": "service_pack_id",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "name",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        }
+      ],
+      "sensitivity": "internal",
+      "source": {
+        "readModel": "full_picture_outcomes",
+        "sourceId": "analytics.full_picture_defects",
+        "system": "analytics",
+        "table": "octane_defects"
+      },
+      "version": "1.0.0"
+    },
+    {
+      "aliases": [
+        "defect",
+        "bug",
+        "问题单",
+        "缺陷单"
+      ],
+      "allowedOperations": [
+        "read",
+        "aggregate",
+        "traverse",
+        "similarity"
+      ],
+      "descriptions": {
+        "en-US": "A uniquely identified quality defect in Octane.",
+        "zh-CN": "Octane 中唯一标识的质量缺陷。"
+      },
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "quality.defect",
+      "labels": {
+        "en-US": "Defect",
+        "zh-CN": "缺陷"
+      },
+      "primaryKey": "defect_id",
+      "properties": [
+        {
+          "id": "defect_id",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "creation_time",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "datetime"
+        },
+        {
+          "id": "resolution_time",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "datetime"
+        },
+        {
+          "id": "status",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "severity",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "phase",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "china_scope",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "problem_finder_team",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "project",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "service_pack",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "pu",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "i_step",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "os",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "platform",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "assigned_ecu",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "model_series",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "aida",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "detected_run_id",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "name",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "description",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "last_modified",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "datetime"
+        },
+        {
+          "id": "team",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "owner",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "author",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "detected_by",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "detected_in_release",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "solution_cluster",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "defect_category",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "reporting_class",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "product_areas",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "user_tags",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "software_version",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "lead_model",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "market",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "vin",
+          "nullable": true,
+          "sensitivity": "confidential",
+          "type": "string"
+        },
+        {
+          "id": "risk_score",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "number"
+        },
+        {
+          "id": "tqr",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "parent_id",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "parent_child_type",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "fv",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "fvp",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "year",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "comments",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        }
+      ],
+      "sensitivity": "internal",
+      "source": {
+        "readModel": "full_picture_outcomes",
+        "sourceId": "analytics.full_picture_defects",
+        "system": "analytics",
+        "table": "octane_defects"
+      },
+      "version": "1.0.0"
+    },
+    {
+      "aliases": [
+        "defect history",
+        "history event",
+        "缺陷变更"
+      ],
+      "allowedOperations": [
+        "read",
+        "traverse",
+        "aggregate"
+      ],
+      "descriptions": {
+        "en-US": "A historical change record for a defect, used to determine resolution outcomes.",
+        "zh-CN": "缺陷单状态或字段变更的历史记录，用于判定缺陷是否解决。"
+      },
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "quality.defect_history_event",
+      "labels": {
+        "en-US": "Defect History Event",
+        "zh-CN": "缺陷历史事件"
+      },
+      "primaryKey": "change_index",
+      "properties": [
+        {
+          "id": "defect_id",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "event_timestamp",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "datetime"
+        },
+        {
+          "id": "field_name",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "old_value",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "new_value",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "action",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "user_name",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "team",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "entry_index",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "integer"
+        },
+        {
+          "id": "change_index",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "integer"
+        }
+      ],
+      "sensitivity": "internal",
+      "source": {
+        "readModel": "defect_history_events",
+        "sourceId": "analytics.defect_history",
+        "system": "analytics",
+        "table": "octane_defect_history_events"
+      },
+      "version": "1.0.0"
+    },
+    {
+      "aliases": [
+        "defect outcome",
+        "outcome",
+        "缺陷结果"
+      ],
+      "allowedOperations": [
+        "read",
+        "aggregate"
+      ],
+      "descriptions": {
+        "en-US": "Materialized outcome verdict for a defect, including forward resolution and direct rejection.",
+        "zh-CN": "缺陷的归一化结果判定，包括正向解决和直接拒绝。"
+      },
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "quality.defect_outcome",
+      "labels": {
+        "en-US": "Defect Outcome",
+        "zh-CN": "缺陷结果"
+      },
+      "primaryKey": "defect_id",
+      "properties": [
+        {
+          "id": "defect_id",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "is_resolved_forward",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "boolean"
+        },
+        {
+          "id": "is_rejected_directly",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "boolean"
+        },
+        {
+          "id": "resolved_forward_at",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "datetime"
+        },
+        {
+          "id": "rejected_directly_at",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "datetime"
+        },
+        {
+          "id": "source_history_event_count",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "integer"
+        }
+      ],
+      "sensitivity": "internal",
+      "source": {
+        "readModel": "defect_outcomes",
+        "sourceId": "analytics.defect_outcomes",
+        "system": "analytics",
+        "table": "defect_outcomes"
+      },
+      "version": "1.0.0"
+    },
+    {
+      "aliases": [
+        "QGate",
+        "quality gate",
+        "质量门"
+      ],
+      "allowedOperations": [
+        "read",
+        "aggregate",
+        "traverse"
+      ],
+      "descriptions": {
+        "en-US": "A gate that evaluates product quality under approved rules.",
+        "zh-CN": "按照已批准规则评估产品质量的门禁。"
+      },
+      "governance": {
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md",
+        "owner": "Quality Governance",
+        "status": "draft"
+      },
+      "id": "quality.qgate",
+      "labels": {
+        "en-US": "Quality Gate",
+        "zh-CN": "质量门"
+      },
+      "primaryKey": "qgate_id",
+      "properties": [
+        {
+          "id": "qgate_id",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "pu_id",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "result",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        }
+      ],
+      "sensitivity": "internal",
+      "source": {
+        "readModel": "qgate_kpi",
+        "sourceId": "analytics.qgate",
+        "system": "analytics",
+        "table": "qgate_results"
+      },
+      "version": "1.0.0"
+    },
+    {
+      "aliases": [
+        "AIDA",
+        "需求节点",
+        "requirement"
+      ],
+      "allowedOperations": [
+        "read",
+        "aggregate",
+        "traverse"
+      ],
+      "descriptions": {
+        "en-US": "A node in the AIDA requirement hierarchy.",
+        "zh-CN": "AIDA 需求层级中的节点。"
+      },
+      "governance": {
+        "owner": "Requirements Analytics",
+        "status": "approved"
+      },
+      "id": "requirements.aida_node",
+      "labels": {
+        "en-US": "AIDA Requirement Node",
+        "zh-CN": "AIDA 需求节点"
+      },
+      "primaryKey": "aida_id",
+      "properties": [
+        {
+          "id": "aida_id",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "parent_id",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "name",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "node_type",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        }
+      ],
+      "sensitivity": "internal",
+      "source": {
+        "readModel": "traceability_models",
+        "sourceId": "analytics.traceability",
+        "system": "analytics",
+        "table": "octane_traceability_nodes"
+      },
+      "version": "1.0.0"
+    },
+    {
+      "aliases": [
+        "epic"
+      ],
+      "allowedOperations": [
+        "read",
+        "aggregate",
+        "traverse"
+      ],
+      "descriptions": {
+        "en-US": "An epic-level requirement work item.",
+        "zh-CN": "Epic 级需求工作项。"
+      },
+      "governance": {
+        "owner": "Requirements Analytics",
+        "status": "approved"
+      },
+      "id": "requirements.epic",
+      "labels": {
+        "en-US": "Epic",
+        "zh-CN": "Epic"
+      },
+      "primaryKey": "epic_id",
+      "properties": [
+        {
+          "id": "epic_id",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "name",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        }
+      ],
+      "sensitivity": "internal",
+      "source": {
+        "readModel": "traceability_models",
+        "sourceId": "analytics.traceability",
+        "system": "analytics",
+        "table": "octane_work_items"
+      },
+      "version": "1.0.0"
+    },
+    {
+      "aliases": [
+        "feature",
+        "特性"
+      ],
+      "allowedOperations": [
+        "read",
+        "aggregate",
+        "traverse"
+      ],
+      "descriptions": {
+        "en-US": "A feature-level requirement work item.",
+        "zh-CN": "Feature 级需求工作项。"
+      },
+      "governance": {
+        "owner": "Requirements Analytics",
+        "status": "approved"
+      },
+      "id": "requirements.feature",
+      "labels": {
+        "en-US": "Feature",
+        "zh-CN": "Feature"
+      },
+      "primaryKey": "feature_id",
+      "properties": [
+        {
+          "id": "feature_id",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "name",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        }
+      ],
+      "sensitivity": "internal",
+      "source": {
+        "readModel": "traceability_models",
+        "sourceId": "analytics.traceability",
+        "system": "analytics",
+        "table": "octane_work_items"
+      },
+      "version": "1.0.0"
+    },
+    {
+      "aliases": [
+        "story",
+        "用户故事"
+      ],
+      "allowedOperations": [
+        "read",
+        "aggregate",
+        "traverse"
+      ],
+      "descriptions": {
+        "en-US": "A story-level requirement work item.",
+        "zh-CN": "Story 级需求工作项。"
+      },
+      "governance": {
+        "owner": "Requirements Analytics",
+        "status": "approved"
+      },
+      "id": "requirements.story",
+      "labels": {
+        "en-US": "Story",
+        "zh-CN": "Story"
+      },
+      "primaryKey": "story_id",
+      "properties": [
+        {
+          "id": "story_id",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "name",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        }
+      ],
+      "sensitivity": "internal",
+      "source": {
+        "readModel": "traceability_models",
+        "sourceId": "analytics.traceability",
+        "system": "analytics",
+        "table": "octane_work_items"
+      },
+      "version": "1.0.0"
+    },
+    {
+      "aliases": [
+        "testcase",
+        "TC",
+        "用例"
+      ],
+      "allowedOperations": [
+        "read",
+        "aggregate",
+        "traverse"
+      ],
+      "descriptions": {
+        "en-US": "A reusable definition of a test intent.",
+        "zh-CN": "定义可重复执行的测试意图。"
+      },
+      "governance": {
+        "owner": "Testing Analytics",
+        "status": "approved"
+      },
+      "id": "testing.test_case",
+      "labels": {
+        "en-US": "Test Case",
+        "zh-CN": "测试用例"
+      },
+      "primaryKey": "test_id",
+      "properties": [
+        {
+          "id": "test_id",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "name",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "project",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "pu",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "aida",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "trace_status",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "test_name",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "run_count",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "integer"
+        },
+        {
+          "id": "scope_team",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "scope_release",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "source",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "year",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "test_subtype",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "defect_ids",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "feature_ids",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "story_ids",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        }
+      ],
+      "sensitivity": "internal",
+      "source": {
+        "readModel": "testing_coverage_hot",
+        "sourceId": "analytics.testing_coverage",
+        "system": "analytics",
+        "table": "octane_testcases"
+      },
+      "version": "1.0.0"
+    },
+    {
+      "aliases": [
+        "manual run",
+        "MR",
+        "Run",
+        "TestRun",
+        "测试运行",
+        "执行记录"
+      ],
+      "allowedOperations": [
+        "read",
+        "aggregate",
+        "traverse"
+      ],
+      "descriptions": {
+        "en-US": "One traceable execution of a test case.",
+        "zh-CN": "测试用例的一次可追溯执行。"
+      },
+      "governance": {
+        "owner": "Testing Analytics",
+        "status": "approved"
+      },
+      "id": "testing.test_run",
+      "labels": {
+        "en-US": "Test Run",
+        "zh-CN": "测试执行"
+      },
+      "primaryKey": "mr_id",
+      "properties": [
+        {
+          "id": "mr_id",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "test_id",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "status",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "finished",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "datetime"
+        },
+        {
+          "id": "test_week",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "tester",
+          "nullable": true,
+          "sensitivity": "confidential",
+          "type": "string"
+        },
+        {
+          "id": "team",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "project",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "pu",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "aida",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "defect_id",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "name",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "test_name",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "started",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "datetime"
+        },
+        {
+          "id": "creation_time",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "datetime"
+        },
+        {
+          "id": "last_modified",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "datetime"
+        },
+        {
+          "id": "year",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "release",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "feature_region",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "product_areas",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "domain",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "test_phase",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "testing_tool_type",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "lead_model",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "target_ecu_conf",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "run_by",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "run_team",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "is_completed",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "boolean"
+        },
+        {
+          "id": "steps_num",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "integer"
+        },
+        {
+          "id": "version_stamp",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        }
+      ],
+      "sensitivity": "internal",
+      "source": {
+        "readModel": "testing_coverage_hot",
+        "sourceId": "analytics.testing_coverage",
+        "system": "analytics",
+        "table": "octane_manual_runs"
+      },
+      "version": "1.0.0"
+    },
+    {
+      "aliases": [
+        "traceability",
+        "link",
+        "追溯"
+      ],
+      "allowedOperations": [
+        "read",
+        "traverse",
+        "aggregate"
+      ],
+      "descriptions": {
+        "en-US": "Traceability relationship between a test run and defects, features, or stories.",
+        "zh-CN": "测试执行与缺陷、Feature、Story之间的追溯关系。"
+      },
+      "governance": {
+        "owner": "Requirements Analytics",
+        "status": "approved"
+      },
+      "id": "traceability.link",
+      "labels": {
+        "en-US": "Traceability Link",
+        "zh-CN": "追溯链接"
+      },
+      "primaryKey": "link_id",
+      "properties": [
+        {
+          "id": "link_id",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "run_id",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "test_id",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "relation_type",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "related_id",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "related_name",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "related_subtype",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "related_path",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "parent_id",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "parent_name",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        }
+      ],
+      "sensitivity": "internal",
+      "source": {
+        "readModel": "traceability_links",
+        "sourceId": "analytics.traceability_links",
+        "system": "analytics",
+        "table": "octane_run_traceability"
+      },
+      "version": "1.0.0"
+    },
+    {
+      "aliases": [
+        "testcase summary",
+        "traceability testcase",
+        "用例汇总"
+      ],
+      "allowedOperations": [
+        "read",
+        "traverse",
+        "aggregate"
+      ],
+      "descriptions": {
+        "en-US": "Summary of test case relationships with runs, defects, and requirements work items.",
+        "zh-CN": "测试用例与其执行、缺陷、需求工作项之间的汇总关系。"
+      },
+      "governance": {
+        "owner": "Requirements Analytics",
+        "status": "approved"
+      },
+      "id": "traceability.testcase_summary",
+      "labels": {
+        "en-US": "Traceability Test Case Summary",
+        "zh-CN": "测试用例追溯汇总"
+      },
+      "primaryKey": "summary_id",
+      "properties": [
+        {
+          "id": "summary_id",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "test_id",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "scope_team",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "scope_release",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "source",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "year",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "test_name",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "run_count",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "integer"
+        },
+        {
+          "id": "run_ids",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "run_status_distribution",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "defect_ids",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "defect_names",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "feature_ids",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "feature_names",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "story_ids",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "story_names",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "epic_ids",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "epic_names",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        }
+      ],
+      "sensitivity": "internal",
+      "source": {
+        "readModel": "traceability_testcases",
+        "sourceId": "analytics.traceability_testcases",
+        "system": "analytics",
+        "table": "octane_traceability_testcases"
+      },
+      "version": "1.0.0"
+    },
+    {
+      "aliases": [
+        "车型",
+        "model series",
+        "lead model"
+      ],
+      "allowedOperations": [
+        "read",
+        "aggregate",
+        "traverse"
+      ],
+      "descriptions": {
+        "en-US": "A vehicle model series.",
+        "zh-CN": "车辆车型系列。"
+      },
+      "governance": {
+        "owner": "Vehicle Analytics",
+        "status": "approved"
+      },
+      "id": "vehicle.model_series",
+      "labels": {
+        "en-US": "Model Series",
+        "zh-CN": "车型系列"
+      },
+      "primaryKey": "model_series_id",
+      "properties": [
+        {
+          "id": "model_series_id",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "platform_id",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "name",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        }
+      ],
+      "sensitivity": "internal",
+      "source": {
+        "readModel": "full_picture_outcomes",
+        "sourceId": "analytics.full_picture_defects",
+        "system": "analytics",
+        "table": "octane_defects"
+      },
+      "version": "1.0.0"
+    }
+  ],
+  "metrics": [
+    {
+      "allowedDimensions": [
+        "time.defect_creation_date",
+        "org.problem_finder_team",
+        "product.project",
+        "product.pu",
+        "product.ecu",
+        "quality.status",
+        "quality.severity"
+      ],
+      "capabilities": {
+        "comparison": true,
+        "ranking": true,
+        "trend": false
+      },
+      "defaultTimeDimension": "time.defect_creation_date",
+      "definitionVersion": "1.0.0",
+      "description": "Elapsed calendar days under an approved clock-stop rule.",
+      "entityId": "quality.defect",
+      "governance": {
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md",
+        "owner": "Quality Governance",
+        "status": "draft"
+      },
+      "grain": "one age value per defect at snapshot",
+      "id": "defect.age_days",
+      "labels": {
+        "en-US": "Defect Age",
+        "zh-CN": "缺陷年龄"
+      },
+      "measure": "approved_age_days_rule",
+      "missingDataPolicy": "preserve_missing",
+      "requiredFilters": [],
+      "sourceReadModel": "full_picture_outcomes",
+      "sourceRevisionStrategy": "snapshot",
+      "unit": "days"
+    },
+    {
+      "allowedDimensions": [
+        "time.defect_creation_date",
+        "org.problem_finder_team",
+        "product.project",
+        "product.service_pack",
+        "product.pu",
+        "product.i_step",
+        "product.os",
+        "product.platform",
+        "product.ecu",
+        "vehicle.model_series",
+        "requirements.aida",
+        "quality.phase",
+        "quality.severity",
+        "quality.status",
+        "quality.china_scope"
+      ],
+      "capabilities": {
+        "comparison": true,
+        "ranking": true,
+        "trend": true
+      },
+      "defaultTimeDimension": "time.defect_creation_date",
+      "definitionVersion": "1.0.0",
+      "description": "Distinct defect primary keys in the authorized snapshot and selected scope.",
+      "entityId": "quality.defect",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "grain": "one row per distinct defect_id",
+      "id": "defect.count",
+      "labels": {
+        "en-US": "Defect Count",
+        "zh-CN": "缺陷数"
+      },
+      "measure": "count_distinct(defect_id)",
+      "missingDataPolicy": "zero_when_empty_result",
+      "requiredFilters": [],
+      "sourceReadModel": "full_picture_outcomes",
+      "sourceRevisionStrategy": "snapshot",
+      "unit": "count"
+    },
+    {
+      "allowedDimensions": [
+        "time.defect_creation_date",
+        "org.problem_finder_team",
+        "product.project",
+        "product.pu",
+        "product.os",
+        "product.ecu",
+        "requirements.aida",
+        "quality.phase",
+        "quality.severity",
+        "quality.china_scope"
+      ],
+      "capabilities": {
+        "comparison": true,
+        "ranking": true,
+        "trend": true
+      },
+      "defaultTimeDimension": "time.defect_creation_date",
+      "definitionVersion": "1.0.0",
+      "description": "Distinct defects grouped or filtered by their creation event time.",
+      "entityId": "quality.defect",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "grain": "one row per distinct defect_id creation event",
+      "id": "defect.created_count",
+      "labels": {
+        "en-US": "Created Defect Count",
+        "zh-CN": "新建缺陷数"
+      },
+      "measure": "count_distinct(defect_id)",
+      "missingDataPolicy": "zero_when_empty_result",
+      "requiredFilters": [],
+      "sourceReadModel": "full_picture_outcomes",
+      "sourceRevisionStrategy": "snapshot",
+      "unit": "count"
+    },
+    {
+      "allowedDimensions": [
+        "time.defect_creation_date",
+        "org.problem_finder_team",
+        "product.project",
+        "product.pu",
+        "product.ecu",
+        "quality.status",
+        "quality.severity"
+      ],
+      "capabilities": {
+        "comparison": true,
+        "ranking": true,
+        "trend": false
+      },
+      "defaultTimeDimension": "time.defect_creation_date",
+      "definitionVersion": "1.0.0",
+      "description": "Distinct eligible defects whose approved age exceeds an approved threshold.",
+      "entityId": "quality.defect",
+      "governance": {
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md",
+        "owner": "Quality Governance",
+        "status": "draft"
+      },
+      "grain": "one current snapshot state per eligible defect",
+      "id": "defect.long_runner_count",
+      "labels": {
+        "en-US": "Long-running Defect Count",
+        "zh-CN": "长期未解决缺陷数"
+      },
+      "measure": "count_distinct(defect_id where approved_long_runner_rule)",
+      "missingDataPolicy": "preserve_missing",
+      "requiredFilters": [],
+      "sourceReadModel": "full_picture_outcomes",
+      "sourceRevisionStrategy": "snapshot",
+      "unit": "count"
+    },
+    {
+      "allowedDimensions": [
+        "time.defect_creation_date",
+        "org.problem_finder_team",
+        "product.project",
+        "product.pu",
+        "product.ecu",
+        "quality.phase",
+        "quality.status"
+      ],
+      "capabilities": {
+        "comparison": true,
+        "ranking": true,
+        "trend": false
+      },
+      "defaultTimeDimension": "time.defect_creation_date",
+      "definitionVersion": "1.0.0",
+      "description": "Distinct defects not in the approved terminal status set at the snapshot time.",
+      "entityId": "quality.defect",
+      "governance": {
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md",
+        "owner": "Quality Governance",
+        "status": "draft"
+      },
+      "grain": "one current snapshot state per defect",
+      "id": "defect.open_count",
+      "labels": {
+        "en-US": "Open Defect Count",
+        "zh-CN": "未关闭缺陷数"
+      },
+      "measure": "count_distinct(defect_id where approved_open_rule)",
+      "missingDataPolicy": "preserve_missing",
+      "requiredFilters": [],
+      "sourceReadModel": "full_picture_outcomes",
+      "sourceRevisionStrategy": "snapshot",
+      "unit": "count"
+    },
+    {
+      "allowedDimensions": [
+        "time.defect_creation_date",
+        "org.problem_finder_team",
+        "product.project",
+        "product.pu",
+        "quality.phase",
+        "quality.status"
+      ],
+      "capabilities": {
+        "comparison": true,
+        "ranking": true,
+        "trend": true
+      },
+      "defaultTimeDimension": "time.defect_creation_date",
+      "definitionVersion": "1.0.0",
+      "description": "Distinct defects classified by an approved rejection outcome rule.",
+      "entityId": "quality.defect",
+      "governance": {
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md",
+        "owner": "Quality Governance",
+        "status": "draft"
+      },
+      "grain": "one approved rejection outcome per defect",
+      "id": "defect.rejected_count",
+      "labels": {
+        "en-US": "Rejected Defect Count",
+        "zh-CN": "拒绝缺陷数"
+      },
+      "measure": "count_distinct(defect_id where approved_rejection_rule)",
+      "missingDataPolicy": "preserve_missing",
+      "requiredFilters": [],
+      "sourceReadModel": "full_picture_outcomes",
+      "sourceRevisionStrategy": "snapshot",
+      "unit": "count"
+    },
+    {
+      "allowedDimensions": [
+        "time.defect_creation_date",
+        "org.problem_finder_team",
+        "product.project",
+        "product.pu",
+        "product.ecu"
+      ],
+      "capabilities": {
+        "comparison": true,
+        "ranking": true,
+        "trend": true
+      },
+      "defaultTimeDimension": "time.defect_creation_date",
+      "definitionVersion": "1.0.0",
+      "denominator": "defect.count",
+      "description": "Approved rejected defects divided by the approved defect cohort denominator.",
+      "entityId": "quality.defect",
+      "governance": {
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md",
+        "owner": "Quality Governance",
+        "status": "draft"
+      },
+      "grain": "selected defect cohort",
+      "id": "defect.rejection_rate",
+      "labels": {
+        "en-US": "Defect Rejection Rate",
+        "zh-CN": "缺陷拒绝率"
+      },
+      "missingDataPolicy": "exclude_null_denominator",
+      "numerator": "defect.rejected_count",
+      "requiredFilters": [],
+      "sourceReadModel": "full_picture_outcomes",
+      "sourceRevisionStrategy": "snapshot",
+      "unit": "percent"
+    },
+    {
+      "allowedDimensions": [
+        "time.defect_creation_date",
+        "org.problem_finder_team",
+        "product.project",
+        "product.pu",
+        "product.ecu"
+      ],
+      "capabilities": {
+        "comparison": true,
+        "ranking": true,
+        "trend": true
+      },
+      "defaultTimeDimension": "time.defect_creation_date",
+      "definitionVersion": "1.0.0",
+      "denominator": "defect.count",
+      "description": "Defects with an approved duplicate linkage divided by an approved defect cohort.",
+      "entityId": "quality.defect",
+      "governance": {
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md",
+        "owner": "Quality Governance",
+        "status": "draft"
+      },
+      "grain": "selected defect cohort",
+      "id": "defect.repeat_rate",
+      "labels": {
+        "en-US": "Repeated Defect Rate",
+        "zh-CN": "重复缺陷率"
+      },
+      "missingDataPolicy": "exclude_null_denominator",
+      "numerator": "approved_duplicate_link_count",
+      "requiredFilters": [],
+      "sourceReadModel": "full_picture_outcomes",
+      "sourceRevisionStrategy": "snapshot",
+      "unit": "percent"
+    },
+    {
+      "allowedDimensions": [
+        "time.defect_creation_date",
+        "org.problem_finder_team",
+        "product.project",
+        "product.pu",
+        "product.ecu"
+      ],
+      "capabilities": {
+        "comparison": true,
+        "ranking": true,
+        "trend": true
+      },
+      "defaultTimeDimension": "time.defect_creation_date",
+      "definitionVersion": "1.0.0",
+      "denominator": "defect.count",
+      "description": "Approved resolved defects divided by the approved defect cohort denominator.",
+      "entityId": "quality.defect",
+      "governance": {
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md",
+        "owner": "Quality Governance",
+        "status": "draft"
+      },
+      "grain": "selected defect cohort",
+      "id": "defect.resolve_rate",
+      "labels": {
+        "en-US": "Defect Resolution Rate",
+        "zh-CN": "缺陷解决率"
+      },
+      "missingDataPolicy": "exclude_null_denominator",
+      "numerator": "defect.resolved_count",
+      "requiredFilters": [],
+      "sourceReadModel": "full_picture_outcomes",
+      "sourceRevisionStrategy": "snapshot",
+      "unit": "percent"
+    },
+    {
+      "allowedDimensions": [
+        "time.defect_resolution_date",
+        "org.problem_finder_team",
+        "product.project",
+        "product.pu",
+        "product.ecu",
+        "quality.phase",
+        "quality.status"
+      ],
+      "capabilities": {
+        "comparison": true,
+        "ranking": true,
+        "trend": true
+      },
+      "defaultTimeDimension": "time.defect_resolution_date",
+      "definitionVersion": "1.0.0",
+      "description": "Distinct defects entering an approved resolved outcome during the resolution-time window.",
+      "entityId": "quality.defect",
+      "governance": {
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md",
+        "owner": "Quality Governance",
+        "status": "draft"
+      },
+      "grain": "one approved resolution event per defect",
+      "id": "defect.resolved_count",
+      "labels": {
+        "en-US": "Resolved Defect Count",
+        "zh-CN": "解决缺陷数"
+      },
+      "measure": "count_distinct(defect_id where approved_resolved_rule)",
+      "missingDataPolicy": "preserve_missing",
+      "requiredFilters": [],
+      "sourceReadModel": "full_picture_outcomes",
+      "sourceRevisionStrategy": "snapshot",
+      "unit": "count"
+    },
+    {
+      "allowedDimensions": [
+        "time.defect_creation_date",
+        "org.problem_finder_team",
+        "product.project",
+        "product.service_pack",
+        "product.pu",
+        "product.ecu"
+      ],
+      "capabilities": {
+        "comparison": true,
+        "ranking": true,
+        "trend": true
+      },
+      "defaultTimeDimension": "time.defect_creation_date",
+      "definitionVersion": "1.0.0",
+      "denominator": "approved_exposure_denominator",
+      "description": "Defect count divided by an explicitly approved size or exposure denominator.",
+      "entityId": "quality.defect",
+      "governance": {
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md",
+        "owner": "Quality Governance",
+        "status": "draft"
+      },
+      "grain": "selected product exposure cohort",
+      "id": "quality.defect_density",
+      "labels": {
+        "en-US": "Defect Density",
+        "zh-CN": "缺陷密度"
+      },
+      "missingDataPolicy": "exclude_null_denominator",
+      "numerator": "defect.count",
+      "requiredFilters": [],
+      "sourceReadModel": "full_picture_outcomes",
+      "sourceRevisionStrategy": "snapshot",
+      "unit": "ratio"
+    },
+    {
+      "allowedDimensions": [
+        "time.defect_creation_date",
+        "org.problem_finder_team",
+        "product.project",
+        "product.pu",
+        "product.ecu",
+        "quality.severity"
+      ],
+      "capabilities": {
+        "comparison": true,
+        "ranking": true,
+        "trend": true
+      },
+      "defaultTimeDimension": "time.defect_creation_date",
+      "definitionVersion": "1.0.0",
+      "description": "Distinct defects attributed to the canonical problem-finder team field.",
+      "entityId": "quality.defect",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "grain": "one row per distinct defect_id and problem-finder team",
+      "id": "team.defect_discovery_count",
+      "labels": {
+        "en-US": "Team Defect Discovery Count",
+        "zh-CN": "团队发现缺陷数"
+      },
+      "measure": "count_distinct(defect_id)",
+      "missingDataPolicy": "zero_when_empty_result",
+      "requiredFilters": [
+        "org.problem_finder_team"
+      ],
+      "sourceReadModel": "full_picture_outcomes",
+      "sourceRevisionStrategy": "snapshot",
+      "unit": "count"
+    },
+    {
+      "allowedDimensions": [
+        "time.defect_creation_date",
+        "org.problem_finder_team",
+        "product.project",
+        "product.pu"
+      ],
+      "capabilities": {
+        "comparison": true,
+        "ranking": true,
+        "trend": true
+      },
+      "defaultTimeDimension": "time.defect_creation_date",
+      "definitionVersion": "1.0.0",
+      "denominator": "team.execution_count",
+      "description": "An approved discovery outcome divided by an approved execution or effort denominator.",
+      "entityId": "organization.team",
+      "governance": {
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md",
+        "owner": "Quality Governance",
+        "status": "draft"
+      },
+      "grain": "selected team and analysis window",
+      "id": "team.discovery_efficiency",
+      "labels": {
+        "en-US": "Team Discovery Efficiency",
+        "zh-CN": "团队缺陷发现效率"
+      },
+      "missingDataPolicy": "exclude_null_denominator",
+      "numerator": "team.defect_discovery_count",
+      "requiredFilters": [
+        "org.problem_finder_team"
+      ],
+      "sourceReadModel": "full_picture_outcomes",
+      "sourceRevisionStrategy": "snapshot",
+      "unit": "ratio"
+    },
+    {
+      "allowedDimensions": [
+        "time.test_finished_date",
+        "time.test_week",
+        "org.tester",
+        "org.team",
+        "product.project",
+        "product.pu",
+        "requirements.aida"
+      ],
+      "capabilities": {
+        "comparison": true,
+        "ranking": true,
+        "trend": true
+      },
+      "defaultTimeDimension": "time.test_finished_date",
+      "definitionVersion": "1.0.0",
+      "description": "Distinct manual runs attributed to a tester or team.",
+      "entityId": "testing.test_run",
+      "governance": {
+        "owner": "Testing Analytics",
+        "status": "approved"
+      },
+      "grain": "one row per distinct mr_id and authorized team attribution",
+      "id": "team.execution_count",
+      "labels": {
+        "en-US": "Team Execution Count",
+        "zh-CN": "团队测试执行数"
+      },
+      "measure": "count_distinct(mr_id)",
+      "missingDataPolicy": "zero_when_empty_result",
+      "requiredFilters": [],
+      "sourceReadModel": "testing_coverage_hot",
+      "sourceRevisionStrategy": "snapshot",
+      "unit": "count"
+    },
+    {
+      "allowedDimensions": [
+        "time.test_finished_date",
+        "time.test_week",
+        "org.tester",
+        "org.team",
+        "product.project",
+        "product.pu",
+        "requirements.aida"
+      ],
+      "capabilities": {
+        "comparison": true,
+        "ranking": true,
+        "trend": true
+      },
+      "defaultTimeDimension": "time.test_finished_date",
+      "definitionVersion": "1.0.0",
+      "denominator": "testing.run_count",
+      "description": "Failed runs divided by the approved eligible-run denominator.",
+      "entityId": "testing.test_run",
+      "governance": {
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md",
+        "owner": "Testing Governance",
+        "status": "draft"
+      },
+      "grain": "selected test-run cohort",
+      "id": "testing.fail_rate",
+      "labels": {
+        "en-US": "Test Fail Rate",
+        "zh-CN": "测试失败率"
+      },
+      "missingDataPolicy": "exclude_null_denominator",
+      "numerator": "testing.failed_run_count",
+      "requiredFilters": [],
+      "sourceReadModel": "testing_coverage_hot",
+      "sourceRevisionStrategy": "snapshot",
+      "unit": "percent"
+    },
+    {
+      "allowedDimensions": [
+        "time.test_finished_date",
+        "time.test_week",
+        "org.tester",
+        "org.team",
+        "product.project",
+        "product.pu",
+        "requirements.aida"
+      ],
+      "capabilities": {
+        "comparison": true,
+        "ranking": true,
+        "trend": true
+      },
+      "defaultTimeDimension": "time.test_finished_date",
+      "definitionVersion": "1.0.0",
+      "description": "Distinct manual runs with the canonical Failed status.",
+      "entityId": "testing.test_run",
+      "governance": {
+        "owner": "Testing Analytics",
+        "status": "approved"
+      },
+      "grain": "one row per distinct failed mr_id",
+      "id": "testing.failed_run_count",
+      "labels": {
+        "en-US": "Failed Test Run Count",
+        "zh-CN": "失败测试执行数"
+      },
+      "measure": "count_distinct(mr_id where status='Failed')",
+      "missingDataPolicy": "zero_when_empty_result",
+      "requiredFilters": [],
+      "sourceReadModel": "testing_coverage_hot",
+      "sourceRevisionStrategy": "snapshot",
+      "unit": "count"
+    },
+    {
+      "allowedDimensions": [
+        "time.test_finished_date",
+        "time.test_week",
+        "org.tester",
+        "org.team",
+        "product.project",
+        "product.pu",
+        "requirements.aida"
+      ],
+      "capabilities": {
+        "comparison": true,
+        "ranking": true,
+        "trend": true
+      },
+      "defaultTimeDimension": "time.test_finished_date",
+      "definitionVersion": "1.0.0",
+      "denominator": "testing.run_count",
+      "description": "Passed runs divided by the approved eligible-run denominator.",
+      "entityId": "testing.test_run",
+      "governance": {
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md",
+        "owner": "Testing Governance",
+        "status": "draft"
+      },
+      "grain": "selected test-run cohort",
+      "id": "testing.pass_rate",
+      "labels": {
+        "en-US": "Test Pass Rate",
+        "zh-CN": "测试通过率"
+      },
+      "missingDataPolicy": "exclude_null_denominator",
+      "numerator": "testing.passed_run_count",
+      "requiredFilters": [],
+      "sourceReadModel": "testing_coverage_hot",
+      "sourceRevisionStrategy": "snapshot",
+      "unit": "percent"
+    },
+    {
+      "allowedDimensions": [
+        "time.test_finished_date",
+        "time.test_week",
+        "org.tester",
+        "org.team",
+        "product.project",
+        "product.pu",
+        "requirements.aida"
+      ],
+      "capabilities": {
+        "comparison": true,
+        "ranking": true,
+        "trend": true
+      },
+      "defaultTimeDimension": "time.test_finished_date",
+      "definitionVersion": "1.0.0",
+      "description": "Distinct manual runs with the canonical Passed status.",
+      "entityId": "testing.test_run",
+      "governance": {
+        "owner": "Testing Analytics",
+        "status": "approved"
+      },
+      "grain": "one row per distinct passed mr_id",
+      "id": "testing.passed_run_count",
+      "labels": {
+        "en-US": "Passed Test Run Count",
+        "zh-CN": "通过测试执行数"
+      },
+      "measure": "count_distinct(mr_id where status='Passed')",
+      "missingDataPolicy": "zero_when_empty_result",
+      "requiredFilters": [],
+      "sourceReadModel": "testing_coverage_hot",
+      "sourceRevisionStrategy": "snapshot",
+      "unit": "count"
+    },
+    {
+      "allowedDimensions": [
+        "product.project",
+        "product.pu",
+        "requirements.aida"
+      ],
+      "capabilities": {
+        "comparison": true,
+        "ranking": true,
+        "trend": false
+      },
+      "defaultTimeDimension": null,
+      "definitionVersion": "1.0.0",
+      "denominator": "approved_requirement_population",
+      "description": "Requirements with approved validating test cases divided by the approved requirement population.",
+      "entityId": "requirements.aida_node",
+      "governance": {
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md",
+        "owner": "Requirements Governance",
+        "status": "draft"
+      },
+      "grain": "selected requirement population",
+      "id": "testing.requirement_coverage_rate",
+      "labels": {
+        "en-US": "Requirement Coverage Rate",
+        "zh-CN": "需求覆盖率"
+      },
+      "missingDataPolicy": "exclude_null_denominator",
+      "numerator": "approved_covered_requirement_count",
+      "requiredFilters": [],
+      "sourceReadModel": "traceability_models",
+      "sourceRevisionStrategy": "snapshot",
+      "unit": "percent"
+    },
+    {
+      "allowedDimensions": [
+        "time.test_finished_date",
+        "time.test_week",
+        "org.tester",
+        "org.team",
+        "product.project",
+        "product.pu",
+        "requirements.aida",
+        "testing.run_status"
+      ],
+      "capabilities": {
+        "comparison": true,
+        "ranking": true,
+        "trend": true
+      },
+      "defaultTimeDimension": "time.test_finished_date",
+      "definitionVersion": "1.0.0",
+      "description": "Distinct manual run IDs completed in the selected scope.",
+      "entityId": "testing.test_run",
+      "governance": {
+        "owner": "Testing Analytics",
+        "status": "approved"
+      },
+      "grain": "one row per distinct mr_id",
+      "id": "testing.run_count",
+      "labels": {
+        "en-US": "Test Run Count",
+        "zh-CN": "测试执行数"
+      },
+      "measure": "count_distinct(mr_id)",
+      "missingDataPolicy": "zero_when_empty_result",
+      "requiredFilters": [],
+      "sourceReadModel": "testing_coverage_hot",
+      "sourceRevisionStrategy": "snapshot",
+      "unit": "count"
+    },
+    {
+      "allowedDimensions": [
+        "product.project",
+        "product.pu",
+        "requirements.aida"
+      ],
+      "capabilities": {
+        "comparison": true,
+        "ranking": true,
+        "trend": false
+      },
+      "defaultTimeDimension": null,
+      "definitionVersion": "1.0.0",
+      "description": "Distinct test case IDs in the selected scope.",
+      "entityId": "testing.test_case",
+      "governance": {
+        "owner": "Testing Analytics",
+        "status": "approved"
+      },
+      "grain": "one row per distinct test_id",
+      "id": "testing.testcase_count",
+      "labels": {
+        "en-US": "Test Case Count",
+        "zh-CN": "测试用例数"
+      },
+      "measure": "count_distinct(test_id)",
+      "missingDataPolicy": "zero_when_empty_result",
+      "requiredFilters": [],
+      "sourceReadModel": "testing_coverage_hot",
+      "sourceRevisionStrategy": "snapshot",
+      "unit": "count"
+    },
+    {
+      "allowedDimensions": [
+        "time.test_finished_date",
+        "time.test_week",
+        "org.team",
+        "product.project",
+        "product.pu",
+        "requirements.aida"
+      ],
+      "capabilities": {
+        "comparison": true,
+        "ranking": true,
+        "trend": true
+      },
+      "defaultTimeDimension": "time.test_finished_date",
+      "definitionVersion": "1.0.0",
+      "denominator": "testing.run_count",
+      "description": "Eligible test runs with approved requirement links divided by eligible runs.",
+      "entityId": "testing.test_run",
+      "governance": {
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md",
+        "owner": "Requirements Governance",
+        "status": "draft"
+      },
+      "grain": "selected eligible test-run cohort",
+      "id": "testing.traceability_rate",
+      "labels": {
+        "en-US": "Traceability Rate",
+        "zh-CN": "可追溯率"
+      },
+      "missingDataPolicy": "exclude_null_denominator",
+      "numerator": "approved_traced_run_count",
+      "requiredFilters": [],
+      "sourceReadModel": "traceability_models",
+      "sourceRevisionStrategy": "snapshot",
+      "unit": "percent"
+    }
+  ],
+  "ontologyVersion": "v1",
+  "policies": [
+    {
+      "allowedOperations": [
+        "semantic_metric_query",
+        "semantic_record_query",
+        "traceability_query",
+        "similarity_search"
+      ],
+      "governance": {
+        "owner": "Agent Security",
+        "status": "approved"
+      },
+      "id": "actor.scope.mandatory",
+      "kind": "mandatory_scope",
+      "rules": [
+        {
+          "dimensionId": "org.problem_finder_team",
+          "entityId": "quality.defect",
+          "intents": [
+            "aggregate",
+            "trend",
+            "compare",
+            "rank",
+            "list",
+            "drilldown",
+            "similarity"
+          ],
+          "normalizer": "dtsv_team",
+          "scopeKey": "teamIds"
+        },
+        {
+          "dimensionId": "org.problem_finder_team",
+          "entityId": "quality.defect",
+          "intents": [
+            "aggregate",
+            "trend",
+            "compare",
+            "rank",
+            "list",
+            "drilldown",
+            "similarity"
+          ],
+          "normalizer": "dtsv_team",
+          "scopeKey": "workspaceIds"
+        },
+        {
+          "dimensionId": "org.team",
+          "entityId": "testing.test_run",
+          "intents": [
+            "aggregate",
+            "trend",
+            "compare",
+            "rank",
+            "list",
+            "drilldown",
+            "trace"
+          ],
+          "normalizer": "dtsv_team",
+          "scopeKey": "teamIds"
+        },
+        {
+          "dimensionId": "org.team",
+          "entityId": "testing.test_run",
+          "intents": [
+            "aggregate",
+            "trend",
+            "compare",
+            "rank",
+            "list",
+            "drilldown",
+            "trace"
+          ],
+          "normalizer": "dtsv_team",
+          "scopeKey": "workspaceIds"
+        },
+        {
+          "dimensionId": "product.project",
+          "entityId": "quality.defect",
+          "intents": [
+            "aggregate",
+            "trend",
+            "compare",
+            "rank",
+            "list",
+            "drilldown"
+          ],
+          "normalizer": "identity",
+          "scopeKey": "projectIds"
+        },
+        {
+          "dimensionId": "product.project",
+          "entityId": "testing.test_run",
+          "intents": [
+            "aggregate",
+            "trend",
+            "compare",
+            "rank",
+            "list",
+            "drilldown"
+          ],
+          "normalizer": "identity",
+          "scopeKey": "projectIds"
+        },
+        {
+          "dimensionId": "product.project",
+          "entityId": "testing.test_case",
+          "intents": [
+            "aggregate",
+            "compare",
+            "rank",
+            "list",
+            "drilldown"
+          ],
+          "normalizer": "identity",
+          "scopeKey": "projectIds"
+        }
+      ],
+      "version": "1.0.0"
+    },
+    {
+      "allowedOperations": [
+        "semantic_metric_query",
+        "semantic_record_query",
+        "traceability_query",
+        "similarity_search"
+      ],
+      "governance": {
+        "owner": "Agent Platform",
+        "status": "approved"
+      },
+      "id": "analytics.read_only",
+      "kind": "capability",
+      "rules": [],
+      "version": "1.0.0"
+    },
+    {
+      "allowedOperations": [
+        "semantic_metric_query",
+        "semantic_record_query",
+        "traceability_query"
+      ],
+      "governance": {
+        "owner": "Data Governance",
+        "status": "approved"
+      },
+      "id": "sensitive.property.redaction",
+      "kind": "redaction",
+      "rules": [],
+      "sensitivityLevels": [
+        "confidential",
+        "restricted"
+      ],
+      "version": "1.0.0"
+    }
+  ],
+  "relationships": [
+    {
+      "allowedJoinPaths": [
+        [
+          "evidence.artifact",
+          "quality.defect"
+        ]
+      ],
+      "cardinality": "many_to_many",
+      "direction": "outbound",
+      "explosionPolicy": "distinct_target",
+      "governance": {
+        "owner": "Agent Platform",
+        "status": "approved"
+      },
+      "id": "evidence.artifact.supports.defect",
+      "predicate": "supports",
+      "reversible": true,
+      "sourceEntity": "evidence.artifact",
+      "sourceFields": {
+        "source": "artifact_id",
+        "target": "defect_id"
+      },
+      "targetEntity": "quality.defect"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "organization.tester",
+          "organization.team"
+        ]
+      ],
+      "cardinality": "many_to_one",
+      "direction": "outbound",
+      "governance": {
+        "owner": "Organization Analytics",
+        "status": "approved"
+      },
+      "id": "organization.tester.belongs_to.team",
+      "predicate": "belongs_to",
+      "reversible": true,
+      "sourceEntity": "organization.tester",
+      "sourceFields": {
+        "source": "team_id",
+        "target": "team_id"
+      },
+      "targetEntity": "organization.team"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "product.i_step",
+          "product.pu"
+        ]
+      ],
+      "cardinality": "many_to_many",
+      "direction": "outbound",
+      "explosionPolicy": "distinct_target",
+      "governance": {
+        "owner": "Product Analytics",
+        "status": "approved"
+      },
+      "id": "product.i_step.implements.pu",
+      "predicate": "implements",
+      "reversible": true,
+      "sourceEntity": "product.i_step",
+      "sourceFields": {
+        "source": "pu_id",
+        "target": "pu_id"
+      },
+      "targetEntity": "product.pu"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "product.platform",
+          "product.os"
+        ]
+      ],
+      "cardinality": "many_to_one",
+      "direction": "outbound",
+      "governance": {
+        "owner": "Product Analytics",
+        "status": "approved"
+      },
+      "id": "product.platform.runs.os",
+      "predicate": "runs",
+      "reversible": true,
+      "sourceEntity": "product.platform",
+      "sourceFields": {
+        "source": "os_id",
+        "target": "os_id"
+      },
+      "targetEntity": "product.os"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "product.pu",
+          "product.service_pack"
+        ]
+      ],
+      "cardinality": "many_to_one",
+      "direction": "outbound",
+      "governance": {
+        "owner": "Product Analytics",
+        "status": "approved"
+      },
+      "id": "product.pu.belongs_to.service_pack",
+      "predicate": "belongs_to",
+      "reversible": true,
+      "sourceEntity": "product.pu",
+      "sourceFields": {
+        "source": "service_pack_id",
+        "target": "service_pack_id"
+      },
+      "targetEntity": "product.service_pack"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "quality.defect",
+          "requirements.aida_node"
+        ]
+      ],
+      "cardinality": "many_to_many",
+      "direction": "outbound",
+      "explosionPolicy": "distinct_source",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "quality.defect.affects.aida_node",
+      "predicate": "affects",
+      "reversible": true,
+      "sourceEntity": "quality.defect",
+      "sourceFields": {
+        "source": "aida",
+        "target": "aida_id"
+      },
+      "targetEntity": "requirements.aida_node"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "quality.defect",
+          "product.ecu"
+        ]
+      ],
+      "cardinality": "many_to_one",
+      "direction": "outbound",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "quality.defect.affects.ecu",
+      "predicate": "affects",
+      "reversible": true,
+      "sourceEntity": "quality.defect",
+      "sourceFields": {
+        "source": "assigned_ecu",
+        "target": "ecu_id"
+      },
+      "targetEntity": "product.ecu"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "quality.defect",
+          "testing.test_run"
+        ]
+      ],
+      "cardinality": "many_to_one",
+      "direction": "outbound",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "quality.defect.detected_in.test_run",
+      "predicate": "detected_in",
+      "reversible": true,
+      "sourceEntity": "quality.defect",
+      "sourceFields": {
+        "source": "detected_run_id",
+        "target": "mr_id"
+      },
+      "targetEntity": "testing.test_run"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "quality.qgate",
+          "product.pu"
+        ]
+      ],
+      "cardinality": "many_to_one",
+      "direction": "outbound",
+      "governance": {
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md",
+        "owner": "Quality Governance",
+        "status": "draft"
+      },
+      "id": "quality.qgate.evaluates.pu",
+      "predicate": "evaluates",
+      "reversible": true,
+      "sourceEntity": "quality.qgate",
+      "sourceFields": {
+        "source": "pu_id",
+        "target": "pu_id"
+      },
+      "targetEntity": "product.pu"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "requirements.aida_node",
+          "requirements.aida_node"
+        ]
+      ],
+      "cardinality": "one_to_many",
+      "direction": "outbound",
+      "governance": {
+        "owner": "Requirements Analytics",
+        "status": "approved"
+      },
+      "id": "requirements.aida_node.parent_of.aida_node",
+      "predicate": "parent_of",
+      "reversible": true,
+      "sourceEntity": "requirements.aida_node",
+      "sourceFields": {
+        "source": "aida_id",
+        "target": "parent_id"
+      },
+      "targetEntity": "requirements.aida_node"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "testing.test_case",
+          "requirements.aida_node"
+        ]
+      ],
+      "cardinality": "many_to_many",
+      "direction": "outbound",
+      "explosionPolicy": "distinct_source",
+      "governance": {
+        "owner": "Requirements Analytics",
+        "status": "approved"
+      },
+      "id": "testing.test_case.validates.aida_node",
+      "predicate": "validates",
+      "reversible": true,
+      "sourceEntity": "testing.test_case",
+      "sourceFields": {
+        "source": "test_id",
+        "target": "aida_id"
+      },
+      "targetEntity": "requirements.aida_node"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "testing.test_run",
+          "testing.test_case"
+        ]
+      ],
+      "cardinality": "many_to_one",
+      "direction": "outbound",
+      "governance": {
+        "owner": "Testing Analytics",
+        "status": "approved"
+      },
+      "id": "testing.test_run.executes.test_case",
+      "predicate": "executes",
+      "reversible": true,
+      "sourceEntity": "testing.test_run",
+      "sourceFields": {
+        "source": "test_id",
+        "target": "test_id"
+      },
+      "targetEntity": "testing.test_case"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "testing.test_run",
+          "requirements.feature"
+        ]
+      ],
+      "cardinality": "many_to_many",
+      "direction": "outbound",
+      "explosionPolicy": "distinct_source",
+      "governance": {
+        "owner": "Requirements Analytics",
+        "status": "approved"
+      },
+      "id": "testing.test_run.traces_to.feature",
+      "predicate": "traces_to",
+      "reversible": true,
+      "sourceEntity": "testing.test_run",
+      "sourceFields": {
+        "source": "mr_id",
+        "target": "feature_id"
+      },
+      "targetEntity": "requirements.feature"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "testing.test_run",
+          "requirements.story"
+        ]
+      ],
+      "cardinality": "many_to_many",
+      "direction": "outbound",
+      "explosionPolicy": "distinct_source",
+      "governance": {
+        "owner": "Requirements Analytics",
+        "status": "approved"
+      },
+      "id": "testing.test_run.traces_to.story",
+      "predicate": "traces_to",
+      "reversible": true,
+      "sourceEntity": "testing.test_run",
+      "sourceFields": {
+        "source": "mr_id",
+        "target": "story_id"
+      },
+      "targetEntity": "requirements.story"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "vehicle.model_series",
+          "product.platform"
+        ]
+      ],
+      "cardinality": "many_to_one",
+      "direction": "outbound",
+      "governance": {
+        "owner": "Vehicle Analytics",
+        "status": "approved"
+      },
+      "id": "vehicle.model_series.uses.platform",
+      "predicate": "uses",
+      "reversible": true,
+      "sourceEntity": "vehicle.model_series",
+      "sourceFields": {
+        "source": "platform_id",
+        "target": "platform_id"
+      },
+      "targetEntity": "product.platform"
+    }
+  ],
+  "schemaVersion": "1.0",
+  "sources": [
+    {
+      "database": "database/source/qgate_raw.db",
+      "freshnessSloMinutes": 1440,
+      "governance": {
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md",
+        "owner": "Quality Governance",
+        "status": "draft"
+      },
+      "id": "analytics.defect_history",
+      "readModel": "defect_history_events",
+      "revisionStrategy": "snapshot",
+      "system": "analytics",
+      "table": "octane_defect_history"
+    },
+    {
+      "database": "database/source/qgate_raw.db",
+      "freshnessSloMinutes": 1440,
+      "governance": {
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md",
+        "owner": "Quality Governance",
+        "status": "draft"
+      },
+      "id": "analytics.defect_outcomes",
+      "readModel": "defect_outcomes",
+      "revisionStrategy": "snapshot",
+      "system": "analytics",
+      "table": "octane_defect_outcomes"
+    },
+    {
+      "database": "database/source/qgate_raw.db",
+      "freshnessSloMinutes": 1440,
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "analytics.full_picture_defects",
+      "readModel": "full_picture_outcomes",
+      "revisionStrategy": "snapshot",
+      "system": "analytics",
+      "table": "octane_defects"
+    },
+    {
+      "database": "database/source/qgate_raw.db",
+      "freshnessSloMinutes": 1440,
+      "governance": {
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md",
+        "owner": "Quality Governance",
+        "status": "draft"
+      },
+      "id": "analytics.qgate",
+      "readModel": "qgate_kpi",
+      "revisionStrategy": "snapshot",
+      "system": "analytics",
+      "table": "qgate_results"
+    },
+    {
+      "database": "database/source/qgate_raw.db",
+      "freshnessSloMinutes": 1440,
+      "governance": {
+        "owner": "Testing Analytics",
+        "status": "approved"
+      },
+      "id": "analytics.testing_coverage",
+      "readModel": "testing_coverage_hot",
+      "revisionStrategy": "snapshot",
+      "system": "analytics",
+      "table": "octane_manual_runs"
+    },
+    {
+      "database": "database/source/qgate_raw.db",
+      "freshnessSloMinutes": 1440,
+      "governance": {
+        "owner": "Requirements Analytics",
+        "status": "approved"
+      },
+      "id": "analytics.traceability",
+      "readModel": "traceability_models",
+      "revisionStrategy": "snapshot",
+      "system": "analytics",
+      "table": "octane_traceability_links"
+    },
+    {
+      "database": "database/source/qgate_raw.db",
+      "freshnessSloMinutes": 1440,
+      "governance": {
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md",
+        "owner": "Requirements Analytics",
+        "status": "draft"
+      },
+      "id": "analytics.traceability_links",
+      "readModel": "traceability_links",
+      "revisionStrategy": "snapshot",
+      "system": "analytics",
+      "table": "semantic_trace_edges"
+    },
+    {
+      "database": "database/source/qgate_raw.db",
+      "freshnessSloMinutes": 1440,
+      "governance": {
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md",
+        "owner": "Requirements Analytics",
+        "status": "draft"
+      },
+      "id": "analytics.traceability_testcases",
+      "readModel": "traceability_testcases",
+      "revisionStrategy": "snapshot",
+      "system": "analytics",
+      "table": "semantic_traceability_testcases"
+    },
+    {
+      "governance": {
+        "owner": "Agent Platform",
+        "status": "approved"
+      },
+      "id": "artifact.runtime_store",
+      "readModel": "agent_artifacts",
+      "revisionStrategy": "content_hash",
+      "system": "artifact"
+    },
+    {
+      "database": "backend/database/ticket_embeddings.db",
+      "freshnessSloMinutes": 10080,
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "duplicate.defect_index",
+      "readModel": "duplicate_candidates",
+      "revisionStrategy": "content_hash",
+      "system": "duplicate-search",
+      "table": "embedding_cache"
+    }
+  ],
+  "terms": [
+    {
+      "governance": {
+        "owner": "Requirements Analytics",
+        "status": "approved"
+      },
+      "id": "dimension.aida",
+      "kind": "alias",
+      "phrases": [
+        "AIDA",
+        "需求节点"
+      ],
+      "resolution": {
+        "dimensionId": "requirements.aida",
+        "entityId": "requirements.aida_node"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Product Analytics",
+        "status": "approved"
+      },
+      "id": "dimension.ecu",
+      "kind": "alias",
+      "phrases": [
+        "ECU",
+        "模块",
+        "module"
+      ],
+      "resolution": {
+        "dimensionId": "product.ecu",
+        "entityId": "product.ecu"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Product Analytics",
+        "status": "approved"
+      },
+      "id": "dimension.istep",
+      "kind": "alias",
+      "phrases": [
+        "i-step",
+        "istep",
+        "集成版本"
+      ],
+      "resolution": {
+        "dimensionId": "product.i_step",
+        "entityId": "product.i_step"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Product Analytics",
+        "status": "approved"
+      },
+      "id": "dimension.os7",
+      "kind": "enum_value",
+      "phrases": [
+        "OS7"
+      ],
+      "resolution": {
+        "dimensionId": "product.os",
+        "filterValue": "OS7"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Product Analytics",
+        "status": "approved"
+      },
+      "id": "dimension.os8",
+      "kind": "enum_value",
+      "phrases": [
+        "OS8"
+      ],
+      "resolution": {
+        "dimensionId": "product.os",
+        "filterValue": "OS8"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Product Analytics",
+        "status": "approved"
+      },
+      "id": "dimension.os9",
+      "kind": "enum_value",
+      "phrases": [
+        "OS9"
+      ],
+      "resolution": {
+        "dimensionId": "product.os",
+        "filterValue": "OS9"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "dimension.phase",
+      "kind": "alias",
+      "phrases": [
+        "Phase",
+        "阶段",
+        "缺陷阶段"
+      ],
+      "resolution": {
+        "dimensionId": "quality.phase",
+        "entityId": "quality.defect"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Product Analytics",
+        "status": "approved"
+      },
+      "id": "dimension.project",
+      "kind": "alias",
+      "phrases": [
+        "项目",
+        "project"
+      ],
+      "resolution": {
+        "dimensionId": "product.project",
+        "entityId": "product.project"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Product Analytics",
+        "status": "approved"
+      },
+      "id": "dimension.pu",
+      "kind": "alias",
+      "phrases": [
+        "PU",
+        "product unit"
+      ],
+      "resolution": {
+        "dimensionId": "product.pu",
+        "entityId": "product.pu"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Product Analytics",
+        "status": "approved"
+      },
+      "id": "dimension.pu_value",
+      "kind": "value_pattern",
+      "phrases": [
+        "PU",
+        "product unit"
+      ],
+      "resolution": {
+        "captureGroup": 0,
+        "dimensionId": "product.pu",
+        "maxMatches": 10,
+        "normalizer": "uppercase",
+        "valuePattern": "\\b\\d{2}-\\d{2}\\b"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "dimension.severity",
+      "kind": "alias",
+      "phrases": [
+        "严重度",
+        "严重程度",
+        "severity"
+      ],
+      "resolution": {
+        "dimensionId": "quality.severity",
+        "entityId": "quality.defect"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Testing Analytics",
+        "status": "approved"
+      },
+      "id": "dimension.team",
+      "kind": "alias",
+      "phrases": [
+        "执行团队",
+        "测试团队",
+        "execution team"
+      ],
+      "resolution": {
+        "dimensionId": "org.team",
+        "entityId": "testing.test_run"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Testing Analytics",
+        "status": "approved"
+      },
+      "id": "dimension.tester",
+      "kind": "alias",
+      "phrases": [
+        "测试人员",
+        "tester",
+        "执行人"
+      ],
+      "resolution": {
+        "dimensionId": "org.tester",
+        "entityId": "organization.tester"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Requirements Analytics",
+        "status": "approved"
+      },
+      "id": "dimension.untraced_testcase",
+      "kind": "enum_value",
+      "phrases": [
+        "没有 Requirement traceability",
+        "没有需求追溯",
+        "未关联需求",
+        "without requirement traceability",
+        "untraced testcase"
+      ],
+      "resolution": {
+        "dimensionId": "testing.trace_status",
+        "entityId": "testing.test_case",
+        "filterValue": "Untraced"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "intent.duplicate_search",
+      "kind": "synonym",
+      "phrases": [
+        "查重",
+        "相似缺陷",
+        "重复缺陷",
+        "duplicate",
+        "similar defect"
+      ],
+      "resolution": {
+        "entityId": "quality.defect",
+        "ruleId": "duplicate.search.v1"
+      }
+    },
+    {
+      "governance": {
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md",
+        "owner": "Requirements Governance",
+        "status": "draft"
+      },
+      "id": "metric.coverage_rate",
+      "kind": "ambiguity_trigger",
+      "phrases": [
+        "覆盖率",
+        "需求覆盖率",
+        "coverage rate"
+      ],
+      "resolution": {
+        "ambiguityCode": "COVERAGE_POPULATION_UNAPPROVED",
+        "metricId": "testing.requirement_coverage_rate"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "metric.created_defects",
+      "kind": "synonym",
+      "phrases": [
+        "新增缺陷",
+        "新建缺陷",
+        "提交缺陷",
+        "创建缺陷",
+        "created defects"
+      ],
+      "resolution": {
+        "entityId": "quality.defect",
+        "metricId": "defect.created_count"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "metric.defect_count",
+      "kind": "synonym",
+      "phrases": [
+        "缺陷数",
+        "缺陷数量",
+        "多少缺陷",
+        "defect count"
+      ],
+      "resolution": {
+        "entityId": "quality.defect",
+        "metricId": "defect.count"
+      }
+    },
+    {
+      "governance": {
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md",
+        "owner": "Quality Governance",
+        "status": "draft"
+      },
+      "id": "metric.defect_density",
+      "kind": "ambiguity_trigger",
+      "phrases": [
+        "缺陷密度",
+        "defect density"
+      ],
+      "resolution": {
+        "ambiguityCode": "DEFECT_DENSITY_DENOMINATOR_REQUIRED",
+        "metricId": "quality.defect_density"
+      }
+    },
+    {
+      "governance": {
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md",
+        "owner": "Quality Governance",
+        "status": "draft"
+      },
+      "id": "metric.discovery_efficiency",
+      "kind": "ambiguity_trigger",
+      "phrases": [
+        "发现效率",
+        "缺陷发现效率",
+        "discovery efficiency"
+      ],
+      "resolution": {
+        "ambiguityCode": "DISCOVERY_EFFICIENCY_FORMULA_UNAPPROVED",
+        "metricId": "team.discovery_efficiency"
+      }
+    },
+    {
+      "governance": {
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md",
+        "owner": "Testing Governance",
+        "status": "draft"
+      },
+      "id": "metric.fail_rate",
+      "kind": "ambiguity_trigger",
+      "phrases": [
+        "失败率",
+        "测试失败率",
+        "fail rate"
+      ],
+      "resolution": {
+        "ambiguityCode": "TEST_RUN_DENOMINATOR_UNAPPROVED",
+        "metricId": "testing.fail_rate"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Testing Analytics",
+        "status": "approved"
+      },
+      "id": "metric.failed_runs",
+      "kind": "synonym",
+      "phrases": [
+        "失败的测试数",
+        "失败执行数",
+        "失败 Run 数量",
+        "失败 Run 数",
+        "失败 Run",
+        "failed runs",
+        "failed run count"
+      ],
+      "resolution": {
+        "entityId": "testing.test_run",
+        "metricId": "testing.failed_run_count"
+      }
+    },
+    {
+      "governance": {
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md",
+        "owner": "Quality Governance",
+        "status": "draft"
+      },
+      "id": "metric.long_runner",
+      "kind": "ambiguity_trigger",
+      "phrases": [
+        "长期未解决",
+        "long runner",
+        "老缺陷"
+      ],
+      "resolution": {
+        "ambiguityCode": "LONG_RUNNER_THRESHOLD_UNAPPROVED",
+        "metricId": "defect.long_runner_count"
+      }
+    },
+    {
+      "governance": {
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md",
+        "owner": "Quality Governance",
+        "status": "draft"
+      },
+      "id": "metric.open_defects",
+      "kind": "ambiguity_trigger",
+      "phrases": [
+        "未解决缺陷",
+        "未关闭缺陷",
+        "open defects"
+      ],
+      "resolution": {
+        "ambiguityCode": "OPEN_STATUS_DEFINITION_UNAPPROVED",
+        "metricId": "defect.open_count"
+      }
+    },
+    {
+      "governance": {
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md",
+        "owner": "Testing Governance",
+        "status": "draft"
+      },
+      "id": "metric.pass_rate",
+      "kind": "ambiguity_trigger",
+      "phrases": [
+        "通过率",
+        "测试通过率",
+        "pass rate"
+      ],
+      "resolution": {
+        "ambiguityCode": "TEST_RUN_DENOMINATOR_UNAPPROVED",
+        "metricId": "testing.pass_rate"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Testing Analytics",
+        "status": "approved"
+      },
+      "id": "metric.passed_runs",
+      "kind": "synonym",
+      "phrases": [
+        "通过的测试数",
+        "通过执行数",
+        "passed runs"
+      ],
+      "resolution": {
+        "entityId": "testing.test_run",
+        "metricId": "testing.passed_run_count"
+      }
+    },
+    {
+      "governance": {
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md",
+        "owner": "Quality Governance",
+        "status": "draft"
+      },
+      "id": "metric.resolution_speed",
+      "kind": "ambiguity_trigger",
+      "phrases": [
+        "解决得快不快",
+        "解决速度",
+        "解决时长",
+        "resolution speed",
+        "time to resolve"
+      ],
+      "resolution": {
+        "ambiguityCode": "DEFECT_AGE_RULE_UNAPPROVED",
+        "metricId": "defect.age_days"
+      }
+    },
+    {
+      "governance": {
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md",
+        "owner": "Quality Governance",
+        "status": "draft"
+      },
+      "id": "metric.resolved_defects",
+      "kind": "ambiguity_trigger",
+      "phrases": [
+        "解决缺陷",
+        "关闭缺陷",
+        "resolved defects",
+        "closed defects"
+      ],
+      "resolution": {
+        "ambiguityCode": "RESOLVED_OUTCOME_DEFINITION_UNAPPROVED",
+        "metricId": "defect.resolved_count"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Testing Analytics",
+        "status": "approved"
+      },
+      "id": "metric.test_runs",
+      "kind": "synonym",
+      "phrases": [
+        "测试执行数",
+        "测试运行数",
+        "manual run count",
+        "run count"
+      ],
+      "resolution": {
+        "entityId": "testing.test_run",
+        "metricId": "testing.run_count"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Testing Analytics",
+        "status": "approved"
+      },
+      "id": "metric.testcases",
+      "kind": "synonym",
+      "phrases": [
+        "测试用例数",
+        "用例数量",
+        "testcase count"
+      ],
+      "resolution": {
+        "entityId": "testing.test_case",
+        "metricId": "testing.testcase_count"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "rule.china_scope",
+      "kind": "derived_business_rule",
+      "phrases": [
+        "China Scope",
+        "中国范围",
+        "中国相关"
+      ],
+      "resolution": {
+        "dimensionId": "quality.china_scope",
+        "ruleId": "analytics.full_picture.china_scope.v1"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "team.dtsv",
+      "kind": "enum_value",
+      "phrases": [
+        "DTSV",
+        "DTSV China",
+        "DTSV_China"
+      ],
+      "resolution": {
+        "dimensionId": "org.problem_finder_team",
+        "filterValue": "DTSV_China"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Agent Platform",
+        "status": "approved"
+      },
+      "id": "time.current_month",
+      "kind": "relative_time",
+      "phrases": [
+        "本月",
+        "这个月",
+        "current month"
+      ],
+      "resolution": {
+        "timePreset": "current_calendar_month"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Agent Platform",
+        "status": "approved"
+      },
+      "id": "time.current_year",
+      "kind": "relative_time",
+      "phrases": [
+        "今年",
+        "本年度",
+        "current year"
+      ],
+      "resolution": {
+        "timePreset": "current_calendar_year"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Agent Platform",
+        "status": "approved"
+      },
+      "id": "time.last_7_days",
+      "kind": "relative_time",
+      "phrases": [
+        "最近一周",
+        "近一周",
+        "最近7天",
+        "last 7 days"
+      ],
+      "resolution": {
+        "timePreset": "last_7_days_inclusive"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Agent Platform",
+        "status": "approved"
+      },
+      "id": "time.previous_month",
+      "kind": "relative_time",
+      "phrases": [
+        "上月",
+        "上个月",
+        "previous month"
+      ],
+      "resolution": {
+        "timePreset": "previous_calendar_month"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Agent Platform",
+        "status": "approved"
+      },
+      "id": "time.previous_week",
+      "kind": "relative_time",
+      "phrases": [
+        "上周",
+        "previous week",
+        "last week"
+      ],
+      "resolution": {
+        "timePreset": "previous_calendar_week"
+      }
+    }
+  ]
+}

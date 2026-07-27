@@ -1,0 +1,43 @@
+{
+  "$id": "https://vizion-lab.local/ontology/schema/dimensions.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["schemaVersion", "ontologyVersion", "dimensions"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "ontologyVersion": { "const": "v1" },
+    "dimensions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "labels", "entityId", "propertyId", "type", "sourceReadModel", "governance"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]+(\\.[a-z][a-z0-9_]+)+$" },
+          "labels": { "$ref": "common.schema.json#/$defs/labels" },
+          "entityId": { "type": "string", "minLength": 1 },
+          "propertyId": { "type": "string", "minLength": 1 },
+          "type": { "enum": ["categorical", "date", "datetime", "boolean"] },
+          "eventTimeSemantics": { "type": "string", "minLength": 1 },
+          "timezone": { "const": "Asia/Shanghai" },
+          "sourceReadModel": { "type": "string", "minLength": 1 },
+          "governance": { "$ref": "common.schema.json#/$defs/governance" }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "type": { "enum": ["date", "datetime"] } }, "required": ["type"] },
+            "then": {
+              "properties": {
+                "eventTimeSemantics": { "type": "string", "minLength": 1 },
+                "timezone": { "const": "Asia/Shanghai" }
+              },
+              "required": ["eventTimeSemantics", "timezone"]
+            }
+          }
+        ]
+      }
+    }
+  }
+}

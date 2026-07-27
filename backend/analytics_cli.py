@@ -39,6 +39,7 @@ from backend.analytics.ingest import client as ingest_client
 from backend.analytics.ingest import pipeline as ingest_pipeline
 from backend.analytics.duplicate_comment_runner import run_duplicate_comment_agent
 from backend.analytics.duplicate_comment_writer import build_compact_duplicate_comment_html
+from backend.analytics.octane_field_catalog import build_local_octane_field_catalog, search_octane_fields
 from backend.analytics.processor import backfill_defect_projects, run_processor_pipeline, sync_dimension_fields
 from backend.analytics.qgate_kpi_compare_report import generate_qgate_kpi_compare_report
 from backend.analytics.qgate_kpi_dashboard_report import generate_qgate_kpi_dashboard_report
@@ -785,6 +786,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             years=years,
         )
         print(json.dumps({"dashboard": str(generated_dashboard), "compare": str(generated_compare)}, ensure_ascii=False))
+        return 0
+    if args.command == "build-octane-field-catalog":
+        source_db_path = Path(args.db_path) if args.db_path else get_full_picture_source_db_path()
+        catalog = build_local_octane_field_catalog(db_path=source_db_path)
+        output_path = Path(args.output_path) if args.output_path else Path("ontology") / "generated" / "octane-field-catalog.local.json"
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(json.dumps(catalog, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        preview = search_octane_fields(catalog, str(args.query_text or ""), top_k=int(args.top_k or 10)) if args.query_text else []
+        print(json.dumps({"output_path": str(output_path), "summary": catalog["summary"], "search_preview": preview}, ensure_ascii=False))
         return 0
     if args.command == "prepare-duplicate-search-index":
         summary = _prepare_duplicate_search_index()

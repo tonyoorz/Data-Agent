@@ -9,6 +9,10 @@ describe("main agent tool loop", () => {
   it("plans tools only for likely dashboard metric questions", () => {
     expect(shouldPlanMainAgentTools([{ role: "user", content: "DTSV 6月份提了多少bug？" }])).toBe(true);
     expect(shouldPlanMainAgentTools([{ role: "user", content: "这个 camera black screen 缺陷是不是重复？" }])).toBe(true);
+    expect(shouldPlanMainAgentTools([{ role: "user", content: "请基于近三个月的 Top Issue 数据，识别上升最快的三个问题模块并给出根因假设。" }])).toBe(true);
+    expect(shouldPlanMainAgentTools([{ role: "user", content: "octane_defects 按 solution_cluster 或 assigned_ecu" }])).toBe(true);
+    expect(shouldPlanMainAgentTools([{ role: "user", content: "现在 ontology 里哪些能力是 available？" }])).toBe(true);
+    expect(shouldPlanMainAgentTools([{ role: "user", content: "基于这个 Octane ticket https://octane-prod.bmwgroup.net/ui/entity-navigation?p=1002/2001&entityType=work_item&id=2774806 创建测试用例" }])).toBe(true);
     expect(shouldPlanMainAgentTools([{ role: "user", content: "请润色这段话" }])).toBe(false);
   });
 
@@ -291,6 +295,204 @@ describe("main agent tool loop", () => {
     expect(requestArgs.context).toContain("ask_clarification");
     expect(requestArgs.tools.map((tool: { function?: { name?: string } }) => tool.function?.name)).toContain(
       "query_full_picture_module",
+    );
+  });
+
+  it("tells the planner to fetch ontology context before drafting test cases", async () => {
+    const requestChatCompletion = vi.fn().mockResolvedValue({
+      content: "No tool needed.",
+      toolCalls: [],
+      answerModel: "deepseek-v4-flash",
+    });
+
+    await resolveMainAgentToolContext({
+      messages: [{ role: "user", content: "基于 T-ONTO-1 帮我创建一个回归测试用例" }],
+      requestChatCompletion,
+      executeToolCall: vi.fn(),
+    });
+
+    const requestArgs = requestChatCompletion.mock.calls[0][0];
+    expect(requestArgs.context).toContain("get_test_case_context");
+    expect(requestArgs.context).toContain("before drafting");
+    expect(requestArgs.context).toContain("call get_test_case_context first");
+    expect(requestArgs.tools.map((tool: { function?: { name?: string } }) => tool.function?.name)).toContain(
+      "get_test_case_context",
+    );
+  });
+
+  it("tells the planner to extract defect ids from Octane ticket URLs", async () => {
+    const requestChatCompletion = vi.fn().mockResolvedValue({
+      content: "No tool needed.",
+      toolCalls: [],
+      answerModel: "deepseek-v4-flash",
+    });
+
+    await resolveMainAgentToolContext({
+      messages: [{ role: "user", content: "基于这个ticket https://octane-prod.bmwgroup.net/ui/entity-navigation?p=1002/2001&entityType=work_item&id=2774806 创建测试用例" }],
+      requestChatCompletion,
+      executeToolCall: vi.fn(),
+    });
+
+    const requestArgs = requestChatCompletion.mock.calls[0][0];
+    expect(requestArgs.context).toContain("Octane ticket URL");
+    expect(requestArgs.context).toContain("id=2774806");
+    expect(requestArgs.context).toContain("defect_id");
+    expect(requestArgs.tools.map((tool: { function?: { name?: string } }) => tool.function?.name)).toContain(
+      "get_test_case_context",
+    );
+  });
+
+  it("tells the planner to use ontology catalog for capability discovery", async () => {
+    const requestChatCompletion = vi.fn().mockResolvedValue({
+      content: "No tool needed.",
+      toolCalls: [],
+      answerModel: "deepseek-v4-flash",
+    });
+
+    await resolveMainAgentToolContext({
+      messages: [{ role: "user", content: "现在 ontology 里哪些实体和能力是 available？" }],
+      requestChatCompletion,
+      executeToolCall: vi.fn(),
+    });
+
+    const requestArgs = requestChatCompletion.mock.calls[0][0];
+    expect(requestArgs.context).toContain("get_ontology_catalog");
+    expect(requestArgs.context).toContain("capability states");
+    expect(requestArgs.tools.map((tool: { function?: { name?: string } }) => tool.function?.name)).toContain(
+      "get_ontology_catalog",
+    );
+  });
+
+  it("tells the planner to use Octane field search for schema discovery", async () => {
+    const requestChatCompletion = vi.fn().mockResolvedValue({
+      content: "No tool needed.",
+      toolCalls: [],
+      answerModel: "deepseek-v4-flash",
+    });
+
+    await resolveMainAgentToolContext({
+      messages: [{ role: "user", content: "Octane defect 里 DTSV 和车系分别对应哪些 API 字段？后面能不能更新？" }],
+      requestChatCompletion,
+      executeToolCall: vi.fn(),
+    });
+
+    const requestArgs = requestChatCompletion.mock.calls[0][0];
+    expect(requestArgs.context).toContain("search_octane_fields");
+    expect(requestArgs.context).toContain("top-k field candidates");
+    expect(requestArgs.context).toContain("Do not load the full Octane field catalog into the prompt");
+    expect(requestArgs.tools.map((tool: { function?: { name?: string } }) => tool.function?.name)).toContain(
+      "search_octane_fields",
+    );
+  });
+
+  it("tells the planner to use Action Ontology for write and delete capability checks", async () => {
+    const requestChatCompletion = vi.fn().mockResolvedValue({
+      content: "No tool needed.",
+      toolCalls: [],
+      answerModel: "deepseek-v4-flash",
+    });
+
+    await resolveMainAgentToolContext({
+      messages: [{ role: "user", content: "Octane defect 字段能不能更新？能不能删除缺陷单？" }],
+      requestChatCompletion,
+      executeToolCall: vi.fn(),
+    });
+
+    const requestArgs = requestChatCompletion.mock.calls[0][0];
+    expect(requestArgs.context).toContain("Action Ontology");
+    expect(requestArgs.context).toContain("write/update/delete");
+    expect(requestArgs.context).toContain("disabled or blocked actions must not be executed");
+    expect(requestArgs.tools.map((tool: { function?: { name?: string } }) => tool.function?.name)).toContain(
+      "get_ontology_catalog",
+    );
+  });
+
+  it("tells the planner to use governed semantic tools for analytics metrics", async () => {
+    const requestChatCompletion = vi.fn().mockResolvedValue({
+      content: "No tool needed.",
+      toolCalls: [],
+      answerModel: "deepseek-v4-flash",
+    });
+
+    await resolveMainAgentToolContext({
+      messages: [{ role: "user", content: "最近一周 DTSV 新增缺陷按 ECU Top 5" }],
+      requestChatCompletion,
+      executeToolCall: vi.fn(),
+    });
+
+    const requestArgs = requestChatCompletion.mock.calls[0][0];
+    expect(requestArgs.context).toContain("query_semantic_metrics");
+    expect(requestArgs.context).toContain("governed Ontology");
+    expect(requestArgs.context).toContain("Never redefine metrics");
+    expect(requestArgs.context.indexOf("query_semantic_metrics first")).toBeLessThan(
+      requestArgs.context.indexOf("query_defect_aggregate only as a legacy analytics fallback"),
+    );
+    expect(requestArgs.tools.map((tool: { function?: { name?: string } }) => tool.function?.name)).toContain(
+      "query_semantic_metrics",
+    );
+  });
+
+  it("tells the planner to use governed semantic records for list and drilldown requests", async () => {
+    const requestChatCompletion = vi.fn().mockResolvedValue({
+      content: "No tool needed.",
+      toolCalls: [],
+      answerModel: "deepseek-v4-flash",
+    });
+
+    await resolveMainAgentToolContext({
+      messages: [{ role: "user", content: "列出最近一周 DTSV 新增缺陷明细" }],
+      requestChatCompletion,
+      executeToolCall: vi.fn(),
+    });
+
+    const requestArgs = requestChatCompletion.mock.calls[0][0];
+    expect(requestArgs.context).toContain("query_semantic_records");
+    expect(requestArgs.context).toContain("list or drilldown");
+    expect(requestArgs.tools.map((tool: { function?: { name?: string } }) => tool.function?.name)).toContain(
+      "query_semantic_records",
+    );
+  });
+
+  it("tells the planner to use governed traceability for lineage questions", async () => {
+    const requestChatCompletion = vi.fn().mockResolvedValue({
+      content: "No tool needed.",
+      toolCalls: [],
+      answerModel: "deepseek-v4-flash",
+    });
+
+    await resolveMainAgentToolContext({
+      messages: [{ role: "user", content: "追溯 Requirement 到 TestCase、TestRun 和 Defect 的链路" }],
+      requestChatCompletion,
+      executeToolCall: vi.fn(),
+    });
+
+    const requestArgs = requestChatCompletion.mock.calls[0][0];
+    expect(requestArgs.context).toContain("query_traceability");
+    expect(requestArgs.context).toContain("requirement, testcase, test-run, and defect lineage");
+    expect(requestArgs.tools.map((tool: { function?: { name?: string } }) => tool.function?.name)).toContain(
+      "query_traceability",
+    );
+  });
+
+  it("tells the planner to use defect aggregate for Top Issue growth questions", async () => {
+    const requestChatCompletion = vi.fn().mockResolvedValue({
+      content: "No tool needed.",
+      toolCalls: [],
+      answerModel: "deepseek-v4-flash",
+    });
+
+    await resolveMainAgentToolContext({
+      messages: [{ role: "user", content: "请基于近三个月的 Top Issue 数据，识别上升最快的三个问题模块并给出根因假设。" }],
+      requestChatCompletion,
+      executeToolCall: vi.fn(),
+    });
+
+    const requestArgs = requestChatCompletion.mock.calls[0][0];
+    expect(requestArgs.context).toContain("query_defect_aggregate");
+    expect(requestArgs.context).toContain("Top Issue");
+    expect(requestArgs.context).toContain("comparison");
+    expect(requestArgs.tools.map((tool: { function?: { name?: string } }) => tool.function?.name)).toContain(
+      "query_defect_aggregate",
     );
   });
 });

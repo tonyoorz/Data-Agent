@@ -1,0 +1,39 @@
+{
+  "schemaVersion": "1.0",
+  "ontologyVersion": "v1",
+  "policies": [
+    {
+      "id": "actor.scope.mandatory",
+      "version": "1.0.0",
+      "kind": "mandatory_scope",
+      "rules": [
+        { "scopeKey": "teamIds", "entityId": "quality.defect", "dimensionId": "org.problem_finder_team", "intents": ["aggregate", "trend", "compare", "rank", "list", "drilldown", "similarity"], "normalizer": "dtsv_team" },
+        { "scopeKey": "workspaceIds", "entityId": "quality.defect", "dimensionId": "org.problem_finder_team", "intents": ["aggregate", "trend", "compare", "rank", "list", "drilldown", "similarity"], "normalizer": "dtsv_team" },
+        { "scopeKey": "teamIds", "entityId": "testing.test_run", "dimensionId": "org.team", "intents": ["aggregate", "trend", "compare", "rank", "list", "drilldown", "trace"], "normalizer": "dtsv_team" },
+        { "scopeKey": "workspaceIds", "entityId": "testing.test_run", "dimensionId": "org.team", "intents": ["aggregate", "trend", "compare", "rank", "list", "drilldown", "trace"], "normalizer": "dtsv_team" },
+        { "scopeKey": "projectIds", "entityId": "quality.defect", "dimensionId": "product.project", "intents": ["aggregate", "trend", "compare", "rank", "list", "drilldown"], "normalizer": "identity" },
+        { "scopeKey": "projectIds", "entityId": "testing.test_run", "dimensionId": "product.project", "intents": ["aggregate", "trend", "compare", "rank", "list", "drilldown"], "normalizer": "identity" },
+        { "scopeKey": "projectIds", "entityId": "testing.test_case", "dimensionId": "product.project", "intents": ["aggregate", "compare", "rank", "list", "drilldown"], "normalizer": "identity" }
+      ],
+      "allowedOperations": ["semantic_metric_query", "semantic_record_query", "traceability_query", "similarity_search"],
+      "governance": { "status": "approved", "owner": "Agent Security" }
+    },
+    {
+      "id": "analytics.read_only",
+      "version": "1.0.0",
+      "kind": "capability",
+      "rules": [],
+      "allowedOperations": ["semantic_metric_query", "semantic_record_query", "traceability_query", "similarity_search"],
+      "governance": { "status": "approved", "owner": "Agent Platform" }
+    },
+    {
+      "id": "sensitive.property.redaction",
+      "version": "1.0.0",
+      "kind": "redaction",
+      "rules": [],
+      "allowedOperations": ["semantic_metric_query", "semantic_record_query", "traceability_query"],
+      "sensitivityLevels": ["confidential", "restricted"],
+      "governance": { "status": "approved", "owner": "Data Governance" }
+    }
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "$id": "https://vizion-lab.local/ontology/schema/common.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "labels": {
+      "type": "object",
+      "required": ["zh-CN", "en-US"],
+      "additionalProperties": false,
+      "properties": {
+        "zh-CN": { "type": "string", "minLength": 1 },
+        "en-US": { "type": "string", "minLength": 1 }
+      }
+    },
+    "governance": {
+      "type": "object",
+      "required": ["status", "owner"],
+      "additionalProperties": false,
+      "properties": {
+        "status": { "enum": ["approved", "draft", "deprecated"] },
+        "owner": { "type": "string", "minLength": 1 },
+        "decisionRef": { "type": "string" }
+      }
+    },
+    "documentHeader": {
+      "type": "object",
+      "required": ["schemaVersion", "ontologyVersion"],
+      "properties": {
+        "schemaVersion": { "const": "1.0" },
+        "ontologyVersion": { "const": "v1" }
+      }
+    }
+  }
+}

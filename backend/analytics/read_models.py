@@ -2400,6 +2400,18 @@ def build_defect_high_frequency_analysis_payload(**kwargs: Any) -> dict[str, Any
     }
 
 
+def build_defect_aggregate_payload(**kwargs: Any) -> dict[str, Any]:
+    from backend.analytics.defect_query_models import build_defect_aggregate_payload as build_payload
+
+    return build_payload(**kwargs)
+
+
+def build_defect_records_payload(**kwargs: Any) -> dict[str, Any]:
+    from backend.analytics.defect_query_models import build_defect_records_payload as build_payload
+
+    return build_payload(**kwargs)
+
+
 def build_top_issue_analysis_payload(**kwargs: Any) -> dict[str, Any]:
     query = normalize_query(**kwargs)
     requested_snapshot_version = str(kwargs.get("snapshot_version") or "").strip()
