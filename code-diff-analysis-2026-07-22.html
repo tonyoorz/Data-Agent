@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>本地 Data Agent 与 GitHub 远程分支代码差异分析报告 · 2026-07-22</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; background: #f5f7fa; color: #1a2332; line-height: 1.65; padding: 32px 20px; font-size: 14px; }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  h1 { font-size: 22px; font-weight: 600; color: #0c447c; margin-bottom: 4px; }
+  .meta { font-size: 12px; color: #888; margin-bottom: 24px; }
+  h2 { font-size: 17px; font-weight: 600; color: #0c447c; margin: 32px 0 14px; padding-left: 12px; border-left: 3px solid #378add; }
+  h3 { font-size: 14px; font-weight: 600; color: #185fa5; margin: 18px 0 8px; }
+  .cards { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 14px 0; }
+  .card { background: #fff; border-radius: 10px; padding: 16px 18px; border: 1px solid #e3e8ef; }
+  .card .lbl { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 6px; }
+  .card .val { font-size: 15px; font-weight: 600; color: #1a2332; }
+  .card.local { border-left: 3px solid #378add; }
+  .card.remote { border-left: 3px solid #639922; }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 14px 0; }
+  .stat { background: #e6f1fb; border-radius: 8px; padding: 12px; text-align: center; }
+  .stat .num { font-size: 22px; font-weight: 600; color: #0c447c; }
+  .stat .lbl { font-size: 11px; color: #5a6a7a; margin-top: 2px; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; background: #fff; border-radius: 8px; overflow: hidden; border: 1px solid #e3e8ef; }
+  th { background: #f0f4f8; padding: 9px 12px; text-align: left; font-weight: 600; color: #445; font-size: 12px; }
+  td { padding: 8px 12px; border-top: 1px solid #eef2f6; vertical-align: top; }
+  tr:hover td { background: #f9fbfd; }
+  code { background: #eef2f7; padding: 1px 5px; border-radius: 4px; font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12px; color: #c0392b; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+  .pill-add { background: #eaf3de; color: #3b6d11; }
+  .pill-mod { background: #faeeda; color: #854f0b; }
+  .pill-del { background: #fcebeb; color: #a32d2d; }
+  .pill-bin { background: #f1efe8; color: #5f5e5a; }
+  .pill-doc { background: #e6f1fb; color: #0c447c; }
+  .risk { margin: 10px 0; border-radius: 8px; padding: 12px 14px; border-left: 4px solid; }
+  .risk-p0 { background: #fcebeb; border-color: #e24b4a; }
+  .risk-p1 { background: #faeeda; border-color: #ef9f27; }
+  .risk-p2 { background: #eaf3de; border-color: #639922; }
+  .risk .tag { font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 4px; margin-right: 8px; }
+  .risk-p0 .tag { background: #e24b4a; color: #fff; }
+  .risk-p1 .tag { background: #ef9f27; color: #fff; }
+  .risk-p2 .tag { background: #639922; color: #fff; }
+  .risk .title { font-weight: 600; font-size: 13px; }
+  .risk .desc { font-size: 12.5px; color: #445; margin-top: 4px; }
+  pre { background: #f6f8fa; border: 1px solid #e3e8ef; border-radius: 8px; padding: 12px 14px; font-size: 12px; overflow-x: auto; margin: 10px 0; color: #2d3748; }
+  pre .k { color: #0c447c; font-weight: 600; }
+  pre .c { color: #888; }
+  pre .s { color: #3b6d11; }
+  .note { background: #fff; border: 1px solid #e3e8ef; border-radius: 8px; padding: 12px 16px; margin: 10px 0; font-size: 13px; }
+  .note b { color: #0c447c; }
+  ul { margin: 8px 0 8px 20px; }
+  li { margin: 4px 0; font-size: 13px; }
+  .footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid #e3e8ef; font-size: 11px; color: #aaa; text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>本地 Data Agent 与 GitHub 远程分支代码差异分析报告</h1>
+  <div class="meta">生成时间 2026-07-22 16:36 · 对比基准 <code>origin/upgrade/2026-07-main-agent-v2</code> (ec3fd8ba) vs 本地工作树 (920518c5 + 未提交改动)</div>
+
+  <h2>① 状态概览</h2>
+  <div class="cards">
+    <div class="card local">
+      <div class="lbl">本地状态</div>
+      <div class="val">分支 upgrade/2026-07-main-agent-v2 @ 920518c5</div>
+      <div style="font-size:12px;color:#5a6a7a;margin-top:6px;">领先远程 <b>8 个提交</b> · 工作区 <b>12 个文件</b>未提交改动 (Codex 编辑后) · 6 个未追踪文件</div>
+    </div>
+    <div class="card remote">
+      <div class="lbl">GitHub 远程最新分支</div>
+      <div class="val">origin/upgrade/2026-07-main-agent-v2 @ ec3fd8ba</div>
+      <div style="font-size:12px;color:#5a6a7a;margin-top:6px;">远程 <b>无新增提交</b> (ec3fd8ba 已在本地历史内) · 该分支为远程按时间排序的最新分支 (2026-07-18)</div>
+    </div>
+  </div>
+  <div class="note"><b>关键结论：</b>远程并不比本地新——所有差异均来自本地侧 (8 个未推送提交 + 工作区 Codex 改动)。差异总量 <b>22 个文件，+12,658 / -262 行</b>。</div>
+
+  <h2>② 差异总览统计</h2>
+  <div class="stats">
+    <div class="stat"><div class="num">22</div><div class="lbl">变更文件总数</div></div>
+    <div class="stat"><div class="num">+12,658</div><div class="lbl">新增行</div></div>
+    <div class="stat"><div class="num">-262</div><div class="lbl">删除行</div></div>
+    <div class="stat"><div class="num">1</div><div class="lbl">P0 风险(构建阻断)</div></div>
+  </div>
+
+  <h2>③ 全部差异文件清单 (按模块分组)</h2>
+
+  <h3>3.1 已提交改动 (本地领先的 8 个提交)</h3>
+  <table>
+    <tr><th>文件</th><th>类型</th><th>改动</th><th>说明</th></tr>
+    <tr><td>docs/.../plans/2026-07-14-main-agent-runtime-phase-1.md</td><td><span class="pill pill-doc">文档</span></td><td>+3543</td><td>主 agent runtime 第一阶段实施计划</td></tr>
+    <tr><td>docs/.../specs/2026-07-14-main-agent-runtime-design.md</td><td><span class="pill pill-doc">文档</span></td><td>+1775</td><td>主 agent runtime 设计规范</td></tr>
+    <tr><td>docs/.../2026-07-20-testing-quality-ontology-v2-design.md</td><td><span class="pill pill-doc">文档</span></td><td>+1603</td><td>测试质量本体 v2 设计</td></tr>
+    <tr><td>docs/.../testing-quality-ontology-v2-foundation.md</td><td><span class="pill pill-doc">文档</span></td><td>+854</td><td>本体 v2 基础设施计划</td></tr>
+    <tr><td>docs/.../products-cutover.md</td><td><span class="pill pill-doc">文档</span></td><td>+760</td><td>产品切换计划</td></tr>
+    <tr><td>docs/.../semantic-kernel.md</td><td><span class="pill pill-doc">文档</span></td><td>+721</td><td>语义内核计划</td></tr>
+    <tr><td>docs/.../duplicate-search-agent-tech-share-deck.md</td><td><span class="pill pill-doc">文档</span></td><td>+403</td><td>重复工单分享演示稿</td></tr>
+    <tr><td>docs/.../duplicate-search-tech-share-deck-design.md</td><td><span class="pill pill-doc">文档</span></td><td>+130</td><td>分享稿设计</td></tr>
+    <tr><td>src/App.tsx</td><td><span class="pill pill-mod">修改</span></td><td>+14</td><td>接入 /admin 后台路由 (5 个页面)</td></tr>
+    <tr><td>package.json</td><td><span class="pill pill-mod">修改</span></td><td>+2/-1</td><td>dev:server/start 加 --experimental-sqlite</td></tr>
+    <tr><td>scripts/dev.mjs</td><td><span class="pill pill-mod">修改</span></td><td>+1/-1</td><td>local-api 启动加 --experimental-sqlite</td></tr>
+  </table>
+
+  <h3>3.2 工作区未提交改动 (Codex 编辑后)</h3>
+  <table>
+    <tr><th>文件</th><th>类型</th><th>改动</th><th>说明</th></tr>
+    <tr><td>ontology/v1/entities.json</td><td><span class="pill pill-mod">修改</span></td><td>+1942/-227</td><td>本体实体大幅扩展 (19→23 实体)</td></tr>
+    <tr><td>ontology/generated/ontology.compiled.json</td><td><span class="pill pill-bin">生成物</span></td><td>+1055/-30</td><td>编译产物 (随 entities 变化)</td></tr>
+    <tr><td>scripts/compileOntology.mjs</td><td><span class="pill pill-mod">修改</span></td><td>+38/-2</td><td>新增 Mermaid 实体图生成 (--emit-graph)</td></tr>
+    <tr><td>server/ontology/resolver.mjs</td><td><span class="pill pill-mod">修改</span></td><td>+10/-1</td><td>新增 onUnmatched 回调 (learn-from-usage)</td></tr>
+    <tr><td>server/agentRuntime/graph.mjs</td><td><span class="pill pill-mod">修改</span></td><td>+11/-1</td><td>接 telemetry 记录未匹配语义信号</td></tr>
+    <tr><td>server/agentRuntime/telemetry.mjs</td><td><span class="pill pill-mod">修改</span></td><td>+1/-1</td><td>安全属性白名单加 queryHash / heuristicMetric</td></tr>
+    <tr><td>src/test/.../compiler.test.ts</td><td><span class="pill pill-mod">修改</span></td><td>+16/-1</td><td>实体数 19→23 + Mermaid 图测试</td></tr>
+    <tr><td>src/test/.../semanticResolver.test.ts</td><td><span class="pill pill-mod">修改</span></td><td>+19</td><td>新增 onUnmatched 信号测试 (2 例)</td></tr>
+    <tr><td>ontology/v1/sources.json</td><td><span class="pill pill-mod">修改</span></td><td>+4</td><td>新增 4 个数据源 (draft)</td></tr>
+    <tr><td>ontology/generated/fingerprint.txt</td><td><span class="pill pill-bin">生成物</span></td><td>+1/-1</td><td>本体指纹变化</td></tr>
+    <tr><td>package.json</td><td><span class="pill pill-mod">修改</span></td><td>+1/-1</td><td>新增 ontology:graph / --emit-graph 脚本</td></tr>
+    <tr><td>backend/database/ticket_embeddings.db</td><td><span class="pill pill-bin">二进制</span></td><td>新增 16KB</td><td>重复工单嵌入缓存库 (测试数据)</td></tr>
+    <tr><td>docs/ontology/* (5 个文件)</td><td><span class="pill pill-add">新增</span></td><td>未追踪</td><td>本体图谱/路线/playbook 文档</td></tr>
+    <tr><td>ontology/cq-list.md</td><td><span class="pill pill-add">新增</span></td><td>未追踪</td><td>问题列表文档</td></tr>
+  </table>
+
+  <h2>④ 核心代码改动详解</h2>
+
+  <h3>4.1 Agent Runtime — Learn-from-usage 闭环</h3>
+  <p>这是本次代码层面最有价值的改动，建立了"本体演进信号"反馈回路：</p>
+  <pre><span class="c">// server/ontology/resolver.mjs — 新增 onUnmatched 钩子</span>
+<span class="k">export function</span> createSemanticResolver({ registry, now, <span class="k">onUnmatched</span> } = {}) {
+  ...
+  <span class="c">// 当一个问题命中零个受治理词项时，上抛信号供 steward 决策是否新增词/指标</span>
+  <span class="k">if</span> (<span class="k">typeof</span> onUnmatched === <span class="s">'function'</span> && matchedTerms.length === 0 && !followUp
+    && intent !== <span class="s">'trace'</span> && intent !== <span class="s">'similarity'</span> && !selectedFallback) {
+    onUnmatched({ query: text, intent, heuristicMetric: metricIds[0] || <span class="k">null</span> });
+  }
+}
+
+<span class="c">// server/agentRuntime/graph.mjs — 把信号接到 telemetry</span>
+const semanticResolver = createSemanticResolver({
+  registry, now,
+  onUnmatched: (signal) => deps.telemetry?.record(<span class="s">'semantic_resolver_unmatched'</span>, {
+    ontologyVersion, ontologyFingerprint, intent,
+    heuristicMetric, queryHash: summarizeSensitiveText(signal.query).contentHash,
+  }),
+});</pre>
+  <div class="note"><b>隐私处理：</b>查询文本经 <code>summarizeSensitiveText</code> 哈希后只记录 <code>contentHash</code>，原始 query 不入库；telemetry 白名单同步加入 <code>queryHash</code> / <code>heuristicMetric</code>。设计上是安全的。</div>
+
+  <h3>4.2 本体编译器 — Mermaid 实体关系图</h3>
+  <p><code>compileOntology.mjs</code> 新增 <code>--emit-graph</code> 选项，可输出 Mermaid <code>flowchart LR</code> 图到 <code>docs/ontology/graph.md</code>，draft 关系用虚线 <code>-.-&gt;</code>、已批准用实线 <code>--&gt;</code>。<code>package.json</code> 新增 <code>ontology:graph</code> 脚本，<code>ontology:compile</code> 也默认带上 <code>--emit-graph</code>。</p>
+
+  <h3>4.3 前端 — Admin 后台路由接入</h3>
+  <pre><span class="c">// src/App.tsx — 新增 /admin 路由树</span>
+&lt;Route path=<span class="s">"/admin"</span> element=&lt;AdminLayout /&gt;&gt;
+  &lt;Route index element=&lt;AdminDashboard /&gt; /&gt;
+  &lt;Route path=<span class="s">"chat-queries"</span> element=&lt;ChatQueriesPage /&gt; /&gt;
+  &lt;Route path=<span class="s">"dedup-searches"</span> element=&lt;DedupSearchesPage /&gt; /&gt;
+  &lt;Route path=<span class="s">"token-usage"</span> element=&lt;TokenUsagePage /&gt; /&gt;
+  &lt;Route path=<span class="s">"system"</span> element=&lt;SystemMonitorPage /&gt; /&gt;
+&lt;/Route&gt;</pre>
+
+  <h3>4.4 配置 — Node experimental-sqlite</h3>
+  <p><code>dev:server</code> / <code>start</code> / <code>dev.mjs</code> 的 server 启动命令均加上 <code>--experimental-sqlite</code> flag，启用 Node 22 内置 SQLite 支持。</p>
+
+  <h3>4.5 测试更新</h3>
+  <ul>
+    <li><code>compiler.test.ts</code>：实体计数断言 19→23；新增 Mermaid 图生成测试 (校验 flowchart LR、实体节点、draft 虚线边)</li>
+    <li><code>semanticResolver.test.ts</code>：新增 2 例 onUnmatched 测试 — "各楼层工位利用率"命中零治理词时上抛信号；"上周缺陷数是多少"命中时不上抛</li>
+  </ul>
+
+  <h2>⑤ Ontology 数据层变化</h2>
+  <div class="cards">
+    <div class="card"><div class="lbl">实体计数</div><div class="val">19 → 23 (+4)</div><div style="font-size:12px;color:#5a6a7a;margin-top:4px;">推断新增：quality.defect_history_event / quality.defect_outcome / traceability.link / traceability.testcase_summary (对应新增数据源)</div></div>
+    <div class="card"><div class="lbl">本体指纹</div><div class="val">6a3db74b… → 777e3a8e…</div><div style="font-size:12px;color:#5a6a7a;margin-top:4px;">指纹变化意味着版本漂移，远程与本地 ontology 已不同步</div></div>
+  </div>
+  <p style="font-size:13px;margin-top:10px;"><b>sources.json 新增 4 个 draft 数据源</b> (均指向 database/source/qgate_raw.db)：</p>
+  <ul>
+    <li><code>analytics.traceability_links</code> → semantic_trace_edges 表</li>
+    <li><code>analytics.traceability_testcases</code> → semantic_traceability_testcases 表</li>
+    <li><code>analytics.defect_history</code> → octane_defect_history 表</li>
+    <li><code>analytics.defect_outcomes</code> → octane_defect_outcomes 表</li>
+  </ul>
+
+  <h2>⑥ 新增未追踪文件</h2>
+  <ul>
+    <li><code>docs/ontology/graph.md</code> — Mermaid 实体关系图 (编译器生成)</li>
+    <li><code>docs/ontology/draft-metric-cleanup.md</code> — 指标清理草案</li>
+    <li><code>docs/ontology/team-ontology-playbook.md</code> — 团队本体手册</li>
+    <li><code>docs/ontology/obsidian/ontology-plan-and-graph.md</code> + <code>ontology-roadmap.canvas</code> — Obsidian 路线图</li>
+    <li><code>ontology/cq-list.md</code> — 问题清单</li>
+  </ul>
+
+  <h2>⑦ 风险与冲突点</h2>
+
+  <div class="risk risk-p0">
+    <span class="tag">P0</span><span class="title">Admin 后台组件缺失 — 构建会失败</span>
+    <div class="desc"><code>src/App.tsx</code> 已 import 6 个 admin 模块 (<code>AdminLayout / AdminDashboard / ChatQueriesPage / DedupSearchesPage / TokenUsagePage / SystemMonitorPage</code>)，但主工作树的 <code>src/components/admin/</code> 与 <code>src/pages/admin/</code> <b>两个目录完全为空</b>，<code>git ls-files</code> 确认未被追踪。完整实现仅存在于 git worktree <code>codex/testing-quality-ontology-v2</code> (<code>.worktrees/testing-quality-ontology-v2/</code>)。这是典型的"半合并"——App.tsx 从该 worktree 带入提交，但组件实现文件未一并同步。<b>当前主工作树执行 vite build / tsc 必然报模块找不到。</b></div>
+  </div>
+
+  <div class="risk risk-p1">
+    <span class="tag">P1</span><span class="title">二进制数据库文件入库 — merge 易冲突</span>
+    <div class="desc"><code>backend/database/ticket_embeddings.db</code> (16KB) 被加入改动，这是重复工单嵌入缓存库。二进制文件无法 diff/merge，若远程或他人也改此文件会产生不可合并冲突。建议加入 <code>.gitignore</code> 或改用内容哈希追踪。</div>
+  </div>
+
+  <div class="risk risk-p1">
+    <span class="tag">P1</span><span class="title">编译生成物直接入库 — 源/产物混淆</span>
+    <div class="desc"><code>ontology/generated/ontology.compiled.json</code> (+1055) 与 <code>fingerprint.txt</code> 是 <code>compileOntology.mjs</code> 的生成产物，正常应 <code>.gitignore</code>。当前源 (entities.json) 与产物同时 commit，若他人本地环境不同会反复产生"过时生成物" diff，污染提交历史。</div>
+  </div>
+
+  <div class="risk risk-p2">
+    <span class="tag">P2</span><span class="title">--experimental-sqlite 依赖 Node 版本</span>
+    <div class="desc">该 flag 仅 Node 22.5+ 支持，且属实验性 API。需确认 CI / 生产部署环境的 Node 版本一致，否则 server 启动会因未知 flag 失败。</div>
+  </div>
+
+  <div class="risk risk-p2">
+    <span class="tag">P2</span><span class="title">Ontology 版本漂移</span>
+    <div class="desc">fingerprint 变化、实体 19→23，本地 ontology 与远程 <code>origin/upgrade/2026-07-main-agent-v2</code> 不同步。push 后其他协作者拉取需重新编译本体；若有并行的 ontology 改动分支会产生 entities.json 冲突。</div>
+  </div>
+
+  <h2>⑧ 建议的合并/同步策略</h2>
+  <div class="note">
+    <b>1. 优先修复 P0：</b>从 worktree <code>codex/testing-quality-ontology-v2</code> 把 admin 组件同步过来——<br>
+    <code style="font-size:11px;">git checkout codex/testing-quality-ontology-v2 -- src/components/admin src/pages/admin</code><br>
+    随后验证 <code>npm run build</code> 是否通过。
+  </div>
+  <div class="note">
+    <b>2. 提交前清理生成物与二进制：</b>把 <code>ontology/generated/</code>、<code>backend/database/*.db</code> 加入 <code>.gitignore</code>，从跟踪中移除 (<code>git rm --cached</code>)，仅保留源文件 (entities.json / sources.json)。
+  </div>
+  <div class="note">
+    <b>3. 重新编译本体后再提交：</b>执行 <code>npm run ontology:compile</code> 确保 fingerprint / compiled.json 与 entities.json 一致，避免"过时生成物"告警。
+  </div>
+  <div class="note">
+    <b>4. 提交并推送：</b>P0 修复后，工作区 Codex 改动 (agent runtime 闭环 + ontology 扩展) 与 8 个未推送提交可一起推送至 <code>origin/upgrade/2026-07-main-agent-v2</code>。
+  </div>
+
+  <div class="footer">本报告由本地 git 仓库差异分析自动生成 · 基准 origin/upgrade/2026-07-main-agent-v2 @ ec3fd8ba</div>
+</div>
+</body>
+</html>

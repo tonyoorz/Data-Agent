@@ -2,27 +2,768 @@
   "schemaVersion": "1.0",
   "ontologyVersion": "v1",
   "dimensions": [
-    { "id": "time.defect_creation_date", "labels": { "zh-CN": "缺陷创建时间", "en-US": "Defect Creation Date" }, "entityId": "quality.defect", "propertyId": "creation_time", "type": "datetime", "eventTimeSemantics": "The event time at which the defect was created; never a resolution or snapshot timestamp.", "timezone": "Asia/Shanghai", "sourceReadModel": "full_picture_outcomes", "governance": { "status": "approved", "owner": "Quality Analytics" } },
-    { "id": "time.defect_resolution_date", "labels": { "zh-CN": "缺陷解决时间", "en-US": "Defect Resolution Date" }, "entityId": "quality.defect", "propertyId": "resolution_time", "type": "datetime", "eventTimeSemantics": "The event time at which an approved resolution outcome became effective.", "timezone": "Asia/Shanghai", "sourceReadModel": "full_picture_outcomes", "governance": { "status": "draft", "owner": "Quality Governance", "decisionRef": "docs/main-agent-v2/metric-decisions.md" } },
-    { "id": "time.test_finished_date", "labels": { "zh-CN": "测试完成时间", "en-US": "Test Finished Date" }, "entityId": "testing.test_run", "propertyId": "finished", "type": "datetime", "eventTimeSemantics": "The completion event time of a manual test run.", "timezone": "Asia/Shanghai", "sourceReadModel": "testing_coverage_hot", "governance": { "status": "approved", "owner": "Testing Analytics" } },
-    { "id": "time.test_week", "labels": { "zh-CN": "测试周", "en-US": "Test Week" }, "entityId": "testing.test_run", "propertyId": "test_week", "type": "categorical", "sourceReadModel": "testing_coverage_hot", "governance": { "status": "approved", "owner": "Testing Analytics" } },
-    { "id": "org.problem_finder_team", "labels": { "zh-CN": "问题发现团队", "en-US": "Problem Finder Team" }, "entityId": "quality.defect", "propertyId": "problem_finder_team", "type": "categorical", "sourceReadModel": "full_picture_outcomes", "governance": { "status": "approved", "owner": "Quality Analytics" } },
-    { "id": "org.tester", "labels": { "zh-CN": "测试人员", "en-US": "Tester" }, "entityId": "testing.test_run", "propertyId": "tester", "type": "categorical", "sourceReadModel": "testing_coverage_hot", "governance": { "status": "approved", "owner": "Testing Analytics" } },
-    { "id": "org.team", "labels": { "zh-CN": "执行团队", "en-US": "Execution Team" }, "entityId": "testing.test_run", "propertyId": "team", "type": "categorical", "sourceReadModel": "testing_coverage_hot", "governance": { "status": "approved", "owner": "Testing Analytics" } },
-    { "id": "product.project", "labels": { "zh-CN": "项目", "en-US": "Project" }, "entityId": "quality.defect", "propertyId": "project", "type": "categorical", "sourceReadModel": "full_picture_outcomes", "governance": { "status": "approved", "owner": "Product Analytics" } },
-    { "id": "product.service_pack", "labels": { "zh-CN": "Service Pack", "en-US": "Service Pack" }, "entityId": "quality.defect", "propertyId": "service_pack", "type": "categorical", "sourceReadModel": "full_picture_outcomes", "governance": { "status": "approved", "owner": "Product Analytics" } },
-    { "id": "product.pu", "labels": { "zh-CN": "PU", "en-US": "Product Unit" }, "entityId": "quality.defect", "propertyId": "pu", "type": "categorical", "sourceReadModel": "full_picture_outcomes", "governance": { "status": "approved", "owner": "Product Analytics" } },
-    { "id": "product.i_step", "labels": { "zh-CN": "I-Step", "en-US": "I-Step" }, "entityId": "quality.defect", "propertyId": "i_step", "type": "categorical", "sourceReadModel": "full_picture_outcomes", "governance": { "status": "approved", "owner": "Product Analytics" } },
-    { "id": "product.os", "labels": { "zh-CN": "OS", "en-US": "Operating System" }, "entityId": "quality.defect", "propertyId": "os", "type": "categorical", "sourceReadModel": "full_picture_outcomes", "governance": { "status": "approved", "owner": "Product Analytics" } },
-    { "id": "product.platform", "labels": { "zh-CN": "平台", "en-US": "Platform" }, "entityId": "quality.defect", "propertyId": "platform", "type": "categorical", "sourceReadModel": "full_picture_outcomes", "governance": { "status": "approved", "owner": "Product Analytics" } },
-    { "id": "product.ecu", "labels": { "zh-CN": "ECU/模块", "en-US": "ECU or Module" }, "entityId": "quality.defect", "propertyId": "assigned_ecu", "type": "categorical", "sourceReadModel": "full_picture_outcomes", "governance": { "status": "approved", "owner": "Quality Analytics" } },
-    { "id": "vehicle.model_series", "labels": { "zh-CN": "车型系列", "en-US": "Model Series" }, "entityId": "quality.defect", "propertyId": "model_series", "type": "categorical", "sourceReadModel": "full_picture_outcomes", "governance": { "status": "approved", "owner": "Vehicle Analytics" } },
-    { "id": "requirements.aida", "labels": { "zh-CN": "AIDA 需求", "en-US": "AIDA Requirement" }, "entityId": "quality.defect", "propertyId": "aida", "type": "categorical", "sourceReadModel": "full_picture_outcomes", "governance": { "status": "approved", "owner": "Requirements Analytics" } },
-    { "id": "quality.phase", "labels": { "zh-CN": "缺陷阶段", "en-US": "Defect Phase" }, "entityId": "quality.defect", "propertyId": "phase", "type": "categorical", "sourceReadModel": "full_picture_outcomes", "governance": { "status": "approved", "owner": "Quality Analytics" } },
-    { "id": "quality.severity", "labels": { "zh-CN": "严重程度", "en-US": "Severity" }, "entityId": "quality.defect", "propertyId": "severity", "type": "categorical", "sourceReadModel": "full_picture_outcomes", "governance": { "status": "approved", "owner": "Quality Analytics" } },
-    { "id": "quality.status", "labels": { "zh-CN": "缺陷状态", "en-US": "Defect Status" }, "entityId": "quality.defect", "propertyId": "status", "type": "categorical", "sourceReadModel": "full_picture_outcomes", "governance": { "status": "approved", "owner": "Quality Analytics" } },
-    { "id": "quality.china_scope", "labels": { "zh-CN": "China Scope", "en-US": "China Scope" }, "entityId": "quality.defect", "propertyId": "china_scope", "type": "categorical", "sourceReadModel": "full_picture_outcomes", "governance": { "status": "approved", "owner": "Quality Analytics" } },
-    { "id": "testing.run_status", "labels": { "zh-CN": "测试运行状态", "en-US": "Test Run Status" }, "entityId": "testing.test_run", "propertyId": "status", "type": "categorical", "sourceReadModel": "testing_coverage_hot", "governance": { "status": "approved", "owner": "Testing Analytics" } },
-    { "id": "testing.trace_status", "labels": { "zh-CN": "需求追溯状态", "en-US": "Requirement Trace Status" }, "entityId": "testing.test_case", "propertyId": "trace_status", "type": "categorical", "sourceReadModel": "traceability_models", "governance": { "status": "approved", "owner": "Requirements Analytics" } }
+    {
+      "id": "time.defect_creation_date",
+      "labels": {
+        "zh-CN": "缺陷创建时间",
+        "en-US": "Defect Creation Date"
+      },
+      "entityId": "quality.defect",
+      "propertyId": "creation_time",
+      "type": "datetime",
+      "eventTimeSemantics": "The event time at which the defect was created; never a resolution or snapshot timestamp.",
+      "timezone": "Asia/Shanghai",
+      "sourceReadModel": "full_picture_outcomes",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "time.defect_resolution_date",
+      "labels": {
+        "zh-CN": "缺陷解决时间",
+        "en-US": "Defect Resolution Date"
+      },
+      "entityId": "quality.defect",
+      "propertyId": "resolution_time",
+      "type": "datetime",
+      "eventTimeSemantics": "The event time at which an approved resolution outcome became effective.",
+      "timezone": "Asia/Shanghai",
+      "sourceReadModel": "full_picture_outcomes",
+      "governance": {
+        "status": "draft",
+        "owner": "Quality Governance",
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md"
+      }
+    },
+    {
+      "id": "time.test_finished_date",
+      "labels": {
+        "zh-CN": "测试完成时间",
+        "en-US": "Test Finished Date"
+      },
+      "entityId": "testing.test_run",
+      "propertyId": "finished",
+      "type": "datetime",
+      "eventTimeSemantics": "The completion event time of a manual test run.",
+      "timezone": "Asia/Shanghai",
+      "sourceReadModel": "testing_coverage_hot",
+      "governance": {
+        "status": "approved",
+        "owner": "Testing Analytics"
+      }
+    },
+    {
+      "id": "time.test_week",
+      "labels": {
+        "zh-CN": "测试周",
+        "en-US": "Test Week"
+      },
+      "entityId": "testing.test_run",
+      "propertyId": "test_week",
+      "type": "categorical",
+      "sourceReadModel": "testing_coverage_hot",
+      "governance": {
+        "status": "approved",
+        "owner": "Testing Analytics"
+      }
+    },
+    {
+      "id": "org.problem_finder_team",
+      "labels": {
+        "zh-CN": "问题发现团队",
+        "en-US": "Problem Finder Team"
+      },
+      "entityId": "quality.defect",
+      "propertyId": "problem_finder_team",
+      "type": "categorical",
+      "sourceReadModel": "full_picture_outcomes",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "org.tester",
+      "labels": {
+        "zh-CN": "测试人员",
+        "en-US": "Tester"
+      },
+      "entityId": "testing.test_run",
+      "propertyId": "tester",
+      "type": "categorical",
+      "sourceReadModel": "testing_coverage_hot",
+      "governance": {
+        "status": "approved",
+        "owner": "Testing Analytics"
+      }
+    },
+    {
+      "id": "org.team",
+      "labels": {
+        "zh-CN": "执行团队",
+        "en-US": "Execution Team"
+      },
+      "entityId": "testing.test_run",
+      "propertyId": "team",
+      "type": "categorical",
+      "sourceReadModel": "testing_coverage_hot",
+      "governance": {
+        "status": "approved",
+        "owner": "Testing Analytics"
+      }
+    },
+    {
+      "id": "product.project",
+      "labels": {
+        "zh-CN": "项目",
+        "en-US": "Project"
+      },
+      "entityId": "quality.defect",
+      "propertyId": "project",
+      "type": "categorical",
+      "sourceReadModel": "full_picture_outcomes",
+      "governance": {
+        "status": "approved",
+        "owner": "Product Analytics"
+      }
+    },
+    {
+      "id": "product.service_pack",
+      "labels": {
+        "zh-CN": "Service Pack",
+        "en-US": "Service Pack"
+      },
+      "entityId": "quality.defect",
+      "propertyId": "service_pack",
+      "type": "categorical",
+      "sourceReadModel": "full_picture_outcomes",
+      "governance": {
+        "status": "approved",
+        "owner": "Product Analytics"
+      }
+    },
+    {
+      "id": "product.pu",
+      "labels": {
+        "zh-CN": "PU",
+        "en-US": "Product Unit"
+      },
+      "entityId": "quality.defect",
+      "propertyId": "pu",
+      "type": "categorical",
+      "sourceReadModel": "full_picture_outcomes",
+      "governance": {
+        "status": "approved",
+        "owner": "Product Analytics"
+      }
+    },
+    {
+      "id": "product.i_step",
+      "labels": {
+        "zh-CN": "I-Step",
+        "en-US": "I-Step"
+      },
+      "entityId": "quality.defect",
+      "propertyId": "i_step",
+      "type": "categorical",
+      "sourceReadModel": "full_picture_outcomes",
+      "governance": {
+        "status": "approved",
+        "owner": "Product Analytics"
+      }
+    },
+    {
+      "id": "product.os",
+      "labels": {
+        "zh-CN": "OS",
+        "en-US": "Operating System"
+      },
+      "entityId": "quality.defect",
+      "propertyId": "os",
+      "type": "categorical",
+      "sourceReadModel": "full_picture_outcomes",
+      "governance": {
+        "status": "approved",
+        "owner": "Product Analytics"
+      }
+    },
+    {
+      "id": "product.platform",
+      "labels": {
+        "zh-CN": "平台",
+        "en-US": "Platform"
+      },
+      "entityId": "quality.defect",
+      "propertyId": "platform",
+      "type": "categorical",
+      "sourceReadModel": "full_picture_outcomes",
+      "governance": {
+        "status": "approved",
+        "owner": "Product Analytics"
+      }
+    },
+    {
+      "id": "product.ecu",
+      "labels": {
+        "zh-CN": "ECU/模块",
+        "en-US": "ECU or Module"
+      },
+      "entityId": "quality.defect",
+      "propertyId": "assigned_ecu",
+      "type": "categorical",
+      "sourceReadModel": "full_picture_outcomes",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "vehicle.model_series",
+      "labels": {
+        "zh-CN": "车型系列",
+        "en-US": "Model Series"
+      },
+      "entityId": "quality.defect",
+      "propertyId": "model_series",
+      "type": "categorical",
+      "sourceReadModel": "full_picture_outcomes",
+      "governance": {
+        "status": "approved",
+        "owner": "Vehicle Analytics"
+      }
+    },
+    {
+      "id": "requirements.aida",
+      "labels": {
+        "zh-CN": "AIDA 需求",
+        "en-US": "AIDA Requirement"
+      },
+      "entityId": "quality.defect",
+      "propertyId": "aida",
+      "type": "categorical",
+      "sourceReadModel": "full_picture_outcomes",
+      "governance": {
+        "status": "approved",
+        "owner": "Requirements Analytics"
+      }
+    },
+    {
+      "id": "quality.phase",
+      "labels": {
+        "zh-CN": "缺陷阶段",
+        "en-US": "Defect Phase"
+      },
+      "entityId": "quality.defect",
+      "propertyId": "phase",
+      "type": "categorical",
+      "sourceReadModel": "full_picture_outcomes",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "quality.severity",
+      "labels": {
+        "zh-CN": "严重程度",
+        "en-US": "Severity"
+      },
+      "entityId": "quality.defect",
+      "propertyId": "severity",
+      "type": "categorical",
+      "sourceReadModel": "full_picture_outcomes",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "quality.status",
+      "labels": {
+        "zh-CN": "缺陷状态",
+        "en-US": "Defect Status"
+      },
+      "entityId": "quality.defect",
+      "propertyId": "status",
+      "type": "categorical",
+      "sourceReadModel": "full_picture_outcomes",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "quality.china_scope",
+      "labels": {
+        "zh-CN": "China Scope",
+        "en-US": "China Scope"
+      },
+      "entityId": "quality.defect",
+      "propertyId": "china_scope",
+      "type": "categorical",
+      "sourceReadModel": "full_picture_outcomes",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "testing.run_status",
+      "labels": {
+        "zh-CN": "测试运行状态",
+        "en-US": "Test Run Status"
+      },
+      "entityId": "testing.test_run",
+      "propertyId": "status",
+      "type": "categorical",
+      "sourceReadModel": "testing_coverage_hot",
+      "governance": {
+        "status": "approved",
+        "owner": "Testing Analytics"
+      }
+    },
+    {
+      "id": "testing.trace_status",
+      "labels": {
+        "zh-CN": "需求追溯状态",
+        "en-US": "Requirement Trace Status"
+      },
+      "entityId": "testing.test_case",
+      "propertyId": "trace_status",
+      "type": "categorical",
+      "sourceReadModel": "testing_coverage_hot",
+      "governance": {
+        "status": "approved",
+        "owner": "Requirements Analytics"
+      }
+    },
+    {
+      "id": "quality.solution_cluster",
+      "labels": {
+        "zh-CN": "解决方案聚类",
+        "en-US": "Solution Cluster"
+      },
+      "entityId": "quality.defect",
+      "propertyId": "solution_cluster",
+      "type": "categorical",
+      "sourceReadModel": "full_picture_outcomes",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "quality.defect_category",
+      "labels": {
+        "zh-CN": "缺陷类别",
+        "en-US": "Defect Category"
+      },
+      "entityId": "quality.defect",
+      "propertyId": "defect_category",
+      "type": "categorical",
+      "sourceReadModel": "full_picture_outcomes",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "quality.reporting_class",
+      "labels": {
+        "zh-CN": "报告类别",
+        "en-US": "Reporting Class"
+      },
+      "entityId": "quality.defect",
+      "propertyId": "reporting_class",
+      "type": "categorical",
+      "sourceReadModel": "full_picture_outcomes",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "quality.user_tags",
+      "labels": {
+        "zh-CN": "用户标签",
+        "en-US": "User Tags"
+      },
+      "entityId": "quality.defect",
+      "propertyId": "user_tags",
+      "type": "categorical",
+      "sourceReadModel": "full_picture_outcomes",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "quality.market",
+      "labels": {
+        "zh-CN": "市场",
+        "en-US": "Market"
+      },
+      "entityId": "quality.defect",
+      "propertyId": "market",
+      "type": "categorical",
+      "sourceReadModel": "full_picture_outcomes",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "quality.blocking_reason",
+      "labels": {
+        "zh-CN": "阻塞原因",
+        "en-US": "Blocking Reason"
+      },
+      "entityId": "quality.defect",
+      "propertyId": "blocking_reason",
+      "type": "categorical",
+      "sourceReadModel": "full_picture_outcomes",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "quality.error_occurrence",
+      "labels": {
+        "zh-CN": "错误发生频率",
+        "en-US": "Error Occurrence"
+      },
+      "entityId": "quality.defect",
+      "propertyId": "error_occurrence",
+      "type": "categorical",
+      "sourceReadModel": "full_picture_outcomes",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "quality.detected_in_release",
+      "labels": {
+        "zh-CN": "发现版本",
+        "en-US": "Detected in Release"
+      },
+      "entityId": "quality.defect",
+      "propertyId": "detected_in_release",
+      "type": "categorical",
+      "sourceReadModel": "full_picture_outcomes",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "quality.parent_child_type",
+      "labels": {
+        "zh-CN": "父子类型",
+        "en-US": "Parent-Child Type"
+      },
+      "entityId": "quality.defect",
+      "propertyId": "parent_child_type",
+      "type": "categorical",
+      "sourceReadModel": "full_picture_outcomes",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "time.defect_last_modified",
+      "labels": {
+        "zh-CN": "缺陷最后修改时间",
+        "en-US": "Defect Last Modified"
+      },
+      "entityId": "quality.defect",
+      "propertyId": "last_modified",
+      "type": "datetime",
+      "eventTimeSemantics": "The last modification timestamp of the defect record.",
+      "timezone": "Asia/Shanghai",
+      "sourceReadModel": "full_picture_outcomes",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "time.run_started",
+      "labels": {
+        "zh-CN": "测试开始时间",
+        "en-US": "Run Started"
+      },
+      "entityId": "testing.test_run",
+      "propertyId": "started",
+      "type": "datetime",
+      "eventTimeSemantics": "The start time of a manual test run execution.",
+      "timezone": "Asia/Shanghai",
+      "sourceReadModel": "testing_coverage_hot",
+      "governance": {
+        "status": "approved",
+        "owner": "Testing Analytics"
+      }
+    },
+    {
+      "id": "time.run_creation",
+      "labels": {
+        "zh-CN": "测试创建时间",
+        "en-US": "Run Creation Time"
+      },
+      "entityId": "testing.test_run",
+      "propertyId": "creation_time",
+      "type": "datetime",
+      "eventTimeSemantics": "The creation time of the test run record.",
+      "timezone": "Asia/Shanghai",
+      "sourceReadModel": "testing_coverage_hot",
+      "governance": {
+        "status": "draft",
+        "owner": "Testing Analytics"
+      }
+    },
+    {
+      "id": "testing.domain",
+      "labels": {
+        "zh-CN": "测试域",
+        "en-US": "Testing Domain"
+      },
+      "entityId": "testing.test_run",
+      "propertyId": "domain",
+      "type": "categorical",
+      "sourceReadModel": "testing_coverage_hot",
+      "governance": {
+        "status": "approved",
+        "owner": "Testing Analytics"
+      }
+    },
+    {
+      "id": "testing.test_phase",
+      "labels": {
+        "zh-CN": "测试阶段",
+        "en-US": "Test Phase"
+      },
+      "entityId": "testing.test_run",
+      "propertyId": "test_phase",
+      "type": "categorical",
+      "sourceReadModel": "testing_coverage_hot",
+      "governance": {
+        "status": "approved",
+        "owner": "Testing Analytics"
+      }
+    },
+    {
+      "id": "testing.testing_tool_type",
+      "labels": {
+        "zh-CN": "测试工具类型",
+        "en-US": "Testing Tool Type"
+      },
+      "entityId": "testing.test_run",
+      "propertyId": "testing_tool_type",
+      "type": "categorical",
+      "sourceReadModel": "testing_coverage_hot",
+      "governance": {
+        "status": "approved",
+        "owner": "Testing Analytics"
+      }
+    },
+    {
+      "id": "testing.run_team",
+      "labels": {
+        "zh-CN": "执行团队(详细)",
+        "en-US": "Run Team"
+      },
+      "entityId": "testing.test_run",
+      "propertyId": "run_team",
+      "type": "categorical",
+      "sourceReadModel": "testing_coverage_hot",
+      "governance": {
+        "status": "approved",
+        "owner": "Testing Analytics"
+      }
+    },
+    {
+      "id": "product.release",
+      "labels": {
+        "zh-CN": "Release",
+        "en-US": "Release"
+      },
+      "entityId": "testing.test_run",
+      "propertyId": "release",
+      "type": "categorical",
+      "sourceReadModel": "testing_coverage_hot",
+      "governance": {
+        "status": "approved",
+        "owner": "Testing Analytics"
+      }
+    },
+    {
+      "id": "vehicle.lead_model",
+      "labels": {
+        "zh-CN": "车型(Lead Model)",
+        "en-US": "Lead Model"
+      },
+      "entityId": "quality.defect",
+      "propertyId": "lead_model",
+      "type": "categorical",
+      "sourceReadModel": "full_picture_outcomes",
+      "governance": {
+        "status": "approved",
+        "owner": "Product Analytics"
+      }
+    },
+    {
+      "id": "quality.phase_enum",
+      "labels": {
+        "zh-CN": "缺陷阶段(完整枚举)",
+        "en-US": "Defect Phase (Full Enum)"
+      },
+      "entityId": "quality.defect",
+      "propertyId": "phase",
+      "type": "categorical",
+      "sourceReadModel": "full_picture_outcomes",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "quality.maturity_grade",
+      "labels": {
+        "zh-CN": "成熟度等级(RG)",
+        "en-US": "Maturity Grade"
+      },
+      "entityId": "quality.maturity_grade",
+      "propertyId": "rg_level",
+      "type": "categorical",
+      "sourceReadModel": "maturity_grades",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "quality.evaluation_phase",
+      "labels": {
+        "zh-CN": "评估阶段",
+        "en-US": "Evaluation Phase"
+      },
+      "entityId": "quality.defect",
+      "propertyId": "involved_i_step",
+      "type": "categorical",
+      "sourceReadModel": "full_picture_outcomes",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "quality.function_group",
+      "labels": {
+        "zh-CN": "功能组",
+        "en-US": "Function Group"
+      },
+      "entityId": "organization.function_team_mapping",
+      "propertyId": "function_group",
+      "type": "categorical",
+      "sourceReadModel": "function_team_mapping",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "testing.quality_category",
+      "labels": {
+        "zh-CN": "测试质量类别(ISO 25010)",
+        "en-US": "Test Quality Category (ISO 25010)"
+      },
+      "entityId": "testing.test_run",
+      "propertyId": "domain",
+      "type": "categorical",
+      "sourceReadModel": "testing_coverage_hot",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "testing.activity_type",
+      "labels": {
+        "zh-CN": "测试活动类型",
+        "en-US": "Test Activity Type"
+      },
+      "entityId": "testing.test_run",
+      "propertyId": "test_phase",
+      "type": "categorical",
+      "sourceReadModel": "testing_coverage_hot",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "org.cn_team_domain",
+      "labels": {
+        "zh-CN": "中国团队域",
+        "en-US": "China Team Domain"
+      },
+      "entityId": "organization.team",
+      "propertyId": "team_id",
+      "type": "categorical",
+      "sourceReadModel": "full_picture_outcomes",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "product.release_enum",
+      "labels": {
+        "zh-CN": "Release(完整枚举)",
+        "en-US": "Release (Full Enum)"
+      },
+      "entityId": "testing.test_run",
+      "propertyId": "release",
+      "type": "categorical",
+      "sourceReadModel": "testing_coverage_hot",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "quality.qgate_type",
+      "labels": {
+        "zh-CN": "Q-Gate类型",
+        "en-US": "Q-Gate Type"
+      },
+      "entityId": "quality.qgate",
+      "propertyId": "qgate_id",
+      "type": "categorical",
+      "sourceReadModel": "qgate_kpi",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "quality.tqr_enum",
+      "labels": {
+        "zh-CN": "工单质量评级(TQR)",
+        "en-US": "Ticket Quality Rating"
+      },
+      "entityId": "quality.defect",
+      "propertyId": "tqr",
+      "type": "categorical",
+      "sourceReadModel": "full_picture_outcomes",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    }
   ]
 }

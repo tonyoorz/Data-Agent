@@ -13,6 +13,7 @@ import { streamCompanyChatCompletion, writeSseEvent, writeSseResponse } from "./
 import { attachDuplicateSummary } from "./duplicateResultEnrichment.mjs";
 import { loadLocalEnv } from "./loadLocalEnv.mjs";
 import { buildProductionDependencies, createAgentApp } from "./app.mjs";
+import { buildApprovedMetricsCatalog } from "./ontology/catalog.mjs";
 import { createShadowDispatcher } from "./agentRuntime/shadow.mjs";
 import { safeTelemetryErrorCode, safeTelemetryReference, summarizeSensitiveText } from "./agentRuntime/telemetry.mjs";
 import {
@@ -465,6 +466,14 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === "GET" && url.pathname === "/api/duplicate-search/warmup-status") {
       sendJson(response, 200, duplicateWarmupManager.getStatus());
+      return;
+    }
+
+    if (request.method === "GET" && url.pathname === "/api/ontology/approved-metrics") {
+      const locale = typeof url.searchParams.get("locale") === "string" && url.searchParams.get("locale").trim()
+        ? url.searchParams.get("locale").trim()
+        : "zh-CN";
+      sendJson(response, 200, buildApprovedMetricsCatalog(agentRuntimeDeps.ontologyRegistry, { locale }));
       return;
     }
 

@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Data-Agent Ontology Knowledge Graph</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f8f9fa;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .mermaid {
+            display: flex;
+            justify-content: center;
+            margin-top: 20px;
+        }
+    </style>
+    <!-- 引入 Mermaid.js -->
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({ 
+            startOnLoad: true,
+            theme: 'default',
+            securityLevel: 'loose',
+            flowchart: {
+                useMaxWidth: false,
+                htmlLabels: true,
+                curve: 'basis'
+            }
+        });
+    </script>
+</head>
+<body>
+    <div class="container">
+        <h1>Data-Agent Ontology Knowledge Graph</h1>
+        <div class="mermaid">
+graph TD
+    %% 样式定义
+    classDef product fill:#e1f5fe,stroke:#2b82cb,stroke-width:2px;
+    classDef req fill:#f3e5f5,stroke:#0288d1,stroke-width:2px;
+    classDef test fill:#e8f5e9,stroke:#388e3c,stroke-width:2px;
+    classDef quality fill:#ffebee,stroke:#d32f2f,stroke-width:2px;
+    classDef org fill:#fff8e1,stroke:#fbc02d,stroke-width:2px;
+    classDef metric fill:#f3e5f5,stroke:#8e24aa,stroke-width:2px,stroke-dasharray: 5 5;
+
+    %% 核心实体节点
+    subgraph product_domain [产品与架构域 Product & Vehicle]
+        Project[product.project <br>项目]:::product
+        ModelSeries[vehicle.model_series <br>车型系列]:::product
+        PU[product.pu <br>产品单元]:::product
+        IStep[product.i_step <br>软件版本/OS]:::product
+        ECU[product.ecu <br>控制器模块]:::product
+    end
+
+    subgraph req_domain [需求追踪域 Requirements]
+        AIDA[requirements.aida_node <br>AIDA需求树]:::req
+        Epic[requirements.epic <br>史诗]:::req
+        Feature[requirements.feature <br>特性]:::req
+        Story[requirements.story <br>用户故事]:::req
+    end
+
+    subgraph test_domain [测试执行域 Testing]
+        TestCase[testing.test_case <br>测试用例]:::test
+        TestRun[testing.test_run <br>测试执行记录]:::test
+    end
+
+    subgraph quality_domain [质量管控域 Quality]
+        Defect[quality.defect <br>缺陷单]:::quality
+        DefectHistory[quality.defect_history_event <br>缺陷流转历史]:::quality
+        DefectOutcome[quality.defect_outcome <br>处理结果]:::quality
+        QGate[quality.qgate <br>质量门禁]:::quality
+        Artifact[evidence.artifact <br>证据附件]:::quality
+    end
+
+    subgraph org_domain [组织域 Organization]
+        Team[organization.team <br>测试/开发团队]:::org
+        Tester[organization.tester <br>测试人员]:::org
+    end
+
+    %% 关键指标 (Metrics 节点)
+    PassRate((testing.pass_rate <br>测试通过率)):::metric
+    Coverage((testing.requirement_coverage_rate <br>需求覆盖率)):::metric
+    DefectDensity((defect.density <br>缺陷密度)):::metric
+
+    %% --- 关系连线 (Relationships) ---
+
+    %% 产品结构关系
+    Project -->|包含| ModelSeries
+    IStep -->|包含| PU
+    PU -->|包含于| Project
+    ECU -->|属于| PU
+
+    %% 需求层级关系
+    AIDA -->|细化为| Epic
+    Epic -->|细化为| Feature
+    Feature -->|细化为| Story
+
+    %% 测试追溯链路 (Traceability)
+    TestRun -->|执行了| TestCase
+    TestCase -->|验证了| AIDA
+    TestCase -->|验证了| Story
+
+    %% 缺陷发现与影响链路
+    Defect -->|发现于| TestRun
+    Defect -->|影响了| AIDA
+    Defect -->|影响了| ECU
+    Defect -->|产生| DefectHistory
+    Defect -->|导致| DefectOutcome
+    Artifact -->|证明了| Defect
+
+    %% 组织人员关系
+    Tester -->|属于| Team
+    Tester -->|执行了| TestRun
+    Team -->|发现了| Defect
+    Team -->|负责| PU
+
+    %% 质量门禁关系
+    QGate -->|评估了| PU
+    QGate -->|拦截了| Defect
+
+    %% --- 指标关联 (Metrics Links) ---
+    TestRun -.->|计算| PassRate
+    TestCase -.->|关联| Coverage
+    Defect -.->|计算| DefectDensity
+    PU -.->|聚合| DefectDensity
+        </div>
+    </div>
+</body>
+</html>

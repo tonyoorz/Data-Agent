@@ -291,6 +291,132 @@
           "type": "string",
           "nullable": true,
           "sensitivity": "internal"
+        },
+        {
+          "id": "blocking_reason",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "error_occurrence",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "aida_businesskey",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "aida_english",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "ecu_no_of_changes",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "ecu_to_modul",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "first_use_sop_of_function",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "function2modul",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "function_responsible",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "involved_i_step",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "problem_severity",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "program",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "relation_to",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "reprel_changes",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "requirement",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "requirements_json",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "solution_responsible",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "status_phase",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "tolerated_count",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "top_aida",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "tproject",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
         }
       ],
       "governance": {
@@ -639,6 +765,60 @@
         },
         {
           "id": "version_stamp",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "author",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "exec_model_series",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "execution_sw_version",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "native_status",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "spec",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "set_field",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "taxonomies",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "test_version",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "testplatformid",
           "type": "string",
           "nullable": true,
           "sensitivity": "internal"
@@ -1869,6 +2049,365 @@
       "governance": {
         "status": "approved",
         "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "quality.maturity_grade",
+      "version": "1.0.0",
+      "labels": {
+        "zh-CN": "成熟度等级",
+        "en-US": "Maturity Grade (RG)"
+      },
+      "descriptions": {
+        "zh-CN": "E/E成熟度等级模型(RG0-RG6)，衡量功能从开发到客户可用的成熟度。DTSV从RG4开始介入。",
+        "en-US": "E/E maturity grade model (RG0-RG6). DTSV starts from RG4."
+      },
+      "aliases": [
+        "RG",
+        "Reifegrad",
+        "maturity grade",
+        "成熟度"
+      ],
+      "source": {
+        "sourceId": "analytics.beat",
+        "system": "analytics",
+        "readModel": "maturity_grades",
+        "table": "maturity_grades"
+      },
+      "primaryKey": "function_id",
+      "sensitivity": "internal",
+      "allowedOperations": [
+        "read",
+        "aggregate"
+      ],
+      "properties": [
+        {
+          "id": "function_id",
+          "type": "string",
+          "nullable": false,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "rg_level",
+          "type": "string",
+          "nullable": false,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "rg_status",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "fo_name",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "measured_at",
+          "type": "datetime",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "i_step",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        }
+      ],
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "organization.function_team_mapping",
+      "version": "1.0.0",
+      "labels": {
+        "zh-CN": "功能团队映射",
+        "en-US": "Function to Team Mapping"
+      },
+      "descriptions": {
+        "zh-CN": "192条客户功能到DTSV团队的映射关系。用于缺陷自动分派和团队责任界定。",
+        "en-US": "192 customer function to DTSV team mappings for defect routing."
+      },
+      "aliases": [
+        "function mapping",
+        "team mapping",
+        "功能映射"
+      ],
+      "source": {
+        "sourceId": "analytics.team_mapping",
+        "system": "analytics",
+        "readModel": "function_team_mapping",
+        "table": "function_team_mapping"
+      },
+      "primaryKey": "function_name",
+      "sensitivity": "internal",
+      "allowedOperations": [
+        "read",
+        "aggregate"
+      ],
+      "properties": [
+        {
+          "id": "function_name",
+          "type": "string",
+          "nullable": false,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "team",
+          "type": "string",
+          "nullable": false,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "function_group",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        }
+      ],
+      "governance": {
+        "status": "approved",
+        "owner": "DTSV Team"
+      }
+    },
+    {
+      "id": "testing.test_event",
+      "version": "1.0.0",
+      "labels": {
+        "zh-CN": "测试事件",
+        "en-US": "Test Event"
+      },
+      "descriptions": {
+        "zh-CN": "Release测试事件，对应Octane中的Feature。包含Release、SET、车型、国家容量规划等信息。",
+        "en-US": "Release test event corresponding to Octane Feature, with capacity planning."
+      },
+      "aliases": [
+        "test event",
+        "release test",
+        "SET",
+        "测试事件"
+      ],
+      "source": {
+        "sourceId": "analytics.test_events",
+        "system": "analytics",
+        "readModel": "test_events",
+        "table": "test_events"
+      },
+      "primaryKey": "event_name",
+      "sensitivity": "internal",
+      "allowedOperations": [
+        "read",
+        "aggregate"
+      ],
+      "properties": [
+        {
+          "id": "event_name",
+          "type": "string",
+          "nullable": false,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "program",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "domain",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "type",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "release",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "set_name",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "models",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "capacity_iuk",
+          "type": "integer",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "capacity_dips",
+          "type": "integer",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "countries",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        }
+      ],
+      "governance": {
+        "status": "approved",
+        "owner": "DTSV Team"
+      }
+    },
+    {
+      "id": "product.test_rack",
+      "version": "1.0.0",
+      "labels": {
+        "zh-CN": "测试台架",
+        "en-US": "Test Rack"
+      },
+      "descriptions": {
+        "zh-CN": "IuK测试台架，用于软件集成测试。分为开发系统、集群系统等模块化设计。",
+        "en-US": "IuK test rack for software integration testing with modular design."
+      },
+      "aliases": [
+        "rack",
+        "test rack",
+        "Pruefstand",
+        "台架"
+      ],
+      "source": {
+        "sourceId": "analytics.test_racks",
+        "system": "analytics",
+        "readModel": "test_racks",
+        "table": "test_racks"
+      },
+      "primaryKey": "rack_id",
+      "sensitivity": "internal",
+      "allowedOperations": [
+        "read",
+        "aggregate"
+      ],
+      "properties": [
+        {
+          "id": "rack_id",
+          "type": "string",
+          "nullable": false,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "rack_type",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "platform",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "location",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "status",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        }
+      ],
+      "governance": {
+        "status": "approved",
+        "owner": "DTSV Team"
+      }
+    },
+    {
+      "id": "vehicle.test_vehicle",
+      "version": "1.0.0",
+      "labels": {
+        "zh-CN": "测试车辆",
+        "en-US": "Test Vehicle"
+      },
+      "descriptions": {
+        "zh-CN": "DTSV测试车辆，通过FIPS系统预约。分为工作日和周末测试驾驶。",
+        "en-US": "DTSV test vehicle, booked via FIPS system."
+      },
+      "aliases": [
+        "test car",
+        "FIPS",
+        "测试车",
+        "KSP"
+      ],
+      "source": {
+        "sourceId": "analytics.test_vehicles",
+        "system": "analytics",
+        "readModel": "test_vehicles",
+        "table": "test_vehicles"
+      },
+      "primaryKey": "vin",
+      "sensitivity": "confidential",
+      "allowedOperations": [
+        "read",
+        "aggregate"
+      ],
+      "properties": [
+        {
+          "id": "vin",
+          "type": "string",
+          "nullable": false,
+          "sensitivity": "confidential"
+        },
+        {
+          "id": "model_series",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "project",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "i_step",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "location",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "ksp",
+          "type": "boolean",
+          "nullable": true,
+          "sensitivity": "internal"
+        }
+      ],
+      "governance": {
+        "status": "approved",
+        "owner": "Fleet Management"
       }
     }
   ]

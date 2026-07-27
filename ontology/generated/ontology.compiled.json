@@ -69,6 +69,21 @@
   ],
   "dimensions": [
     {
+      "entityId": "organization.team",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "org.cn_team_domain",
+      "labels": {
+        "en-US": "China Team Domain",
+        "zh-CN": "中国团队域"
+      },
+      "propertyId": "team_id",
+      "sourceReadModel": "full_picture_outcomes",
+      "type": "categorical"
+    },
+    {
       "entityId": "quality.defect",
       "governance": {
         "owner": "Quality Analytics",
@@ -204,6 +219,36 @@
       "type": "categorical"
     },
     {
+      "entityId": "testing.test_run",
+      "governance": {
+        "owner": "Testing Analytics",
+        "status": "approved"
+      },
+      "id": "product.release",
+      "labels": {
+        "en-US": "Release",
+        "zh-CN": "Release"
+      },
+      "propertyId": "release",
+      "sourceReadModel": "testing_coverage_hot",
+      "type": "categorical"
+    },
+    {
+      "entityId": "testing.test_run",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "product.release_enum",
+      "labels": {
+        "en-US": "Release (Full Enum)",
+        "zh-CN": "Release(完整枚举)"
+      },
+      "propertyId": "release",
+      "sourceReadModel": "testing_coverage_hot",
+      "type": "categorical"
+    },
+    {
       "entityId": "quality.defect",
       "governance": {
         "owner": "Product Analytics",
@@ -215,6 +260,21 @@
         "zh-CN": "Service Pack"
       },
       "propertyId": "service_pack",
+      "sourceReadModel": "full_picture_outcomes",
+      "type": "categorical"
+    },
+    {
+      "entityId": "quality.defect",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "quality.blocking_reason",
+      "labels": {
+        "en-US": "Blocking Reason",
+        "zh-CN": "阻塞原因"
+      },
+      "propertyId": "blocking_reason",
       "sourceReadModel": "full_picture_outcomes",
       "type": "categorical"
     },
@@ -239,12 +299,177 @@
         "owner": "Quality Analytics",
         "status": "approved"
       },
+      "id": "quality.defect_category",
+      "labels": {
+        "en-US": "Defect Category",
+        "zh-CN": "缺陷类别"
+      },
+      "propertyId": "defect_category",
+      "sourceReadModel": "full_picture_outcomes",
+      "type": "categorical"
+    },
+    {
+      "entityId": "quality.defect",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "quality.detected_in_release",
+      "labels": {
+        "en-US": "Detected in Release",
+        "zh-CN": "发现版本"
+      },
+      "propertyId": "detected_in_release",
+      "sourceReadModel": "full_picture_outcomes",
+      "type": "categorical"
+    },
+    {
+      "entityId": "quality.defect",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "quality.error_occurrence",
+      "labels": {
+        "en-US": "Error Occurrence",
+        "zh-CN": "错误发生频率"
+      },
+      "propertyId": "error_occurrence",
+      "sourceReadModel": "full_picture_outcomes",
+      "type": "categorical"
+    },
+    {
+      "entityId": "quality.defect",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "quality.evaluation_phase",
+      "labels": {
+        "en-US": "Evaluation Phase",
+        "zh-CN": "评估阶段"
+      },
+      "propertyId": "involved_i_step",
+      "sourceReadModel": "full_picture_outcomes",
+      "type": "categorical"
+    },
+    {
+      "entityId": "organization.function_team_mapping",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "quality.function_group",
+      "labels": {
+        "en-US": "Function Group",
+        "zh-CN": "功能组"
+      },
+      "propertyId": "function_group",
+      "sourceReadModel": "function_team_mapping",
+      "type": "categorical"
+    },
+    {
+      "entityId": "quality.defect",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "quality.market",
+      "labels": {
+        "en-US": "Market",
+        "zh-CN": "市场"
+      },
+      "propertyId": "market",
+      "sourceReadModel": "full_picture_outcomes",
+      "type": "categorical"
+    },
+    {
+      "entityId": "quality.maturity_grade",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "quality.maturity_grade",
+      "labels": {
+        "en-US": "Maturity Grade",
+        "zh-CN": "成熟度等级(RG)"
+      },
+      "propertyId": "rg_level",
+      "sourceReadModel": "maturity_grades",
+      "type": "categorical"
+    },
+    {
+      "entityId": "quality.defect",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "quality.parent_child_type",
+      "labels": {
+        "en-US": "Parent-Child Type",
+        "zh-CN": "父子类型"
+      },
+      "propertyId": "parent_child_type",
+      "sourceReadModel": "full_picture_outcomes",
+      "type": "categorical"
+    },
+    {
+      "entityId": "quality.defect",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
       "id": "quality.phase",
       "labels": {
         "en-US": "Defect Phase",
         "zh-CN": "缺陷阶段"
       },
       "propertyId": "phase",
+      "sourceReadModel": "full_picture_outcomes",
+      "type": "categorical"
+    },
+    {
+      "entityId": "quality.defect",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "quality.phase_enum",
+      "labels": {
+        "en-US": "Defect Phase (Full Enum)",
+        "zh-CN": "缺陷阶段(完整枚举)"
+      },
+      "propertyId": "phase",
+      "sourceReadModel": "full_picture_outcomes",
+      "type": "categorical"
+    },
+    {
+      "entityId": "quality.qgate",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "quality.qgate_type",
+      "labels": {
+        "en-US": "Q-Gate Type",
+        "zh-CN": "Q-Gate类型"
+      },
+      "propertyId": "qgate_id",
+      "sourceReadModel": "qgate_kpi",
+      "type": "categorical"
+    },
+    {
+      "entityId": "quality.defect",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "quality.reporting_class",
+      "labels": {
+        "en-US": "Reporting Class",
+        "zh-CN": "报告类别"
+      },
+      "propertyId": "reporting_class",
       "sourceReadModel": "full_picture_outcomes",
       "type": "categorical"
     },
@@ -269,12 +494,57 @@
         "owner": "Quality Analytics",
         "status": "approved"
       },
+      "id": "quality.solution_cluster",
+      "labels": {
+        "en-US": "Solution Cluster",
+        "zh-CN": "解决方案聚类"
+      },
+      "propertyId": "solution_cluster",
+      "sourceReadModel": "full_picture_outcomes",
+      "type": "categorical"
+    },
+    {
+      "entityId": "quality.defect",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
       "id": "quality.status",
       "labels": {
         "en-US": "Defect Status",
         "zh-CN": "缺陷状态"
       },
       "propertyId": "status",
+      "sourceReadModel": "full_picture_outcomes",
+      "type": "categorical"
+    },
+    {
+      "entityId": "quality.defect",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "quality.tqr_enum",
+      "labels": {
+        "en-US": "Ticket Quality Rating",
+        "zh-CN": "工单质量评级(TQR)"
+      },
+      "propertyId": "tqr",
+      "sourceReadModel": "full_picture_outcomes",
+      "type": "categorical"
+    },
+    {
+      "entityId": "quality.defect",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "quality.user_tags",
+      "labels": {
+        "en-US": "User Tags",
+        "zh-CN": "用户标签"
+      },
+      "propertyId": "user_tags",
       "sourceReadModel": "full_picture_outcomes",
       "type": "categorical"
     },
@@ -296,6 +566,51 @@
     {
       "entityId": "testing.test_run",
       "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "testing.activity_type",
+      "labels": {
+        "en-US": "Test Activity Type",
+        "zh-CN": "测试活动类型"
+      },
+      "propertyId": "test_phase",
+      "sourceReadModel": "testing_coverage_hot",
+      "type": "categorical"
+    },
+    {
+      "entityId": "testing.test_run",
+      "governance": {
+        "owner": "Testing Analytics",
+        "status": "approved"
+      },
+      "id": "testing.domain",
+      "labels": {
+        "en-US": "Testing Domain",
+        "zh-CN": "测试域"
+      },
+      "propertyId": "domain",
+      "sourceReadModel": "testing_coverage_hot",
+      "type": "categorical"
+    },
+    {
+      "entityId": "testing.test_run",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "testing.quality_category",
+      "labels": {
+        "en-US": "Test Quality Category (ISO 25010)",
+        "zh-CN": "测试质量类别(ISO 25010)"
+      },
+      "propertyId": "domain",
+      "sourceReadModel": "testing_coverage_hot",
+      "type": "categorical"
+    },
+    {
+      "entityId": "testing.test_run",
+      "governance": {
         "owner": "Testing Analytics",
         "status": "approved"
       },
@@ -305,6 +620,51 @@
         "zh-CN": "测试运行状态"
       },
       "propertyId": "status",
+      "sourceReadModel": "testing_coverage_hot",
+      "type": "categorical"
+    },
+    {
+      "entityId": "testing.test_run",
+      "governance": {
+        "owner": "Testing Analytics",
+        "status": "approved"
+      },
+      "id": "testing.run_team",
+      "labels": {
+        "en-US": "Run Team",
+        "zh-CN": "执行团队(详细)"
+      },
+      "propertyId": "run_team",
+      "sourceReadModel": "testing_coverage_hot",
+      "type": "categorical"
+    },
+    {
+      "entityId": "testing.test_run",
+      "governance": {
+        "owner": "Testing Analytics",
+        "status": "approved"
+      },
+      "id": "testing.test_phase",
+      "labels": {
+        "en-US": "Test Phase",
+        "zh-CN": "测试阶段"
+      },
+      "propertyId": "test_phase",
+      "sourceReadModel": "testing_coverage_hot",
+      "type": "categorical"
+    },
+    {
+      "entityId": "testing.test_run",
+      "governance": {
+        "owner": "Testing Analytics",
+        "status": "approved"
+      },
+      "id": "testing.testing_tool_type",
+      "labels": {
+        "en-US": "Testing Tool Type",
+        "zh-CN": "测试工具类型"
+      },
+      "propertyId": "testing_tool_type",
       "sourceReadModel": "testing_coverage_hot",
       "type": "categorical"
     },
@@ -320,7 +680,7 @@
         "zh-CN": "需求追溯状态"
       },
       "propertyId": "trace_status",
-      "sourceReadModel": "traceability_models",
+      "sourceReadModel": "testing_coverage_hot",
       "type": "categorical"
     },
     {
@@ -342,6 +702,23 @@
     },
     {
       "entityId": "quality.defect",
+      "eventTimeSemantics": "The last modification timestamp of the defect record.",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "time.defect_last_modified",
+      "labels": {
+        "en-US": "Defect Last Modified",
+        "zh-CN": "缺陷最后修改时间"
+      },
+      "propertyId": "last_modified",
+      "sourceReadModel": "full_picture_outcomes",
+      "timezone": "Asia/Shanghai",
+      "type": "datetime"
+    },
+    {
+      "entityId": "quality.defect",
       "eventTimeSemantics": "The event time at which an approved resolution outcome became effective.",
       "governance": {
         "decisionRef": "docs/main-agent-v2/metric-decisions.md",
@@ -355,6 +732,40 @@
       },
       "propertyId": "resolution_time",
       "sourceReadModel": "full_picture_outcomes",
+      "timezone": "Asia/Shanghai",
+      "type": "datetime"
+    },
+    {
+      "entityId": "testing.test_run",
+      "eventTimeSemantics": "The creation time of the test run record.",
+      "governance": {
+        "owner": "Testing Analytics",
+        "status": "draft"
+      },
+      "id": "time.run_creation",
+      "labels": {
+        "en-US": "Run Creation Time",
+        "zh-CN": "测试创建时间"
+      },
+      "propertyId": "creation_time",
+      "sourceReadModel": "testing_coverage_hot",
+      "timezone": "Asia/Shanghai",
+      "type": "datetime"
+    },
+    {
+      "entityId": "testing.test_run",
+      "eventTimeSemantics": "The start time of a manual test run execution.",
+      "governance": {
+        "owner": "Testing Analytics",
+        "status": "approved"
+      },
+      "id": "time.run_started",
+      "labels": {
+        "en-US": "Run Started",
+        "zh-CN": "测试开始时间"
+      },
+      "propertyId": "started",
+      "sourceReadModel": "testing_coverage_hot",
       "timezone": "Asia/Shanghai",
       "type": "datetime"
     },
@@ -388,6 +799,21 @@
       },
       "propertyId": "test_week",
       "sourceReadModel": "testing_coverage_hot",
+      "type": "categorical"
+    },
+    {
+      "entityId": "quality.defect",
+      "governance": {
+        "owner": "Product Analytics",
+        "status": "approved"
+      },
+      "id": "vehicle.lead_model",
+      "labels": {
+        "en-US": "Lead Model",
+        "zh-CN": "车型(Lead Model)"
+      },
+      "propertyId": "lead_model",
+      "sourceReadModel": "full_picture_outcomes",
       "type": "categorical"
     },
     {
@@ -458,6 +884,59 @@
         "sourceId": "artifact.runtime_store",
         "system": "artifact",
         "table": "agent_artifacts"
+      },
+      "version": "1.0.0"
+    },
+    {
+      "aliases": [
+        "function mapping",
+        "team mapping",
+        "功能映射"
+      ],
+      "allowedOperations": [
+        "read",
+        "aggregate"
+      ],
+      "descriptions": {
+        "en-US": "192 customer function to DTSV team mappings for defect routing.",
+        "zh-CN": "192条客户功能到DTSV团队的映射关系。用于缺陷自动分派和团队责任界定。"
+      },
+      "governance": {
+        "owner": "DTSV Team",
+        "status": "approved"
+      },
+      "id": "organization.function_team_mapping",
+      "labels": {
+        "en-US": "Function to Team Mapping",
+        "zh-CN": "功能团队映射"
+      },
+      "primaryKey": "function_name",
+      "properties": [
+        {
+          "id": "function_name",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "team",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "function_group",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        }
+      ],
+      "sensitivity": "internal",
+      "source": {
+        "readModel": "function_team_mapping",
+        "sourceId": "analytics.team_mapping",
+        "system": "analytics",
+        "table": "function_team_mapping"
       },
       "version": "1.0.0"
     },
@@ -915,6 +1394,72 @@
     },
     {
       "aliases": [
+        "rack",
+        "test rack",
+        "Pruefstand",
+        "台架"
+      ],
+      "allowedOperations": [
+        "read",
+        "aggregate"
+      ],
+      "descriptions": {
+        "en-US": "IuK test rack for software integration testing with modular design.",
+        "zh-CN": "IuK测试台架，用于软件集成测试。分为开发系统、集群系统等模块化设计。"
+      },
+      "governance": {
+        "owner": "DTSV Team",
+        "status": "approved"
+      },
+      "id": "product.test_rack",
+      "labels": {
+        "en-US": "Test Rack",
+        "zh-CN": "测试台架"
+      },
+      "primaryKey": "rack_id",
+      "properties": [
+        {
+          "id": "rack_id",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "rack_type",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "platform",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "location",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "status",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        }
+      ],
+      "sensitivity": "internal",
+      "source": {
+        "readModel": "test_racks",
+        "sourceId": "analytics.test_racks",
+        "system": "analytics",
+        "table": "test_racks"
+      },
+      "version": "1.0.0"
+    },
+    {
+      "aliases": [
         "defect",
         "bug",
         "问题单",
@@ -1198,6 +1743,132 @@
           "nullable": true,
           "sensitivity": "internal",
           "type": "string"
+        },
+        {
+          "id": "blocking_reason",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "error_occurrence",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "aida_businesskey",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "aida_english",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "ecu_no_of_changes",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "ecu_to_modul",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "first_use_sop_of_function",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "function2modul",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "function_responsible",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "involved_i_step",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "problem_severity",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "program",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "relation_to",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "reprel_changes",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "requirement",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "requirements_json",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "solution_responsible",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "status_phase",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "tolerated_count",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "top_aida",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "tproject",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
         }
       ],
       "sensitivity": "internal",
@@ -1373,6 +2044,78 @@
         "sourceId": "analytics.defect_outcomes",
         "system": "analytics",
         "table": "defect_outcomes"
+      },
+      "version": "1.0.0"
+    },
+    {
+      "aliases": [
+        "RG",
+        "Reifegrad",
+        "maturity grade",
+        "成熟度"
+      ],
+      "allowedOperations": [
+        "read",
+        "aggregate"
+      ],
+      "descriptions": {
+        "en-US": "E/E maturity grade model (RG0-RG6). DTSV starts from RG4.",
+        "zh-CN": "E/E成熟度等级模型(RG0-RG6)，衡量功能从开发到客户可用的成熟度。DTSV从RG4开始介入。"
+      },
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "quality.maturity_grade",
+      "labels": {
+        "en-US": "Maturity Grade (RG)",
+        "zh-CN": "成熟度等级"
+      },
+      "primaryKey": "function_id",
+      "properties": [
+        {
+          "id": "function_id",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "rg_level",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "rg_status",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "fo_name",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "measured_at",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "datetime"
+        },
+        {
+          "id": "i_step",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        }
+      ],
+      "sensitivity": "internal",
+      "source": {
+        "readModel": "maturity_grades",
+        "sourceId": "analytics.beat",
+        "system": "analytics",
+        "table": "maturity_grades"
       },
       "version": "1.0.0"
     },
@@ -1765,6 +2508,102 @@
     },
     {
       "aliases": [
+        "test event",
+        "release test",
+        "SET",
+        "测试事件"
+      ],
+      "allowedOperations": [
+        "read",
+        "aggregate"
+      ],
+      "descriptions": {
+        "en-US": "Release test event corresponding to Octane Feature, with capacity planning.",
+        "zh-CN": "Release测试事件，对应Octane中的Feature。包含Release、SET、车型、国家容量规划等信息。"
+      },
+      "governance": {
+        "owner": "DTSV Team",
+        "status": "approved"
+      },
+      "id": "testing.test_event",
+      "labels": {
+        "en-US": "Test Event",
+        "zh-CN": "测试事件"
+      },
+      "primaryKey": "event_name",
+      "properties": [
+        {
+          "id": "event_name",
+          "nullable": false,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "program",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "domain",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "type",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "release",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "set_name",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "models",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "capacity_iuk",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "integer"
+        },
+        {
+          "id": "capacity_dips",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "integer"
+        },
+        {
+          "id": "countries",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        }
+      ],
+      "sensitivity": "internal",
+      "source": {
+        "readModel": "test_events",
+        "sourceId": "analytics.test_events",
+        "system": "analytics",
+        "table": "test_events"
+      },
+      "version": "1.0.0"
+    },
+    {
+      "aliases": [
         "manual run",
         "MR",
         "Run",
@@ -1968,6 +2807,60 @@
         },
         {
           "id": "version_stamp",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "author",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "exec_model_series",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "execution_sw_version",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "native_status",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "spec",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "set_field",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "taxonomies",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "test_version",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "testplatformid",
           "nullable": true,
           "sensitivity": "internal",
           "type": "string"
@@ -2275,6 +3168,78 @@
         "table": "octane_defects"
       },
       "version": "1.0.0"
+    },
+    {
+      "aliases": [
+        "test car",
+        "FIPS",
+        "测试车",
+        "KSP"
+      ],
+      "allowedOperations": [
+        "read",
+        "aggregate"
+      ],
+      "descriptions": {
+        "en-US": "DTSV test vehicle, booked via FIPS system.",
+        "zh-CN": "DTSV测试车辆，通过FIPS系统预约。分为工作日和周末测试驾驶。"
+      },
+      "governance": {
+        "owner": "Fleet Management",
+        "status": "approved"
+      },
+      "id": "vehicle.test_vehicle",
+      "labels": {
+        "en-US": "Test Vehicle",
+        "zh-CN": "测试车辆"
+      },
+      "primaryKey": "vin",
+      "properties": [
+        {
+          "id": "vin",
+          "nullable": false,
+          "sensitivity": "confidential",
+          "type": "string"
+        },
+        {
+          "id": "model_series",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "project",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "i_step",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "location",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "string"
+        },
+        {
+          "id": "ksp",
+          "nullable": true,
+          "sensitivity": "internal",
+          "type": "boolean"
+        }
+      ],
+      "sensitivity": "confidential",
+      "source": {
+        "readModel": "test_vehicles",
+        "sourceId": "analytics.test_vehicles",
+        "system": "analytics",
+        "table": "test_vehicles"
+      },
+      "version": "1.0.0"
     }
   ],
   "metrics": [
@@ -2286,7 +3251,17 @@
         "product.pu",
         "product.ecu",
         "quality.status",
-        "quality.severity"
+        "quality.severity",
+        "quality.solution_cluster",
+        "quality.defect_category",
+        "quality.reporting_class",
+        "quality.user_tags",
+        "quality.market",
+        "quality.blocking_reason",
+        "quality.detected_in_release",
+        "quality.parent_child_type",
+        "vehicle.lead_model",
+        "time.defect_last_modified"
       ],
       "capabilities": {
         "comparison": true,
@@ -2331,7 +3306,17 @@
         "quality.phase",
         "quality.severity",
         "quality.status",
-        "quality.china_scope"
+        "quality.china_scope",
+        "quality.solution_cluster",
+        "quality.defect_category",
+        "quality.reporting_class",
+        "quality.user_tags",
+        "quality.market",
+        "quality.blocking_reason",
+        "quality.detected_in_release",
+        "quality.parent_child_type",
+        "vehicle.lead_model",
+        "time.defect_last_modified"
       ],
       "capabilities": {
         "comparison": true,
@@ -2370,7 +3355,17 @@
         "requirements.aida",
         "quality.phase",
         "quality.severity",
-        "quality.china_scope"
+        "quality.china_scope",
+        "quality.solution_cluster",
+        "quality.defect_category",
+        "quality.reporting_class",
+        "quality.user_tags",
+        "quality.market",
+        "quality.blocking_reason",
+        "quality.detected_in_release",
+        "quality.parent_child_type",
+        "vehicle.lead_model",
+        "time.defect_last_modified"
       ],
       "capabilities": {
         "comparison": true,
@@ -2406,7 +3401,17 @@
         "product.pu",
         "product.ecu",
         "quality.status",
-        "quality.severity"
+        "quality.severity",
+        "quality.solution_cluster",
+        "quality.defect_category",
+        "quality.reporting_class",
+        "quality.user_tags",
+        "quality.market",
+        "quality.blocking_reason",
+        "quality.detected_in_release",
+        "quality.parent_child_type",
+        "vehicle.lead_model",
+        "time.defect_last_modified"
       ],
       "capabilities": {
         "comparison": true,
@@ -2443,7 +3448,17 @@
         "product.pu",
         "product.ecu",
         "quality.phase",
-        "quality.status"
+        "quality.status",
+        "quality.solution_cluster",
+        "quality.defect_category",
+        "quality.reporting_class",
+        "quality.user_tags",
+        "quality.market",
+        "quality.blocking_reason",
+        "quality.detected_in_release",
+        "quality.parent_child_type",
+        "vehicle.lead_model",
+        "time.defect_last_modified"
       ],
       "capabilities": {
         "comparison": true,
@@ -2479,7 +3494,17 @@
         "product.project",
         "product.pu",
         "quality.phase",
-        "quality.status"
+        "quality.status",
+        "quality.solution_cluster",
+        "quality.defect_category",
+        "quality.reporting_class",
+        "quality.user_tags",
+        "quality.market",
+        "quality.blocking_reason",
+        "quality.detected_in_release",
+        "quality.parent_child_type",
+        "vehicle.lead_model",
+        "time.defect_last_modified"
       ],
       "capabilities": {
         "comparison": true,
@@ -2514,7 +3539,17 @@
         "org.problem_finder_team",
         "product.project",
         "product.pu",
-        "product.ecu"
+        "product.ecu",
+        "quality.solution_cluster",
+        "quality.defect_category",
+        "quality.reporting_class",
+        "quality.user_tags",
+        "quality.market",
+        "quality.blocking_reason",
+        "quality.detected_in_release",
+        "quality.parent_child_type",
+        "vehicle.lead_model",
+        "time.defect_last_modified"
       ],
       "capabilities": {
         "comparison": true,
@@ -2550,7 +3585,17 @@
         "org.problem_finder_team",
         "product.project",
         "product.pu",
-        "product.ecu"
+        "product.ecu",
+        "quality.solution_cluster",
+        "quality.defect_category",
+        "quality.reporting_class",
+        "quality.user_tags",
+        "quality.market",
+        "quality.blocking_reason",
+        "quality.detected_in_release",
+        "quality.parent_child_type",
+        "vehicle.lead_model",
+        "time.defect_last_modified"
       ],
       "capabilities": {
         "comparison": true,
@@ -2586,7 +3631,17 @@
         "org.problem_finder_team",
         "product.project",
         "product.pu",
-        "product.ecu"
+        "product.ecu",
+        "quality.solution_cluster",
+        "quality.defect_category",
+        "quality.reporting_class",
+        "quality.user_tags",
+        "quality.market",
+        "quality.blocking_reason",
+        "quality.detected_in_release",
+        "quality.parent_child_type",
+        "vehicle.lead_model",
+        "time.defect_last_modified"
       ],
       "capabilities": {
         "comparison": true,
@@ -2624,7 +3679,17 @@
         "product.pu",
         "product.ecu",
         "quality.phase",
-        "quality.status"
+        "quality.status",
+        "quality.solution_cluster",
+        "quality.defect_category",
+        "quality.reporting_class",
+        "quality.user_tags",
+        "quality.market",
+        "quality.blocking_reason",
+        "quality.detected_in_release",
+        "quality.parent_child_type",
+        "vehicle.lead_model",
+        "time.defect_last_modified"
       ],
       "capabilities": {
         "comparison": true,
@@ -2655,12 +3720,262 @@
     },
     {
       "allowedDimensions": [
+        "time.defect_creation_date"
+      ],
+      "capabilities": {
+        "comparison": true,
+        "ranking": true,
+        "trend": true
+      },
+      "defaultTimeDimension": "time.defect_creation_date",
+      "definitionVersion": "1.0.0",
+      "description": "在Showstopper阶段(通常I-480~I-490)，上线前必须修复的缺陷数。标记为'Showstopper_Candidat'的潜在Showstopper",
+      "entityId": "quality.defect",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "grain": "critical defects blocking go-live",
+      "id": "defect.showstopper_count",
+      "labels": {
+        "en-US": "Showstopper Defect Count",
+        "zh-CN": "Showstopper缺陷数"
+      },
+      "measure": "count_distinct(defect_id WHERE reporting_class LIKE '%Showstopper%' OR user_tags LIKE '%Showstopper%')",
+      "missingDataPolicy": "not_applicable",
+      "requiredFilters": [],
+      "sourceReadModel": "full_picture_outcomes",
+      "sourceRevisionStrategy": "snapshot",
+      "unit": "count"
+    },
+    {
+      "allowedDimensions": [
+        "time.defect_creation_date"
+      ],
+      "capabilities": {
+        "comparison": true,
+        "ranking": true,
+        "trend": true
+      },
+      "defaultTimeDimension": "time.defect_creation_date",
+      "definitionVersion": "1.0.0",
+      "description": "在Top Issue阶段(通常I-420~I-470)，阻止功能达到预期Reifegrad的缺陷数。这类缺陷需要在Octane的'Assign'字段标记为'Preventing Maturity Grade ConDrive'",
+      "entityId": "quality.defect",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "grain": "defects blocking maturity grade achievement",
+      "id": "defect.top_issue_count",
+      "labels": {
+        "en-US": "Top Issue Defect Count",
+        "zh-CN": "Top Issue缺陷数"
+      },
+      "measure": "count_distinct(defect_id WHERE reporting_class LIKE '%Top Issue%' OR user_tags LIKE '%TopIssue%')",
+      "missingDataPolicy": "not_applicable",
+      "requiredFilters": [],
+      "sourceReadModel": "full_picture_outcomes",
+      "sourceRevisionStrategy": "snapshot",
+      "unit": "count"
+    },
+    {
+      "allowedDimensions": [
+        "time.defect_creation_date"
+      ],
+      "capabilities": {
+        "comparison": true,
+        "ranking": true,
+        "trend": true
+      },
+      "defaultTimeDimension": "time.defect_creation_date",
+      "definitionVersion": "1.0.0",
+      "description": "已测试的车型变体数 / I-Step交付支持的总车型变体数。目标100%",
+      "entityId": "vehicle.test_vehicle",
+      "governance": {
+        "owner": "Project Planning",
+        "status": "approved"
+      },
+      "grain": "derivate coverage per I-step delivery",
+      "id": "kpi.config_coverage_models",
+      "labels": {
+        "en-US": "Configuration Coverage - Car Models",
+        "zh-CN": "配置覆盖率(车型)"
+      },
+      "measure": "count_distinct(model_series WHERE tested=true) / count_distinct(model_series) * 100",
+      "missingDataPolicy": "not_applicable",
+      "requiredFilters": [],
+      "sourceReadModel": "test_vehicles",
+      "sourceRevisionStrategy": "snapshot",
+      "unit": "percent"
+    },
+    {
+      "allowedDimensions": [
+        "time.defect_creation_date"
+      ],
+      "capabilities": {
+        "comparison": true,
+        "ranking": true,
+        "trend": true
+      },
+      "defaultTimeDimension": "time.defect_creation_date",
+      "definitionVersion": "1.0.0",
+      "description": "100%覆盖硬件变体(High, Mid, Base, Premium)。目标100%",
+      "entityId": "vehicle.test_vehicle",
+      "governance": {
+        "owner": "Platform Resource Planning",
+        "status": "approved"
+      },
+      "grain": "hardware variant coverage",
+      "id": "kpi.config_coverage_variants",
+      "labels": {
+        "en-US": "Configuration Coverage - Hardware Variants",
+        "zh-CN": "配置覆盖率(硬件变体)"
+      },
+      "measure": "count_distinct(hw_variant WHERE tested=true) / count_distinct(hw_variant) * 100",
+      "missingDataPolicy": "not_applicable",
+      "requiredFilters": [],
+      "sourceReadModel": "test_vehicles",
+      "sourceRevisionStrategy": "snapshot",
+      "unit": "percent"
+    },
+    {
+      "allowedDimensions": [
+        "time.defect_creation_date"
+      ],
+      "capabilities": {
+        "comparison": true,
+        "ranking": true,
+        "trend": true
+      },
+      "defaultTimeDimension": "time.defect_creation_date",
+      "definitionVersion": "1.0.0",
+      "description": "DDP = R1 / (R1 + R2) * 100%。R1=上线前发现的缺陷数，R2=上线后发现的缺陷数。目标≥99%",
+      "entityId": "quality.defect",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "grain": "defects detected before vs after customer release",
+      "id": "kpi.defect_detection_ratio",
+      "labels": {
+        "en-US": "Defect Detection Ratio",
+        "zh-CN": "缺陷检测率(DDP)"
+      },
+      "measure": "count_distinct(defect_id WHERE phase NOT IN ('06-Concluded','09-Concluded without action') AND creation_time < release_date) / count_distinct(defect_id) * 100",
+      "missingDataPolicy": "not_applicable",
+      "requiredFilters": [],
+      "sourceReadModel": "full_picture_outcomes",
+      "sourceRevisionStrategy": "snapshot",
+      "unit": "percent"
+    },
+    {
+      "allowedDimensions": [
+        "time.defect_creation_date"
+      ],
+      "capabilities": {
+        "comparison": true,
+        "ranking": true,
+        "trend": true
+      },
+      "defaultTimeDimension": "time.defect_creation_date",
+      "definitionVersion": "1.0.0",
+      "description": "CWA(Child Without Action)率。子缺陷被直接拒绝的比例。目标≤10%",
+      "entityId": "quality.defect",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "grain": "child defects rejected directly",
+      "id": "kpi.defect_rejection_rate",
+      "labels": {
+        "en-US": "Defect Rejection Rate (CWA)",
+        "zh-CN": "缺陷拒收率(CWA)"
+      },
+      "measure": "count_distinct(defect_id WHERE parent_child_type='child' AND phase='09-Concluded without action') / count_distinct(defect_id WHERE parent_child_type='child') * 100",
+      "missingDataPolicy": "not_applicable",
+      "requiredFilters": [],
+      "sourceReadModel": "full_picture_outcomes",
+      "sourceRevisionStrategy": "snapshot",
+      "unit": "percent"
+    },
+    {
+      "allowedDimensions": [
+        "time.defect_creation_date"
+      ],
+      "capabilities": {
+        "comparison": true,
+        "ranking": true,
+        "trend": true
+      },
+      "defaultTimeDimension": "time.defect_creation_date",
+      "definitionVersion": "1.0.0",
+      "description": "功能(AIDA)的需求或验收标准覆盖率。目标100%。由流程保证",
+      "entityId": "requirements.aida_node",
+      "governance": {
+        "owner": "Process Management",
+        "status": "approved"
+      },
+      "grain": "AIDA nodes with requirements coverage",
+      "id": "kpi.function_coverage",
+      "labels": {
+        "en-US": "Function (AIDA) Coverage",
+        "zh-CN": "功能(AIDA)覆盖率"
+      },
+      "measure": "count_distinct(aida_id WHERE has_requirement=true) / count_distinct(aida_id) * 100",
+      "missingDataPolicy": "not_applicable",
+      "requiredFilters": [],
+      "sourceReadModel": "traceability_models",
+      "sourceRevisionStrategy": "snapshot",
+      "unit": "percent"
+    },
+    {
+      "allowedDimensions": [
+        "time.defect_creation_date"
+      ],
+      "capabilities": {
+        "comparison": true,
+        "ranking": true,
+        "trend": true
+      },
+      "defaultTimeDimension": "time.defect_creation_date",
+      "definitionVersion": "1.0.0",
+      "description": "每个DTSV周期中，至少执行过一次测试的RG5已签收功能数 / RG5功能总数。目标100%",
+      "entityId": "testing.test_case",
+      "governance": {
+        "owner": "DE-611 Test Management",
+        "status": "approved"
+      },
+      "grain": "RG5 signed-off features with at least one test case executed",
+      "id": "kpi.regression_coverage",
+      "labels": {
+        "en-US": "Regression Test Coverage",
+        "zh-CN": "回归测试覆盖率"
+      },
+      "measure": "count_distinct(test_id WHERE rg_level='RG5' AND run_count > 0) / count_distinct(test_id WHERE rg_level='RG5') * 100",
+      "missingDataPolicy": "not_applicable",
+      "requiredFilters": [],
+      "sourceReadModel": "testing_coverage_hot",
+      "sourceRevisionStrategy": "snapshot",
+      "unit": "percent"
+    },
+    {
+      "allowedDimensions": [
         "time.defect_creation_date",
         "org.problem_finder_team",
         "product.project",
         "product.service_pack",
         "product.pu",
-        "product.ecu"
+        "product.ecu",
+        "quality.solution_cluster",
+        "quality.defect_category",
+        "quality.reporting_class",
+        "quality.user_tags",
+        "quality.market",
+        "quality.blocking_reason",
+        "quality.detected_in_release",
+        "quality.parent_child_type",
+        "vehicle.lead_model",
+        "time.defect_last_modified"
       ],
       "capabilities": {
         "comparison": true,
@@ -2697,7 +4012,17 @@
         "product.project",
         "product.pu",
         "product.ecu",
-        "quality.severity"
+        "quality.severity",
+        "quality.solution_cluster",
+        "quality.defect_category",
+        "quality.reporting_class",
+        "quality.user_tags",
+        "quality.market",
+        "quality.blocking_reason",
+        "quality.detected_in_release",
+        "quality.parent_child_type",
+        "vehicle.lead_model",
+        "time.defect_last_modified"
       ],
       "capabilities": {
         "comparison": true,
@@ -2772,7 +4097,12 @@
         "org.team",
         "product.project",
         "product.pu",
-        "requirements.aida"
+        "requirements.aida",
+        "testing.domain",
+        "testing.test_phase",
+        "testing.testing_tool_type",
+        "product.release",
+        "time.run_started"
       ],
       "capabilities": {
         "comparison": true,
@@ -2808,7 +4138,12 @@
         "org.team",
         "product.project",
         "product.pu",
-        "requirements.aida"
+        "requirements.aida",
+        "testing.domain",
+        "testing.test_phase",
+        "testing.testing_tool_type",
+        "product.release",
+        "time.run_started"
       ],
       "capabilities": {
         "comparison": true,
@@ -2846,7 +4181,12 @@
         "org.team",
         "product.project",
         "product.pu",
-        "requirements.aida"
+        "requirements.aida",
+        "testing.domain",
+        "testing.test_phase",
+        "testing.testing_tool_type",
+        "product.release",
+        "time.run_started"
       ],
       "capabilities": {
         "comparison": true,
@@ -2882,7 +4222,12 @@
         "org.team",
         "product.project",
         "product.pu",
-        "requirements.aida"
+        "requirements.aida",
+        "testing.domain",
+        "testing.test_phase",
+        "testing.testing_tool_type",
+        "product.release",
+        "time.run_started"
       ],
       "capabilities": {
         "comparison": true,
@@ -2920,7 +4265,12 @@
         "org.team",
         "product.project",
         "product.pu",
-        "requirements.aida"
+        "requirements.aida",
+        "testing.domain",
+        "testing.test_phase",
+        "testing.testing_tool_type",
+        "product.release",
+        "time.run_started"
       ],
       "capabilities": {
         "comparison": true,
@@ -2991,7 +4341,12 @@
         "product.project",
         "product.pu",
         "requirements.aida",
-        "testing.run_status"
+        "testing.run_status",
+        "testing.domain",
+        "testing.test_phase",
+        "testing.testing_tool_type",
+        "product.release",
+        "time.run_started"
       ],
       "capabilities": {
         "comparison": true,
@@ -3058,7 +4413,12 @@
         "org.team",
         "product.project",
         "product.pu",
-        "requirements.aida"
+        "requirements.aida",
+        "testing.domain",
+        "testing.test_phase",
+        "testing.testing_tool_type",
+        "product.release",
+        "time.run_started"
       ],
       "capabilities": {
         "comparison": true,
@@ -3084,7 +4444,7 @@
       "missingDataPolicy": "exclude_null_denominator",
       "numerator": "approved_traced_run_count",
       "requiredFilters": [],
-      "sourceReadModel": "traceability_models",
+      "sourceReadModel": "testing_coverage_hot",
       "sourceRevisionStrategy": "snapshot",
       "unit": "percent"
     }
@@ -3273,6 +4633,29 @@
     {
       "allowedJoinPaths": [
         [
+          "organization.function_team_mapping",
+          "organization.team"
+        ]
+      ],
+      "cardinality": "many_to_one",
+      "direction": "outbound",
+      "governance": {
+        "owner": "DTSV Team",
+        "status": "approved"
+      },
+      "id": "organization.function_team_mapping.belongs_to.organization.team",
+      "predicate": "belongs_to",
+      "reversible": true,
+      "sourceEntity": "organization.function_team_mapping",
+      "sourceFields": {
+        "source": "team",
+        "target": "team"
+      },
+      "targetEntity": "organization.team"
+    },
+    {
+      "allowedJoinPaths": [
+        [
           "organization.tester",
           "organization.team"
         ]
@@ -3436,6 +4819,144 @@
     {
       "allowedJoinPaths": [
         [
+          "quality.defect",
+          "quality.qgate"
+        ]
+      ],
+      "cardinality": "many_to_one",
+      "direction": "outbound",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "quality.defect.evaluated_by.quality.qgate",
+      "predicate": "evaluated_by",
+      "reversible": true,
+      "sourceEntity": "quality.defect",
+      "sourceFields": {
+        "source": "phase",
+        "target": "qgate_type"
+      },
+      "targetEntity": "quality.qgate"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "quality.defect",
+          "quality.defect_history_event"
+        ]
+      ],
+      "cardinality": "one_to_many",
+      "direction": "outbound",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "quality.defect.has_history.quality.defect_history_event",
+      "predicate": "has_history",
+      "reversible": true,
+      "sourceEntity": "quality.defect",
+      "sourceFields": {
+        "source": "defect_id",
+        "target": "defect_id"
+      },
+      "targetEntity": "quality.defect_history_event"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "quality.defect",
+          "quality.maturity_grade"
+        ]
+      ],
+      "cardinality": "many_to_one",
+      "direction": "outbound",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "quality.defect.has_maturity_grade.quality.maturity_grade",
+      "predicate": "has_maturity_grade",
+      "reversible": true,
+      "sourceEntity": "quality.defect",
+      "sourceFields": {
+        "source": "top_aida",
+        "target": "function_id"
+      },
+      "targetEntity": "quality.maturity_grade"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "quality.defect",
+          "quality.defect_outcome"
+        ]
+      ],
+      "cardinality": "one_to_one",
+      "direction": "outbound",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "quality.defect.has_outcome.quality.defect_outcome",
+      "predicate": "has_outcome",
+      "reversible": true,
+      "sourceEntity": "quality.defect",
+      "sourceFields": {
+        "source": "defect_id",
+        "target": "defect_id"
+      },
+      "targetEntity": "quality.defect_outcome"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "quality.defect",
+          "quality.defect"
+        ]
+      ],
+      "cardinality": "one_to_many",
+      "direction": "outbound",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "quality.defect.parent_of.quality.defect",
+      "predicate": "parent_of",
+      "reversible": true,
+      "sourceEntity": "quality.defect",
+      "sourceFields": {
+        "source": "defect_id",
+        "target": "parent_id"
+      },
+      "targetEntity": "quality.defect"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "quality.maturity_grade",
+          "product.i_step"
+        ]
+      ],
+      "cardinality": "many_to_one",
+      "direction": "outbound",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "quality.maturity_grade.measured_at.product.i_step",
+      "predicate": "measured_at",
+      "reversible": true,
+      "sourceEntity": "quality.maturity_grade",
+      "sourceFields": {
+        "source": "i_step",
+        "target": "i_step"
+      },
+      "targetEntity": "product.i_step"
+    },
+    {
+      "allowedJoinPaths": [
+        [
           "quality.qgate",
           "product.pu"
         ]
@@ -3503,6 +5024,75 @@
         "target": "aida_id"
       },
       "targetEntity": "requirements.aida_node"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "testing.test_event",
+          "testing.test_run"
+        ]
+      ],
+      "cardinality": "one_to_many",
+      "direction": "outbound",
+      "governance": {
+        "owner": "DTSV Team",
+        "status": "approved"
+      },
+      "id": "testing.test_event.includes.testing.test_run",
+      "predicate": "includes",
+      "reversible": true,
+      "sourceEntity": "testing.test_event",
+      "sourceFields": {
+        "source": "release",
+        "target": "release"
+      },
+      "targetEntity": "testing.test_run"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "testing.test_run",
+          "product.test_rack"
+        ]
+      ],
+      "cardinality": "many_to_one",
+      "direction": "outbound",
+      "governance": {
+        "owner": "DTSV Team",
+        "status": "approved"
+      },
+      "id": "testing.test_run.executed_on.product.test_rack",
+      "predicate": "executed_on",
+      "reversible": true,
+      "sourceEntity": "testing.test_run",
+      "sourceFields": {
+        "source": "testplatformid",
+        "target": "rack_id"
+      },
+      "targetEntity": "product.test_rack"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "testing.test_run",
+          "vehicle.test_vehicle"
+        ]
+      ],
+      "cardinality": "many_to_one",
+      "direction": "outbound",
+      "governance": {
+        "owner": "Fleet Management",
+        "status": "approved"
+      },
+      "id": "testing.test_run.executed_on.vehicle.test_vehicle",
+      "predicate": "executed_on",
+      "reversible": true,
+      "sourceEntity": "testing.test_run",
+      "sourceFields": {
+        "source": "vin",
+        "target": "vin"
+      },
+      "targetEntity": "vehicle.test_vehicle"
     },
     {
       "allowedJoinPaths": [
@@ -3578,6 +5168,52 @@
     {
       "allowedJoinPaths": [
         [
+          "traceability.link",
+          "testing.test_run"
+        ]
+      ],
+      "cardinality": "many_to_one",
+      "direction": "outbound",
+      "governance": {
+        "owner": "Requirements Analytics",
+        "status": "approved"
+      },
+      "id": "traceability.link.belongs_to.testing.test_run",
+      "predicate": "belongs_to",
+      "reversible": true,
+      "sourceEntity": "traceability.link",
+      "sourceFields": {
+        "source": "run_id",
+        "target": "mr_id"
+      },
+      "targetEntity": "testing.test_run"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "traceability.testcase_summary",
+          "testing.test_case"
+        ]
+      ],
+      "cardinality": "many_to_one",
+      "direction": "outbound",
+      "governance": {
+        "owner": "Requirements Analytics",
+        "status": "approved"
+      },
+      "id": "traceability.testcase_summary.aggregates.testing.test_case",
+      "predicate": "aggregates",
+      "reversible": true,
+      "sourceEntity": "traceability.testcase_summary",
+      "sourceFields": {
+        "source": "test_id",
+        "target": "test_id"
+      },
+      "targetEntity": "testing.test_case"
+    },
+    {
+      "allowedJoinPaths": [
+        [
           "vehicle.model_series",
           "product.platform"
         ]
@@ -3601,6 +5237,19 @@
   ],
   "schemaVersion": "1.0",
   "sources": [
+    {
+      "database": "database/source/qgate_raw.db",
+      "freshnessSloMinutes": 1440,
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "analytics.beat",
+      "readModel": "maturity_grades",
+      "revisionStrategy": "snapshot",
+      "system": "analytics",
+      "table": "beat_maturity_grades"
+    },
     {
       "database": "database/source/qgate_raw.db",
       "freshnessSloMinutes": 1440,
@@ -3655,6 +5304,58 @@
       "revisionStrategy": "snapshot",
       "system": "analytics",
       "table": "qgate_results"
+    },
+    {
+      "database": "database/source/qgate_raw.db",
+      "freshnessSloMinutes": 10080,
+      "governance": {
+        "owner": "DTSV Team",
+        "status": "approved"
+      },
+      "id": "analytics.team_mapping",
+      "readModel": "function_team_mapping",
+      "revisionStrategy": "snapshot",
+      "system": "analytics",
+      "table": "function_team_mapping"
+    },
+    {
+      "database": "database/source/qgate_raw.db",
+      "freshnessSloMinutes": 1440,
+      "governance": {
+        "owner": "DTSV Team",
+        "status": "approved"
+      },
+      "id": "analytics.test_events",
+      "readModel": "test_events",
+      "revisionStrategy": "snapshot",
+      "system": "analytics",
+      "table": "test_events"
+    },
+    {
+      "database": "database/source/qgate_raw.db",
+      "freshnessSloMinutes": 10080,
+      "governance": {
+        "owner": "DTSV Team",
+        "status": "approved"
+      },
+      "id": "analytics.test_racks",
+      "readModel": "test_racks",
+      "revisionStrategy": "snapshot",
+      "system": "analytics",
+      "table": "test_racks"
+    },
+    {
+      "database": "database/source/qgate_raw.db",
+      "freshnessSloMinutes": 1440,
+      "governance": {
+        "owner": "Fleet Management",
+        "status": "approved"
+      },
+      "id": "analytics.test_vehicles",
+      "readModel": "test_vehicles",
+      "revisionStrategy": "snapshot",
+      "system": "analytics",
+      "table": "test_vehicles"
     },
     {
       "database": "database/source/qgate_raw.db",
@@ -3735,6 +5436,647 @@
     }
   ],
   "terms": [
+    {
+      "governance": {
+        "owner": "Requirements Analytics",
+        "status": "approved"
+      },
+      "id": "concept.aida",
+      "kind": "derived_business_rule",
+      "phrases": [
+        "AIDA",
+        "AIDA Movement"
+      ],
+      "resolution": {
+        "entityId": "quality.defect"
+      }
+    },
+    {
+      "governance": {
+        "owner": "DTSV Team",
+        "status": "approved"
+      },
+      "id": "concept.beat",
+      "kind": "derived_business_rule",
+      "phrases": [
+        "BEAT",
+        "beat"
+      ],
+      "resolution": {
+        "entityId": "quality.defect"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "concept.blocked",
+      "kind": "derived_business_rule",
+      "phrases": [
+        "Blocked",
+        "blocked",
+        "阻塞",
+        "已阻止"
+      ],
+      "resolution": {
+        "entityId": "quality.defect"
+      }
+    },
+    {
+      "governance": {
+        "owner": "DTSV China",
+        "status": "approved"
+      },
+      "id": "concept.china_scope",
+      "kind": "derived_business_rule",
+      "phrases": [
+        "China scope",
+        "China Scope",
+        "中国范围",
+        "CN scope"
+      ],
+      "resolution": {
+        "entityId": "quality.defect"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "concept.cwa",
+      "kind": "derived_business_rule",
+      "phrases": [
+        "CWA",
+        "Child Without Action",
+        "无动作子缺陷"
+      ],
+      "resolution": {
+        "entityId": "quality.defect"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "concept.ddp",
+      "kind": "synonym",
+      "phrases": [
+        "DDP",
+        "Defect Detection Ratio",
+        "缺陷检测率"
+      ],
+      "resolution": {
+        "metricId": "kpi.defect_detection_ratio"
+      }
+    },
+    {
+      "governance": {
+        "owner": "DTSV Team",
+        "status": "approved"
+      },
+      "id": "concept.dips",
+      "kind": "derived_business_rule",
+      "phrases": [
+        "DiPS",
+        "dips",
+        "DIPS"
+      ],
+      "resolution": {
+        "entityId": "quality.defect"
+      }
+    },
+    {
+      "governance": {
+        "owner": "DTSV Team",
+        "status": "approved"
+      },
+      "id": "concept.dtsv",
+      "kind": "derived_business_rule",
+      "phrases": [
+        "DTSV",
+        "Dynamischer Teilsystem-Versuch",
+        "动态子系统验证"
+      ],
+      "resolution": {
+        "entityId": "quality.defect"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Fleet Management",
+        "status": "approved"
+      },
+      "id": "concept.fips",
+      "kind": "derived_business_rule",
+      "phrases": [
+        "FIPS",
+        "fips"
+      ],
+      "resolution": {
+        "entityId": "quality.defect"
+      }
+    },
+    {
+      "governance": {
+        "owner": "DTSV Team",
+        "status": "approved"
+      },
+      "id": "concept.flash",
+      "kind": "derived_business_rule",
+      "phrases": [
+        "Flash",
+        "flash",
+        "刷写",
+        "Flashing"
+      ],
+      "resolution": {
+        "entityId": "quality.defect"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Project Management",
+        "status": "approved"
+      },
+      "id": "concept.i_step",
+      "kind": "synonym",
+      "phrases": [
+        "I-Step",
+        "I-step",
+        "I-420",
+        "I-450",
+        "I-470",
+        "I-480",
+        "I-490",
+        "I-500"
+      ],
+      "resolution": {
+        "dimensionId": "product.i_step"
+      }
+    },
+    {
+      "governance": {
+        "owner": "DTSV Team",
+        "status": "approved"
+      },
+      "id": "concept.iuk",
+      "kind": "derived_business_rule",
+      "phrases": [
+        "IuK",
+        "IUK",
+        "iuk"
+      ],
+      "resolution": {
+        "entityId": "quality.defect"
+      }
+    },
+    {
+      "governance": {
+        "owner": "DTSV Team",
+        "status": "approved"
+      },
+      "id": "concept.ksp",
+      "kind": "derived_business_rule",
+      "phrases": [
+        "KSP",
+        "ksp"
+      ],
+      "resolution": {
+        "entityId": "quality.defect"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "concept.matrix",
+      "kind": "derived_business_rule",
+      "phrases": [
+        "Matrix",
+        "matrix",
+        "矩阵",
+        "Matrix Rating"
+      ],
+      "resolution": {
+        "entityId": "quality.defect"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "concept.maturity_grade",
+      "kind": "synonym",
+      "phrases": [
+        "RG5",
+        "RG6",
+        "RG4",
+        "Reifegrad",
+        "成熟度",
+        "maturity grade",
+        "RG"
+      ],
+      "resolution": {
+        "dimensionId": "quality.maturity_grade"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "concept.mgip",
+      "kind": "derived_business_rule",
+      "phrases": [
+        "MgIP",
+        "Messen gegen Integrations Planung"
+      ],
+      "resolution": {
+        "entityId": "quality.defect"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "concept.owner_field",
+      "kind": "derived_business_rule",
+      "phrases": [
+        "Owner",
+        "owner",
+        "所有者"
+      ],
+      "resolution": {
+        "entityId": "quality.defect"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "concept.qgate",
+      "kind": "synonym",
+      "phrases": [
+        "Q-Gate",
+        "Q Gate",
+        "质量门",
+        "质量关卡",
+        "qgate"
+      ],
+      "resolution": {
+        "dimensionId": "quality.qgate_type"
+      }
+    },
+    {
+      "governance": {
+        "owner": "DE-611",
+        "status": "approved"
+      },
+      "id": "concept.regression_coverage",
+      "kind": "synonym",
+      "phrases": [
+        "回归覆盖率",
+        "回归测试覆盖",
+        "regression coverage"
+      ],
+      "resolution": {
+        "metricId": "kpi.regression_coverage"
+      }
+    },
+    {
+      "governance": {
+        "owner": "TPM Team",
+        "status": "approved"
+      },
+      "id": "concept.resterampe",
+      "kind": "derived_business_rule",
+      "phrases": [
+        "Resterampe",
+        "resterampe",
+        "剩余斜坡"
+      ],
+      "resolution": {
+        "entityId": "quality.defect"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Test Management",
+        "status": "approved"
+      },
+      "id": "concept.set",
+      "kind": "derived_business_rule",
+      "phrases": [
+        "SET",
+        "System Engineering Test"
+      ],
+      "resolution": {
+        "entityId": "quality.defect"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "concept.showstopper",
+      "kind": "synonym",
+      "phrases": [
+        "Showstopper",
+        "showstopper",
+        "停演",
+        "阻断缺陷"
+      ],
+      "resolution": {
+        "entityId": "quality.defect",
+        "metricId": "defect.showstopper_count"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Project Management",
+        "status": "approved"
+      },
+      "id": "concept.sop",
+      "kind": "derived_business_rule",
+      "phrases": [
+        "SOP",
+        "Start of Production",
+        "投产"
+      ],
+      "resolution": {
+        "entityId": "quality.defect"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "concept.top_issue",
+      "kind": "synonym",
+      "phrases": [
+        "Top Issue",
+        "top issue",
+        "顶级问题",
+        "topissue"
+      ],
+      "resolution": {
+        "entityId": "quality.defect",
+        "metricId": "defect.top_issue_count"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "concept.tqr",
+      "kind": "synonym",
+      "phrases": [
+        "TQR",
+        "Ticket Quality Rating",
+        "工单质量",
+        "工单质量评级"
+      ],
+      "resolution": {
+        "dimensionId": "quality.tqr_enum"
+      }
+    },
+    {
+      "governance": {
+        "owner": "DTSV Team",
+        "status": "approved"
+      },
+      "id": "concept.tsp",
+      "kind": "derived_business_rule",
+      "phrases": [
+        "TSP",
+        "tsp"
+      ],
+      "resolution": {
+        "entityId": "quality.defect"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "dim.blocking_reason",
+      "kind": "synonym",
+      "phrases": [
+        "阻塞原因",
+        "blocking reason",
+        "阻塞",
+        "卡住原因"
+      ],
+      "resolution": {
+        "dimensionId": "quality.blocking_reason",
+        "entityId": "quality.defect"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "dim.defect_category",
+      "kind": "synonym",
+      "phrases": [
+        "缺陷类别",
+        "缺陷分类",
+        "defect category",
+        "问题分类"
+      ],
+      "resolution": {
+        "dimensionId": "quality.defect_category",
+        "entityId": "quality.defect"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "dim.detected_in_release",
+      "kind": "synonym",
+      "phrases": [
+        "发现版本",
+        "detected in release",
+        "检出版本"
+      ],
+      "resolution": {
+        "dimensionId": "quality.detected_in_release",
+        "entityId": "quality.defect"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Product Analytics",
+        "status": "approved"
+      },
+      "id": "dim.lead_model",
+      "kind": "synonym",
+      "phrases": [
+        "车型",
+        "lead model",
+        "主车型",
+        "G70",
+        "G68",
+        "U11"
+      ],
+      "resolution": {
+        "dimensionId": "vehicle.lead_model",
+        "entityId": "quality.defect"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "dim.market",
+      "kind": "synonym",
+      "phrases": [
+        "市场",
+        "market",
+        "销售市场"
+      ],
+      "resolution": {
+        "dimensionId": "quality.market",
+        "entityId": "quality.defect"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "dim.parent_child_type",
+      "kind": "synonym",
+      "phrases": [
+        "父子类型",
+        "parent child",
+        "父子关系类型",
+        "CWA"
+      ],
+      "resolution": {
+        "dimensionId": "quality.parent_child_type",
+        "entityId": "quality.defect"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Testing Analytics",
+        "status": "approved"
+      },
+      "id": "dim.release",
+      "kind": "synonym",
+      "phrases": [
+        "release",
+        "版本",
+        "发布版本",
+        "软件版本"
+      ],
+      "resolution": {
+        "dimensionId": "product.release",
+        "entityId": "testing.test_run"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "dim.reporting_class",
+      "kind": "synonym",
+      "phrases": [
+        "报告类别",
+        "reporting class",
+        "上报类别"
+      ],
+      "resolution": {
+        "dimensionId": "quality.reporting_class",
+        "entityId": "quality.defect"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "dim.solution_cluster",
+      "kind": "synonym",
+      "phrases": [
+        "解决方案聚类",
+        "solution cluster",
+        "方案分类"
+      ],
+      "resolution": {
+        "dimensionId": "quality.solution_cluster",
+        "entityId": "quality.defect"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Testing Analytics",
+        "status": "approved"
+      },
+      "id": "dim.test_phase",
+      "kind": "synonym",
+      "phrases": [
+        "测试阶段",
+        "test phase",
+        "测试阶段分类"
+      ],
+      "resolution": {
+        "dimensionId": "testing.test_phase",
+        "entityId": "testing.test_run"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Testing Analytics",
+        "status": "approved"
+      },
+      "id": "dim.testing_domain",
+      "kind": "synonym",
+      "phrases": [
+        "测试域",
+        "domain",
+        "测试领域"
+      ],
+      "resolution": {
+        "dimensionId": "testing.domain",
+        "entityId": "testing.test_run"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "dim.user_tags",
+      "kind": "synonym",
+      "phrases": [
+        "用户标签",
+        "标签",
+        "user tags",
+        "标签分类"
+      ],
+      "resolution": {
+        "dimensionId": "quality.user_tags",
+        "entityId": "quality.defect"
+      }
+    },
     {
       "governance": {
         "owner": "Requirements Analytics",
@@ -3967,6 +6309,56 @@
         "dimensionId": "testing.trace_status",
         "entityId": "testing.test_case",
         "filterValue": "Untraced"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "entity.defect_history",
+      "kind": "synonym",
+      "phrases": [
+        "缺陷历史",
+        "变更历史",
+        "缺陷变更",
+        "history event"
+      ],
+      "resolution": {
+        "entityId": "quality.defect_history_event"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "entity.defect_outcome",
+      "kind": "synonym",
+      "phrases": [
+        "缺陷结果",
+        "缺陷判定",
+        "outcome",
+        "解决结果"
+      ],
+      "resolution": {
+        "entityId": "quality.defect_outcome"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Requirements Analytics",
+        "status": "approved"
+      },
+      "id": "entity.traceability_link",
+      "kind": "synonym",
+      "phrases": [
+        "追溯链接",
+        "traceability link",
+        "追溯关系"
+      ],
+      "resolution": {
+        "entityId": "traceability.link"
       }
     },
     {

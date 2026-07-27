@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ontology vs Octane Coverage</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  background:#0d1117; color:#c9d1d9;
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
+  overflow:hidden;
+}
+#container { display:flex; width:100vw; height:100vh; }
+#graph { flex:1; height:100vh; }
+#sidebar {
+  width:380px; background:#161b22; border-left:1px solid #30363d;
+  padding:20px; overflow-y:auto; flex-shrink:0;
+}
+h1 { font-size:18px; color:#58a6ff; margin-bottom:4px; }
+.subtitle { font-size:12px; color:#8b949e; margin-bottom:16px; }
+.stat-row { display:flex; gap:8px; margin-bottom:8px; flex-wrap:wrap; }
+.stat { background:#21262d; padding:8px 12px; border-radius:6px; font-size:12px; }
+.stat-val { font-weight:700; font-size:16px; }
+.stat-label { color:#8b949e; }
+.legend-title { font-size:12px; color:#8b949e; margin:12px 0 8px; text-transform:uppercase; letter-spacing:.5px; }
+.entity-card {
+  background:#21262d; border-radius:8px; padding:12px; margin-bottom:8px;
+  border:1px solid #30363d; cursor:pointer; transition:border-color .2s;
+}
+.entity-card:hover { border-color:#58a6ff; }
+.entity-card.active { border-color:#f85149; }
+.entity-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; }
+.entity-name { font-size:13px; font-weight:600; }
+.entity-status { font-size:11px; padding:2px 6px; border-radius:4px; }
+.status-full { background:#1a4731; color:#3fb950; }
+.status-good { background:#2a3d1f; color:#d29922; }
+.status-poor { background:#4a1e1e; color:#f85149; }
+.status-nodt { background:#21262d; color:#8b949e; }
+.bar-container { height:6px; background:#0d1117; border-radius:3px; overflow:hidden; margin-top:4px; }
+.bar-fill { height:100%; border-radius:3px; transition:width .3s; }
+.entity-meta { font-size:11px; color:#8b949e; margin-top:4px; }
+.tooltip {
+  position:absolute; background:#1c2128; border:1px solid #30363d;
+  padding:8px 12px; border-radius:6px; font-size:12px;
+  pointer-events:none; z-index:100; max-width:320px; display:none;
+}
+.edge-label { font-size:9px; fill:#6e7681; }
+.node-label { font-size:11px; fill:#c9d1d9; font-weight:500; pointer-events:none; }
+.coverage-label { font-size:10px; font-weight:700; pointer-events:none; }
+.field-list { font-size:11px; margin-top:6px; }
+.field-list li { list-style:none; padding:2px 0; }
+.field-covered { color:#3fb950; }
+.field-missing { color:#f85149; }
+.detail-panel {
+  background:#21262d; border-radius:8px; padding:14px;
+  border:1px solid #f85149; margin-top:12px;
+}
+.detail-panel h3 { font-size:14px; margin-bottom:8px; }
+.detail-panel .field-grid {
+  display:grid; grid-template-columns:1fr 1fr; gap:4px; font-size:10px; margin-top:8px;
+}
+.detail-panel .field { padding:2px 4px; border-radius:3px; }
+.btn {
+  background:#21262d; border:1px solid #30363d; color:#c9d1d9;
+  padding:6px 12px; border-radius:6px; cursor:pointer; font-size:12px; margin-right:6px;
+}
+.btn:hover { background:#30363d; }
+</style>
+</head>
+<body>
+<div id="container">
+  <div id="graph"></div>
+  <div id="sidebar">
+    <h1>🔬 Ontology ↔ Octane 字段覆盖率</h1>
+    <div class="subtitle">实际数据库字段 vs Ontology 建模 · Knowledge Graph</div>
+
+    <div class="stat-row">
+      <div class="stat">
+        <span class="stat-val" style="color:#3fb950">99</span>
+        <span class="stat-label">已覆盖</span>
+      </div>
+      <div class="stat">
+        <span class="stat-val" style="color:#f85149">59</span>
+        <span class="stat-label">未建模</span>
+      </div>
+      <div class="stat">
+        <span class="stat-val" style="color:#58a6ff">158</span>
+        <span class="stat-label">Octane总字段</span>
+      </div>
+      <div class="stat">
+        <span class="stat-val" style="color:#d29922">63%</span>
+        <span class="stat-label">总覆盖率</span>
+      </div>
+    </div>
+
+    <div class="legend-title">实体列表 (按 Octane 字段数排序)</div>
+    <div id="entity-list"></div>
+
+    <div id="detail-container"></div>
+
+    <div style="margin-top:20px; font-size:11px; color:#8b949e;">
+      <p>💡 <b>图例说明:</b></p>
+      <p>🔴 覆盖率 < 70% &nbsp; 🟡 ≥ 70% &nbsp; ⬜ 概念实体(无DB表)</p>
+      <p style="margin-top:8px;">💡 <b>交互:</b> 点击节点查看字段详情</p>
+    </div>
+  </div>
+</div>
+<div class="tooltip" id="tooltip"></div>
+
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<script>
+const data = {"entities": [{"id": "quality.defect", "label_zh": "缺陷", "label_en": "Defect", "onto_count": 45, "octane_count": 56, "covered_count": 36, "missing_count": 20, "extra_count": 9, "coverage_pct": 64.0, "missing_fields": ["aida_businesskey", "aida_english", "ecu_no_of_changes", "ecu_to_modul", "first_use_sop_of_function", "function2modul", "function_responsible", "involved_i_step", "problem_severity", "program", "relation_to", "reprel_changes", "requirement", "requirements_json", "solution_responsible", "status_phase", "test_week", "tolerated_count", "top_aida", "tproject"], "covered_fields": ["assigned_ecu", "author", "blocking_reason", "comments", "creation_time", "defect_category", "defect_id", "description", "detected_by", "detected_in_release", "error_occurrence", "fv", "fvp", "last_modified", "lead_model", "market", "model_series", "name", "owner", "parent_child_type", "parent_id", "phase", "problem_finder_team", "product_areas", "project", "pu", "reporting_class", "risk_score", "severity", "software_version", "solution_cluster", "team", "tqr", "user_tags", "vin", "year"], "domain": "quality"}, {"id": "testing.test_case", "label_zh": "测试用例", "label_en": "Test Case", "onto_count": 16, "octane_count": 14, "covered_count": 8, "missing_count": 6, "extra_count": 8, "coverage_pct": 57.0, "missing_fields": ["defect_ids_json", "feature_ids_json", "manual_test_ids_json", "run_ids_json", "run_status_distribution_json", "story_ids_json"], "covered_fields": ["run_count", "scope_release", "scope_team", "source", "test_id", "test_name", "test_subtype", "year"], "domain": "testing"}, {"id": "testing.test_run", "label_zh": "测试执行", "label_en": "Test Run", "onto_count": 30, "octane_count": 42, "covered_count": 29, "missing_count": 13, "extra_count": 1, "coverage_pct": 69.0, "missing_fields": ["author", "exec_model_series", "execution_sw_version", "fv", "fvp", "native_status", "program", "set_field", "spec", "taxonomies", "test_version", "testplatformid", "top_aida"], "covered_fields": ["creation_time", "defect_id", "domain", "feature_region", "finished", "is_completed", "last_modified", "lead_model", "mr_id", "name", "product_areas", "project", "pu", "release", "run_by", "run_team", "started", "status", "steps_num", "target_ecu_conf", "team", "test_id", "test_name", "test_phase", "test_week", "tester", "testing_tool_type", "version_stamp", "year"], "domain": "testing"}, {"id": "requirements.aida_node", "label_zh": "AIDA 需求节点", "label_en": "AIDA Requirement Node", "onto_count": 4, "octane_count": 0, "covered_count": 0, "missing_count": 0, "extra_count": 4, "coverage_pct": -1, "missing_fields": [], "covered_fields": [], "domain": "requirements"}, {"id": "requirements.epic", "label_zh": "Epic", "label_en": "Epic", "onto_count": 2, "octane_count": 0, "covered_count": 0, "missing_count": 0, "extra_count": 2, "coverage_pct": -1, "missing_fields": [], "covered_fields": [], "domain": "requirements"}, {"id": "requirements.feature", "label_zh": "Feature", "label_en": "Feature", "onto_count": 2, "octane_count": 0, "covered_count": 0, "missing_count": 0, "extra_count": 2, "coverage_pct": -1, "missing_fields": [], "covered_fields": [], "domain": "requirements"}, {"id": "requirements.story", "label_zh": "Story", "label_en": "Story", "onto_count": 2, "octane_count": 0, "covered_count": 0, "missing_count": 0, "extra_count": 2, "coverage_pct": -1, "missing_fields": [], "covered_fields": [], "domain": "requirements"}, {"id": "product.project", "label_zh": "项目", "label_en": "Project", "onto_count": 2, "octane_count": 0, "covered_count": 0, "missing_count": 0, "extra_count": 2, "coverage_pct": -1, "missing_fields": [], "covered_fields": [], "domain": "product"}, {"id": "product.service_pack", "label_zh": "Service Pack", "label_en": "Service Pack", "onto_count": 2, "octane_count": 0, "covered_count": 0, "missing_count": 0, "extra_count": 2, "coverage_pct": -1, "missing_fields": [], "covered_fields": [], "domain": "product"}, {"id": "product.pu", "label_zh": "PU", "label_en": "Product Unit", "onto_count": 3, "octane_count": 0, "covered_count": 0, "missing_count": 0, "extra_count": 3, "coverage_pct": -1, "missing_fields": [], "covered_fields": [], "domain": "product"}, {"id": "product.i_step", "label_zh": "I-Step", "label_en": "I-Step", "onto_count": 3, "octane_count": 0, "covered_count": 0, "missing_count": 0, "extra_count": 3, "coverage_pct": -1, "missing_fields": [], "covered_fields": [], "domain": "product"}, {"id": "product.os", "label_zh": "操作系统代际", "label_en": "Operating System Generation", "onto_count": 2, "octane_count": 0, "covered_count": 0, "missing_count": 0, "extra_count": 2, "coverage_pct": -1, "missing_fields": [], "covered_fields": [], "domain": "product"}, {"id": "product.platform", "label_zh": "平台", "label_en": "Platform", "onto_count": 3, "octane_count": 0, "covered_count": 0, "missing_count": 0, "extra_count": 3, "coverage_pct": -1, "missing_fields": [], "covered_fields": [], "domain": "product"}, {"id": "product.ecu", "label_zh": "ECU/模块", "label_en": "ECU or Module", "onto_count": 2, "octane_count": 0, "covered_count": 0, "missing_count": 0, "extra_count": 2, "coverage_pct": -1, "missing_fields": [], "covered_fields": [], "domain": "product"}, {"id": "vehicle.model_series", "label_zh": "车型系列", "label_en": "Model Series", "onto_count": 3, "octane_count": 0, "covered_count": 0, "missing_count": 0, "extra_count": 3, "coverage_pct": -1, "missing_fields": [], "covered_fields": [], "domain": "vehicle"}, {"id": "organization.team", "label_zh": "团队", "label_en": "Team", "onto_count": 2, "octane_count": 0, "covered_count": 0, "missing_count": 0, "extra_count": 2, "coverage_pct": -1, "missing_fields": [], "covered_fields": [], "domain": "organization"}, {"id": "organization.tester", "label_zh": "测试人员", "label_en": "Tester", "onto_count": 3, "octane_count": 0, "covered_count": 0, "missing_count": 0, "extra_count": 3, "coverage_pct": -1, "missing_fields": [], "covered_fields": [], "domain": "organization"}, {"id": "quality.qgate", "label_zh": "质量门", "label_en": "Quality Gate", "onto_count": 3, "octane_count": 0, "covered_count": 0, "missing_count": 0, "extra_count": 3, "coverage_pct": -1, "missing_fields": [], "covered_fields": [], "domain": "quality"}, {"id": "evidence.artifact", "label_zh": "证据附件", "label_en": "Evidence Artifact", "onto_count": 3, "octane_count": 0, "covered_count": 0, "missing_count": 0, "extra_count": 3, "coverage_pct": -1, "missing_fields": [], "covered_fields": [], "domain": "evidence"}, {"id": "quality.defect_history_event", "label_zh": "缺陷历史事件", "label_en": "Defect History Event", "onto_count": 10, "octane_count": 12, "covered_count": 10, "missing_count": 2, "extra_count": 0, "coverage_pct": 83.0, "missing_fields": ["new_value_text", "old_value_text"], "covered_fields": ["action", "change_index", "defect_id", "entry_index", "event_timestamp", "field_name", "new_value", "old_value", "team", "user_name"], "domain": "quality"}, {"id": "traceability.link", "label_zh": "追溯链接", "label_en": "Traceability Link", "onto_count": 10, "octane_count": 17, "covered_count": 9, "missing_count": 8, "extra_count": 1, "coverage_pct": 53.0, "missing_fields": ["parent_subtype", "run_finished", "scope_release", "scope_team", "source", "status", "test_name", "year"], "covered_fields": ["parent_id", "parent_name", "related_id", "related_name", "related_path", "related_subtype", "relation_type", "run_id", "test_id"], "domain": "traceability"}, {"id": "traceability.testcase_summary", "label_zh": "测试用例追溯汇总", "label_en": "Traceability Test Case Summary", "onto_count": 18, "octane_count": 17, "covered_count": 7, "missing_count": 10, "extra_count": 11, "coverage_pct": 41.0, "missing_fields": ["defect_ids_json", "defect_names_json", "epic_ids_json", "epic_names_json", "feature_ids_json", "feature_names_json", "run_ids_json", "run_status_distribution_json", "story_ids_json", "story_names_json"], "covered_fields": ["run_count", "scope_release", "scope_team", "source", "test_id", "test_name", "year"], "domain": "traceability"}, {"id": "quality.defect_outcome", "label_zh": "缺陷结果", "label_en": "Defect Outcome", "onto_count": 6, "octane_count": 0, "covered_count": 0, "missing_count": 0, "extra_count": 6, "coverage_pct": -1, "missing_fields": [], "covered_fields": [], "domain": "quality"}], "relationships": [{"source": "testing.test_run", "target": "testing.test_case", "predicate": "executes", "cardinality": "many_to_one"}, {"source": "testing.test_case", "target": "requirements.aida_node", "predicate": "validates", "cardinality": "many_to_many"}, {"source": "requirements.aida_node", "target": "requirements.aida_node", "predicate": "parent_of", "cardinality": "one_to_many"}, {"source": "testing.test_run", "target": "requirements.feature", "predicate": "traces_to", "cardinality": "many_to_many"}, {"source": "testing.test_run", "target": "requirements.story", "predicate": "traces_to", "cardinality": "many_to_many"}, {"source": "quality.defect", "target": "testing.test_run", "predicate": "detected_in", "cardinality": "many_to_one"}, {"source": "quality.defect", "target": "product.ecu", "predicate": "affects", "cardinality": "many_to_one"}, {"source": "quality.defect", "target": "requirements.aida_node", "predicate": "affects", "cardinality": "many_to_many"}, {"source": "product.pu", "target": "product.service_pack", "predicate": "belongs_to", "cardinality": "many_to_one"}, {"source": "product.i_step", "target": "product.pu", "predicate": "implements", "cardinality": "many_to_many"}, {"source": "product.platform", "target": "product.os", "predicate": "runs", "cardinality": "many_to_one"}, {"source": "vehicle.model_series", "target": "product.platform", "predicate": "uses", "cardinality": "many_to_one"}, {"source": "organization.tester", "target": "organization.team", "predicate": "belongs_to", "cardinality": "many_to_one"}, {"source": "quality.qgate", "target": "product.pu", "predicate": "evaluates", "cardinality": "many_to_one"}, {"source": "evidence.artifact", "target": "quality.defect", "predicate": "supports", "cardinality": "many_to_many"}, {"source": "quality.defect", "target": "quality.defect", "predicate": "parent_of", "cardinality": "one_to_many"}, {"source": "quality.defect", "target": "quality.defect_history_event", "predicate": "has_history", "cardinality": "one_to_many"}, {"source": "quality.defect", "target": "quality.defect_outcome", "predicate": "has_outcome", "cardinality": "one_to_one"}, {"source": "traceability.testcase_summary", "target": "testing.test_case", "predicate": "aggregates", "cardinality": "many_to_one"}, {"source": "traceability.link", "target": "testing.test_run", "predicate": "belongs_to", "cardinality": "many_to_one"}]};
+
+const domainColors = {
+  quality:'#e74c3c', testing:'#3498db', requirements:'#2ecc71',
+  product:'#f39c12', vehicle:'#9b59b6', organization:'#1abc9c',
+  evidence:'#e67e22', traceability:'#34495e',
+};
+
+function getStatus(pct, hasOctane) {
+  if (!hasOctane) return {cls:'status-nodt', icon:'⬜', color:'#8b949e'};
+  if (pct >= 100) return {cls:'status-full', icon:'✅', color:'#3fb950'};
+  if (pct >= 70) return {cls:'status-good', icon:'🟡', color:'#d29922'};
+  return {cls:'status-poor', icon:'🔴', color:'#f85149'};
+}
+
+// === Sidebar entity list ===
+const listEl = document.getElementById('entity-list');
+data.entities
+  .sort((a,b) => b.octane_count - a.octane_count)
+  .forEach((ent, i) => {
+    const st = getStatus(ent.coverage_pct, ent.octane_count > 0);
+    const card = document.createElement('div');
+    card.className = 'entity-card';
+    card.dataset.idx = i;
+    const barWidth = ent.octane_count > 0 ? ent.coverage_pct : 0;
+    card.innerHTML = `
+      <div class="entity-header">
+        <span class="entity-name" style="color:${domainColors[ent.domain]}">${st.icon} ${ent.label_zh}</span>
+        <span class="entity-status ${st.cls}">${ent.octane_count > 0 ? ent.coverage_pct+'%' : '概念'}</span>
+      </div>
+      <div class="entity-meta">
+        ${ent.label_en} · Onto:${ent.onto_count} ${ent.octane_count > 0 ? '· Octane:'+ent.octane_count+' · 缺:'+ent.missing_count : ''}
+      </div>
+      ${ent.octane_count > 0 ? `<div class="bar-container"><div class="bar-fill" style="width:${barWidth}%;background:${st.color}"></div></div>` : ''}
+    `;
+    card.onclick = () => selectEntity(i);
+    listEl.appendChild(card);
+  });
+
+// === D3 Force Graph ===
+const nodes = data.entities.map(e => ({...e}));
+const links = data.relationships.map(r => ({
+  source: r.source, target: r.target, predicate: r.predicate, cardinality: r.cardinality
+}));
+
+const width = document.getElementById('graph').clientWidth;
+const height = window.innerHeight;
+
+const svg = d3.select('#graph').append('svg')
+  .attr('width', width).attr('height', height)
+  .style('background', '#0d1117');
+
+// Arrow markers
+const defs = svg.append('defs');
+Object.entries(domainColors).forEach(([domain, color]) => {
+  defs.append('marker').attr('id', `arrow-${domain}`)
+    .attr('viewBox','0 -5 10 10').attr('refX',28).attr('refY',0)
+    .attr('markerWidth',5).attr('markerHeight',5).attr('orient','auto')
+    .append('path').attr('d','M0,-5L10,0L0,5').attr('fill',color).attr('opacity',0.5);
+});
+
+const g = svg.append('g');
+
+const zoom = d3.zoom().scaleExtent([0.2,5])
+  .on('zoom', e => g.attr('transform', e.transform));
+svg.call(zoom);
+
+const simulation = d3.forceSimulation(nodes)
+  .force('link', d3.forceLink(links).id(d => d.id).distance(140).strength(0.25))
+  .force('charge', d3.forceManyBody().strength(-500))
+  .force('center', d3.forceCenter(width/2, height/2))
+  .force('collision', d3.forceCollide().radius(45));
+
+const link = g.append('g').selectAll('line').data(links).enter().append('line')
+  .attr('stroke','#30363d').attr('stroke-width',1.5)
+  .attr('marker-end', d => `url(#arrow-${d.target.domain})`)
+  .attr('opacity', 0.4);
+
+const edgeLabel = g.append('g').selectAll('text').data(links).enter().append('text')
+  .attr('class','edge-label').attr('text-anchor','middle').attr('dy',-4)
+  .attr('opacity', 0.5).text(d => d.predicate);
+
+const nodeG = g.append('g').selectAll('g').data(nodes).enter().append('g')
+  .attr('cursor','pointer')
+  .call(d3.drag()
+    .on('start', (e,d) => { if(!e.active) simulation.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y; })
+    .on('drag', (e,d) => { d.fx=e.x; d.fy=e.y; })
+    .on('end', (e,d) => { if(!e.active) simulation.alphaTarget(0); d.fx=null; d.fy=null; })
+  );
+
+// Node circle - size by total fields (Octane + onto)
+nodeG.append('circle')
+  .attr('r', d => {
+    const total = Math.max(d.octane_count, d.onto_count, 3);
+    return Math.max(14, Math.min(36, total * 0.7));
+  })
+  .attr('fill', d => {
+    if (d.octane_count === 0) return '#21262d'; // No Octane table
+    const st = getStatus(d.coverage_pct, true);
+    return st.color;
+  })
+  .attr('stroke', d => domainColors[d.domain])
+  .attr('stroke-width', 2.5)
+  .attr('opacity', 0.8);
+
+// Coverage % text inside node
+nodeG.append('text')
+  .attr('class','coverage-label')
+  .attr('text-anchor','middle')
+  .attr('dy', 4)
+  .attr('fill', d => d.octane_count === 0 ? '#8b949e' : '#fff')
+  .text(d => d.octane_count > 0 ? d.coverage_pct + '%' : '');
+
+// Label below
+nodeG.append('text')
+  .attr('class','node-label')
+  .attr('dy', d => Math.max(14, Math.min(36, Math.max(d.octane_count, d.onto_count, 3) * 0.7)) + 14)
+  .attr('text-anchor','middle')
+  .text(d => d.label_zh);
+
+const tooltip = d3.select('#tooltip');
+
+nodeG.on('mouseenter', (event, d) => {
+  const st = getStatus(d.coverage_pct, d.octane_count > 0);
+  let html = `<b style="color:${domainColors[d.domain]}">${d.label_zh}</b> (${d.label_en})<br>`;
+  if (d.octane_count > 0) {
+    html += `覆盖率: <b style="color:${st.color}">${d.coverage_pct}%</b> (${d.covered_count}/${d.octane_count})<br>`;
+    html += `Ontology 属性: ${d.onto_count} · 缺失: ${d.missing_count}`;
+    if (d.missing_fields.length > 0) {
+      html += `<br><span style="color:#f85149">缺失:</span> ${d.missing_fields.slice(0,8).join(', ')}`;
+      if (d.missing_fields.length > 8) html += ` ...+${d.missing_fields.length-8}`;
+    }
+  } else {
+    html += `<span style="color:#8b949e">概念实体 (无 Octane 数据表)</span><br>`;
+    html += `Ontology 属性: ${d.onto_count}`;
+  }
+  tooltip.style('display','block').html(html);
+})
+.on('mousemove', e => tooltip.style('left',(e.pageX+14)+'px').style('top',(e.pageY-10)+'px'))
+.on('mouseleave', () => tooltip.style('display','none'));
+
+function selectEntity(idx) {
+  document.querySelectorAll('.entity-card').forEach((el,i) => {
+    el.classList.toggle('active', i === idx);
+  });
+
+  const ent = data.entities[idx];
+  const st = getStatus(ent.coverage_pct, ent.octane_count > 0);
+  const detail = document.getElementById('detail-container');
+
+  if (ent.octane_count === 0) {
+    detail.innerHTML = `
+      <div class="detail-panel">
+        <h3 style="color:${domainColors[ent.domain]}">⬜ ${ent.label_zh}</h3>
+        <p style="font-size:12px;color:#8b949e;">${ent.label_en}</p>
+        <p style="font-size:12px;margin-top:8px;">概念实体（无直接 Octane 数据表映射）</p>
+        <p style="font-size:11px;margin-top:4px;color:#8b949e;">Ontology 属性: ${ent.onto_count}</p>
+      </div>`;
+  } else {
+    detail.innerHTML = `
+      <div class="detail-panel">
+        <h3 style="color:${st.color}">${st.icon} ${ent.label_zh} — ${ent.coverage_pct}%</h3>
+        <p style="font-size:12px;color:#8b949e;">${ent.label_en} · Octane:${ent.octane_count} · Onto:${ent.onto_count}</p>
+        <div class="field-grid">
+          ${ent.covered_fields.map(f => `<div class="field" style="background:#0d1117;color:#3fb950">✓ ${f}</div>`).join('')}
+          ${ent.missing_fields.map(f => `<div class="field" style="background:#0d1117;color:#f85149">✗ ${f}</div>`).join('')}
+        </div>
+      </div>`;
+  }
+
+  // Highlight in graph
+  nodeG.select('circle').attr('opacity', d => d.id === ent.id ? 1.0 : 0.15);
+  link.attr('opacity', l =>
+    (l.source.id||l.source) === ent.id || (l.target.id||l.target) === ent.id ? 0.9 : 0.03);
+  edgeLabel.attr('opacity', l =>
+    (l.source.id||l.source) === ent.id || (l.target.id||l.target) === ent.id ? 1.0 : 0);
+}
+
+nodeG.on('click', (event, d) => {
+  const idx = data.entities.findIndex(e => e.id === d.id);
+  selectEntity(idx);
+});
+
+svg.on('click', (event) => {
+  if (event.target.tagName === 'svg') {
+    nodeG.select('circle').attr('opacity', 0.8);
+    link.attr('opacity', 0.4);
+    edgeLabel.attr('opacity', 0.5);
+    document.querySelectorAll('.entity-card').forEach(el => el.classList.remove('active'));
+    document.getElementById('detail-container').innerHTML = '';
+  }
+});
+
+simulation.on('tick', () => {
+  link.attr('x1',d=>d.source.x).attr('y1',d=>d.source.y).attr('x2',d=>d.target.x).attr('y2',d=>d.target.y);
+  edgeLabel.attr('x',d=>(d.source.x+d.target.x)/2).attr('y',d=>(d.source.y+d.target.y)/2);
+  nodeG.attr('transform', d => `translate(${d.x},${d.y})`);
+});
+</script>
+</body>
+</html>

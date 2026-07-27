@@ -216,11 +216,13 @@
 
 ## 九、给 Data-Agent 的具体下一步（可立即执行）
 
-1. **本周**：新建 `ontology/cq-list.md`，把 19 实体/22 指标反写成 CQ，找出无 CQ 支撑的（候选下线）和 CQ 无本体支撑的（候选新建）。
-2. **本周**：把全部 `draft` 指标拉清单、指定 Owner，两周内评审为 approved/deprecated。
-3. **下周**：给 `compileOntology.mjs` 加 `--emit-graph`，输出 Mermaid 实体关系图到 `docs/ontology/graph.md`。
-4. **下周**：暴露 `list_approved_metrics()` API，让前端/Agent 动态展示「当前可问什么」。
-5. **持续**：resolver 增加 unmapped-concept 日志，每月导出作为本体演进输入。
+> 更新于 2026-07-23，标注完成状态。
+
+1. ✅ **已完成**：新建 `ontology/cq-list.md`，把实体/指标反写成 CQ，找出无 CQ 支撑的（候选下线）和 CQ 无本体支撑的（候选新建）。
+2. 🟡 **清单已产出**：`docs/ontology/draft-metric-cleanup.md` 按 4 波次列出全部 14 个 draft 指标的 owner、待决策、解锁的 CQ、审批检查清单；**审批本身是 Quality/Testing/Requirements Governance 的 SME 动作，进行中**。
+3. ✅ **已完成**：`compileOntology.mjs` 加 `--emit-graph`，输出 Mermaid 实体关系图到 `docs/ontology/graph.md`；并已接入 `ontology:compile`，每次编译自动重生成（防可视化陈旧）。
+4. ⏳ **待办**：暴露 `list_approved_metrics()` API——能力已具备（`registry.listMetrics({ status: "approved" })`），缺一个 HTTP 路由让前端/Agent 动态展示「当前可问什么」。
+5. ✅ **已完成**：resolver 增加 unmapped-concept 日志（`onUnmatched` 回调 → telemetry `semantic_resolver_unmatched`，queryHash 脱敏），graph.mjs 端到端接线，每月可导出作为本体演进输入（FAOS 式闭环）。
 
 ---
 

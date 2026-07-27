@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PreAnalysis Ontology Knowledge Graph</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { 
+  background: #0d1117; 
+  color: #c9d1d9; 
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  overflow: hidden;
+}
+#container { display: flex; width: 100vw; height: 100vh; }
+#graph { flex: 1; height: 100vh; }
+#sidebar {
+  width: 340px;
+  background: #161b22;
+  border-left: 1px solid #30363d;
+  padding: 20px;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+h1 { font-size: 18px; color: #58a6ff; margin-bottom: 4px; }
+.subtitle { font-size: 12px; color: #8b949e; margin-bottom: 16px; }
+.stats { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+.stat { background: #21262d; padding: 8px 12px; border-radius: 6px; font-size: 12px; }
+.stat-val { color: #58a6ff; font-weight: 700; font-size: 16px; }
+.stat-label { color: #8b949e; }
+.legend { margin-bottom: 16px; }
+.legend-title { font-size: 12px; color: #8b949e; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+.legend-items { display: flex; flex-wrap: wrap; gap: 6px; }
+.legend-item { display: flex; align-items: center; gap: 4px; font-size: 11px; }
+.legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+.node-info { 
+  background: #21262d; 
+  border-radius: 8px; 
+  padding: 14px; 
+  margin-top: 12px;
+  border: 1px solid #30363d;
+}
+.node-info h3 { color: #58a6ff; font-size: 14px; margin-bottom: 6px; }
+.node-info .props { font-size: 12px; color: #8b949e; }
+.node-info table { width: 100%; font-size: 11px; margin-top: 8px; }
+.node-info td { padding: 2px 4px; border-bottom: 1px solid #30363d; }
+.node-info td:first-child { color: #7ee787; }
+.tooltip {
+  position: absolute;
+  background: #1c2128;
+  border: 1px solid #30363d;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  pointer-events: none;
+  z-index: 100;
+  max-width: 300px;
+  display: none;
+}
+.edge-label { font-size: 10px; fill: #8b949e; }
+.node-label { font-size: 11px; fill: #c9d1d9; font-weight: 500; pointer-events: none; }
+.controls { margin-bottom: 16px; }
+.btn {
+  background: #21262d; border: 1px solid #30363d; color: #c9d1d9;
+  padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 12px;
+  margin-right: 6px;
+}
+.btn:hover { background: #30363d; }
+</style>
+</head>
+<body>
+<div id="container">
+  <div id="graph"></div>
+  <div id="sidebar">
+    <h1>🔬 PreAnalysis Ontology</h1>
+    <div class="subtitle">知识图谱可视化 · Knowledge Graph</div>
+    
+    <div class="stats">
+      <div class="stat"><span class="stat-val">23</span> <span class="stat-label">实体</span></div>
+      <div class="stat"><span class="stat-val">20</span> <span class="stat-label">关系</span></div>
+      <div class="stat"><span class="stat-val">8</span> <span class="stat-label">域</span></div>
+    </div>
+
+    <div class="legend">
+      <div class="legend-title">域 Domains</div>
+      <div class="legend-items">
+        <div class="legend-item"><span class="legend-dot" style="background:#e74c3c"></span>质量 (4)</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#3498db"></span>测试 (2)</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#2ecc71"></span>需求 (4)</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#f39c12"></span>产品 (7)</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#9b59b6"></span>车型 (1)</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#1abc9c"></span>组织 (2)</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#e67e22"></span>证据 (1)</div>
+        <div class="legend-item"><span class="legend-dot" style="background:#34495e"></span>追溯 (2)</div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <button class="btn" onclick="toggleLabels()">切换标签</button>
+      <button class="btn" onclick="resetZoom()">重置视图</button>
+    </div>
+
+    <div id="node-info" style="display:none;"></div>
+    
+    <div style="margin-top: 20px; font-size: 11px; color: #8b949e;">
+      <p>💡 <b>交互方式:</b></p>
+      <p>• 拖拽节点调整位置</p>
+      <p>• 滚轮缩放</p>
+      <p>• 点击节点查看详情</p>
+      <p>• 双击空白处重置</p>
+    </div>
+  </div>
+</div>
+<div class="tooltip" id="tooltip"></div>
+
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<script>
+const data = {"domains": {"quality": [{"id": "quality.defect", "label_zh": "缺陷", "label_en": "Defect", "props": 45, "table": "octane_defects"}, {"id": "quality.qgate", "label_zh": "质量门", "label_en": "Quality Gate", "props": 3, "table": "qgate_results"}, {"id": "quality.defect_history_event", "label_zh": "缺陷历史事件", "label_en": "Defect History Event", "props": 10, "table": "octane_defect_history_events"}, {"id": "quality.defect_outcome", "label_zh": "缺陷结果", "label_en": "Defect Outcome", "props": 6, "table": "defect_outcomes"}], "testing": [{"id": "testing.test_case", "label_zh": "测试用例", "label_en": "Test Case", "props": 16, "table": "octane_testcases"}, {"id": "testing.test_run", "label_zh": "测试执行", "label_en": "Test Run", "props": 30, "table": "octane_manual_runs"}], "requirements": [{"id": "requirements.aida_node", "label_zh": "AIDA 需求节点", "label_en": "AIDA Requirement Node", "props": 4, "table": "octane_traceability_nodes"}, {"id": "requirements.epic", "label_zh": "Epic", "label_en": "Epic", "props": 2, "table": "octane_work_items"}, {"id": "requirements.feature", "label_zh": "Feature", "label_en": "Feature", "props": 2, "table": "octane_work_items"}, {"id": "requirements.story", "label_zh": "Story", "label_en": "Story", "props": 2, "table": "octane_work_items"}], "product": [{"id": "product.project", "label_zh": "项目", "label_en": "Project", "props": 2, "table": "octane_defects"}, {"id": "product.service_pack", "label_zh": "Service Pack", "label_en": "Service Pack", "props": 2, "table": "octane_defects"}, {"id": "product.pu", "label_zh": "PU", "label_en": "Product Unit", "props": 3, "table": "octane_defects"}, {"id": "product.i_step", "label_zh": "I-Step", "label_en": "I-Step", "props": 3, "table": "octane_defects"}, {"id": "product.os", "label_zh": "操作系统代际", "label_en": "Operating System Generation", "props": 2, "table": "octane_defects"}, {"id": "product.platform", "label_zh": "平台", "label_en": "Platform", "props": 3, "table": "octane_defects"}, {"id": "product.ecu", "label_zh": "ECU/模块", "label_en": "ECU or Module", "props": 2, "table": "octane_defects"}], "vehicle": [{"id": "vehicle.model_series", "label_zh": "车型系列", "label_en": "Model Series", "props": 3, "table": "octane_defects"}], "organization": [{"id": "organization.team", "label_zh": "团队", "label_en": "Team", "props": 2, "table": "octane_defects"}, {"id": "organization.tester", "label_zh": "测试人员", "label_en": "Tester", "props": 3, "table": "octane_manual_runs"}], "evidence": [{"id": "evidence.artifact", "label_zh": "证据附件", "label_en": "Evidence Artifact", "props": 3, "table": "agent_artifacts"}], "traceability": [{"id": "traceability.link", "label_zh": "追溯链接", "label_en": "Traceability Link", "props": 10, "table": "octane_run_traceability"}, {"id": "traceability.testcase_summary", "label_zh": "测试用例追溯汇总", "label_en": "Traceability Test Case Summary", "props": 18, "table": "octane_traceability_testcases"}]}, "edges": [{"source": "testing.test_run", "target": "testing.test_case", "predicate": "executes", "cardinality": "many_to_one"}, {"source": "testing.test_case", "target": "requirements.aida_node", "predicate": "validates", "cardinality": "many_to_many"}, {"source": "requirements.aida_node", "target": "requirements.aida_node", "predicate": "parent_of", "cardinality": "one_to_many"}, {"source": "testing.test_run", "target": "requirements.feature", "predicate": "traces_to", "cardinality": "many_to_many"}, {"source": "testing.test_run", "target": "requirements.story", "predicate": "traces_to", "cardinality": "many_to_many"}, {"source": "quality.defect", "target": "testing.test_run", "predicate": "detected_in", "cardinality": "many_to_one"}, {"source": "quality.defect", "target": "product.ecu", "predicate": "affects", "cardinality": "many_to_one"}, {"source": "quality.defect", "target": "requirements.aida_node", "predicate": "affects", "cardinality": "many_to_many"}, {"source": "product.pu", "target": "product.service_pack", "predicate": "belongs_to", "cardinality": "many_to_one"}, {"source": "product.i_step", "target": "product.pu", "predicate": "implements", "cardinality": "many_to_many"}, {"source": "product.platform", "target": "product.os", "predicate": "runs", "cardinality": "many_to_one"}, {"source": "vehicle.model_series", "target": "product.platform", "predicate": "uses", "cardinality": "many_to_one"}, {"source": "organization.tester", "target": "organization.team", "predicate": "belongs_to", "cardinality": "many_to_one"}, {"source": "quality.qgate", "target": "product.pu", "predicate": "evaluates", "cardinality": "many_to_one"}, {"source": "evidence.artifact", "target": "quality.defect", "predicate": "supports", "cardinality": "many_to_many"}, {"source": "quality.defect", "target": "quality.defect", "predicate": "parent_of", "cardinality": "one_to_many"}, {"source": "quality.defect", "target": "quality.defect_history_event", "predicate": "has_history", "cardinality": "one_to_many"}, {"source": "quality.defect", "target": "quality.defect_outcome", "predicate": "has_outcome", "cardinality": "one_to_one"}, {"source": "traceability.testcase_summary", "target": "testing.test_case", "predicate": "aggregates", "cardinality": "many_to_one"}, {"source": "traceability.link", "target": "testing.test_run", "predicate": "belongs_to", "cardinality": "many_to_one"}], "domain_colors": {"quality": "#e74c3c", "testing": "#3498db", "requirements": "#2ecc71", "product": "#f39c12", "vehicle": "#9b59b6", "organization": "#1abc9c", "evidence": "#e67e22", "traceability": "#34495e"}, "domain_names": {"quality": "质量", "testing": "测试", "requirements": "需求", "product": "产品", "vehicle": "车型", "organization": "组织", "evidence": "证据", "traceability": "追溯"}};
+
+const nodes = [];
+const domainColors = data.domain_colors;
+const domainNames = data.domain_names;
+
+// Build nodes
+for (const [domain, entities] of Object.entries(data.domains)) {
+  for (const ent of entities) {
+    nodes.push({
+      id: ent.id,
+      label: ent.label_zh,
+      labelEn: ent.label_en,
+      domain: domain,
+      props: ent.props,
+      table: ent.table,
+    });
+  }
+}
+
+// Build links
+const links = data.edges.map(e => ({
+  source: e.source,
+  target: e.target,
+  predicate: e.predicate,
+  cardinality: e.cardinality,
+}));
+
+const width = document.getElementById('graph').clientWidth;
+const height = window.innerHeight;
+
+const svg = d3.select('#graph').append('svg')
+  .attr('width', width)
+  .attr('height', height)
+  .style('background', '#0d1117');
+
+// Arrow markers for each domain color
+const defs = svg.append('defs');
+Object.entries(domainColors).forEach(([domain, color]) => {
+  defs.append('marker')
+    .attr('id', `arrow-${domain}`)
+    .attr('viewBox', '0 -5 10 10')
+    .attr('refX', 22)
+    .attr('refY', 0)
+    .attr('markerWidth', 6)
+    .attr('markerHeight', 6)
+    .attr('orient', 'auto')
+    .append('path')
+    .attr('d', 'M0,-5L10,0L0,5')
+    .attr('fill', color)
+    .attr('opacity', 0.6);
+});
+
+const g = svg.append('g');
+
+// Zoom
+const zoom = d3.zoom()
+  .scaleExtent([0.2, 5])
+  .on('zoom', (event) => {
+    g.attr('transform', event.transform);
+  });
+svg.call(zoom);
+
+// Force simulation
+const simulation = d3.forceSimulation(nodes)
+  .force('link', d3.forceLink(links).id(d => d.id).distance(d => 120).strength(0.3))
+  .force('charge', d3.forceManyBody().strength(-400))
+  .force('center', d3.forceCenter(width / 2, height / 2))
+  .force('collision', d3.forceCollide().radius(40));
+
+// Links
+const link = g.append('g')
+  .selectAll('line')
+  .data(links)
+  .enter().append('line')
+  .attr('stroke', '#30363d')
+  .attr('stroke-width', 1.5)
+  .attr('marker-end', d => `url(#arrow-${d.target.domain})`)
+  .attr('opacity', 0.5);
+
+// Edge labels
+const edgeLabel = g.append('g')
+  .selectAll('text')
+  .data(links)
+  .enter().append('text')
+  .attr('class', 'edge-label')
+  .attr('text-anchor', 'middle')
+  .attr('dy', -4)
+  .attr('opacity', 0.6)
+  .text(d => d.predicate);
+
+// Node groups
+const node = g.append('g')
+  .selectAll('g')
+  .data(nodes)
+  .enter().append('g')
+  .attr('cursor', 'pointer')
+  .call(d3.drag()
+    .on('start', dragStarted)
+    .on('drag', dragged)
+    .on('end', dragEnded));
+
+node.append('circle')
+  .attr('r', d => Math.max(12, Math.min(28, d.props / 2)))
+  .attr('fill', d => domainColors[d.domain])
+  .attr('stroke', '#1c2128')
+  .attr('stroke-width', 2)
+  .attr('opacity', 0.85);
+
+node.append('text')
+  .attr('class', 'node-label')
+  .attr('dy', d => Math.max(12, Math.min(28, d.props / 2)) + 14)
+  .attr('text-anchor', 'middle')
+  .text(d => d.label);
+
+// Tooltip
+const tooltip = d3.select('#tooltip');
+
+node.on('mouseenter', (event, d) => {
+  tooltip.style('display', 'block')
+    .html(`<b style="color:${domainColors[d.domain]}">${d.label}</b> (${d.labelEn})<br>域: ${domainNames[d.domain]}<br>属性: ${d.props} 个<br>表: <code>${d.table}</code>`);
+})
+.on('mousemove', (event) => {
+  tooltip.style('left', (event.pageX + 14) + 'px')
+    .style('top', (event.pageY - 10) + 'px');
+})
+.on('mouseleave', () => {
+  tooltip.style('display', 'none');
+});
+
+node.on('click', (event, d) => {
+  const connected = links.filter(l => 
+    (l.source.id || l.source) === d.id || (l.target.id || l.target) === d.id
+  );
+  
+  const info = document.getElementById('node-info');
+  info.style.display = 'block';
+  info.innerHTML = `
+    <h3 style="color:${domainColors[d.domain]}">● ${d.label}</h3>
+    <div class="props">${d.labelEn} · ${domainNames[d.domain]}域 · ${d.props} 属性</div>
+    <div class="props" style="margin-top:4px;">表: <code>${d.table}</code></div>
+    <table>
+      <tr><td>关系数</td><td>${connected.length}</td></tr>
+      ${connected.map(c => {
+        const src = c.source.id || c.source;
+        const tgt = c.target.id || c.target;
+        const dir = src === d.id ? '→' : '←';
+        const other = src === d.id ? tgt : src;
+        const otherNode = nodes.find(n => n.id === other);
+        return `<tr><td>${c.predicate}</td><td>${dir} ${otherNode ? otherNode.label : other}</td></tr>`;
+      }).join('')}
+    </table>
+  `;
+  
+  // Highlight
+  node.select('circle').attr('opacity', n => 
+    n.id === d.id || connected.some(c => 
+      (c.source.id || c.source) === n.id || (c.target.id || c.target) === n.id
+    ) ? 1.0 : 0.15
+  );
+  link.attr('opacity', l =>
+    (l.source.id || l.source) === d.id || (l.target.id || l.target) === d.id ? 0.9 : 0.05
+  );
+  edgeLabel.attr('opacity', l =>
+    (l.source.id || l.source) === d.id || (l.target.id || l.target) === d.id ? 1.0 : 0
+  );
+});
+
+// Reset highlight on background click
+svg.on('click', (event) => {
+  if (event.target.tagName === 'svg' || event.target.tagName === 'rect') {
+    node.select('circle').attr('opacity', 0.85);
+    link.attr('opacity', 0.5);
+    edgeLabel.attr('opacity', 0.6);
+  }
+});
+
+svg.on('dblclick', resetZoom);
+
+simulation.on('tick', () => {
+  link
+    .attr('x1', d => d.source.x)
+    .attr('y1', d => d.source.y)
+    .attr('x2', d => d.target.x)
+    .attr('y2', d => d.target.y);
+  edgeLabel
+    .attr('x', d => (d.source.x + d.target.x) / 2)
+    .attr('y', d => (d.source.y + d.target.y) / 2);
+  node.attr('transform', d => `translate(${d.x},${d.y})`);
+});
+
+function dragStarted(event, d) {
+  if (!event.active) simulation.alphaTarget(0.3).restart();
+  d.fx = d.x; d.fy = d.y;
+}
+function dragged(event, d) {
+  d.fx = event.x; d.fy = event.y;
+}
+function dragEnded(event, d) {
+  if (!event.active) simulation.alphaTarget(0);
+  d.fx = null; d.fy = null;
+}
+
+let labelsVisible = true;
+function toggleLabels() {
+  labelsVisible = !labelsVisible;
+  d3.selectAll('.edge-label').attr('opacity', labelsVisible ? 0.6 : 0);
+  d3.selectAll('.node-label').attr('opacity', labelsVisible ? 1 : 0);
+}
+
+function resetZoom() {
+  svg.transition().duration(750).call(
+    zoom.transform,
+    d3.zoomIdentity
+  );
+}
+</script>
+</body>
+</html>
