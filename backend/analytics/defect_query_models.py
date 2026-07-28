@@ -33,6 +33,7 @@ SUPPORTED_DIMENSIONS = frozenset(
         "aida",
         "project",
         "problem_finder_team",
+        "detected_by",
         "outcome_flag",
     }
 )
@@ -53,6 +54,9 @@ SUPPORTED_FILTERS = frozenset(
         "markets",
         "lead_models",
         "groups",
+        "detected_by",
+        "business_module",
+        "business_modules",
     }
 )
 
@@ -167,12 +171,13 @@ def _normalize_filters(filters: Any) -> dict[str, list[str]]:
     for key, value in raw_filters.items():
         values = _normalize_list(value)
         if values:
-            normalized[key] = values
+            normalized_key = "business_module" if key == "business_modules" else key
+            normalized[normalized_key] = values
     return normalized
 
 
 def _query_kwargs(filters: dict[str, list[str]], time_scope: dict[str, Any]) -> dict[str, Any]:
-    kwargs: dict[str, Any] = {key: list(value) for key, value in filters.items()}
+    kwargs: dict[str, Any] = {key: list(value) for key, value in filters.items() if key != "business_module"}
     current = time_scope.get("current") or []
     if current:
         kwargs["creation_time_start"] = current[0]
@@ -192,7 +197,12 @@ def _current_snapshot_version() -> str:
 
 def _load_rows(snapshot_version: str, filters: dict[str, list[str]], time_scope: dict[str, Any]) -> list[dict[str, Any]]:
     query = read_models.normalize_query(**_query_kwargs(filters, time_scope))
-    return read_models._load_materialized_ticket_rows(snapshot_version=snapshot_version, query=query)
+    rows = read_models._load_materialized_ticket_rows(snapshot_version=snapshot_version, query=query)
+    business_modules = filters.get("business_module") or []
+    if business_modules:
+        allowed = set(business_modules)
+        rows = [row for row in rows if _business_module(row) in allowed]
+    return rows
 
 
 def _business_module(row: dict[str, Any]) -> str:
@@ -360,6 +370,7 @@ def _row_preview(row: dict[str, Any]) -> dict[str, Any]:
         "status": row.get("status"),
         "creation_time": row.get("creation_time"),
         "problem_finder_team": row.get("problem_finder_team"),
+        "detected_by": row.get("detected_by"),
         "project": row.get("project"),
         "assigned_ecu": row.get("assigned_ecu"),
         "aida": row.get("aida"),

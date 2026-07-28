@@ -713,7 +713,9 @@ Expected: LangGraph runtime writes thread checkpoints, run events, tool-call aud
 
 ## Rollout Decision
 
-After Tasks 1-10 pass, the repository has ontology-grounded coding and analytics semantics. Task 11 adds an opt-in LangGraph AI Chat runtime shell while keeping legacy as the default runtime.
+> 2026-07-27 update: the opt-in posture below has been superseded. LangGraph is now the default AI Chat runtime; `VIZION_AGENT_RUNTIME=legacy` is the explicit rollback mode. See `docs/ontology/langgraph-agent-runtime.md` for the current runtime contract.
+
+After Tasks 1-10 pass, the repository has ontology-grounded coding and analytics semantics. Task 11 originally added an opt-in LangGraph AI Chat runtime shell; the 2026-07-27 migration makes that shell the default runtime.
 
 Recommended first production posture:
 
@@ -721,7 +723,7 @@ Recommended first production posture:
 semantic kernel: enabled
 semantic tools: enabled for analytics questions
 testcase context: existing path preserved
-LangGraph runtime: explicit opt-in only with `VIZION_AGENT_RUNTIME=langgraph`
+LangGraph runtime: default; rollback with `VIZION_AGENT_RUNTIME=legacy`
 admin UI: deferred
 ```
 

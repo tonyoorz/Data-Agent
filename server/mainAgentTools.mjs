@@ -16,6 +16,7 @@ const DASHBOARD_SUMMARY_FILTER_KEYS = new Set([
   "markets",
   "lead_models",
   "groups",
+  "detected_by",
   "creation_time_start",
   "creation_time_end",
 ]);
@@ -53,8 +54,63 @@ const DEFECT_DIMENSION_VALUES = [
   "aida",
   "project",
   "problem_finder_team",
+  "detected_by",
   "outcome_flag",
 ];
+
+const DEFECT_FILTER_PROPERTIES = {
+  years: { oneOf: [{ type: "string" }, { type: "number" }, { type: "array", items: { type: "string" } }] },
+  months: STRING_OR_STRING_ARRAY_SCHEMA,
+  requirements: STRING_OR_STRING_ARRAY_SCHEMA,
+  china_scopes: STRING_OR_STRING_ARRAY_SCHEMA,
+  projects: STRING_OR_STRING_ARRAY_SCHEMA,
+  assigned_ecus: STRING_OR_STRING_ARRAY_SCHEMA,
+  problem_finder_teams: STRING_OR_STRING_ARRAY_SCHEMA,
+  aidas: STRING_OR_STRING_ARRAY_SCHEMA,
+  phases: STRING_OR_STRING_ARRAY_SCHEMA,
+  solution_clusters: STRING_OR_STRING_ARRAY_SCHEMA,
+  pus: STRING_OR_STRING_ARRAY_SCHEMA,
+  markets: STRING_OR_STRING_ARRAY_SCHEMA,
+  lead_models: STRING_OR_STRING_ARRAY_SCHEMA,
+  groups: STRING_OR_STRING_ARRAY_SCHEMA,
+  detected_by: STRING_OR_STRING_ARRAY_SCHEMA,
+  business_module: STRING_OR_STRING_ARRAY_SCHEMA,
+  business_modules: STRING_OR_STRING_ARRAY_SCHEMA,
+};
+
+const ANALYTICS_QUERY_PROPERTIES = {
+  dataset: { type: "string", enum: ["defects"], description: "Analytics dataset. Phase 1 supports defects." },
+  intent: { type: "string", enum: ["aggregate", "trend", "rank"], description: "Question shape. Phase 1 executes these through defect aggregate semantics." },
+  metrics: { type: "array", items: { type: "string", enum: DEFECT_METRIC_VALUES } },
+  dimensions: { type: "array", items: { type: "string", enum: DEFECT_DIMENSION_VALUES }, maxItems: 1 },
+  derived_metrics: { type: "array", items: { type: "string", enum: ["delta", "growth_pct"] } },
+  filters: { type: "object", properties: DEFECT_FILTER_PROPERTIES, additionalProperties: false },
+  time: {
+    type: "object",
+    properties: {
+      field: { type: "string", enum: ["creation_time"] },
+      current: { type: "array", items: { type: "string" }, minItems: 2, maxItems: 2 },
+      comparison: { type: "array", items: { type: "string" }, minItems: 2, maxItems: 2 },
+      timezone: { type: "string", enum: ["Asia/Shanghai"] },
+    },
+    required: ["field", "current", "timezone"],
+    additionalProperties: false,
+  },
+  order_by: {
+    type: "array",
+    items: {
+      type: "object",
+      properties: {
+        field: { type: "string" },
+        direction: { type: "string", enum: ["asc", "desc"] },
+      },
+      required: ["field", "direction"],
+      additionalProperties: false,
+    },
+  },
+  min_baseline_count: { type: "number" },
+  limit: { type: "number" },
+};
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -140,6 +196,40 @@ export const MAIN_AGENT_TOOLS = [
   {
     type: "function",
     function: {
+      name: "query_analytics",
+      description: "High-level analytics query tool. Use this first for defect counts, trends, rankings, and aggregate questions; it normalizes to the governed Analytics Query Kernel instead of choosing page endpoints directly.",
+      parameters: {
+        type: "object",
+        required: ["dataset", "intent", "metrics", "dimensions", "filters", "time"],
+        additionalProperties: false,
+        properties: ANALYTICS_QUERY_PROPERTIES,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "diagnose_analytics_empty",
+      description: "Diagnose empty or suspiciously small analytics results by replaying the same high-level query and relaxing one non-time filter at a time. Use before concluding that no data exists.",
+      parameters: {
+        type: "object",
+        required: ["query"],
+        additionalProperties: false,
+        properties: {
+          query: {
+            type: "object",
+            required: ["dataset", "intent", "metrics", "dimensions", "filters", "time"],
+            additionalProperties: false,
+            properties: ANALYTICS_QUERY_PROPERTIES,
+          },
+          reason: { type: "string", description: "Why diagnosis is needed, for example query_analytics returned no rows." },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "query_semantic_metrics",
       description: "Execute a validated Ontology metric query against the semantic analytics API. The query must come from the governed query planner.",
       parameters: {
@@ -201,6 +291,7 @@ export const MAIN_AGENT_TOOLS = [
               markets: { oneOf: [{ type: "string" }, { type: "array", items: { type: "string" } }] },
               lead_models: { oneOf: [{ type: "string" }, { type: "array", items: { type: "string" } }] },
               groups: { oneOf: [{ type: "string" }, { type: "array", items: { type: "string" } }] },
+              detected_by: STRING_OR_STRING_ARRAY_SCHEMA,
               creation_time_start: { type: "string" },
               creation_time_end: { type: "string" },
             },
@@ -217,6 +308,36 @@ export const MAIN_AGENT_TOOLS = [
     function: {
       name: "query_testing_coverage_project_status",
       description: "Query Testing Coverage project-status rows through the analytics API using safe coverage filters.",
+      parameters: {
+        type: "object",
+        properties: {
+          filters: {
+            type: "object",
+            description: "Testing Coverage filters mapped to the coverage-analysis API.",
+            properties: {
+              years: STRING_OR_STRING_ARRAY_SCHEMA,
+              projects: STRING_OR_STRING_ARRAY_SCHEMA,
+              test_weeks: STRING_OR_STRING_ARRAY_SCHEMA,
+              pus: STRING_OR_STRING_ARRAY_SCHEMA,
+              aidas: STRING_OR_STRING_ARRAY_SCHEMA,
+              statuses: STRING_OR_STRING_ARRAY_SCHEMA,
+              feature_regions: STRING_OR_STRING_ARRAY_SCHEMA,
+              fvps: STRING_OR_STRING_ARRAY_SCHEMA,
+              fvs: STRING_OR_STRING_ARRAY_SCHEMA,
+            },
+            additionalProperties: false,
+          },
+        },
+        required: ["filters"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "query_testing_coverage_aida_status",
+      description: "Query Testing Coverage AIDA-status rows through the analytics API using safe coverage filters. Use for manual-run pass-rate or coverage questions grouped by AIDA.",
       parameters: {
         type: "object",
         properties: {
@@ -295,6 +416,7 @@ export const MAIN_AGENT_TOOLS = [
               markets: STRING_OR_STRING_ARRAY_SCHEMA,
               lead_models: STRING_OR_STRING_ARRAY_SCHEMA,
               groups: STRING_OR_STRING_ARRAY_SCHEMA,
+              detected_by: STRING_OR_STRING_ARRAY_SCHEMA,
               creation_time_start: { type: "string" },
               creation_time_end: { type: "string" },
               recent_days: { type: "number", description: "Relative creation-time window ending today, e.g. 7 for 最近一周." },
@@ -352,6 +474,9 @@ export const MAIN_AGENT_TOOLS = [
               markets: STRING_OR_STRING_ARRAY_SCHEMA,
               lead_models: STRING_OR_STRING_ARRAY_SCHEMA,
               groups: STRING_OR_STRING_ARRAY_SCHEMA,
+              detected_by: STRING_OR_STRING_ARRAY_SCHEMA,
+              business_module: STRING_OR_STRING_ARRAY_SCHEMA,
+              business_modules: STRING_OR_STRING_ARRAY_SCHEMA,
             },
             additionalProperties: false,
           },
@@ -432,6 +557,7 @@ export const MAIN_AGENT_TOOLS = [
               markets: STRING_OR_STRING_ARRAY_SCHEMA,
               lead_models: STRING_OR_STRING_ARRAY_SCHEMA,
               groups: STRING_OR_STRING_ARRAY_SCHEMA,
+              detected_by: STRING_OR_STRING_ARRAY_SCHEMA,
               creation_time_start: { type: "string" },
               creation_time_end: { type: "string" },
               recent_days: { type: "number" },
@@ -551,6 +677,17 @@ function buildCoverageProjectStatusUrl(filters, analyticsApiBase) {
   return url.toString();
 }
 
+function buildCoverageAidaStatusUrl(filters, analyticsApiBase) {
+  const url = new URL("/api/testing/coverage-analysis/aida-status", analyticsApiBase);
+  for (const [key, value] of Object.entries(filters || {})) {
+    if (!COVERAGE_FILTER_KEYS.has(key)) {
+      continue;
+    }
+    appendFilterValue(url.searchParams, key, value);
+  }
+  return url.toString();
+}
+
 function toIsoDate(date) {
   return date.toISOString().slice(0, 10);
 }
@@ -636,6 +773,40 @@ function buildFullPictureModuleUrl(args, analyticsApiBase, now) {
   }
 
   return { url: url.toString(), moduleName };
+}
+
+function normalizeAnalyticsQuery(rawQuery) {
+  const query = rawQuery && typeof rawQuery === "object" ? rawQuery : {};
+  const dataset = String(query.dataset || "defects").trim();
+  if (dataset !== "defects") {
+    throw new Error(`Unsupported analytics dataset: ${dataset || "unknown"}`);
+  }
+  return {
+    dataset,
+    intent: String(query.intent || "aggregate").trim() || "aggregate",
+    metrics: Array.isArray(query.metrics) && query.metrics.length ? query.metrics.map(String) : ["defect_count"],
+    dimensions: Array.isArray(query.dimensions) ? query.dimensions.map(String) : [],
+    derived_metrics: Array.isArray(query.derived_metrics) ? query.derived_metrics.map(String) : [],
+    filters: query.filters && typeof query.filters === "object" ? query.filters : {},
+    time: query.time && typeof query.time === "object" ? query.time : {},
+    order_by: Array.isArray(query.order_by) ? query.order_by : undefined,
+    min_baseline_count: query.min_baseline_count,
+    limit: query.limit,
+  };
+}
+
+function buildDefectAggregatePayloadFromAnalyticsQuery(rawQuery) {
+  const query = normalizeAnalyticsQuery(rawQuery);
+  return Object.fromEntries(Object.entries({
+    metrics: query.metrics,
+    dimensions: query.dimensions,
+    derived_metrics: query.derived_metrics.length ? query.derived_metrics : undefined,
+    filters: query.filters,
+    time: query.time,
+    order_by: query.order_by,
+    min_baseline_count: query.min_baseline_count,
+    limit: query.limit,
+  }).filter(([, value]) => value !== undefined));
 }
 
 async function postAnalyticsJson(path, payload, { analyticsFetch, analyticsApiBase }) {
@@ -741,7 +912,7 @@ function buildDataCatalogPayload() {
       {
         id: "testing_coverage",
         description: "Manual-run and testcase execution data for Testing Coverage analysis.",
-        metrics: ["run_count", "status_count", "testcase_count"],
+        metrics: ["run_count", "status_count", "testcase_count", "coverage_rate", "pass_rate", "execution_rate"],
         dimensions: Array.from(COVERAGE_FILTER_KEYS),
         filters: Array.from(COVERAGE_FILTER_KEYS),
       },
@@ -753,10 +924,14 @@ function buildDataCatalogPayload() {
       DTSV: { filter: "problem_finder_teams", value: "DTSV_China" },
       ECU: { filter: "assigned_ecus" },
       "测试覆盖率": { dataset: "testing_coverage" },
+      "测试执行覆盖率": { dataset: "testing_coverage", metric: "coverage_rate" },
+      "manual-run": { dataset: "testing_coverage" },
+      "通过率": { dataset: "testing_coverage", metric: "pass_rate" },
+      "执行率": { dataset: "testing_coverage", metric: "execution_rate" },
     },
     guardrails: [
       "Use only listed filters, dimensions, and modules.",
-      "Use query_defect_aggregate for flexible defect analysis, then query_defect_records only for examples from a returned drilldown_ref.",
+      "Use query_analytics for flexible defect analysis, then query_defect_records only for examples from a returned drilldown_ref.",
       "Ask clarification when metric meaning or filter scope is ambiguous.",
       "Regression-commit causality is not available from these dashboard datasets alone.",
     ],
@@ -862,6 +1037,47 @@ async function executeOctaneFieldSearch(toolCall, { analyticsFetch, analyticsApi
   };
 }
 
+const PERSON_FILTER_STOP_WORDS = new Set(["dtsv", "qgate", "octane", "defect", "defects", "ticket", "tickets"]);
+
+function normalizePersonName(rawName) {
+  const tokens = String(rawName || "")
+    .trim()
+    .split(/\s+/)
+    .map((token) => token.replace(/^[^A-Za-z]+|[^A-Za-z.'-]+$/g, ""))
+    .filter(Boolean);
+  const nameTokens = [];
+  for (const token of tokens) {
+    const normalized = token.toLowerCase();
+    if (PERSON_FILTER_STOP_WORDS.has(normalized) || /^[A-Z0-9_]{3,}$/.test(token)) {
+      break;
+    }
+    nameTokens.push(token);
+  }
+  if (nameTokens.length < 2) {
+    return "";
+  }
+  return nameTokens
+    .map((token) => token.charAt(0).toUpperCase() + token.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function extractDetectedByName(text) {
+  const labeledName = String(text || "").match(/(?:人名|姓名|name)\s*[:：]?\s+([A-Za-z][A-Za-z.'-]*(?:\s+[A-Za-z][A-Za-z.'-]*){1,5})/i);
+  const personLabelName = normalizePersonName(labeledName?.[1]);
+  if (personLabelName) {
+    return personLabelName;
+  }
+
+  const explicit = String(text || "").match(/\b(?:tester|detected\s*by|finder|reported\s*by|reporter|author)\s*[:：]?\s+([A-Za-z][A-Za-z.'-]*(?:\s+[A-Za-z][A-Za-z.'-]*){0,5})/i);
+  const explicitName = normalizePersonName(explicit?.[1]);
+  if (explicitName) {
+    return explicitName;
+  }
+
+  const beforeTicketVerb = String(text || "").match(/\b([A-Za-z][A-Za-z.'-]*(?:\s+[A-Za-z][A-Za-z.'-]*){1,3})\s*(?:提了|提票|提交|新增|创建|缺陷|ticket)/i);
+  return normalizePersonName(beforeTicketVerb?.[1]);
+}
+
 function resolveBusinessTerms(query) {
   const text = String(query || "");
   const lowerText = text.toLowerCase();
@@ -870,6 +1086,7 @@ function resolveBusinessTerms(query) {
   const metrics = [];
   const datasets = new Set();
   const clarifications = [];
+  const isTestingCoverageQuery = /测试.*覆盖率|覆盖率|manual[-\s]?run|通过率|执行率|coverage|pass\s*rate|execution\s*rate|\btest\b/i.test(lowerText);
 
   if (/dtsv/i.test(text)) {
     filters.problem_finder_teams = ["DTSV_China"];
@@ -879,18 +1096,36 @@ function resolveBusinessTerms(query) {
     filters.recent_days = 7;
     resolved.push({ term: "最近一周", mapsTo: "recent_days", value: 7 });
   }
-  if (/新增|新建|创建|提交|提了|opened|created|raised|submitted/i.test(text)) {
+  if (/新增|新建|创建|提交|提了|提票|opened|created|raised|submitted|ticket/i.test(text)) {
     datasets.add("defects");
-    metrics.push("created_count");
-    resolved.push({ term: "新增/创建/提交", mapsTo: "octane_defects.creation_time" });
+    metrics.push("defect_count");
+    resolved.push({ term: "新增/创建/提交", mapsTo: "defect_count filtered by octane_defects.creation_time" });
   }
-  if (/ecu|模块/i.test(text)) {
+  const detectedByName = extractDetectedByName(text);
+  if (detectedByName) {
+    datasets.add("defects");
+    filters.detected_by = [detectedByName];
+    resolved.push({ term: "tester/提票人", mapsTo: "detected_by", value: detectedByName });
+  }
+  if (/ecu|模块/i.test(text) && !isTestingCoverageQuery) {
     datasets.add("defects");
     resolved.push({ term: "ECU/模块", mapsTo: "assigned_ecus" });
   }
-  if (/测试覆盖率|coverage|test/i.test(lowerText)) {
+  if (/ecu|模块/i.test(text) && isTestingCoverageQuery) {
+    resolved.push({ term: "ECU/模块", mapsTo: "testing_coverage project-status dimensions fv/fvp" });
+  }
+  if (isTestingCoverageQuery) {
     datasets.add("testing_coverage");
     resolved.push({ term: "测试覆盖率", mapsTo: "testing_coverage" });
+    if (/通过率|pass\s*rate/i.test(lowerText)) {
+      metrics.push("pass_rate");
+    }
+    if (/执行率|execution\s*rate/i.test(lowerText)) {
+      metrics.push("execution_rate");
+    }
+    if (/覆盖率|coverage/i.test(lowerText) || !metrics.length) {
+      metrics.push("coverage_rate");
+    }
   }
   if (/执行效率|发现率/.test(text)) {
     clarifications.push("执行效率/缺陷发现率需要先确认口径，例如按测试用例数、执行次数、人员维度或缺陷/执行比计算。");
@@ -971,6 +1206,17 @@ function formatCoverageProjectStatusContext(url, payload) {
   ].join("\n");
 }
 
+function formatCoverageAidaStatusContext(url, payload) {
+  const rows = Array.isArray(payload) ? payload : [];
+  return [
+    "# Main agent tool result",
+    "Tool: query_testing_coverage_aida_status",
+    `Source query: GET ${url}`,
+    `Rows: ${rows.length}`,
+    "Rows are grouped by test_week, top_aida, status, and count. To compute pass rate, divide Passed count by total count per top_aida. Do not treat missing rows as zero coverage.",
+  ].join("\n");
+}
+
 async function executeCoverageProjectStatus(toolCall, { analyticsFetch, analyticsApiBase }) {
   const args = parseToolArguments(toolCall?.function?.arguments);
   const url = buildCoverageProjectStatusUrl(args.filters || {}, analyticsApiBase);
@@ -987,6 +1233,25 @@ async function executeCoverageProjectStatus(toolCall, { analyticsFetch, analytic
   return {
     toolMessage: buildToolMessage(toolCall, JSON.stringify({ ok: true, tool: "query_testing_coverage_project_status", url, result: payload })),
     contextText: formatCoverageProjectStatusContext(url, payload),
+  };
+}
+
+async function executeCoverageAidaStatus(toolCall, { analyticsFetch, analyticsApiBase }) {
+  const args = parseToolArguments(toolCall?.function?.arguments);
+  const url = buildCoverageAidaStatusUrl(args.filters || {}, analyticsApiBase);
+  const response = await analyticsFetch(url);
+  if (!response?.ok) {
+    const content = JSON.stringify({ error: `Analytics API request failed for query_testing_coverage_aida_status: ${response?.status || "unknown"}` });
+    return {
+      toolMessage: buildToolMessage(toolCall, content),
+      contextText: `# Main agent tool result\nTool: query_testing_coverage_aida_status\nSource query: GET ${url}\nResult: unavailable because the analytics API request failed.`,
+    };
+  }
+
+  const payload = await response.json();
+  return {
+    toolMessage: buildToolMessage(toolCall, JSON.stringify({ ok: true, tool: "query_testing_coverage_aida_status", url, result: payload })),
+    contextText: formatCoverageAidaStatusContext(url, payload),
   };
 }
 
@@ -1090,7 +1355,7 @@ async function executeDefectHighFrequency(toolCall, { analyticsFetch, analyticsA
   };
 }
 
-function formatDefectAggregateContext(payload) {
+function formatDefectAggregateContext(payload, { toolName = "query_defect_aggregate" } = {}) {
   const rows = Array.isArray(payload?.rows) ? payload.rows : [];
   const metrics = Array.isArray(payload?.applied_query?.metrics) ? payload.applied_query.metrics : ["defect_count"];
   const dimensions = Array.isArray(payload?.applied_query?.dimensions) ? payload.applied_query.dimensions : [];
@@ -1106,7 +1371,7 @@ function formatDefectAggregateContext(payload) {
 
   return [
     "# Main agent tool result",
-    "Tool: query_defect_aggregate",
+    `Tool: ${toolName}`,
     `Snapshot: ${payload?.snapshot_version || "unknown"}`,
     `Query fingerprint: ${payload?.query_fingerprint || "unknown"}`,
     `Groups: ${Number(payload?.returned_groups || 0)} returned of ${Number(payload?.total_groups || 0)}${payload?.truncated ? " (truncated)" : ""}`,
@@ -1115,6 +1380,27 @@ function formatDefectAggregateContext(payload) {
     Array.isArray(payload?.warnings) && payload.warnings.length ? `Warnings: ${payload.warnings.join(" | ")}` : "",
     "Use aggregate results for counts/rates. Use drilldown_ref with query_defect_records only for example tickets, not causality proof.",
   ].filter(Boolean).join("\n");
+}
+
+async function executeQueryAnalytics(toolCall, { analyticsFetch, analyticsApiBase }) {
+  const args = parseToolArguments(toolCall?.function?.arguments);
+  const requestPayload = buildDefectAggregatePayloadFromAnalyticsQuery(args);
+  const { url, response } = await postAnalyticsJson("/api/analytics/defects/aggregate", requestPayload, { analyticsFetch, analyticsApiBase });
+  if (!response?.ok) {
+    const content = JSON.stringify({ error: `Analytics API request failed for query_analytics: ${response?.status || "unknown"}` });
+    return {
+      toolMessage: buildToolMessage(toolCall, content),
+      contextText: `# Main agent tool result\nTool: query_analytics\nSource query: POST ${url}\nResult: unavailable because the analytics API request failed.`,
+    };
+  }
+  const payload = await response.json();
+  return {
+    toolMessage: buildToolMessage(toolCall, JSON.stringify({ ok: true, tool: "query_analytics", url, request: requestPayload, result: payload })),
+    contextText: [
+      formatDefectAggregateContext(payload, { toolName: "query_analytics" }),
+      "This high-level tool executed through the governed defect aggregate API. If rows are empty or unexpectedly small, call diagnose_analytics_empty before answering no data.",
+    ].join("\n"),
+  };
 }
 
 async function executeDefectAggregate(toolCall, { analyticsFetch, analyticsApiBase }) {
@@ -1131,6 +1417,97 @@ async function executeDefectAggregate(toolCall, { analyticsFetch, analyticsApiBa
   return {
     toolMessage: buildToolMessage(toolCall, JSON.stringify({ ok: true, tool: "query_defect_aggregate", url, result: payload })),
     contextText: formatDefectAggregateContext(payload),
+  };
+}
+
+function aggregateDefectCount(payload) {
+  const rows = Array.isArray(payload?.rows) ? payload.rows : [];
+  return rows.reduce((total, row) => total + Number(row?.defect_count || 0), 0);
+}
+
+const STABLE_DIAGNOSIS_FILTER_KEYS = new Set(["years", "months"]);
+
+async function executeDiagnosisProbe({ label, query, analyticsFetch, analyticsApiBase }) {
+  const requestPayload = buildDefectAggregatePayloadFromAnalyticsQuery(query);
+  const { url, response } = await postAnalyticsJson("/api/analytics/defects/aggregate", requestPayload, { analyticsFetch, analyticsApiBase });
+  if (!response?.ok) {
+    return {
+      label,
+      url,
+      ok: false,
+      status: response?.status || "unknown",
+      filters: requestPayload.filters || {},
+      defect_count: null,
+    };
+  }
+  const payload = await response.json();
+  return {
+    label,
+    url,
+    ok: true,
+    filters: requestPayload.filters || {},
+    defect_count: aggregateDefectCount(payload),
+    snapshot_version: payload?.snapshot_version || "unknown",
+    returned_groups: Number(payload?.returned_groups || 0),
+  };
+}
+
+function buildDiagnosisRecommendation(probes) {
+  const original = probes[0];
+  const originalCount = Number(original?.defect_count || 0);
+  const improved = probes.slice(1).find((probe) => Number(probe.defect_count || 0) > originalCount);
+  if (!improved) {
+    return "No single relaxed filter recovered data; verify the time window, data refresh, and whether the selected dataset supports the requested entity.";
+  }
+  const relaxedKey = String(improved.relaxed_filter || "filter");
+  return `${relaxedKey} may be too restrictive or mapped to the wrong field; verify the exact value or ask the user to choose from available values before concluding no data.`;
+}
+
+function formatDiagnosisContext(payload) {
+  const probes = Array.isArray(payload?.probes) ? payload.probes : [];
+  const lines = probes.map((probe, index) => `${index + 1}. ${probe.label}: defect_count ${probe.defect_count ?? "unavailable"}`);
+  return [
+    "# Main agent tool result",
+    "Tool: diagnose_analytics_empty",
+    payload?.reason ? `Reason: ${payload.reason}` : "Reason: empty or suspicious analytics result",
+    lines.length ? "Diagnosis probes:" : "Diagnosis probes: none",
+    ...lines,
+    `Recommendation: ${payload?.recommendation || "No recommendation available."}`,
+    "Use this diagnosis to retry with corrected filters, ask a focused clarification, or state the data limitation with evidence.",
+  ].join("\n");
+}
+
+async function executeDiagnoseAnalyticsEmpty(toolCall, { analyticsFetch, analyticsApiBase }) {
+  const args = parseToolArguments(toolCall?.function?.arguments);
+  const baseQuery = normalizeAnalyticsQuery(args.query || args);
+  const baseFilters = baseQuery.filters && typeof baseQuery.filters === "object" ? baseQuery.filters : {};
+  const removableFilterKeys = Object.keys(baseFilters)
+    .filter((key) => !STABLE_DIAGNOSIS_FILTER_KEYS.has(key))
+    .slice(0, 6);
+  const probes = [];
+  probes.push(await executeDiagnosisProbe({ label: "original", query: baseQuery, analyticsFetch, analyticsApiBase }));
+  for (const filterKey of removableFilterKeys) {
+    const relaxedFilters = { ...baseFilters };
+    delete relaxedFilters[filterKey];
+    probes.push({
+      ...(await executeDiagnosisProbe({
+        label: `without ${filterKey}`,
+        query: { ...baseQuery, filters: relaxedFilters },
+        analyticsFetch,
+        analyticsApiBase,
+      })),
+      relaxed_filter: filterKey,
+    });
+  }
+  const payload = {
+    reason: String(args.reason || "").trim(),
+    query: baseQuery,
+    probes,
+    recommendation: buildDiagnosisRecommendation(probes),
+  };
+  return {
+    toolMessage: buildToolMessage(toolCall, JSON.stringify({ ok: true, tool: "diagnose_analytics_empty", result: payload })),
+    contextText: formatDiagnosisContext(payload),
   };
 }
 
@@ -1338,6 +1715,12 @@ export async function executeMainAgentToolCall(toolCall, {
     if (name === "resolve_business_terms") {
       return executeResolveBusinessTerms(toolCall);
     }
+    if (name === "query_analytics") {
+      return await executeQueryAnalytics(toolCall, { analyticsFetch, analyticsApiBase });
+    }
+    if (name === "diagnose_analytics_empty") {
+      return await executeDiagnoseAnalyticsEmpty(toolCall, { analyticsFetch, analyticsApiBase });
+    }
     if (SEMANTIC_TOOL_NAMES.has(name)) {
       return await executeSemanticQuery(toolCall, { analyticsFetch, analyticsApiBase, actor });
     }
@@ -1346,6 +1729,9 @@ export async function executeMainAgentToolCall(toolCall, {
     }
     if (name === "query_testing_coverage_project_status") {
       return await executeCoverageProjectStatus(toolCall, { analyticsFetch, analyticsApiBase });
+    }
+    if (name === "query_testing_coverage_aida_status") {
+      return await executeCoverageAidaStatus(toolCall, { analyticsFetch, analyticsApiBase });
     }
     if (name === "get_test_case_context") {
       return await executeTestCaseContext(toolCall, { analyticsFetch, analyticsApiBase });

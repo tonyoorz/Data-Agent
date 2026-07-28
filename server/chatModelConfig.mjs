@@ -131,6 +131,10 @@ function buildToolRequestFields(tools, toolChoice) {
   };
 }
 
+function buildStreamRequestFields(stream) {
+  return stream ? { stream_options: { include_usage: true } } : {};
+}
+
 export function buildChatCompletionRequest({
   selectedModel,
   messages,
@@ -141,6 +145,7 @@ export function buildChatCompletionRequest({
 }) {
   const config = resolveChatModelConfig(selectedModel || "", env);
   const toolRequestFields = buildToolRequestFields(tools, toolChoice);
+  const streamRequestFields = buildStreamRequestFields(stream);
 
   if (config.usesInternalEndpoint) {
     return {
@@ -156,6 +161,7 @@ export function buildChatCompletionRequest({
         temperature: 0.2,
         max_token_length: 2048,
         stream,
+        ...streamRequestFields,
         ...toolRequestFields,
       },
       config,
@@ -179,6 +185,7 @@ export function buildChatCompletionRequest({
       max_tokens: 900,
       messages,
       stream,
+      ...streamRequestFields,
       ...toolRequestFields,
     },
     config,

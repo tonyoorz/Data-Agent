@@ -223,6 +223,289 @@ describe("streamCompanyChatCompletion", () => {
     expect(systemPrompt).toContain("Do not invent tool use");
     expect(systemPrompt).toContain("Only emit <step>");
   });
+
+  it("prevents final answers from emitting DSML-style pseudo tool calls", async () => {
+    const encoder = new TextEncoder();
+    const response = {
+      writeHead: vi.fn(),
+      write: vi.fn(),
+      end: vi.fn(),
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.close();
+        },
+      }),
+      text: async () => "",
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await streamCompanyChatCompletion({
+      messages: [
+        { role: "user", content: "请基于近三个月的 Top Issue 数据，识别上升最快的三个问题模块" },
+        {
+          role: "assistant",
+          content: "",
+          tool_calls: [
+            {
+              id: "call-1",
+              type: "function",
+              function: { name: "query_defect_aggregate", arguments: "{}" },
+            },
+          ],
+        },
+        {
+          role: "tool",
+          tool_call_id: "call-1",
+          name: "query_defect_aggregate",
+          content: JSON.stringify({ ok: false, error: "analytics API requires dataset" }),
+        },
+      ],
+      model: "deepseek-v4-flash",
+      context: "# Main agent tool result\nTool: query_defect_aggregate\nResult: unavailable because the analytics API requires dataset",
+      response,
+    });
+
+    const upstreamBody = JSON.parse(String(fetchMock.mock.calls[0][1].body));
+    const systemPrompt = upstreamBody.messages[0].content;
+    const contextPrompt = upstreamBody.messages[1].content;
+
+    expect(systemPrompt).toContain("Never emit DSML");
+    expect(systemPrompt).toContain("<｜DSML｜tool_calls>");
+    expect(systemPrompt).toContain("If more data is needed, state the limitation");
+    expect(contextPrompt).toContain("Result: unavailable");
+  });
+
+  it("strips DSML-style pseudo tool calls from streamed final answer content", async () => {
+    const encoder = new TextEncoder();
+    const response = {
+      writeHead: vi.fn(),
+      write: vi.fn(),
+      end: vi.fn(),
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            encoder.encode(
+              'data: {"choices":[{"delta":{"content":"<｜DSML｜tool_calls><｜DSML｜invoke name=\\"query_defect_aggregate\\">bad</｜DSML｜invoke>"}}]}\n\n' +
+                'data: {"choices":[{"delta":{"content":"</｜DSML｜tool_calls>"}}]}\n\n' +
+                'data: [DONE]\n\n',
+            ),
+          );
+          controller.close();
+        },
+      }),
+      text: async () => "",
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await streamCompanyChatCompletion({
+      messages: [{ role: "user", content: "请基于近三个月的 Top Issue 数据分析" }],
+      model: "deepseek-v4-flash",
+      context: "# Main agent tool result\nTool: query_defect_aggregate\nAggregate rows: none",
+      response,
+    });
+
+    const streamedText = response.write.mock.calls
+      .map(([chunk]) => Buffer.from(chunk).toString("utf8"))
+      .join("");
+
+    expect(streamedText).not.toContain("DSML");
+    expect(streamedText).not.toContain("query_defect_aggregate");
+    expect(streamedText).not.toContain("tool_calls");
+    expect(streamedText).toContain("无法继续调用工具");
+    expect(streamedText).toContain("data: [DONE]");
+  });
+
+  it("strips DSML-style pseudo tool calls split across streamed content deltas", async () => {
+    const encoder = new TextEncoder();
+    const response = {
+      writeHead: vi.fn(),
+      write: vi.fn(),
+      end: vi.fn(),
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            encoder.encode(
+              'data: {"choices":[{"delta":{"content":"<｜DSML｜to"}}]}\n\n' +
+                'data: {"choices":[{"delta":{"content":"ol_calls>\\n<｜DSML｜invoke name=\\"query_analytics\\">"}}]}\n\n' +
+                'data: {"choices":[{"delta":{"content":"<｜DSML｜parameter name=\\"dataset\\" string=\\"true\\">defects</｜DSML｜parameter>"}}]}\n\n' +
+                'data: {"choices":[{"delta":{"content":"</｜DSML｜invoke>\\n</｜DSML｜tool_calls>"}}]}\n\n' +
+                'data: [DONE]\n\n',
+            ),
+          );
+          controller.close();
+        },
+      }),
+      text: async () => "",
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await streamCompanyChatCompletion({
+      messages: [{ role: "user", content: "China Product 近三个月增长最快的 ECU 是什么" }],
+      model: "deepseek-v4-flash",
+      context: "# Main agent tool result\nTool: query_analytics\nAggregate rows: none",
+      response,
+    });
+
+    const streamedText = response.write.mock.calls
+      .map(([chunk]) => Buffer.from(chunk).toString("utf8"))
+      .join("");
+
+    expect(streamedText).not.toContain("DSML");
+    expect(streamedText).not.toContain("query_analytics");
+    expect(streamedText).not.toContain("tool_calls");
+    expect(streamedText).toContain("无法继续调用工具");
+    expect(streamedText).toContain("data: [DONE]");
+  });
+
+  it("does not treat model stop-token fragments as visible final answer content", async () => {
+    const encoder = new TextEncoder();
+    const response = {
+      writeHead: vi.fn(),
+      write: vi.fn(),
+      end: vi.fn(),
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            encoder.encode(
+              'data: {"choices":[{"delta":{"content":"<｜DSML｜tool_calls><｜DSML｜invoke name=\\"query_analytics\\">"}}]}\n\n' +
+                'data: {"choices":[{"delta":{"content":"</｜DSML｜invoke></｜DSML｜tool_calls>"}}]}\n\n' +
+                'data: {"choices":[{"delta":{"content":"s>"}}]}\n\n' +
+                'data: [DONE]\n\n',
+            ),
+          );
+          controller.close();
+        },
+      }),
+      text: async () => "",
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await streamCompanyChatCompletion({
+      messages: [{ role: "user", content: "覆盖率低于 70% 的模块有哪些？" }],
+      model: "deepseek-v4-flash",
+      context: "# Main agent tool result\nTool: query_testing_coverage_project_status\nRows: 4648",
+      response,
+    });
+
+    const streamedText = response.write.mock.calls
+      .map(([chunk]) => Buffer.from(chunk).toString("utf8"))
+      .join("");
+
+    expect(streamedText).not.toContain("s>");
+    expect(streamedText).toContain("无法继续调用工具");
+    expect(streamedText).toContain("data: [DONE]");
+  });
+
+  it("emits fallback when the final answer stream only contains a stop-token fragment after tool context", async () => {
+    const encoder = new TextEncoder();
+    const response = {
+      writeHead: vi.fn(),
+      write: vi.fn(),
+      end: vi.fn(),
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            encoder.encode(
+              'data: {"choices":[{"delta":{"content":"s>"}}]}\n\n' +
+                'data: [DONE]\n\n',
+            ),
+          );
+          controller.close();
+        },
+      }),
+      text: async () => "",
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await streamCompanyChatCompletion({
+      messages: [{ role: "user", content: "覆盖率低于 70% 的模块有哪些？" }],
+      model: "deepseek-v4-flash",
+      context: "# Main agent tool result\nTool: query_testing_coverage_project_status\nRows: 4648",
+      response,
+    });
+
+    const streamedText = response.write.mock.calls
+      .map(([chunk]) => Buffer.from(chunk).toString("utf8"))
+      .join("");
+
+    expect(streamedText).not.toContain("s>");
+    expect(streamedText).toContain("无法继续调用工具");
+    expect(streamedText).toContain("data: [DONE]");
+  });
+
+  it("includes a deterministic tool-result summary when final generation produces no visible answer", async () => {
+    const encoder = new TextEncoder();
+    const response = {
+      writeHead: vi.fn(),
+      write: vi.fn(),
+      end: vi.fn(),
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            encoder.encode(
+              'data: {"choices":[{"delta":{"content":"s>"}}]}\n\n' +
+                'data: [DONE]\n\n',
+            ),
+          );
+          controller.close();
+        },
+      }),
+      text: async () => "",
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await streamCompanyChatCompletion({
+      messages: [{ role: "user", content: "最近一周新增缺陷集中在哪些 ECU？" }],
+      model: "deepseek-v4-flash",
+      context: [
+        "# Main agent tool result",
+        "Tool: query_defect_high_frequency_analysis",
+        "Total defects: 895",
+        "ECU/module count: 39",
+        "Repeat rate: 96%",
+        "Top ECU/module frequency rows:",
+        "1. IDCEVO-25: 582 (Critical)",
+        "2. SAM-HERE: 86 (Critical)",
+        "This tool answers ECU/module concentration from octane_defects assigned_ecu and creation_time filters.",
+      ].join("\n"),
+      response,
+    });
+
+    const streamedText = response.write.mock.calls
+      .map(([chunk]) => Buffer.from(chunk).toString("utf8"))
+      .join("");
+
+    expect(streamedText).not.toContain("s>");
+    expect(streamedText).toContain("最终模型没有生成可见回答");
+    expect(streamedText).toContain("Total defects: 895");
+    expect(streamedText).toContain("IDCEVO-25: 582");
+    expect(streamedText).toContain("SAM-HERE: 86");
+  });
 });
 
 describe("requestCompanyChatCompletion", () => {

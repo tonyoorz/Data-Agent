@@ -404,6 +404,43 @@ describe("AIChat duplicate search integration", () => {
     expect(screen.queryByText("导航黄屏 related defect")).not.toBeInTheDocument();
   });
 
+  it("shows model token usage and estimated cost below assistant messages", async () => {
+    const encoder = new TextEncoder();
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            encoder.encode(
+              'data: {"choices":[{"delta":{"content":"已完成"}}]}' +
+                '\n\n' +
+                'data: {"model":"glm-5","choices":[],"usage":{"prompt_tokens":1000,"completion_tokens":500,"total_tokens":1500}}' +
+                '\n\n' +
+                'data: [DONE]\n\n',
+            ),
+          );
+          controller.close();
+        },
+      }),
+      json: async () => ({ error: "unexpected" }),
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<AIChat moduleKey="ai-chat" moduleLabel="AI Chat" />);
+
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "glm-5" } });
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "请总结当前缺陷风险" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    expect(await screen.findByText("已完成")).toBeInTheDocument();
+    expect(await screen.findByLabelText("模型 glm-5")).toBeInTheDocument();
+    expect(screen.getByText("Tokens 1,500")).toBeInTheDocument();
+    expect(screen.getByText("Cost ¥0.0018")).toBeInTheDocument();
+  });
+
   it("shows an immediate generating status for pure AI chat before the first visible answer chunk", async () => {
     const encoder = new TextEncoder();
     let resolveChatResponse: ((value: unknown) => void) | null = null;

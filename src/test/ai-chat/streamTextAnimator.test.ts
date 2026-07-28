@@ -34,4 +34,21 @@ describe("createStreamTextAnimator", () => {
 
     expect(updates.at(-1)).toBe("逐字流式");
   });
+
+  it("uses a faster batched default reveal speed for chat streaming", async () => {
+    vi.useFakeTimers();
+
+    const updates: string[] = [];
+    const animator = createStreamTextAnimator({
+      onUpdate: (nextText) => updates.push(nextText),
+    });
+
+    animator.push("abcdefghijklmnop");
+
+    await vi.advanceTimersByTimeAsync(8);
+    expect(updates.at(-1)).toBe("abcdefgh");
+
+    await vi.advanceTimersByTimeAsync(8);
+    expect(updates.at(-1)).toBe("abcdefghijklmnop");
+  });
 });

@@ -2,9 +2,14 @@ import { Annotation, END, MemorySaver, START, StateGraph } from "@langchain/lang
 
 import { resolveAiAnalyticsContext } from "../aiAnalyticsContext.mjs";
 import { extractLatestUserQuery, resolveAiDefectContext } from "../aiContext.mjs";
-import { resolveMainAgentToolContext, shouldPlanMainAgentTools } from "../mainAgentToolLoop.mjs";
+import { requestCompanyChatCompletion } from "../companyChat.mjs";
+import {
+  selectMainAgentToolset,
+  shouldPlanMainAgentTools,
+} from "../mainAgentToolPlanning.mjs";
+import { runMainAgentToolTurn } from "../mainAgentToolOrchestrator.mjs";
 
-const SUPPORTED_RUNTIME_MODES = new Set(["legacy", "langgraph"]);
+const SUPPORTED_RUNTIME_MODES = new Set(["langgraph"]);
 
 const overwrite = (_left, right) => right;
 const append = (left, right) => [...(Array.isArray(left) ? left : []), ...(Array.isArray(right) ? right : [])];
@@ -19,6 +24,17 @@ const ChatState = Annotation.Root({
   model: Annotation({ reducer: overwrite, default: () => "" }),
   analyticsContext: Annotation({ reducer: overwrite, default: () => null }),
   defectContext: Annotation({ reducer: overwrite, default: () => null }),
+  toolRouting: Annotation({ reducer: overwrite, default: () => null }),
+  plannedToolCalls: Annotation({ reducer: overwrite, default: () => [] }),
+  toolStepIndex: Annotation({ reducer: overwrite, default: () => 0 }),
+  stoppedReason: Annotation({ reducer: overwrite, default: () => "" }),
+  toolCalls: Annotation({ reducer: append, default: () => [] }),
+  toolMessages: Annotation({ reducer: append, default: () => [] }),
+  toolConversationMessages: Annotation({ reducer: append, default: () => [] }),
+  toolEvents: Annotation({ reducer: append, default: () => [] }),
+  toolStandardEvents: Annotation({ reducer: append, default: () => [] }),
+  toolEvidence: Annotation({ reducer: append, default: () => [] }),
+  toolResultTexts: Annotation({ reducer: append, default: () => [] }),
   mainAgentToolContext: Annotation({ reducer: overwrite, default: () => null }),
   baseContext: Annotation({ reducer: overwrite, default: () => "" }),
   context: Annotation({ reducer: overwrite, default: () => "" }),
@@ -164,15 +180,45 @@ async function persistRuntimeState(runtimeStore, state) {
 }
 
 export function resolveAgentRuntimeMode(env = process.env) {
-  const raw = String(env?.VIZION_AGENT_RUNTIME || "legacy").trim().toLowerCase();
-  return SUPPORTED_RUNTIME_MODES.has(raw) ? raw : "legacy";
+  const raw = String(env?.VIZION_AGENT_RUNTIME || "").trim().toLowerCase();
+  if (!raw) return "langgraph";
+  return SUPPORTED_RUNTIME_MODES.has(raw) ? raw : "langgraph";
+}
+
+function compactToolRouting(toolRouting) {
+  const selectedToolset = toolRouting?.selectedToolset || {};
+  return {
+    shouldUseTools: Boolean(toolRouting?.shouldUseTools),
+    intent: selectedToolset.intent || "general",
+    confidence: selectedToolset.confidence || 0,
+    reason: selectedToolset.reason || "unknown",
+    requiredSlots: Array.isArray(selectedToolset.requiredSlots) ? selectedToolset.requiredSlots : [],
+    policyHints: Array.isArray(selectedToolset.policyHints) ? selectedToolset.policyHints : [],
+    toolNames: Array.isArray(selectedToolset.toolNames) ? selectedToolset.toolNames : [],
+  };
+}
+
+function buildMainAgentToolContextFromState(state) {
+  return {
+    contextText: (state.toolResultTexts || []).filter(Boolean).join("\n\n"),
+    toolCalls: state.toolCalls || [],
+    toolMessages: state.toolMessages || [],
+    toolConversationMessages: state.toolConversationMessages || [],
+    toolEvents: state.toolEvents || [],
+    events: state.toolStandardEvents || [],
+    evidence: state.toolEvidence || [],
+    selectedToolset: state.toolRouting?.selectedToolset,
+    stoppedReason: state.stoppedReason || "no_tool_calls",
+  };
 }
 
 export function createLangGraphChatRuntime({
   resolveAnalyticsContext = resolveAiAnalyticsContext,
   resolveDefectContext = resolveAiDefectContext,
   shouldPlanTools = shouldPlanMainAgentTools,
-  resolveToolContext = resolveMainAgentToolContext,
+  requestToolCompletion = requestCompanyChatCompletion,
+  executeToolCall,
+  maxToolSteps = 4,
   checkpointer = new MemorySaver(),
   runtimeStore = null,
   now = () => new Date(),
@@ -235,37 +281,70 @@ export function createLangGraphChatRuntime({
     };
   }
 
-  async function planTools(state, config) {
+  async function routeTools(state, config) {
     const body = state.body || {};
+    const selectedToolset = selectMainAgentToolset(body?.messages);
     const shouldUseTools =
       body?.useAnalyticsContext === true &&
       !state.analyticsContext?.skipDefectContext &&
       shouldPlanTools(body?.messages);
+    const toolRouting = { shouldUseTools, selectedToolset };
+    const compact = compactToolRouting(toolRouting);
+    const event = emit(config, {
+      type: "tool-routing-completed",
+      threadId: state.threadId,
+      shouldUseTools: compact.shouldUseTools,
+      intent: compact.intent,
+      toolNames: compact.toolNames,
+    });
+    return {
+      toolRouting,
+      runtimeEvents: [event],
+    };
+  }
 
-    if (!shouldUseTools) {
-      return { mainAgentToolContext: null };
-    }
-
-    const event = emit(config, { type: "tool-planning-started", threadId: state.threadId });
+  function buildToolDependencies(state) {
     const toolDependencies = { ...(state.toolDependencies || {}) };
     if (hasActorScope(state.actorScope)) {
       toolDependencies.actor = state.actorScope;
     }
-    const mainAgentToolContext = await resolveToolContext({
+    return toolDependencies;
+  }
+
+  async function executeToolTurn(state, config) {
+    const body = state.body || {};
+    const selectedToolset = state.toolRouting?.selectedToolset || selectMainAgentToolset(body?.messages);
+    const event = emit(config, { type: "tool-planning-started", threadId: state.threadId });
+    const toolTurn = await runMainAgentToolTurn({
       messages: body?.messages,
       model: body?.model,
       context: state.baseContext,
-      toolDependencies,
+      requestToolCompletion,
+      executeToolCall,
+      toolDependencies: buildToolDependencies(state),
+      selectedToolset,
+      maxSteps: maxToolSteps,
+      now: now(),
+      runId: state.runId,
+      threadId: state.threadId,
     });
     return {
-      mainAgentToolContext,
+      plannedToolCalls: [],
+      stoppedReason: toolTurn.stoppedReason,
+      toolCalls: toolTurn.toolCalls,
+      toolMessages: toolTurn.toolMessages,
+      toolConversationMessages: toolTurn.toolConversationMessages,
+      toolEvents: toolTurn.toolEvents,
+      toolStandardEvents: toolTurn.events,
+      toolEvidence: toolTurn.evidence,
+      toolResultTexts: toolTurn.contextText ? [toolTurn.contextText] : [],
       runtimeEvents: [event],
     };
   }
 
   async function finalize(state, config) {
     const body = state.body || {};
-    const mainAgentToolContext = state.mainAgentToolContext || null;
+    const mainAgentToolContext = state.toolRouting?.shouldUseTools ? buildMainAgentToolContextFromState(state) : null;
     const context = mergeContext(state.baseContext, mainAgentToolContext?.contextText);
     const finalMessages = [
       ...(Array.isArray(body?.messages) ? body.messages : []),
@@ -293,6 +372,7 @@ export function createLangGraphChatRuntime({
       aiContextEnabled: body?.useDefectContext === true,
       analyticsContextEnabled: body?.useAnalyticsContext === true,
       mainAgentToolCallCount: mainAgentToolContext?.toolCalls?.length || 0,
+      toolRouting: compactToolRouting(state.toolRouting),
       aiContextTimings: state.defectContext?.timings || null,
     };
     const event = emit(config, { type: "agent-runtime-ready", runId: state.runId, threadId: state.threadId });
@@ -300,20 +380,27 @@ export function createLangGraphChatRuntime({
       context,
       finalMessages,
       prefaceEvents,
+      mainAgentToolContext,
       metrics,
       runtimeEvents: [event],
     };
   }
 
+  function routeAfterToolRouting(state) {
+    return state.toolRouting?.shouldUseTools === true ? "execute_tool_turn" : "finalize";
+  }
+
   const graph = new StateGraph(ChatState)
     .addNode("initialize", initialize)
     .addNode("resolve_context", resolveContext)
-    .addNode("plan_tools", planTools)
+    .addNode("route_tools", routeTools)
+    .addNode("execute_tool_turn", executeToolTurn)
     .addNode("finalize", finalize)
     .addEdge(START, "initialize")
     .addEdge("initialize", "resolve_context")
-    .addEdge("resolve_context", "plan_tools")
-    .addEdge("plan_tools", "finalize")
+    .addEdge("resolve_context", "route_tools")
+    .addConditionalEdges("route_tools", routeAfterToolRouting)
+    .addEdge("execute_tool_turn", "finalize")
     .addEdge("finalize", END)
     .compile({ checkpointer });
 
@@ -347,6 +434,7 @@ export function createLangGraphChatRuntime({
         context: state.context || "",
         finalMessages: state.finalMessages || [],
         prefaceEvents: state.prefaceEvents || [],
+        events: state.mainAgentToolContext?.events || state.toolStandardEvents || [],
         metrics: state.metrics || {},
         runtimeEvents: state.runtimeEvents || [],
       };

@@ -6,11 +6,12 @@ import {
 } from "../../../../server/agentRuntime/langGraphChatRuntime.mjs";
 
 describe("LangGraph chat runtime", () => {
-  it("keeps legacy as the default runtime mode", () => {
-    expect(resolveAgentRuntimeMode({})).toBe("legacy");
-    expect(resolveAgentRuntimeMode({ VIZION_AGENT_RUNTIME: "" })).toBe("legacy");
+  it("uses LangGraph as the default runtime mode", () => {
+    expect(resolveAgentRuntimeMode({})).toBe("langgraph");
+    expect(resolveAgentRuntimeMode({ VIZION_AGENT_RUNTIME: "" })).toBe("langgraph");
     expect(resolveAgentRuntimeMode({ VIZION_AGENT_RUNTIME: "langgraph" })).toBe("langgraph");
-    expect(resolveAgentRuntimeMode({ VIZION_AGENT_RUNTIME: "pi" })).toBe("legacy");
+    expect(resolveAgentRuntimeMode({ VIZION_AGENT_RUNTIME: "legacy" })).toBe("langgraph");
+    expect(resolveAgentRuntimeMode({ VIZION_AGENT_RUNTIME: "pi" })).toBe("langgraph");
   });
 
   it("resolves analytics context and existing tool loop through a graph run", async () => {
@@ -19,19 +20,23 @@ describe("LangGraph chat runtime", () => {
       skipDefectContext: false,
     });
     const resolveDefectContext = vi.fn();
+    const toolCalls = [{ id: "call-1", type: "function", function: { name: "query_semantic_metrics", arguments: "{}" } }];
     const shouldPlanTools = vi.fn().mockReturnValue(true);
-    const resolveToolContext = vi.fn().mockResolvedValue({
+    const requestToolCompletion = vi
+      .fn()
+      .mockResolvedValueOnce({ content: "", toolCalls, answerModel: "deepseek-v4-flash" })
+      .mockResolvedValueOnce({ content: "No more tools.", toolCalls: [], answerModel: "deepseek-v4-flash" });
+    const executeToolCall = vi.fn().mockResolvedValue({
       contextText: "# Tool context",
-      toolCalls: [{ id: "call-1", function: { name: "query_semantic_metrics" } }],
-      toolConversationMessages: [{ role: "tool", name: "query_semantic_metrics", content: "{}" }],
-      toolEvents: [{ type: "tool-output-available", toolName: "query_semantic_metrics" }],
+      toolMessage: { role: "tool", tool_call_id: "call-1", name: "query_semantic_metrics", content: "{}" },
     });
     const events: object[] = [];
     const runtime = createLangGraphChatRuntime({
       resolveAnalyticsContext,
       resolveDefectContext,
       shouldPlanTools,
-      resolveToolContext,
+      requestToolCompletion,
+      executeToolCall,
       now: () => new Date("2026-07-23T08:00:00.000Z"),
     });
 
@@ -57,23 +62,40 @@ describe("LangGraph chat runtime", () => {
     expect(result.context).toContain("# Tool context");
     expect(result.finalMessages).toEqual([
       { role: "user", content: "DTSV 6月份提了多少bug？" },
-      { role: "tool", name: "query_semantic_metrics", content: "{}" },
+      { role: "assistant", content: "", tool_calls: toolCalls },
+      { role: "tool", tool_call_id: "call-1", name: "query_semantic_metrics", content: "{}" },
     ]);
-    expect(result.prefaceEvents).toEqual([{ type: "tool-output-available", toolName: "query_semantic_metrics" }]);
+    expect(result.prefaceEvents).toEqual([
+      { type: "tool-input-available", toolCallId: "call-1", toolName: "query_semantic_metrics", input: {} },
+      { type: "tool-output-available", toolCallId: "call-1", toolName: "query_semantic_metrics", outputSummary: "# Tool context" },
+    ]);
+    expect(result.events.map((event: { type?: string }) => event.type)).toEqual(expect.arrayContaining([
+      "agent.tool.started",
+      "agent.tool.completed",
+    ]));
     expect(result.metrics.mainAgentToolCallCount).toBe(1);
     expect(resolveAnalyticsContext).toHaveBeenCalledWith({ messages: result.body.messages });
     expect(resolveDefectContext).not.toHaveBeenCalled();
-    expect(resolveToolContext).toHaveBeenCalledWith(
+    expect(requestToolCompletion).toHaveBeenCalledTimes(2);
+    expect(requestToolCompletion).toHaveBeenCalledWith(
       expect.objectContaining({
         messages: result.body.messages,
         model: "deepseek-v4-flash",
         context: expect.stringContaining("# Analytics context"),
-        toolDependencies: { runDuplicateBridge: "bridge" },
+        tools: expect.arrayContaining([expect.objectContaining({ function: expect.objectContaining({ name: "query_semantic_metrics" }) })]),
+        toolChoice: "auto",
       }),
     );
+    expect(executeToolCall).toHaveBeenCalledWith(toolCalls[0], { runDuplicateBridge: "bridge" });
+    expect(result.metrics.toolRouting).toEqual(expect.objectContaining({
+      shouldUseTools: true,
+      intent: "metric_query",
+      toolNames: expect.arrayContaining(["query_analytics", "diagnose_analytics_empty"]),
+    }));
     expect(events.map((event) => (event as { type?: string }).type)).toEqual([
       "agent-runtime-started",
       "analytics-context-started",
+      "tool-routing-completed",
       "tool-planning-started",
       "agent-runtime-ready",
     ]);
@@ -85,7 +107,6 @@ describe("LangGraph chat runtime", () => {
       resolveAnalyticsContext: vi.fn(),
       resolveDefectContext: vi.fn(),
       shouldPlanTools: vi.fn().mockReturnValue(false),
-      resolveToolContext: vi.fn(),
       now: () => new Date("2026-07-23T08:00:00.000Z"),
     });
 
@@ -102,7 +123,9 @@ describe("LangGraph chat runtime", () => {
     expect(events.map((event) => event.threadId).filter(Boolean)).toEqual([
       result.threadId,
       result.threadId,
+      result.threadId,
     ]);
+    expect(result.metrics.toolRouting).toEqual(expect.objectContaining({ shouldUseTools: false }));
   });
 
   it("persists actor scope, run events, checkpoint, and tool-call audit", async () => {
@@ -111,30 +134,21 @@ describe("LangGraph chat runtime", () => {
       writeThreadCheckpoint: vi.fn(async () => undefined),
       appendToolAudit: vi.fn(async () => undefined),
     };
-    const resolveToolContext = vi.fn().mockResolvedValue({
-      contextText: "# Tool context",
-      toolCalls: [{ id: "call-1", function: { name: "query_semantic_metrics" } }],
-      toolConversationMessages: [],
-      toolEvents: [
-        {
-          type: "tool-input-available",
-          toolCallId: "call-1",
-          toolName: "query_semantic_metrics",
-          input: { query: { intent: "rank" } },
-        },
-        {
-          type: "tool-output-available",
-          toolCallId: "call-1",
-          toolName: "query_semantic_metrics",
-          outputSummary: "# Main agent semantic tool result",
-        },
-      ],
+    const toolCall = { id: "call-1", type: "function", function: { name: "query_semantic_metrics", arguments: '{"query":{"intent":"rank"}}' } };
+    const requestToolCompletion = vi
+      .fn()
+      .mockResolvedValueOnce({ content: "", toolCalls: [toolCall], answerModel: "deepseek-v4-flash" })
+      .mockResolvedValueOnce({ content: "Done.", toolCalls: [], answerModel: "deepseek-v4-flash" });
+    const executeToolCall = vi.fn().mockResolvedValue({
+      contextText: "# Main agent semantic tool result",
+      toolMessage: { role: "tool", tool_call_id: "call-1", name: "query_semantic_metrics", content: "{}" },
     });
     const runtime = createLangGraphChatRuntime({
       resolveAnalyticsContext: vi.fn().mockResolvedValue({ contextText: "# Analytics", skipDefectContext: false }),
       resolveDefectContext: vi.fn(),
       shouldPlanTools: vi.fn().mockReturnValue(true),
-      resolveToolContext,
+      requestToolCompletion,
+      executeToolCall,
       runtimeStore,
       now: () => new Date("2026-07-24T08:00:00.000Z"),
     });
@@ -160,14 +174,10 @@ describe("LangGraph chat runtime", () => {
       scopeHash: "scope-1",
       scopes: { projectIds: ["App"], teamIds: ["DTSV_China"] },
     });
-    expect(resolveToolContext).toHaveBeenCalledWith(
-      expect.objectContaining({
-        toolDependencies: expect.objectContaining({
-          analyticsFetch: "fetch",
-          actor: result.actorScope,
-        }),
-      }),
-    );
+    expect(executeToolCall).toHaveBeenCalledWith(toolCall, expect.objectContaining({
+      analyticsFetch: "fetch",
+      actor: result.actorScope,
+    }));
     expect(runtimeStore.appendRunEvent).toHaveBeenCalledWith(
       expect.objectContaining({ runId: "run-123", threadId: "thread-123", type: "agent-runtime-started" }),
     );

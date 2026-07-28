@@ -43,6 +43,15 @@ interface Attachment {
   dataUrl?: string;
   size: number;
 }
+interface TokenUsage {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+interface MessageMeta {
+  model?: string;
+  usage?: TokenUsage;
+}
 interface Msg {
   id: string;
   role: Role;
@@ -50,6 +59,7 @@ interface Msg {
   mode?: ChatMode;
   duplicateResult?: DuplicateSearchResult;
   attachments?: Attachment[];
+  meta?: MessageMeta;
 }
 interface Conversation {
   id: string;
@@ -60,6 +70,13 @@ interface Conversation {
 }
 
 const STORAGE_KEY = "dtsv.chat.v2";
+
+const CHAT_MODEL_PRICING = [
+  { pattern: /^glm/i, currency: "CNY", inputPerMillion: 0.8, outputPerMillion: 2 },
+  { pattern: /^deepseek/i, currency: "USD", inputPerMillion: 0.27, outputPerMillion: 1.1 },
+  { pattern: /^qwen/i, currency: "CNY", inputPerMillion: 2, outputPerMillion: 8 },
+] as const;
+
 function createId() {
   if (typeof globalThis.crypto?.randomUUID === "function") {
     return globalThis.crypto.randomUUID();
@@ -99,6 +116,37 @@ function pickPreferredAudioInputId(devices: MediaDeviceInfo[], current = "") {
   if (preferred?.deviceId) return preferred.deviceId;
   if (current && devices.some((device) => device.deviceId === current)) return current;
   return devices.find((device) => device.deviceId === "default")?.deviceId || devices[0]?.deviceId || "";
+}
+
+function toTokenCount(value: unknown) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? Math.round(numeric) : 0;
+}
+
+function parseTokenUsage(usage: unknown): TokenUsage | undefined {
+  if (!usage || typeof usage !== "object") return undefined;
+  const record = usage as Record<string, unknown>;
+  const promptTokens = toTokenCount(record.prompt_tokens ?? record.input_tokens);
+  const completionTokens = toTokenCount(record.completion_tokens ?? record.output_tokens);
+  const totalTokens = toTokenCount(record.total_tokens) || promptTokens + completionTokens;
+  if (!totalTokens) return undefined;
+  return { promptTokens, completionTokens, totalTokens };
+}
+
+function estimateChatCost(modelId: string | undefined, usage: TokenUsage | undefined) {
+  if (!modelId || !usage) return undefined;
+  const pricing = CHAT_MODEL_PRICING.find((entry) => entry.pattern.test(modelId));
+  if (!pricing) return undefined;
+  const amount =
+    (usage.promptTokens * pricing.inputPerMillion + usage.completionTokens * pricing.outputPerMillion) / 1_000_000;
+  return { amount, currency: pricing.currency };
+}
+
+function formatEstimatedCost(cost: ReturnType<typeof estimateChatCost>) {
+  if (!cost) return "";
+  const symbol = cost.currency === "CNY" ? "¥" : "$";
+  const decimals = cost.amount >= 0.01 ? 4 : 6;
+  return `${symbol}${cost.amount.toFixed(decimals).replace(/0+$/, "").replace(/\.$/, "")}`;
 }
 
 interface Props {
@@ -640,6 +688,27 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
               continue;
             }
 
+            const usage = parseTokenUsage(parsed?.usage);
+            if (usage) {
+              updateActive((c) => ({
+                ...c,
+                messages: c.messages.map((m) =>
+                  m.id === assistantMsgId
+                    ? {
+                        ...m,
+                        meta: {
+                          ...m.meta,
+                          model: typeof parsed?.model === "string" && parsed.model ? parsed.model : m.meta?.model || model,
+                          usage,
+                        },
+                      }
+                    : m,
+                ),
+                updatedAt: Date.now(),
+              }));
+              continue;
+            }
+
             const chunk = parsed.choices?.[0]?.delta?.content as string | undefined;
             if (chunk) {
               animator.push(chunk);
@@ -750,6 +819,7 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
                 content: summaryText,
                 mode: "duplicate-search",
                 duplicateResult: payload.result,
+                meta: { ...message.meta, model: payload.result.answerModel || model },
               }
             : message,
         ),
@@ -800,6 +870,7 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
       role: "assistant",
       content: "",
       mode: interactionMode,
+      meta: { model },
     };
     const history = [...active.messages, userMsg];
     updateActive((c) => ({
@@ -829,7 +900,7 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
     const trimmed = msgs.slice(0, lastAsst);
     const lastUserMessage = [...trimmed].reverse().find((message) => message.role === "user");
     const retryMode = lastUserMessage?.mode || "chat";
-    const assistantMsg: Msg = { id: newId(), role: "assistant", content: "", mode: retryMode };
+    const assistantMsg: Msg = { id: newId(), role: "assistant", content: "", mode: retryMode, meta: { model } };
     updateActive((c) => ({ ...c, messages: [...trimmed, assistantMsg], updatedAt: Date.now() }));
     if (retryMode === "duplicate-search" && lastUserMessage) {
       await runDuplicateSearch(lastUserMessage.content, assistantMsg.id);
@@ -845,7 +916,7 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
     const trimmed = active.messages.slice(0, idx);
     const newUser: Msg = { ...active.messages[idx], content: editingMsgVal };
     const retryMode = newUser.mode || "chat";
-    const assistantMsg: Msg = { id: newId(), role: "assistant", content: "", mode: retryMode };
+    const assistantMsg: Msg = { id: newId(), role: "assistant", content: "", mode: retryMode, meta: { model } };
     const history = [...trimmed, newUser];
     updateActive((c) => ({ ...c, messages: [...history, assistantMsg], updatedAt: Date.now() }));
     setEditingMsgId(null);
@@ -1224,6 +1295,7 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
                                 {isLastAsst && !streaming && (
                                   <ActionBtn icon={RefreshCcw} label="重新生成" onClick={regenerate} />
                                 )}
+                                <MessageUsageMeta meta={m.meta} />
                               </>
                             ) : (
                               <>
@@ -1443,6 +1515,20 @@ const ActionBtn = ({
     <Icon className="h-3.5 w-3.5" />
   </button>
 );
+
+const MessageUsageMeta = ({ meta }: { meta?: MessageMeta }) => {
+  const usage = meta?.usage;
+  const cost = formatEstimatedCost(estimateChatCost(meta?.model, usage));
+  if (!meta?.model && !usage) return null;
+
+  return (
+    <div className="ml-1 flex h-6 items-center gap-1 text-[11px] text-muted-foreground">
+      {meta?.model ? <span aria-label={`模型 ${meta.model}`} className="rounded-md px-1 py-0.5">{meta.model}</span> : null}
+      {usage ? <span aria-label={`Tokens ${usage.totalTokens}`} className="rounded-md px-1 py-0.5">Tokens {usage.totalTokens.toLocaleString()}</span> : null}
+      {cost ? <span aria-label={`Cost ${cost}`} className="rounded-md px-1 py-0.5">Cost {cost}</span> : null}
+    </div>
+  );
+};
 
 const CopyBtn = ({ text }: { text: string }) => {
   const [done, setDone] = useState(false);

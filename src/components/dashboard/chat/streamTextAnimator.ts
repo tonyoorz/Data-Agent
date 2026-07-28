@@ -13,8 +13,8 @@ export type StreamTextAnimator = {
 
 export function createStreamTextAnimator({
   onUpdate,
-  intervalMs = 6,
-  charsPerTick = 1,
+  intervalMs = 8,
+  charsPerTick = 8,
 }: StreamTextAnimatorOptions): StreamTextAnimator {
   let renderedText = "";
   let pendingChars: string[] = [];

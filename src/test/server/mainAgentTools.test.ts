@@ -71,6 +71,15 @@ describe("main agent analytics tools", () => {
       expect.objectContaining({
         type: "function",
         function: expect.objectContaining({
+          name: "query_testing_coverage_aida_status",
+          parameters: expect.objectContaining({ type: "object" }),
+        }),
+      }),
+    ]));
+    expect(MAIN_AGENT_TOOLS).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "function",
+        function: expect.objectContaining({
           name: "get_test_case_context",
           parameters: expect.objectContaining({ type: "object" }),
         }),
@@ -138,6 +147,13 @@ describe("main agent analytics tools", () => {
     expect(names).toContain("query_semantic_metrics");
     expect(names).toContain("query_semantic_records");
     expect(names).toContain("query_traceability");
+  });
+
+  it("registers high-level analytics orchestration tools", () => {
+    const names = MAIN_AGENT_TOOLS.map((tool) => tool.function.name);
+
+    expect(names).toContain("query_analytics");
+    expect(names).toContain("diagnose_analytics_empty");
   });
 
   it("executes query_semantic_metrics through the semantic API", async () => {
@@ -327,9 +343,83 @@ describe("main agent analytics tools", () => {
     expect(analyticsFetch).not.toHaveBeenCalled();
     expect(result.toolMessage.content).toContain('"problem_finder_teams":["DTSV_China"]');
     expect(result.toolMessage.content).toContain('"recent_days":7');
-    expect(result.toolMessage.content).toContain('"created_count"');
+    expect(result.toolMessage.content).toContain('"defect_count"');
+    expect(result.toolMessage.content).not.toContain('"created_count"');
     expect(result.contextText).toContain("Tool: resolve_business_terms");
     expect(result.contextText).toContain("Confidence: high");
+  });
+
+  it("normalizes tester names in defect ticket questions to detected_by", async () => {
+    const analyticsFetch = vi.fn();
+
+    const result = await executeMainAgentToolCall(
+      {
+        id: "terms-person",
+        type: "function",
+        function: {
+          name: "resolve_business_terms",
+          arguments: JSON.stringify({ query: "tester Size Li DTSV 今年提票情况" }),
+        },
+      },
+      { analyticsFetch },
+    );
+
+    expect(analyticsFetch).not.toHaveBeenCalled();
+    expect(result.toolMessage.content).toContain('"problem_finder_teams":["DTSV_China"]');
+    expect(result.toolMessage.content).toContain('"detected_by":["Size Li"]');
+    expect(result.toolMessage.content).toContain('"defect_count"');
+    expect(result.toolMessage.content).not.toContain('"created_count"');
+    expect(result.contextText).toContain("Confidence: high");
+  });
+
+  it("normalizes plain person ticket questions to detected_by", async () => {
+    const analyticsFetch = vi.fn();
+
+    const result = await executeMainAgentToolCall(
+      {
+        id: "terms-person-plain",
+        type: "function",
+        function: {
+          name: "resolve_business_terms",
+          arguments: JSON.stringify({ query: "2026年 size li 提了多少ticket" }),
+        },
+      },
+      { analyticsFetch },
+    );
+
+    expect(analyticsFetch).not.toHaveBeenCalled();
+    expect(result.toolMessage.content).toContain('"detected_by":["Size Li"]');
+    expect(result.toolMessage.content).toContain('"defect_count"');
+    expect(result.contextText).toContain("Datasets: defects");
+  });
+
+  it("allows detected_by as a defect aggregate dimension", () => {
+    const queryAnalyticsTool = MAIN_AGENT_TOOLS.find((tool) => tool.function.name === "query_analytics");
+    const dimensionEnum = queryAnalyticsTool?.function.parameters.properties.dimensions.items.enum;
+
+    expect(dimensionEnum).toContain("detected_by");
+  });
+
+  it("normalizes manual-run coverage clarification to the testing coverage dataset", async () => {
+    const analyticsFetch = vi.fn();
+
+    const result = await executeMainAgentToolCall(
+      {
+        id: "terms-coverage",
+        type: "function",
+        function: {
+          name: "resolve_business_terms",
+          arguments: JSON.stringify({ query: "测试执行覆盖率 manual-run 通过率 执行率 模块 ECU" }),
+        },
+      },
+      { analyticsFetch },
+    );
+
+    expect(analyticsFetch).not.toHaveBeenCalled();
+    expect(result.toolMessage.content).toContain('"datasets":["testing_coverage"]');
+    expect(result.toolMessage.content).toContain('"coverage_rate"');
+    expect(result.toolMessage.content).not.toContain('"datasets":["defects"');
+    expect(result.contextText).toContain("Datasets: testing_coverage");
   });
 
   it("executes query_dashboard_summary against the analytics API", async () => {
@@ -441,6 +531,59 @@ describe("main agent analytics tools", () => {
     });
     expect(result.contextText).toContain("Tool: query_testing_coverage_project_status");
     expect(result.contextText).toContain("Rows: 1");
+  });
+
+  it("executes query_testing_coverage_aida_status against the analytics API", async () => {
+    const analyticsFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ([
+        {
+          test_week: "2026-CW30",
+          top_aida: "Speech",
+          status: "Passed",
+          count: 68,
+        },
+        {
+          test_week: "2026-CW30",
+          top_aida: "Speech",
+          status: "Failed",
+          count: 32,
+        },
+      ]),
+    });
+
+    const result = await executeMainAgentToolCall(
+      {
+        id: "call-aida-coverage",
+        type: "function",
+        function: {
+          name: "query_testing_coverage_aida_status",
+          arguments: JSON.stringify({
+            filters: {
+              years: ["2026"],
+              aidas: ["Speech"],
+            },
+          }),
+        },
+      },
+      {
+        analyticsFetch,
+        analyticsApiBase: "http://127.0.0.1:3003",
+      },
+    );
+
+    expect(analyticsFetch).toHaveBeenCalledWith(
+      "http://127.0.0.1:3003/api/testing/coverage-analysis/aida-status?years=2026&aidas=Speech",
+    );
+    expect(result.toolMessage).toEqual({
+      role: "tool",
+      tool_call_id: "call-aida-coverage",
+      name: "query_testing_coverage_aida_status",
+      content: expect.stringContaining('"top_aida":"Speech"'),
+    });
+    expect(result.contextText).toContain("Tool: query_testing_coverage_aida_status");
+    expect(result.contextText).toContain("Rows: 2");
+    expect(result.contextText).toContain("compute pass rate");
   });
 
   it("executes get_test_case_context against the ontology context API", async () => {
@@ -699,6 +842,166 @@ describe("main agent analytics tools", () => {
     expect(result.contextText).toContain("Tool: query_defect_aggregate");
     expect(result.contextText).toContain("Navigation CN: defect_count 2");
     expect(result.contextText).toContain("drilldown_ref: ref-1");
+  });
+
+  it("executes query_analytics as the high-level defect aggregate tool", async () => {
+    const analyticsFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        schema_version: "1.0",
+        snapshot_version: "snapshot-query-analytics",
+        query_fingerprint: "fp-query-analytics",
+        rows: [{ scope: "all_defects", defect_count: 2, drilldown_ref: "ref-query" }],
+        total_groups: 1,
+        returned_groups: 1,
+        truncated: false,
+        warnings: [],
+      }),
+    });
+
+    const result = await executeMainAgentToolCall(
+      {
+        id: "call-query-analytics",
+        type: "function",
+        function: {
+          name: "query_analytics",
+          arguments: JSON.stringify({
+            dataset: "defects",
+            intent: "aggregate",
+            metrics: ["defect_count"],
+            dimensions: [],
+            filters: { years: ["2026"], problem_finder_teams: ["DTSV_China"], detected_by: ["Size Li"] },
+            time: { field: "creation_time", current: ["2026-01-01", "2026-12-31"], timezone: "Asia/Shanghai" },
+            limit: 12,
+          }),
+        },
+      },
+      {
+        analyticsFetch,
+        analyticsApiBase: "http://127.0.0.1:3003",
+      },
+    );
+
+    expect(analyticsFetch).toHaveBeenCalledWith(
+      "http://127.0.0.1:3003/api/analytics/defects/aggregate",
+      expect.objectContaining({ method: "POST" }),
+    );
+    const requestBody = JSON.parse(analyticsFetch.mock.calls[0][1].body);
+    expect(requestBody).toMatchObject({
+      metrics: ["defect_count"],
+      dimensions: [],
+      filters: { years: ["2026"], problem_finder_teams: ["DTSV_China"], detected_by: ["Size Li"] },
+      time: { field: "creation_time", current: ["2026-01-01", "2026-12-31"], timezone: "Asia/Shanghai" },
+      limit: 12,
+    });
+    expect(result.toolMessage.name).toBe("query_analytics");
+    expect(result.toolMessage.content).toContain('"tool":"query_analytics"');
+    expect(result.contextText).toContain("Tool: query_analytics");
+    expect(result.contextText).toContain("all_defects: defect_count 2");
+  });
+
+  it("diagnoses empty analytics results by relaxing defect filters", async () => {
+    const aggregatePayload = (defectCount) => ({
+      schema_version: "1.0",
+      snapshot_version: "snapshot-empty-diagnosis",
+      query_fingerprint: `fp-${defectCount}`,
+      rows: [{ scope: "all_defects", defect_count: defectCount, drilldown_ref: `ref-${defectCount}` }],
+      total_groups: defectCount > 0 ? 1 : 0,
+      returned_groups: defectCount > 0 ? 1 : 0,
+      truncated: false,
+      warnings: [],
+    });
+    const analyticsFetch = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => aggregatePayload(0) })
+      .mockResolvedValueOnce({ ok: true, json: async () => aggregatePayload(0) })
+      .mockResolvedValueOnce({ ok: true, json: async () => aggregatePayload(5) });
+
+    const result = await executeMainAgentToolCall(
+      {
+        id: "call-empty-diagnosis",
+        type: "function",
+        function: {
+          name: "diagnose_analytics_empty",
+          arguments: JSON.stringify({
+            query: {
+              dataset: "defects",
+              intent: "aggregate",
+              metrics: ["defect_count"],
+              dimensions: [],
+              filters: { years: ["2026"], problem_finder_teams: ["DTSV_China"], detected_by: ["Size Li"] },
+              time: { field: "creation_time", current: ["2026-01-01", "2026-12-31"], timezone: "Asia/Shanghai" },
+              limit: 12,
+            },
+            reason: "query_analytics returned no aggregate rows",
+          }),
+        },
+      },
+      {
+        analyticsFetch,
+        analyticsApiBase: "http://127.0.0.1:3003",
+      },
+    );
+
+    expect(analyticsFetch).toHaveBeenCalledTimes(3);
+    const probeBodies = analyticsFetch.mock.calls.map(([, init]) => JSON.parse(init.body));
+    expect(probeBodies[0].filters).toEqual({ years: ["2026"], problem_finder_teams: ["DTSV_China"], detected_by: ["Size Li"] });
+    expect(probeBodies[1].filters).toEqual({ years: ["2026"], detected_by: ["Size Li"] });
+    expect(probeBodies[2].filters).toEqual({ years: ["2026"], problem_finder_teams: ["DTSV_China"] });
+    expect(result.toolMessage.name).toBe("diagnose_analytics_empty");
+    expect(result.toolMessage.content).toContain('"recommendation"');
+    expect(result.contextText).toContain("Tool: diagnose_analytics_empty");
+    expect(result.contextText).toContain("without detected_by: defect_count 5");
+    expect(result.contextText).toContain("detected_by may be too restrictive");
+  });
+
+  it("exposes detected_by as a person-level defect aggregate filter", async () => {
+    const aggregateTool = MAIN_AGENT_TOOLS.find((tool) => tool.function.name === "query_defect_aggregate");
+    const filterProperties = aggregateTool.function.parameters.properties.filters.properties;
+    expect(filterProperties.detected_by).toEqual(expect.any(Object));
+    expect(filterProperties.business_module).toEqual(expect.any(Object));
+
+    const queryAnalyticsTool = MAIN_AGENT_TOOLS.find((tool) => tool.function.name === "query_analytics");
+    const queryFilterProperties = queryAnalyticsTool.function.parameters.properties.filters.properties;
+    expect(queryFilterProperties.business_module).toEqual(expect.any(Object));
+
+    const analyticsFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        schema_version: "1.0",
+        snapshot_version: "snapshot-defect-query",
+        query_fingerprint: "fp-person",
+        rows: [{ defect_count: 1, drilldown_ref: "ref-person" }],
+        total_groups: 1,
+        returned_groups: 1,
+        truncated: false,
+        warnings: [],
+      }),
+    });
+
+    await executeMainAgentToolCall(
+      {
+        id: "call-person-filter",
+        type: "function",
+        function: {
+          name: "query_defect_aggregate",
+          arguments: JSON.stringify({
+            metrics: ["defect_count"],
+            dimensions: [],
+            filters: { problem_finder_teams: ["DTSV_China"], detected_by: ["Size Li"] },
+            time: { field: "creation_time", current: ["2026-01-01", "2026-12-31"], timezone: "Asia/Shanghai" },
+            limit: 12,
+          }),
+        },
+      },
+      {
+        analyticsFetch,
+        analyticsApiBase: "http://127.0.0.1:3003",
+      },
+    );
+
+    const requestBody = JSON.parse(analyticsFetch.mock.calls[0][1].body);
+    expect(requestBody.filters).toEqual({ problem_finder_teams: ["DTSV_China"], detected_by: ["Size Li"] });
   });
 
   it("executes query_defect_records with a drilldown ref", async () => {

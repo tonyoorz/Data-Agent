@@ -167,6 +167,7 @@ class FullPictureDashboardQuery:
     projects: tuple[str, ...] = ()
     assigned_ecus: tuple[str, ...] = ()
     problem_finder_teams: tuple[str, ...] = ()
+    detected_by: tuple[str, ...] = ()
     aidas: tuple[str, ...] = ()
     phases: tuple[str, ...] = ()
     solution_clusters: tuple[str, ...] = ()
@@ -210,6 +211,7 @@ def normalize_query(**kwargs: Any) -> FullPictureDashboardQuery:
         projects=_normalize_multi_value(kwargs.get("projects")),
         assigned_ecus=_normalize_multi_value(kwargs.get("assigned_ecus")),
         problem_finder_teams=_normalize_multi_value(kwargs.get("problem_finder_teams")),
+        detected_by=_normalize_multi_value(kwargs.get("detected_by")),
         aidas=_normalize_multi_value(kwargs.get("aidas")),
         phases=_normalize_multi_value(kwargs.get("phases")),
         solution_clusters=_normalize_multi_value(kwargs.get("solution_clusters")),
@@ -507,6 +509,15 @@ def _extract_reference_names(value: Any) -> list[str]:
     return [name] if name else []
 
 
+def _extract_detected_by(raw_payload: dict[str, Any]) -> str:
+    return _first_non_empty(
+        _extract_reference_name(raw_payload.get("detected_by")),
+        _extract_reference_name(raw_payload.get("author")),
+        _extract_reference_name(raw_payload.get("reporter")),
+        _extract_reference_name(raw_payload.get("creator")),
+    )
+
+
 def _parse_string_list(raw_value: Any) -> list[str]:
     if isinstance(raw_value, list):
         return [str(item).strip() for item in raw_value if str(item or "").strip()]
@@ -552,6 +563,7 @@ def _matches_query_filters(row: dict[str, Any], query: FullPictureDashboardQuery
         (query.projects, row.get("project")),
         (query.assigned_ecus, row.get("assigned_ecu")),
         (query.problem_finder_teams, row.get("problem_finder_team")),
+        (query.detected_by, row.get("detected_by")),
         (query.aidas, row.get("aida")),
         (query.phases, row.get("phase")),
         (query.solution_clusters, row.get("solution_cluster")),
@@ -588,6 +600,7 @@ def _load_local_analytics_defect_rows(
             "status": _first_non_empty(raw_payload.get("status_phase"), raw_payload.get("phase")),
             "creation_time": _first_non_empty(raw_payload.get("creation_time")),
             "problem_finder_team": _first_non_empty(raw_payload.get("problem_finder_team"), row["team"]),
+            "detected_by": _extract_detected_by(raw_payload),
             "ticket_date": _first_non_empty(
                 raw_payload.get("last_modified"),
                 raw_payload.get("creation_time"),
@@ -687,6 +700,7 @@ def _load_defect_rows(
         (optional_text_expr("project"), query.projects),
         (optional_text_expr("assigned_ecu"), query.assigned_ecus),
         (optional_text_expr("problem_finder_team"), query.problem_finder_teams),
+        (optional_text_expr("detected_by"), query.detected_by),
         (aida_expr, query.aidas),
         (optional_text_expr("phase"), query.phases),
         (optional_text_expr("solution_cluster"), query.solution_clusters),
@@ -717,6 +731,7 @@ def _load_defect_rows(
             {optional_text_expr('status_phase')} AS status,
             {optional_text_expr('creation_time')} AS creation_time,
             {optional_text_expr('problem_finder_team')} AS problem_finder_team,
+            {optional_text_expr('detected_by')} AS detected_by,
             {ticket_date_expr} AS ticket_date,
             {optional_text_expr('year', cast_text=True)} AS year,
             {optional_text_expr('project')} AS project,
@@ -766,6 +781,10 @@ def _load_defect_rows(
             normalized["creation_time"] = _first_non_empty(
                 normalized.get("creation_time"),
                 raw_payload.get("creation_time"),
+            )
+            normalized["detected_by"] = _first_non_empty(
+                normalized.get("detected_by"),
+                _extract_detected_by(raw_payload),
             )
             normalized["classification"] = _first_non_empty(
                 normalized.get("classification"),
@@ -944,6 +963,7 @@ def _build_ticket_rows(
             "ticket_date": ticket_date,
             "month": _get_ticket_month_value(creation_time),
             "problem_finder_team": str(row.get("problem_finder_team") or "").strip(),
+            "detected_by": str(row.get("detected_by") or "").strip(),
             "classification": str(row.get("classification") or "").strip(),
             "problem_severity": str(row.get("problem_severity") or "").strip(),
             "group": group,
@@ -1002,6 +1022,7 @@ def _build_filters(ticket_rows: list[dict[str, Any]]) -> dict[str, list[str]]:
         "projects": _unique_sorted(row.get("project") for row in ticket_rows),
         "assigned_ecus": _unique_sorted(row.get("assigned_ecu") for row in ticket_rows),
         "problem_finder_teams": _unique_sorted(row.get("problem_finder_team") for row in ticket_rows),
+        "detected_by": _unique_sorted(row.get("detected_by") for row in ticket_rows),
         "aidas": _unique_sorted(row.get("aida") for row in ticket_rows),
         "phases": _unique_sorted(row.get("phase") for row in ticket_rows),
         "solution_clusters": _unique_sorted(row.get("solution_cluster") for row in ticket_rows),
@@ -1020,6 +1041,7 @@ FILTER_QUERY_FIELD_NAMES = (
     "projects",
     "assigned_ecus",
     "problem_finder_teams",
+    "detected_by",
     "aidas",
     "phases",
     "solution_clusters",
@@ -1037,6 +1059,7 @@ MATERIALIZED_FILTER_COLUMNS = {
     "projects": "project",
     "assigned_ecus": "assigned_ecu",
     "problem_finder_teams": "problem_finder_team",
+    "detected_by": "detected_by",
     "aidas": "aida",
     "phases": "phase",
     "solution_clusters": "solution_cluster",
@@ -1153,6 +1176,7 @@ def _serialize_query_filters(query: FullPictureDashboardQuery) -> dict[str, list
         "projects": list(query.projects),
         "assigned_ecus": list(query.assigned_ecus),
         "problem_finder_teams": list(query.problem_finder_teams),
+        "detected_by": list(query.detected_by),
         "aidas": list(query.aidas),
         "phases": list(query.phases),
         "solution_clusters": list(query.solution_clusters),
@@ -1274,6 +1298,7 @@ CREATE TABLE IF NOT EXISTS dashboard_ticket_snapshot_rows (
     ticket_month TEXT NOT NULL,
     china_scope TEXT NOT NULL,
     problem_finder_team TEXT NOT NULL,
+    detected_by TEXT NOT NULL,
     classification TEXT NOT NULL,
     problem_severity TEXT NOT NULL,
     group_name TEXT NOT NULL,
@@ -1311,6 +1336,7 @@ MATERIALIZED_TICKET_SORT_COLUMNS = {
     "creation_time": "creation_time",
     "ticket_date": "ticket_date",
     "problem_finder_team": "problem_finder_team",
+    "detected_by": "detected_by",
     "classification": "classification",
     "problem_severity": "problem_severity",
     "group": "group_name",
@@ -1339,6 +1365,7 @@ def _ensure_dashboard_ticket_store(conn: sqlite3.Connection) -> bool:
         ("creation_time", "TEXT NOT NULL DEFAULT ''"),
         ("classification", "TEXT NOT NULL DEFAULT ''"),
         ("problem_severity", "TEXT NOT NULL DEFAULT ''"),
+        ("detected_by", "TEXT NOT NULL DEFAULT ''"),
         ("requirement", "TEXT NOT NULL DEFAULT ''"),
         ("requirements_json", "TEXT NOT NULL DEFAULT '[]'"),
     ):
@@ -1415,6 +1442,7 @@ def _materialize_snapshot_ticket_rows(
                 ticket_month,
                 china_scope,
                 problem_finder_team,
+                detected_by,
                 classification,
                 problem_severity,
                 group_name,
@@ -1432,7 +1460,7 @@ def _materialize_snapshot_ticket_rows(
                 pu,
                 market,
                 lead_model
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -1445,6 +1473,7 @@ def _materialize_snapshot_ticket_rows(
                     str(row.get("month") or ""),
                     str(row.get("china_scope") or ""),
                     str(row.get("problem_finder_team") or ""),
+                    str(row.get("detected_by") or ""),
                     str(row.get("classification") or ""),
                     str(row.get("problem_severity") or ""),
                     str(row.get("group") or ""),
@@ -1540,6 +1569,7 @@ def _build_materialized_ticket_where_clause(
         ("project", query.projects),
         ("assigned_ecu", query.assigned_ecus),
         ("problem_finder_team", query.problem_finder_teams),
+        ("detected_by", query.detected_by),
         ("aida", query.aidas),
         ("phase", query.phases),
         ("solution_cluster", query.solution_clusters),
@@ -1573,6 +1603,7 @@ def _build_materialized_ticket_where_clause(
             "ticket_name",
             "creation_time",
             "problem_finder_team",
+            "detected_by",
             "classification",
             "problem_severity",
             "status",
@@ -1612,6 +1643,7 @@ def _load_materialized_ticket_rows(
                 ticket_month AS month,
                 china_scope,
                 problem_finder_team,
+                detected_by,
                 classification,
                 problem_severity,
                 group_name AS "group",
@@ -1737,6 +1769,7 @@ def _list_materialized_ticket_rows(
                 ticket_month AS month,
                 china_scope,
                 problem_finder_team,
+                detected_by,
                 classification,
                 problem_severity,
                 group_name AS "group",

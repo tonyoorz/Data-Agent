@@ -2,10 +2,70 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   resolveMainAgentToolContext,
-  shouldPlanMainAgentTools,
 } from "../../../server/mainAgentToolLoop.mjs";
+import {
+  selectMainAgentToolset,
+  shouldPlanMainAgentTools,
+} from "../../../server/mainAgentToolPlanning.mjs";
 
 describe("main agent tool loop", () => {
+  const toolNames = (tools: Array<{ function?: { name?: string } }>) => tools.map((tool) => tool.function?.name);
+
+  it("selects a compact semantic metric toolset for metric questions", () => {
+    const selected = selectMainAgentToolset([{ role: "user", content: "最近一周 DTSV 新增缺陷按 ECU Top 5" }]);
+    const names = toolNames(selected.tools);
+
+    expect(selected.intent).toBe("metric_query");
+    expect(selected.confidence).toBeGreaterThanOrEqual(0.8);
+    expect(selected.reason).toContain("metric");
+    expect(selected.requiredSlots).toEqual(expect.arrayContaining(["metric", "time_window"]));
+    expect(selected.toolNames).toEqual(names);
+    expect(names).toEqual(expect.arrayContaining(["resolve_business_terms", "query_analytics", "diagnose_analytics_empty", "query_semantic_metrics", "ask_clarification"]));
+    expect(names).not.toContain("search_duplicates");
+    expect(names).not.toContain("get_test_case_context");
+    expect(names).not.toContain("search_octane_fields");
+    expect(names.length).toBeLessThan(8);
+  });
+
+  it("exposes testing coverage tools for coverage threshold questions", () => {
+    const selected = selectMainAgentToolset([{ role: "user", content: "覆盖率低于70%的模块有哪些？请按业务影响排序，并建议本周补测顺序" }]);
+    const clarification = selectMainAgentToolset([{ role: "user", content: "测试执行覆盖率 — manual-run 的通过率/执行率（按模块/ECU 统计）" }]);
+    const aidaCoverage = selectMainAgentToolset([{ role: "user", content: "测试执行覆盖率 AIDA 低于70% 关联缺陷数量 排序" }]);
+
+    expect(selected.intent).toBe("coverage_query");
+    expect(selected.toolNames).toContain("query_testing_coverage_project_status");
+    expect(selected.toolNames).toContain("query_testing_coverage_aida_status");
+    expect(clarification.intent).toBe("coverage_query");
+    expect(clarification.toolNames).toContain("query_testing_coverage_project_status");
+    expect(clarification.toolNames).toContain("query_testing_coverage_aida_status");
+    expect(aidaCoverage.intent).toBe("coverage_query");
+    expect(aidaCoverage.toolNames).toContain("query_testing_coverage_aida_status");
+    expect(aidaCoverage.toolNames).toContain("query_analytics");
+  });
+
+  it("selects action and schema tools for write capability questions", () => {
+    const selected = selectMainAgentToolset([{ role: "user", content: "Octane defect 字段能不能更新？能不能删除缺陷单？" }]);
+    const names = toolNames(selected.tools);
+
+    expect(selected.intent).toBe("action_capability");
+    expect(selected.policyHints).toEqual(expect.arrayContaining(["use_action_ontology", "block_disabled_or_blocked_actions"]));
+    expect(names).toEqual(expect.arrayContaining(["get_ontology_catalog", "search_octane_fields", "ask_clarification"]));
+    expect(names).not.toContain("query_semantic_metrics");
+    expect(names).not.toContain("search_duplicates");
+    expect(names.length).toBeLessThan(7);
+  });
+
+  it("selects duplicate tools without exposing analytics query tools", () => {
+    const selected = selectMainAgentToolset([{ role: "user", content: "这个 camera black screen 缺陷是不是重复？" }]);
+    const names = toolNames(selected.tools);
+
+    expect(selected.intent).toBe("duplicate_search");
+    expect(names).toEqual(expect.arrayContaining(["search_duplicates", "ask_clarification"]));
+    expect(names).not.toContain("query_semantic_metrics");
+    expect(names).not.toContain("query_full_picture_module");
+    expect(names.length).toBeLessThan(6);
+  });
+
   it("plans tools only for likely dashboard metric questions", () => {
     expect(shouldPlanMainAgentTools([{ role: "user", content: "DTSV 6月份提了多少bug？" }])).toBe(true);
     expect(shouldPlanMainAgentTools([{ role: "user", content: "这个 camera black screen 缺陷是不是重复？" }])).toBe(true);
@@ -13,7 +73,29 @@ describe("main agent tool loop", () => {
     expect(shouldPlanMainAgentTools([{ role: "user", content: "octane_defects 按 solution_cluster 或 assigned_ecu" }])).toBe(true);
     expect(shouldPlanMainAgentTools([{ role: "user", content: "现在 ontology 里哪些能力是 available？" }])).toBe(true);
     expect(shouldPlanMainAgentTools([{ role: "user", content: "基于这个 Octane ticket https://octane-prod.bmwgroup.net/ui/entity-navigation?p=1002/2001&entityType=work_item&id=2774806 创建测试用例" }])).toBe(true);
+    expect(shouldPlanMainAgentTools([{ role: "user", content: "Size Li 今年提票情况" }])).toBe(true);
+    expect(shouldPlanMainAgentTools([{ role: "user", content: "这个数据为什么为空？" }])).toBe(true);
     expect(shouldPlanMainAgentTools([{ role: "user", content: "请润色这段话" }])).toBe(false);
+  });
+
+  it("routes weak person ticket and empty-result wording to analytics tools", () => {
+    const personTicket = selectMainAgentToolset([{ role: "user", content: "Size Li 今年提票情况" }]);
+    const emptyData = selectMainAgentToolset([{ role: "user", content: "这个数据为什么为空？" }]);
+
+    expect(personTicket.intent).toBe("metric_query");
+    expect(personTicket.toolNames).toEqual(expect.arrayContaining(["resolve_business_terms", "query_analytics", "diagnose_analytics_empty"]));
+    expect(emptyData.intent).toBe("metric_query");
+    expect(emptyData.toolNames).toEqual(expect.arrayContaining(["query_analytics", "diagnose_analytics_empty", "ask_clarification"]));
+  });
+
+  it("keeps broad general questions on a compact discovery toolset", () => {
+    const selected = selectMainAgentToolset([{ role: "user", content: "DTSV 当前风险怎么看？" }]);
+
+    expect(shouldPlanMainAgentTools([{ role: "user", content: "DTSV 当前风险怎么看？" }])).toBe(true);
+    expect(selected.intent).toBe("general");
+    expect(selected.toolNames).toEqual(["resolve_business_terms", "get_data_catalog", "ask_clarification"]);
+    expect(selected.toolNames).not.toContain("query_defect_aggregate");
+    expect(selected.toolNames).not.toContain("search_duplicates");
   });
 
   it("runs planned tool calls and returns factual context", async () => {
@@ -60,6 +142,7 @@ describe("main agent tool loop", () => {
     expect(requestChatCompletion).toHaveBeenCalledTimes(2);
     expect(executeToolCall).toHaveBeenCalledWith(toolCalls[0], { runDuplicateBridge: "bridge" });
     expect(resolved.contextText).toContain("Result: 12 defects");
+    expect(resolved.selectedToolset.intent).toBe("metric_query");
     expect(resolved.toolCalls).toEqual(toolCalls);
     expect(resolved.toolEvents).toEqual([
       {
@@ -87,6 +170,162 @@ describe("main agent tool loop", () => {
         name: "query_dashboard_summary",
         content: '{"ok":true}',
       },
+    ]);
+  });
+
+  it("blocks model-requested tools outside the selected toolset", async () => {
+    const disallowedToolCall = {
+      id: "bad-call",
+      type: "function",
+      function: {
+        name: "search_duplicates",
+        arguments: '{"query":"DTSV 最近一周新增缺陷"}',
+      },
+    };
+    const requestChatCompletion = vi.fn().mockResolvedValue({
+      content: "",
+      toolCalls: [disallowedToolCall],
+      answerModel: "deepseek-v4-flash",
+    });
+    const executeToolCall = vi.fn();
+
+    const resolved = await resolveMainAgentToolContext({
+      messages: [{ role: "user", content: "DTSV 最近一周新增缺陷是多少？" }],
+      requestChatCompletion,
+      executeToolCall,
+    });
+
+    expect(executeToolCall).not.toHaveBeenCalled();
+    expect(resolved.stoppedReason).toBe("tool_not_allowed");
+    expect(resolved.contextText).toContain("not allowed for intent metric_query");
+    expect(resolved.toolEvents).toContainEqual(expect.objectContaining({
+      type: "tool-blocked",
+      toolCallId: "bad-call",
+      toolName: "search_duplicates",
+      intent: "metric_query",
+    }));
+  });
+
+  it("automatically diagnoses empty query_analytics results before final answer", async () => {
+    const analyticsToolCall = {
+      id: "analytics-empty",
+      type: "function",
+      function: {
+        name: "query_analytics",
+        arguments: JSON.stringify({
+          dataset: "defects",
+          intent: "aggregate",
+          metrics: ["defect_count"],
+          dimensions: [],
+          filters: { years: ["2026"], detected_by: ["Size Li"] },
+          time: { field: "creation_time", current: ["2026-01-01", "2026-12-31"], timezone: "Asia/Shanghai" },
+        }),
+      },
+    };
+    const requestChatCompletion = vi
+      .fn()
+      .mockResolvedValueOnce({ content: "", toolCalls: [analyticsToolCall], answerModel: "deepseek-v4-flash" })
+      .mockResolvedValueOnce({ content: "No more tools.", toolCalls: [], answerModel: "deepseek-v4-flash" });
+    const executeToolCall = vi.fn(async (toolCall) => {
+      if (toolCall.function.name === "query_analytics") {
+        return {
+          toolMessage: {
+            role: "tool",
+            tool_call_id: toolCall.id,
+            name: "query_analytics",
+            content: JSON.stringify({ ok: true, tool: "query_analytics", result: { rows: [], returned_groups: 0, total_groups: 0 } }),
+          },
+          contextText: "# Main agent tool result\nTool: query_analytics\nAggregate rows: none",
+        };
+      }
+      return {
+        toolMessage: {
+          role: "tool",
+          tool_call_id: toolCall.id,
+          name: "diagnose_analytics_empty",
+          content: JSON.stringify({ ok: true, tool: "diagnose_analytics_empty", result: { recommendation: "Relax detected_by" } }),
+        },
+        contextText: "# Main agent tool result\nTool: diagnose_analytics_empty\nRecommendation: Relax detected_by",
+      };
+    });
+
+    const resolved = await resolveMainAgentToolContext({
+      messages: [{ role: "user", content: "Size Li 今年提票情况" }],
+      requestChatCompletion,
+      executeToolCall,
+    });
+
+    expect(executeToolCall).toHaveBeenCalledTimes(2);
+    expect(executeToolCall.mock.calls[1][0]).toEqual(expect.objectContaining({
+      id: "analytics-empty-diagnosis",
+      function: expect.objectContaining({ name: "diagnose_analytics_empty" }),
+    }));
+    expect(JSON.parse(executeToolCall.mock.calls[1][0].function.arguments)).toEqual(expect.objectContaining({
+      reason: "query_analytics returned no aggregate rows",
+      query: expect.objectContaining({ filters: { years: ["2026"], detected_by: ["Size Li"] } }),
+    }));
+    expect(resolved.toolCalls.map((toolCall) => toolCall.function.name)).toEqual([
+      "query_analytics",
+      "diagnose_analytics_empty",
+    ]);
+    expect(resolved.contextText).toContain("Tool: diagnose_analytics_empty");
+    expect(resolved.toolEvents).toContainEqual(expect.objectContaining({
+      type: "tool-input-available",
+      toolCallId: "analytics-empty-diagnosis",
+      toolName: "diagnose_analytics_empty",
+    }));
+  });
+
+  it("builds evidence envelopes from tool results", async () => {
+    const toolCalls = [
+      {
+        id: "semantic-call",
+        type: "function",
+        function: {
+          name: "query_semantic_metrics",
+          arguments: '{"query":{"intent":"aggregate"}}',
+        },
+      },
+    ];
+    const requestChatCompletion = vi
+      .fn()
+      .mockResolvedValueOnce({ content: "", toolCalls, answerModel: "deepseek-v4-flash" })
+      .mockResolvedValueOnce({ content: "Done.", toolCalls: [], answerModel: "deepseek-v4-flash" });
+    const executeToolCall = vi.fn().mockResolvedValue({
+      toolMessage: {
+        role: "tool",
+        tool_call_id: "semantic-call",
+        name: "query_semantic_metrics",
+        content: JSON.stringify({
+          ok: true,
+          tool: "query_semantic_metrics",
+          result: {
+            ontologyVersion: "v1",
+            schemaFingerprint: "f".repeat(64),
+            sourceRevision: { revisionId: "snap-1" },
+            quality: { completeness: "complete" },
+          },
+        }),
+      },
+      contextText: "# Main agent tool result\nTool: query_semantic_metrics\ndefect.count: 3",
+    });
+
+    const resolved = await resolveMainAgentToolContext({
+      messages: [{ role: "user", content: "最近一周 DTSV 新增缺陷是多少？" }],
+      requestChatCompletion,
+      executeToolCall,
+    });
+
+    expect(resolved.evidence).toEqual([
+      expect.objectContaining({
+        tool: "query_semantic_metrics",
+        toolCallId: "semantic-call",
+        intent: "metric_query",
+        ontologyVersion: "v1",
+        schemaFingerprint: "f".repeat(64),
+        sourceRevision: { revisionId: "snap-1" },
+        quality: { completeness: "complete" },
+      }),
     ]);
   });
 
@@ -186,7 +425,7 @@ describe("main agent tool loop", () => {
     });
 
     const resolved = await resolveMainAgentToolContext({
-      messages: [{ role: "user", content: "循环调用测试" }],
+      messages: [{ role: "user", content: "DTSV 6月份提了多少bug？" }],
       requestChatCompletion,
       executeToolCall,
       maxSteps: 2,
@@ -271,12 +510,18 @@ describe("main agent tool loop", () => {
 
     const requestArgs = requestChatCompletion.mock.calls[0][0];
     expect(requestArgs.context).toContain("recent_days: 7");
+    expect(requestArgs.context).toContain("diagnose_analytics_empty");
+    expect(requestArgs.context).toContain("before answering no data");
     expect(requestArgs.tools.map((tool: { function?: { name?: string } }) => tool.function?.name)).toContain(
       "query_defect_high_frequency_analysis",
+    );
+    expect(requestArgs.tools.map((tool: { function?: { name?: string } }) => tool.function?.name)).toContain(
+      "query_analytics",
     );
   });
 
   it("tells the planner to use the generic module tool as a Full Picture fallback", async () => {
+    const selected = selectMainAgentToolset([{ role: "user", content: "Full Picture 里这个问题按项目趋势怎么看？" }]);
     const requestChatCompletion = vi.fn().mockResolvedValue({
       content: "No tool needed.",
       toolCalls: [],
@@ -290,11 +535,16 @@ describe("main agent tool loop", () => {
     });
 
     const requestArgs = requestChatCompletion.mock.calls[0][0];
+    expect(selected.intent).toBe("dashboard_fallback");
     expect(requestArgs.context).toContain("query_full_picture_module");
     expect(requestArgs.context).toContain("fallback");
+    expect(requestArgs.context).toContain("query_analytics");
     expect(requestArgs.context).toContain("ask_clarification");
     expect(requestArgs.tools.map((tool: { function?: { name?: string } }) => tool.function?.name)).toContain(
       "query_full_picture_module",
+    );
+    expect(requestArgs.tools.map((tool: { function?: { name?: string } }) => tool.function?.name)).toContain(
+      "diagnose_analytics_empty",
     );
   });
 
@@ -425,7 +675,7 @@ describe("main agent tool loop", () => {
     expect(requestArgs.context).toContain("governed Ontology");
     expect(requestArgs.context).toContain("Never redefine metrics");
     expect(requestArgs.context.indexOf("query_semantic_metrics first")).toBeLessThan(
-      requestArgs.context.indexOf("query_defect_aggregate only as a legacy analytics fallback"),
+      requestArgs.context.indexOf("query_analytics as the canonical high-level tool"),
     );
     expect(requestArgs.tools.map((tool: { function?: { name?: string } }) => tool.function?.name)).toContain(
       "query_semantic_metrics",
@@ -474,7 +724,7 @@ describe("main agent tool loop", () => {
     );
   });
 
-  it("tells the planner to use defect aggregate for Top Issue growth questions", async () => {
+  it("tells the planner to use high-level analytics for Top Issue growth questions", async () => {
     const requestChatCompletion = vi.fn().mockResolvedValue({
       content: "No tool needed.",
       toolCalls: [],
@@ -488,10 +738,18 @@ describe("main agent tool loop", () => {
     });
 
     const requestArgs = requestChatCompletion.mock.calls[0][0];
-    expect(requestArgs.context).toContain("query_defect_aggregate");
+    expect(requestArgs.context).toContain("query_analytics");
+    expect(requestArgs.context).not.toContain("query_defect_aggregate");
     expect(requestArgs.context).toContain("Top Issue");
     expect(requestArgs.context).toContain("comparison");
+    expect(requestArgs.context).toContain("query_analytics as the canonical high-level tool");
     expect(requestArgs.tools.map((tool: { function?: { name?: string } }) => tool.function?.name)).toContain(
+      "query_analytics",
+    );
+    expect(requestArgs.tools.map((tool: { function?: { name?: string } }) => tool.function?.name)).toContain(
+      "diagnose_analytics_empty",
+    );
+    expect(requestArgs.tools.map((tool: { function?: { name?: string } }) => tool.function?.name)).not.toContain(
       "query_defect_aggregate",
     );
   });

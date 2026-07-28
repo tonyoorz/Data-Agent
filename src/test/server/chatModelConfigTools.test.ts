@@ -23,6 +23,19 @@ const sampleToolChoice = {
 };
 
 describe("buildChatCompletionRequest tool calling options", () => {
+  it("requests streamed usage metadata for OpenAI-compatible chat streams", () => {
+    const request = buildChatCompletionRequest({
+      selectedModel: "deepseek-v4-flash",
+      messages: [{ role: "user", content: "stream with usage" }],
+      env: {
+        DUPSEARCH_CHAT_ACCESS_CODE: "test-access-code",
+      },
+      stream: true,
+    });
+
+    expect(request.body.stream_options).toEqual({ include_usage: true });
+  });
+
   it("passes OpenAI-compatible tools through to internal company endpoints", () => {
     const request = buildChatCompletionRequest({
       selectedModel: "deepseek-v4-flash",
