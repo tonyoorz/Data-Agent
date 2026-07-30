@@ -94,7 +94,8 @@ const PSEUDO_TOOL_END_MARKERS = {
   invoke: ["</｜DSML｜invoke>", "</｜DSML｜parameter>", "</｜DSML｜tool_calls>", "</｜DSML｜tool_call"],
 };
 
-const MODEL_STOP_TOKEN_FRAGMENTS = new Set(["</s>", "/s>", "s>", "<|im_end|>", "<|endoftext|>"]);
+const MODEL_STOP_TOKEN_MARKERS = ["</s>", "/s>", "s>", "<|im_end|>", "<|endoftext|>"];
+const MODEL_STOP_TOKEN_FRAGMENTS = new Set(MODEL_STOP_TOKEN_MARKERS);
 
 function findPseudoToolStart(text, fromIndex = 0) {
   const candidates = PSEUDO_TOOL_START_MARKERS
@@ -144,6 +145,39 @@ function looksLikePseudoToolPrefix(text) {
 function isModelStopTokenFragment(content) {
   const text = String(content || "").trim();
   return MODEL_STOP_TOKEN_FRAGMENTS.has(text);
+}
+
+function looksLikeModelStopTokenPrefix(text) {
+  return text.length > 0 && MODEL_STOP_TOKEN_MARKERS.some((marker) => marker.startsWith(text));
+}
+
+function stripModelStopTokenFragments(content, state) {
+  let text = `${state.pendingStopTokenText || ""}${String(content || "")}`;
+  state.pendingStopTokenText = "";
+  if (!text) {
+    return "";
+  }
+
+  if (isModelStopTokenFragment(text)) {
+    state.droppedStopTokenFragment = true;
+    return "";
+  }
+
+  for (const marker of MODEL_STOP_TOKEN_MARKERS.filter((value) => value !== "s>")) {
+    const markerIndex = text.indexOf(marker);
+    if (markerIndex >= 0) {
+      state.droppedStopTokenFragment = true;
+      text = `${text.slice(0, markerIndex)}${text.slice(markerIndex + marker.length)}`;
+    }
+  }
+
+  const trailingStopTokenPrefix = longestMarkerPrefixSuffix(text, MODEL_STOP_TOKEN_MARKERS);
+  if (trailingStopTokenPrefix) {
+    state.pendingStopTokenText = trailingStopTokenPrefix;
+    text = text.slice(0, text.length - trailingStopTokenPrefix.length);
+  }
+
+  return text;
 }
 
 function buildToolResultFallbackContent(context) {
@@ -237,14 +271,25 @@ function sanitizeFinalAnswerContent(content, state) {
 function flushPendingSanitizedContent(response, state) {
   const pending = state.pendingPseudoToolText || "";
   state.pendingPseudoToolText = "";
-  if (!pending) {
+  if (pending) {
+    if (looksLikePseudoToolPrefix(pending)) {
+      state.suppressedPseudoToolCall = true;
+    } else {
+      writeSseEvent(response, { choices: [{ delta: { content: pending } }] });
+      state.emittedVisibleContent = true;
+    }
+  }
+
+  const pendingStopToken = state.pendingStopTokenText || "";
+  state.pendingStopTokenText = "";
+  if (!pendingStopToken) {
     return;
   }
-  if (looksLikePseudoToolPrefix(pending)) {
-    state.suppressedPseudoToolCall = true;
+  if (isModelStopTokenFragment(pendingStopToken) || (state.hasToolContext && looksLikeModelStopTokenPrefix(pendingStopToken))) {
+    state.droppedStopTokenFragment = true;
     return;
   }
-  writeSseEvent(response, { choices: [{ delta: { content: pending } }] });
+  writeSseEvent(response, { choices: [{ delta: { content: pendingStopToken } }] });
   state.emittedVisibleContent = true;
 }
 
@@ -260,7 +305,7 @@ function hasOnlyEmptyContentDelta(payload) {
 }
 
 function writePseudoToolFallbackIfNeeded(response, state) {
-  const needsFallback = state.suppressedPseudoToolCall || (state.droppedStopTokenFragment && state.hasToolContext);
+  const needsFallback = state.suppressedPseudoToolCall || (state.hasToolContext && (state.droppedStopTokenFragment || !state.emittedVisibleContent));
   if (!needsFallback || state.emittedVisibleContent || state.fallbackEmitted) {
     return;
   }
@@ -293,12 +338,10 @@ function writeSanitizedSseFrame(response, frame, state) {
   try {
     payload = JSON.parse(data);
   } catch {
-    const sanitized = sanitizeFinalAnswerContent(data, state);
-    if (sanitized && !isModelStopTokenFragment(sanitized)) {
+    const sanitized = stripModelStopTokenFragments(sanitizeFinalAnswerContent(data, state), state);
+    if (sanitized) {
       response.write(`data: ${sanitized}\n\n`);
       state.emittedVisibleContent = true;
-    } else if (sanitized) {
-      state.droppedStopTokenFragment = true;
     }
     return;
   }
@@ -307,10 +350,9 @@ function writeSanitizedSseFrame(response, frame, state) {
     if (typeof choice?.delta?.content !== "string") {
       continue;
     }
-    const sanitized = sanitizeFinalAnswerContent(choice.delta.content, state);
-    if (isModelStopTokenFragment(sanitized)) {
+    const sanitized = stripModelStopTokenFragments(sanitizeFinalAnswerContent(choice.delta.content, state), state);
+    if (!sanitized && state.droppedStopTokenFragment) {
       choice.delta.content = "";
-      state.droppedStopTokenFragment = true;
       continue;
     }
     choice.delta.content = sanitized;
@@ -449,6 +491,7 @@ export async function streamCompanyChatCompletion({
       context: String(context || ""),
       pseudoToolKind: "",
       pendingPseudoToolText: "",
+      pendingStopTokenText: "",
     };
     let sseBuffer = "";
 

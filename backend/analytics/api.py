@@ -8,12 +8,11 @@ from fastapi.responses import JSONResponse
 
 from backend.analytics.config import get_analytics_db_path, get_full_picture_hot_db_path
 from backend.analytics.dashboard_snapshot import read_active_snapshot_state
-from backend.analytics.octane_field_catalog import load_local_octane_field_catalog, search_octane_fields
-from backend.analytics.ontology import load_ontology
 from backend.analytics.read_models import (
     FullPictureDashboardDataError,
     FullPictureDashboardRequestError,
     build_defect_high_frequency_analysis_payload,
+    build_analytics_filter_value_search_payload,
     build_defect_aggregate_payload,
     build_defect_records_payload,
     build_defect_test_correlation,
@@ -27,6 +26,8 @@ from backend.analytics.read_models import (
     list_runs,
     list_testcases,
 )
+from backend.analytics.fallback_query import build_analytics_fallback_query_payload
+from backend.analytics.ontology import OntologyLoadError, load_ontology
 from backend.analytics.ontology_context import build_ontology_catalog_payload, build_test_case_context_payload
 from backend.analytics.qgate_weekly_report import build_qgate_weekly_report_payload
 from backend.analytics.semantic_query import SemanticQueryError, execute_semantic_query
@@ -44,7 +45,6 @@ from backend.analytics.schema import ensure_schema
 
 @asynccontextmanager
 async def analytics_lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    _app.state.ontology = load_ontology()
     ensure_schema(get_analytics_db_path())
     yield
 
@@ -66,26 +66,8 @@ def _full_picture_query_params(request: Request) -> dict[str, object]:
 
 
 @app.get("/health")
-def health(request: Request) -> dict[str, object]:
-    ontology = getattr(request.app.state, "ontology", None) or load_ontology()
-    return {
-        "ok": True,
-        "service": "analytics",
-        "ontologyVersion": ontology.version,
-        "ontologyFingerprint": ontology.fingerprint,
-    }
-
-
-@app.post("/api/semantic/query")
-async def semantic_query(request: Request) -> JSONResponse:
-    try:
-        raw_payload = await request.json()
-        payload = raw_payload if isinstance(raw_payload, dict) else {}
-        catalog = getattr(request.app.state, "ontology", None) or load_ontology()
-        result = execute_semantic_query(payload, catalog=catalog)
-    except SemanticQueryError as exc:
-        return JSONResponse(status_code=exc.status_code, content={"code": exc.code, "safeMessage": "semantic query rejected", "retryable": False})
-    return JSONResponse(status_code=200, content=result)
+def health() -> dict[str, object]:
+    return {"ok": True, "service": "analytics"}
 
 
 @app.get("/api/full-picture/dashboard")
@@ -205,6 +187,54 @@ async def analytics_defects_records(request: Request) -> JSONResponse:
     return JSONResponse(status_code=200, content=payload)
 
 
+@app.post("/api/analytics/fallback/query")
+async def analytics_fallback_query(request: Request) -> JSONResponse:
+    try:
+        raw_payload = await request.json()
+        payload = build_analytics_fallback_query_payload(**(raw_payload if isinstance(raw_payload, dict) else {}))
+    except FullPictureDashboardDataError:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "analytics database not initialized"},
+        )
+    except FullPictureDashboardRequestError as exc:
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+    return JSONResponse(status_code=200, content=payload)
+
+
+@app.post("/api/analytics/filter-values/search")
+async def analytics_filter_values_search(request: Request) -> JSONResponse:
+    try:
+        raw_payload = await request.json()
+        payload = build_analytics_filter_value_search_payload(**(raw_payload if isinstance(raw_payload, dict) else {}))
+    except FullPictureDashboardDataError:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "analytics database not initialized"},
+        )
+    except FullPictureDashboardRequestError as exc:
+        return JSONResponse(status_code=400, content={"error": str(exc)})
+    return JSONResponse(status_code=200, content=payload)
+
+
+@app.post("/api/semantic/query")
+async def semantic_query(request: Request) -> JSONResponse:
+    try:
+        raw_payload = await request.json()
+        payload = execute_semantic_query(raw_payload if isinstance(raw_payload, dict) else {}, catalog=load_ontology())
+    except SemanticQueryError as exc:
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"code": exc.code, "safeMessage": "semantic query rejected", "retryable": False},
+        )
+    except OntologyLoadError as exc:
+        return JSONResponse(
+            status_code=503,
+            content={"code": str(exc), "safeMessage": "semantic ontology unavailable", "retryable": True},
+        )
+    return JSONResponse(status_code=200, content=payload)
+
+
 @app.post("/api/ontology/context")
 async def ontology_context(request: Request) -> JSONResponse:
     try:
@@ -218,26 +248,6 @@ async def ontology_context(request: Request) -> JSONResponse:
 @app.get("/api/ontology/catalog")
 def ontology_catalog() -> JSONResponse:
     return JSONResponse(status_code=200, content=build_ontology_catalog_payload())
-
-
-@app.post("/api/ontology/fields/search")
-async def ontology_fields_search(request: Request) -> JSONResponse:
-    raw_payload = await request.json()
-    payload = raw_payload if isinstance(raw_payload, dict) else {}
-    query = str(payload.get("query") or "").strip()
-    if not query:
-        return JSONResponse(status_code=400, content={"error": "query is required"})
-    top_k = max(1, min(50, int(payload.get("top_k") or 20)))
-    entity = str(payload.get("entity") or "").strip() or None
-    catalog = load_local_octane_field_catalog()
-    return JSONResponse(
-        status_code=200,
-        content={
-            "summary": catalog["summary"],
-            "results": search_octane_fields(catalog, query, entity=entity, top_k=top_k),
-            "source": catalog["source"],
-        },
-    )
 
 
 @app.get("/api/full-picture/dashboard/refresh-status")

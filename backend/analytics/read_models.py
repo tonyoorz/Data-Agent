@@ -2627,6 +2627,75 @@ def build_filter_metadata() -> dict[str, list[str]]:
     }
 
 
+FILTER_VALUE_SEARCH_FIELDS = frozenset({"detected_by", "assigned_ecu", "business_module", "problem_finder_team"})
+
+
+def _normalize_filter_value_limit(value: Any) -> int:
+    if value in {None, ""}:
+        return 20
+    try:
+        limit = int(str(value).strip())
+    except (TypeError, ValueError) as exc:
+        raise FullPictureDashboardRequestError(f"Invalid filter value search limit: {value}") from exc
+    if limit <= 0:
+        raise FullPictureDashboardRequestError(f"Invalid filter value search limit: {value}")
+    return min(limit, 50)
+
+
+def _filter_value_from_ticket_row(row: dict[str, Any], field: str) -> str:
+    if field == "business_module":
+        return str(row.get("solution_cluster") or row.get("defect_category") or "UNCLASSIFIED").strip()
+    return str(row.get(field) or "").strip()
+
+
+def build_analytics_filter_value_search_payload(**kwargs: Any) -> dict[str, object]:
+    dataset = str(kwargs.get("dataset") or "defects").strip()
+    if dataset != "defects":
+        raise FullPictureDashboardRequestError(f"Unsupported filter value dataset: {dataset or 'empty'}")
+    field = str(kwargs.get("field") or "").strip()
+    if field not in FILTER_VALUE_SEARCH_FIELDS:
+        raise FullPictureDashboardRequestError(f"Unsupported filter value field: {field or 'empty'}")
+
+    snapshot_metadata = _read_snapshot_metadata()
+    snapshot_version = _resolve_effective_snapshot_version(snapshot_metadata)
+    if not snapshot_version:
+        raise FullPictureDashboardDataError("No active dashboard snapshot is available for filter value search")
+    if snapshot_version.startswith("live-"):
+        _materialize_snapshot_ticket_rows(snapshot_version)
+
+    query_text = str(kwargs.get("query") or "").strip()
+    normalized_query = query_text.casefold()
+    limit = _normalize_filter_value_limit(kwargs.get("limit"))
+    filters = kwargs.get("filters") if isinstance(kwargs.get("filters"), dict) else {}
+    ticket_rows = _load_materialized_ticket_rows(
+        snapshot_version=snapshot_version,
+        query=normalize_query(**filters),
+    )
+
+    counts: dict[str, int] = {}
+    for row in ticket_rows:
+        value = _filter_value_from_ticket_row(row, field)
+        if not value:
+            continue
+        if normalized_query and normalized_query not in value.casefold():
+            continue
+        counts[value] = counts.get(value, 0) + 1
+
+    ranked_values = sorted(counts.items(), key=lambda item: (-item[1], _sortable_value(item[0])))
+    returned_values = ranked_values[:limit]
+    return {
+        "schema_version": "1.0",
+        "dataset": dataset,
+        "field": field,
+        "query": query_text,
+        "snapshot_version": snapshot_version,
+        "values": [{"value": value, "count": count} for value, count in returned_values],
+        "total_values": len(ranked_values),
+        "returned_values": len(returned_values),
+        "truncated": len(ranked_values) > limit,
+    }
+
+
 def build_defect_test_correlation(defect_id: str) -> dict[str, object]:
     conn = _connect()
     try:

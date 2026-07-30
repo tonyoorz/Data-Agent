@@ -217,11 +217,7 @@ def test_health_endpoint_returns_ok():
     response = client.get("/health")
 
     assert response.status_code == 200
-    payload = response.json()
-    assert payload["ok"] is True
-    assert payload["service"] == "analytics"
-    assert payload["ontologyVersion"]
-    assert payload["ontologyFingerprint"]
+    assert response.json() == {"ok": True, "service": "analytics"}
 
 
 def test_health_endpoint_starts_app_lifespan():
@@ -229,11 +225,7 @@ def test_health_endpoint_starts_app_lifespan():
         response = client.get("/health")
 
     assert response.status_code == 200
-    payload = response.json()
-    assert payload["ok"] is True
-    assert payload["service"] == "analytics"
-    assert payload["ontologyVersion"]
-    assert payload["ontologyFingerprint"]
+    assert response.json() == {"ok": True, "service": "analytics"}
 
 
 def test_full_picture_dashboard_endpoint_exists(monkeypatch):
@@ -1009,6 +1001,64 @@ def test_defect_aggregate_groups_by_business_module_and_returns_drilldown_ref(tm
     assert all(row["drilldown_ref"] for row in payload["rows"])
 
 
+def test_defect_aggregate_filters_raw_json_detected_by_person(tmp_path, monkeypatch):
+    db_path = tmp_path / "qgate_data.db"
+    hot_db_path = _default_hot_db_path(tmp_path)
+    _seed_qgate_source_db(db_path, defect_count=2)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("ALTER TABLE octane_defects ADD COLUMN raw_json TEXT")
+        conn.execute("ALTER TABLE octane_defects ADD COLUMN detected_by TEXT")
+        conn.execute(
+            """
+            UPDATE octane_defects
+            SET detected_by = '', raw_json = ?
+            WHERE defect_id = ?
+            """,
+            (
+                '{"detected_by":{"type":"workspace_user","full_name":"Size Li"},"author":{"full_name":"Size Li"}}',
+                "D-001",
+            ),
+        )
+        conn.execute(
+            """
+            UPDATE octane_defects
+            SET detected_by = '', raw_json = ?
+            WHERE defect_id = ?
+            """,
+            (
+                '{"detected_by":{"type":"workspace_user","full_name":"Other Person"}}',
+                "D-002",
+            ),
+        )
+        conn.commit()
+    _refresh_full_picture_hot_outcomes(db_path, hot_db_path)
+    _record_active_snapshot(hot_db_path, snapshot_version="snapshot-detected-by", source_db_path=db_path)
+    _configure_full_picture_env(
+        monkeypatch,
+        defect_db_path=db_path,
+        hot_db_path=hot_db_path,
+    )
+
+    aggregate_payload = read_models.build_defect_aggregate_payload(
+        metrics=["defect_count"],
+        dimensions=[],
+        filters={"detected_by": ["Size Li"]},
+        time={"field": "creation_time", "current": ["2026-01-01", "2026-12-31"], "timezone": "Asia/Shanghai"},
+    )
+    grouped_payload = read_models.build_defect_aggregate_payload(
+        metrics=["defect_count"],
+        dimensions=["detected_by"],
+        filters={"years": ["2026"]},
+        time={"field": "creation_time", "current": ["2026-01-01", "2026-12-31"], "timezone": "Asia/Shanghai"},
+        order_by=[{"field": "defect_count", "direction": "desc"}],
+    )
+
+    assert aggregate_payload["rows"] == [
+        {"scope": "all_defects", "defect_count": 1, "drilldown_ref": aggregate_payload["rows"][0]["drilldown_ref"]}
+    ]
+    assert ("Size Li", 1) in [(row["detected_by"], row["defect_count"]) for row in grouped_payload["rows"]]
+
+
 def test_defect_records_reuse_drilldown_ref_and_snapshot(tmp_path, monkeypatch):
     db_path = tmp_path / "qgate_data.db"
     hot_db_path = _default_hot_db_path(tmp_path)
@@ -1194,6 +1244,130 @@ def test_defect_query_api_posts_aggregate_and_records(tmp_path, monkeypatch):
     assert records_payload["total_rows"] == 2
     assert records_payload["returned_rows"] == 1
     assert records_payload["truncated"] is True
+
+
+def test_analytics_fallback_query_runs_allowlisted_defect_grouping(tmp_path, monkeypatch):
+    db_path = tmp_path / "qgate_data.db"
+    hot_db_path = _default_hot_db_path(tmp_path)
+    _seed_qgate_source_db(db_path, defect_count=3)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("UPDATE octane_defects SET assigned_ecu = ?, creation_time = ? WHERE defect_id = ?", ("ECU-A", "2026-05-20T00:00:00Z", "D-001"))
+        conn.execute("UPDATE octane_defects SET assigned_ecu = ?, creation_time = ? WHERE defect_id = ?", ("ECU-A", "2026-05-21T00:00:00Z", "D-002"))
+        conn.execute("UPDATE octane_defects SET assigned_ecu = ?, creation_time = ? WHERE defect_id = ?", ("ECU-B", "2026-05-22T00:00:00Z", "D-003"))
+        conn.commit()
+    _configure_full_picture_env(
+        monkeypatch,
+        defect_db_path=db_path,
+        hot_db_path=hot_db_path,
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/analytics/fallback/query",
+        json={
+            "dataset": "defects",
+            "metrics": [{"op": "count", "field": "defect_id", "as": "defect_count"}],
+            "group_by": ["assigned_ecu"],
+            "filters": {"problem_finder_team": ["DTSV_China"]},
+            "time": {"field": "creation_time", "current": ["2026-05-01", "2026-05-31"], "timezone": "Asia/Shanghai"},
+            "order_by": [{"field": "defect_count", "direction": "desc"}],
+            "limit": 10,
+            "reason": "fallback after specialized analytics returned no rows",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["dataset"] == "defects"
+    assert payload["source_table"] == "octane_defects"
+    assert payload["query_fingerprint"]
+    assert payload["audit"]["readonly"] is True
+    assert payload["audit"]["allowlisted"] is True
+    assert payload["columns"] == ["assigned_ecu", "defect_count"]
+    assert payload["rows"] == [
+        {"assigned_ecu": "ECU-A", "defect_count": 2},
+        {"assigned_ecu": "ECU-B", "defect_count": 1},
+    ]
+
+
+def test_analytics_fallback_query_rejects_unregistered_dataset(tmp_path, monkeypatch):
+    db_path = tmp_path / "qgate_data.db"
+    hot_db_path = _default_hot_db_path(tmp_path)
+    _seed_qgate_source_db(db_path, defect_count=1)
+    _configure_full_picture_env(
+        monkeypatch,
+        defect_db_path=db_path,
+        hot_db_path=hot_db_path,
+    )
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/analytics/fallback/query",
+        json={
+            "dataset": "sqlite_master",
+            "metrics": [{"op": "count", "field": "name", "as": "row_count"}],
+            "group_by": [],
+            "filters": {},
+            "limit": 10,
+        },
+    )
+
+    assert response.status_code == 400
+    assert "Unsupported fallback dataset" in response.json()["error"]
+
+
+def test_analytics_filter_values_searches_defect_grounding_candidates(tmp_path, monkeypatch):
+    db_path = tmp_path / "qgate_data.db"
+    hot_db_path = _default_hot_db_path(tmp_path)
+    _seed_qgate_source_db(db_path, defect_count=4)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("ALTER TABLE octane_defects ADD COLUMN raw_json TEXT")
+        rows = [
+            ("D-001", "ECU-CAM", "Camera CN", "DTSV_China", "Size Li"),
+            ("D-002", "ECU-CAM", "Camera CN", "DTSV_China", "Miao Xu"),
+            ("D-003", "ECU-HU", "Headunit CN", "DTSV_China", "Other Person"),
+            ("D-004", "ECU-CAM", "Camera Global", "Other_Team", "Size Li"),
+        ]
+        for defect_id, ecu, module, team, person in rows:
+            conn.execute(
+                """
+                UPDATE octane_defects
+                SET assigned_ecu = ?, solution_cluster = ?, problem_finder_team = ?, raw_json = ?
+                WHERE defect_id = ?
+                """,
+                (ecu, module, team, f'{{"detected_by":{{"full_name":"{person}"}}}}', defect_id),
+            )
+        conn.commit()
+    _refresh_full_picture_hot_outcomes(db_path, hot_db_path)
+    _record_active_snapshot(hot_db_path, snapshot_version="snapshot-filter-values", source_db_path=db_path)
+    _configure_full_picture_env(monkeypatch, defect_db_path=db_path, hot_db_path=hot_db_path)
+    client = TestClient(app)
+
+    detected_by = client.post(
+        "/api/analytics/filter-values/search",
+        json={"dataset": "defects", "field": "detected_by", "query": "siz", "limit": 5},
+    )
+    business_module = client.post(
+        "/api/analytics/filter-values/search",
+        json={"dataset": "defects", "field": "business_module", "query": "camera", "limit": 5},
+    )
+    team = client.post(
+        "/api/analytics/filter-values/search",
+        json={"dataset": "defects", "field": "problem_finder_team", "query": "dtsv", "limit": 5},
+    )
+    ecu = client.post(
+        "/api/analytics/filter-values/search",
+        json={"dataset": "defects", "field": "assigned_ecu", "query": "cam", "limit": 5},
+    )
+
+    assert detected_by.status_code == 200
+    assert detected_by.json()["values"][0] == {"value": "Size Li", "count": 2}
+    assert business_module.json()["values"] == [
+        {"value": "Camera CN", "count": 2},
+        {"value": "Camera Global", "count": 1},
+    ]
+    assert team.json()["values"] == [{"value": "DTSV_China", "count": 3}]
+    assert ecu.json()["values"] == [{"value": "ECU-CAM", "count": 3}]
 
 
 def test_full_picture_tickets_endpoint_returns_paged_rows(tmp_path, monkeypatch):

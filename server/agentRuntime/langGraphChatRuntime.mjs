@@ -4,10 +4,15 @@ import { resolveAiAnalyticsContext } from "../aiAnalyticsContext.mjs";
 import { extractLatestUserQuery, resolveAiDefectContext } from "../aiContext.mjs";
 import { requestCompanyChatCompletion } from "../companyChat.mjs";
 import {
+  buildEmptyDiagnosisToolCall,
+  buildToolPlanningContext,
+  executeMainAgentPlannedToolCall,
+  hasEmptyAnalyticsResult,
+  hasPlannedDiagnosis,
   selectMainAgentToolset,
   shouldPlanMainAgentTools,
 } from "../mainAgentToolPlanning.mjs";
-import { runMainAgentToolTurn } from "../mainAgentToolOrchestrator.mjs";
+import { createOntologyRegistry } from "../ontology/registry.mjs";
 
 const SUPPORTED_RUNTIME_MODES = new Set(["langgraph"]);
 
@@ -32,7 +37,6 @@ const ChatState = Annotation.Root({
   toolMessages: Annotation({ reducer: append, default: () => [] }),
   toolConversationMessages: Annotation({ reducer: append, default: () => [] }),
   toolEvents: Annotation({ reducer: append, default: () => [] }),
-  toolStandardEvents: Annotation({ reducer: append, default: () => [] }),
   toolEvidence: Annotation({ reducer: append, default: () => [] }),
   toolResultTexts: Annotation({ reducer: append, default: () => [] }),
   mainAgentToolContext: Annotation({ reducer: overwrite, default: () => null }),
@@ -113,6 +117,14 @@ function createRunnableSignal() {
   return controller.signal;
 }
 
+function createDefaultOntologyRegistry() {
+  try {
+    return createOntologyRegistry();
+  } catch {
+    return null;
+  }
+}
+
 function ensureAbortSignalCompatibility() {
   const prototype = globalThis.AbortSignal?.prototype;
   if (!prototype || typeof prototype.throwIfAborted === "function") {
@@ -151,6 +163,46 @@ function toolAuditsFromContext(mainAgentToolContext, { runId, threadId, actorSco
     byId.set(toolCallId, current);
   }
   return [...byId.values()];
+}
+
+function toolLifecycleEventsFromContext(mainAgentToolContext, { runId, threadId }) {
+  const events = [];
+  const intent = mainAgentToolContext?.selectedToolset?.intent || "unknown";
+  for (const event of mainAgentToolContext?.toolEvents || []) {
+    if (event.type === "tool-input-available") {
+      events.push({
+        runId,
+        threadId,
+        type: "agent.tool.started",
+        toolCallId: String(event.toolCallId || ""),
+        toolName: String(event.toolName || ""),
+        intent,
+      });
+    }
+    if (event.type === "tool-output-available") {
+      events.push({
+        runId,
+        threadId,
+        type: "agent.tool.completed",
+        toolCallId: String(event.toolCallId || ""),
+        toolName: String(event.toolName || ""),
+        intent,
+        stoppedReason: "",
+      });
+    }
+    if (event.type === "tool-blocked") {
+      events.push({
+        runId,
+        threadId,
+        type: "agent.tool.blocked",
+        toolCallId: String(event.toolCallId || ""),
+        toolName: String(event.toolName || ""),
+        intent,
+        stoppedReason: "tool_not_allowed",
+      });
+    }
+  }
+  return events;
 }
 
 async function persistRuntimeState(runtimeStore, state) {
@@ -198,6 +250,11 @@ function compactToolRouting(toolRouting) {
   };
 }
 
+function buildSelectedToolsetContext(selectedToolset) {
+  const toolNames = (selectedToolset?.tools || []).map((tool) => tool.function?.name).filter(Boolean).join(", ");
+  return `# Selected toolset\nIntent: ${selectedToolset?.intent || "general"}. Tools: ${toolNames}.`;
+}
+
 function buildMainAgentToolContextFromState(state) {
   return {
     contextText: (state.toolResultTexts || []).filter(Boolean).join("\n\n"),
@@ -205,7 +262,6 @@ function buildMainAgentToolContextFromState(state) {
     toolMessages: state.toolMessages || [],
     toolConversationMessages: state.toolConversationMessages || [],
     toolEvents: state.toolEvents || [],
-    events: state.toolStandardEvents || [],
     evidence: state.toolEvidence || [],
     selectedToolset: state.toolRouting?.selectedToolset,
     stoppedReason: state.stoppedReason || "no_tool_calls",
@@ -215,6 +271,7 @@ function buildMainAgentToolContextFromState(state) {
 export function createLangGraphChatRuntime({
   resolveAnalyticsContext = resolveAiAnalyticsContext,
   resolveDefectContext = resolveAiDefectContext,
+  ontologyRegistry = createDefaultOntologyRegistry(),
   shouldPlanTools = shouldPlanMainAgentTools,
   requestToolCompletion = requestCompanyChatCompletion,
   executeToolCall,
@@ -260,6 +317,7 @@ export function createLangGraphChatRuntime({
       analyticsContext = await resolveAnalyticsContext({
         messages: body?.messages,
         ...(hasActorScope(state.actorScope) ? { actor: state.actorScope } : {}),
+        ...(hasActorScope(state.actorScope) && ontologyRegistry ? { ontologyRegistry } : {}),
       });
     }
 
@@ -311,34 +369,109 @@ export function createLangGraphChatRuntime({
     return toolDependencies;
   }
 
-  async function executeToolTurn(state, config) {
+  async function planToolCalls(state, config) {
     const body = state.body || {};
     const selectedToolset = state.toolRouting?.selectedToolset || selectMainAgentToolset(body?.messages);
-    const event = emit(config, { type: "tool-planning-started", threadId: state.threadId });
-    const toolTurn = await runMainAgentToolTurn({
-      messages: body?.messages,
+    const events = Number(state.toolStepIndex || 0) === 0
+      ? [emit(config, { type: "tool-planning-started", threadId: state.threadId })]
+      : [];
+    const planningResult = await requestToolCompletion({
+      messages: [
+        ...(Array.isArray(body?.messages) ? body.messages : []),
+        ...(state.toolConversationMessages || []),
+      ],
       model: body?.model,
-      context: state.baseContext,
-      requestToolCompletion,
-      executeToolCall,
-      toolDependencies: buildToolDependencies(state),
-      selectedToolset,
-      maxSteps: maxToolSteps,
-      now: now(),
-      runId: state.runId,
-      threadId: state.threadId,
+      context: mergeContext(
+        state.baseContext,
+        buildToolPlanningContext(now()),
+        buildSelectedToolsetContext(selectedToolset),
+      ),
+      tools: selectedToolset.tools,
+      toolChoice: "auto",
     });
+    const plannedToolCalls = Array.isArray(planningResult.toolCalls) ? planningResult.toolCalls.slice(0, 3) : [];
+    if (!plannedToolCalls.length) {
+      return {
+        plannedToolCalls: [],
+        stoppedReason: "no_tool_calls",
+        runtimeEvents: events,
+      };
+    }
+    return {
+      plannedToolCalls,
+      stoppedReason: "",
+      toolCalls: plannedToolCalls,
+      toolConversationMessages: [{ role: "assistant", content: "", tool_calls: plannedToolCalls }],
+      runtimeEvents: events,
+    };
+  }
+
+  async function executeToolCalls(state) {
+    const selectedToolset = state.toolRouting?.selectedToolset;
+    const toolDependencies = buildToolDependencies(state);
+    const plannedToolCalls = Array.isArray(state.plannedToolCalls) ? state.plannedToolCalls : [];
+    const toolCalls = [];
+    const toolMessages = [];
+    const toolConversationMessages = [];
+    const toolEvents = [];
+    const toolEvidence = [];
+    const toolResultTexts = [];
+    const allToolCalls = [...(state.toolCalls || [])];
+    let stoppedReason = "";
+
+    async function executeOne(toolCall) {
+      const executed = await executeMainAgentPlannedToolCall({
+        toolCall,
+        selectedToolset,
+        executeToolCall,
+        toolDependencies,
+      });
+      toolMessages.push(executed.result.toolMessage);
+      toolConversationMessages.push(executed.result.toolMessage);
+      toolEvents.push(...executed.toolEvents);
+      if (executed.evidence) {
+        toolEvidence.push(executed.evidence);
+      }
+      if (executed.result.contextText) {
+        toolResultTexts.push(executed.result.contextText);
+      }
+      if (executed.stoppedReason) {
+        stoppedReason = executed.stoppedReason;
+      }
+      return executed.result;
+    }
+
+    for (const toolCall of plannedToolCalls) {
+      const result = await executeOne(toolCall);
+      if (stoppedReason) {
+        break;
+      }
+      if (hasEmptyAnalyticsResult(toolCall, result) && !hasPlannedDiagnosis(allToolCalls)) {
+        const diagnosisToolCall = buildEmptyDiagnosisToolCall(toolCall);
+        allToolCalls.push(diagnosisToolCall);
+        toolCalls.push(diagnosisToolCall);
+        toolConversationMessages.push({ role: "assistant", content: "", tool_calls: [diagnosisToolCall] });
+        await executeOne(diagnosisToolCall);
+        if (stoppedReason) {
+          break;
+        }
+      }
+    }
+
+    const nextStepIndex = Number(state.toolStepIndex || 0) + 1;
+    if (!stoppedReason && nextStepIndex >= Math.max(1, Math.min(10, Number(maxToolSteps || 4)))) {
+      stoppedReason = "max_steps";
+    }
     return {
       plannedToolCalls: [],
-      stoppedReason: toolTurn.stoppedReason,
-      toolCalls: toolTurn.toolCalls,
-      toolMessages: toolTurn.toolMessages,
-      toolConversationMessages: toolTurn.toolConversationMessages,
-      toolEvents: toolTurn.toolEvents,
-      toolStandardEvents: toolTurn.events,
-      toolEvidence: toolTurn.evidence,
-      toolResultTexts: toolTurn.contextText ? [toolTurn.contextText] : [],
-      runtimeEvents: [event],
+      toolStepIndex: nextStepIndex,
+      stoppedReason,
+      toolCalls,
+      toolMessages,
+      toolConversationMessages,
+      toolEvents,
+      toolEvidence,
+      toolResultTexts,
     };
   }
 
@@ -387,20 +520,30 @@ export function createLangGraphChatRuntime({
   }
 
   function routeAfterToolRouting(state) {
-    return state.toolRouting?.shouldUseTools === true ? "execute_tool_turn" : "finalize";
+    return state.toolRouting?.shouldUseTools === true ? "plan_tool_calls" : "finalize";
+  }
+
+  function routeAfterPlanning(state) {
+    return Array.isArray(state.plannedToolCalls) && state.plannedToolCalls.length ? "execute_tool_calls" : "finalize";
+  }
+
+  function routeAfterToolExecution(state) {
+    return state.stoppedReason ? "finalize" : "plan_tool_calls";
   }
 
   const graph = new StateGraph(ChatState)
     .addNode("initialize", initialize)
     .addNode("resolve_context", resolveContext)
     .addNode("route_tools", routeTools)
-    .addNode("execute_tool_turn", executeToolTurn)
+    .addNode("plan_tool_calls", planToolCalls)
+    .addNode("execute_tool_calls", executeToolCalls)
     .addNode("finalize", finalize)
     .addEdge(START, "initialize")
     .addEdge("initialize", "resolve_context")
     .addEdge("resolve_context", "route_tools")
     .addConditionalEdges("route_tools", routeAfterToolRouting)
-    .addEdge("execute_tool_turn", "finalize")
+    .addConditionalEdges("plan_tool_calls", routeAfterPlanning)
+    .addConditionalEdges("execute_tool_calls", routeAfterToolExecution)
     .addEdge("finalize", END)
     .compile({ checkpointer });
 
@@ -434,7 +577,7 @@ export function createLangGraphChatRuntime({
         context: state.context || "",
         finalMessages: state.finalMessages || [],
         prefaceEvents: state.prefaceEvents || [],
-        events: state.mainAgentToolContext?.events || state.toolStandardEvents || [],
+        events: toolLifecycleEventsFromContext(state.mainAgentToolContext, { runId: state.runId || runId, threadId: state.threadId || threadId }),
         metrics: state.metrics || {},
         runtimeEvents: state.runtimeEvents || [],
       };

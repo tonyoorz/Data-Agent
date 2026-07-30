@@ -154,6 +154,62 @@ describe("main agent analytics tools", () => {
 
     expect(names).toContain("query_analytics");
     expect(names).toContain("diagnose_analytics_empty");
+    expect(names).toContain("query_analytics_fallback");
+  });
+
+  it("executes query_analytics_fallback through the governed fallback API", async () => {
+    const analyticsFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        schema_version: "1.0",
+        dataset: "defects",
+        source_table: "octane_defects",
+        query_fingerprint: "fallback-fp-1",
+        columns: ["assigned_ecu", "defect_count"],
+        rows: [{ assigned_ecu: "ECU-A", defect_count: 2 }],
+        returned_rows: 1,
+        truncated: false,
+        audit: { readonly: true, allowlisted: true },
+      }),
+    });
+
+    const result = await executeMainAgentToolCall(
+      {
+        id: "call-fallback",
+        type: "function",
+        function: {
+          name: "query_analytics_fallback",
+          arguments: JSON.stringify({
+            dataset: "defects",
+            metrics: [{ op: "count", field: "defect_id", as: "defect_count" }],
+            group_by: ["assigned_ecu"],
+            filters: { problem_finder_team: ["DTSV_China"] },
+            time: { field: "creation_time", current: ["2026-05-01", "2026-05-31"], timezone: "Asia/Shanghai" },
+            order_by: [{ field: "defect_count", direction: "desc" }],
+            limit: 10,
+            reason: "specialized analytics result was empty",
+          }),
+        },
+      },
+      {
+        analyticsFetch,
+        analyticsApiBase: "http://127.0.0.1:3003",
+      },
+    );
+
+    expect(analyticsFetch).toHaveBeenCalledWith(
+      "http://127.0.0.1:3003/api/analytics/fallback/query",
+      expect.objectContaining({ method: "POST" }),
+    );
+    const requestBody = JSON.parse(analyticsFetch.mock.calls[0][1].body);
+    expect(requestBody.dataset).toBe("defects");
+    expect(requestBody.group_by).toEqual(["assigned_ecu"]);
+    expect(result.toolMessage.name).toBe("query_analytics_fallback");
+    expect(result.toolMessage.content).toContain('"readonly":true');
+    expect(result.contextText).toContain("Tool: query_analytics_fallback");
+    expect(result.contextText).toContain("Source table: octane_defects");
+    expect(result.contextText).toContain("ECU-A: defect_count 2");
+    expect(result.contextText).toContain("allowlisted read-only fallback");
   });
 
   it("executes query_semantic_metrics through the semantic API", async () => {
@@ -323,6 +379,47 @@ describe("main agent analytics tools", () => {
     expect(result.contextText).toContain("Tool: search_octane_fields");
     expect(result.contextText).toContain("octane_defects.raw_json.problem_finder_team_udf");
     expect(result.contextText).toContain("Use these field candidates only as schema hints");
+  });
+
+  it("executes search_analytics_filter_values against the analytics value search API", async () => {
+    const analyticsFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        schema_version: "1.0",
+        dataset: "defects",
+        field: "detected_by",
+        query: "siz",
+        snapshot_version: "snapshot-values",
+        values: [{ value: "Size Li", count: 2 }],
+        total_values: 1,
+        returned_values: 1,
+        truncated: false,
+      }),
+    });
+
+    const result = await executeMainAgentToolCall(
+      {
+        id: "filter-values-1",
+        type: "function",
+        function: {
+          name: "search_analytics_filter_values",
+          arguments: JSON.stringify({ dataset: "defects", field: "detected_by", query: "siz", limit: 5 }),
+        },
+      },
+      { analyticsFetch, analyticsApiBase: "http://127.0.0.1:3003" },
+    );
+
+    expect(analyticsFetch).toHaveBeenCalledWith(
+      "http://127.0.0.1:3003/api/analytics/filter-values/search",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ dataset: "defects", field: "detected_by", query: "siz", limit: 5 }),
+      }),
+    );
+    expect(result.toolMessage.name).toBe("search_analytics_filter_values");
+    expect(result.contextText).toContain("Tool: search_analytics_filter_values");
+    expect(result.contextText).toContain("detected_by candidates for siz");
+    expect(result.contextText).toContain("Size Li: 2");
   });
 
   it("normalizes common QGate business terms without calling data APIs", async () => {
@@ -949,10 +1046,76 @@ describe("main agent analytics tools", () => {
     expect(probeBodies[1].filters).toEqual({ years: ["2026"], detected_by: ["Size Li"] });
     expect(probeBodies[2].filters).toEqual({ years: ["2026"], problem_finder_teams: ["DTSV_China"] });
     expect(result.toolMessage.name).toBe("diagnose_analytics_empty");
-    expect(result.toolMessage.content).toContain('"recommendation"');
+    const payload = JSON.parse(result.toolMessage.content).result;
+    expect(payload).toEqual(expect.objectContaining({
+      causeCode: "FILTER_TOO_RESTRICTIVE",
+      retryQuery: expect.objectContaining({ filters: { years: ["2026"], problem_finder_teams: ["DTSV_China"] } }),
+      candidateValues: [],
+      recommendedClarification: "Verify the exact detected_by value or choose from available values.",
+      recommendation: expect.stringContaining("detected_by"),
+    }));
     expect(result.contextText).toContain("Tool: diagnose_analytics_empty");
+    expect(result.contextText).toContain("Cause: FILTER_TOO_RESTRICTIVE");
     expect(result.contextText).toContain("without detected_by: defect_count 5");
     expect(result.contextText).toContain("detected_by may be too restrictive");
+  });
+
+  it("diagnoses reversed detected_by name order when a person aggregate is empty", async () => {
+    const aggregatePayload = (defectCount) => ({
+      schema_version: "1.0",
+      snapshot_version: "snapshot-person-alias",
+      query_fingerprint: `fp-alias-${defectCount}`,
+      rows: [{ scope: "all_defects", defect_count: defectCount, drilldown_ref: `ref-alias-${defectCount}` }],
+      total_groups: 1,
+      returned_groups: 1,
+      truncated: false,
+      warnings: [],
+    });
+    const analyticsFetch = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => aggregatePayload(0) })
+      .mockResolvedValueOnce({ ok: true, json: async () => aggregatePayload(41) })
+      .mockResolvedValueOnce({ ok: true, json: async () => aggregatePayload(41) });
+
+    const result = await executeMainAgentToolCall(
+      {
+        id: "call-person-alias-diagnosis",
+        type: "function",
+        function: {
+          name: "diagnose_analytics_empty",
+          arguments: JSON.stringify({
+            query: {
+              dataset: "defects",
+              intent: "aggregate",
+              metrics: ["defect_count"],
+              dimensions: [],
+              filters: { years: ["2026"], detected_by: ["Xu Miao"] },
+              time: { field: "creation_time", current: ["2026-01-01", "2026-12-31"], timezone: "Asia/Shanghai" },
+              limit: 12,
+            },
+            reason: "query_analytics returned zero defect_count",
+          }),
+        },
+      },
+      {
+        analyticsFetch,
+        analyticsApiBase: "http://127.0.0.1:3003",
+      },
+    );
+
+    const probeBodies = analyticsFetch.mock.calls.map(([, init]) => JSON.parse(init.body));
+    expect(probeBodies[0].filters).toEqual({ years: ["2026"], detected_by: ["Xu Miao"] });
+    expect(probeBodies[1].filters).toEqual({ years: ["2026"], detected_by: ["Miao Xu"] });
+    const payload = JSON.parse(result.toolMessage.content).result;
+    expect(payload).toEqual(expect.objectContaining({
+      causeCode: "FILTER_VALUE_ALIAS",
+      retryQuery: expect.objectContaining({ filters: { years: ["2026"], detected_by: ["Miao Xu"] } }),
+      candidateValues: [{ field: "detected_by", value: "Miao Xu", count: 41 }],
+      recommendedClarification: "Use detected_by=Miao Xu if that is the intended person.",
+    }));
+    expect(result.contextText).toContain("detected_by alias Miao Xu: defect_count 41");
+    expect(result.contextText).toContain("Cause: FILTER_VALUE_ALIAS");
+    expect(result.contextText).toContain("Try detected_by=Miao Xu");
   });
 
   it("exposes detected_by as a person-level defect aggregate filter", async () => {

@@ -58,6 +58,8 @@ const DEFECT_DIMENSION_VALUES = [
   "outcome_flag",
 ];
 
+const ANALYTICS_FILTER_VALUE_FIELDS = ["detected_by", "assigned_ecu", "business_module", "problem_finder_team"];
+
 const DEFECT_FILTER_PROPERTIES = {
   years: { oneOf: [{ type: "string" }, { type: "number" }, { type: "array", items: { type: "string" } }] },
   months: STRING_OR_STRING_ARRAY_SCHEMA,
@@ -111,6 +113,39 @@ const ANALYTICS_QUERY_PROPERTIES = {
   min_baseline_count: { type: "number" },
   limit: { type: "number" },
 };
+
+const FALLBACK_DATASET_VALUES = ["defects", "manual_runs"];
+const FALLBACK_FIELD_VALUES = [
+  "defect_id",
+  "name",
+  "status_phase",
+  "problem_finder_team",
+  "year",
+  "assigned_ecu",
+  "top_aida",
+  "phase",
+  "solution_cluster",
+  "lead_model",
+  "project",
+  "pu",
+  "market",
+  "creation_time",
+  "last_modified",
+  "detected_by",
+  "team",
+  "mr_id",
+  "test_id",
+  "test_name",
+  "status",
+  "test_week",
+  "fv",
+  "fvp",
+  "tester",
+];
+
+const FALLBACK_FILTER_PROPERTIES = Object.fromEntries(
+  FALLBACK_FIELD_VALUES.map((field) => [field, STRING_OR_STRING_ARRAY_SCHEMA]),
+);
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -178,6 +213,25 @@ export const MAIN_AGENT_TOOLS = [
   {
     type: "function",
     function: {
+      name: "search_analytics_filter_values",
+      description: "Search canonical analytics filter values before executing defect queries. Use it to ground detected_by person names, assigned_ecu, business_module, and problem_finder_team values instead of guessing exact strings.",
+      parameters: {
+        type: "object",
+        properties: {
+          dataset: { type: "string", enum: ["defects"] },
+          field: { type: "string", enum: ANALYTICS_FILTER_VALUE_FIELDS },
+          query: { type: "string", description: "Partial value from the user question, such as Size, ECU-CAM, Camera, or DTSV." },
+          filters: { type: "object", properties: DEFECT_FILTER_PROPERTIES, additionalProperties: false },
+          limit: { type: "number", description: "Maximum candidate values to return, capped by the backend." },
+        },
+        required: ["dataset", "field", "query"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "resolve_business_terms",
       description: "Map common Chinese/English QGate analytics terms from a user question to safe datasets, metrics, filters, and clarification hints.",
       parameters: {
@@ -223,6 +277,70 @@ export const MAIN_AGENT_TOOLS = [
             properties: ANALYTICS_QUERY_PROPERTIES,
           },
           reason: { type: "string", description: "Why diagnosis is needed, for example query_analytics returned no rows." },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "query_analytics_fallback",
+      description: "Governed read-only analytics fallback for cases where specialized analytics tools are empty, unavailable, or too narrow. It accepts a structured query AST only, never raw SQL; the backend executes only allowlisted datasets and fields with a forced limit and audit metadata.",
+      parameters: {
+        type: "object",
+        required: ["dataset", "metrics", "group_by", "filters"],
+        additionalProperties: false,
+        properties: {
+          dataset: { type: "string", enum: FALLBACK_DATASET_VALUES },
+          metrics: {
+            type: "array",
+            minItems: 1,
+            maxItems: 3,
+            items: {
+              type: "object",
+              required: ["op", "field", "as"],
+              additionalProperties: false,
+              properties: {
+                op: { type: "string", enum: ["count"] },
+                field: { type: "string", enum: FALLBACK_FIELD_VALUES },
+                as: { type: "string", enum: ["count", "row_count", "defect_count", "run_count"] },
+              },
+            },
+          },
+          group_by: {
+            type: "array",
+            maxItems: 2,
+            items: { type: "string", enum: FALLBACK_FIELD_VALUES },
+          },
+          filters: {
+            type: "object",
+            properties: FALLBACK_FILTER_PROPERTIES,
+            additionalProperties: false,
+          },
+          time: {
+            type: "object",
+            properties: {
+              field: { type: "string", enum: ["creation_time", "last_modified"] },
+              current: { type: "array", items: { type: "string" }, minItems: 2, maxItems: 2 },
+              timezone: { type: "string", enum: ["Asia/Shanghai"] },
+            },
+            required: ["field", "current", "timezone"],
+            additionalProperties: false,
+          },
+          order_by: {
+            type: "array",
+            items: {
+              type: "object",
+              required: ["field", "direction"],
+              additionalProperties: false,
+              properties: {
+                field: { type: "string" },
+                direction: { type: "string", enum: ["asc", "desc"] },
+              },
+            },
+          },
+          limit: { type: "number", description: "Maximum rows, capped by the backend." },
+          reason: { type: "string", description: "Why fallback is needed, for audit and later routing improvements." },
         },
       },
     },
@@ -1037,6 +1155,48 @@ async function executeOctaneFieldSearch(toolCall, { analyticsFetch, analyticsApi
   };
 }
 
+function formatAnalyticsFilterValueSearchContext(url, payload) {
+  const values = Array.isArray(payload?.values) ? payload.values : [];
+  const rows = values.slice(0, 12).map((item, index) => `${index + 1}. ${item.value || "unknown"}: ${Number(item.count || 0)}`);
+  const field = payload?.field || "unknown";
+  const query = payload?.query || "";
+  return [
+    "# Main agent tool result",
+    "Tool: search_analytics_filter_values",
+    `Source query: POST ${url}`,
+    `Dataset: ${payload?.dataset || "unknown"}; snapshot: ${payload?.snapshot_version || "unknown"}`,
+    `${field} candidates${query ? ` for ${query}` : ""}: ${Number(payload?.returned_values || 0)} returned of ${Number(payload?.total_values || 0)}`,
+    rows.length ? "Candidate values:" : "Candidate values: none",
+    ...rows,
+    "Use these exact values for analytics filters. If no candidate matches, ask a focused clarification instead of guessing.",
+  ].join("\n");
+}
+
+async function executeAnalyticsFilterValueSearch(toolCall, { analyticsFetch, analyticsApiBase }) {
+  const args = parseToolArguments(toolCall?.function?.arguments);
+  const payload = {
+    dataset: String(args.dataset || "defects"),
+    field: String(args.field || ""),
+    query: String(args.query || ""),
+    ...(args.filters && typeof args.filters === "object" ? { filters: args.filters } : {}),
+    ...(args.limit ? { limit: Number(args.limit) } : {}),
+  };
+  const { url, response } = await postAnalyticsJson("/api/analytics/filter-values/search", payload, { analyticsFetch, analyticsApiBase });
+  if (!response?.ok) {
+    const content = JSON.stringify({ error: `Analytics API request failed for search_analytics_filter_values: ${response?.status || "unknown"}` });
+    return {
+      toolMessage: buildToolMessage(toolCall, content),
+      contextText: `# Main agent tool result\nTool: search_analytics_filter_values\nSource query: POST ${url}\nResult: unavailable because the analytics value search API request failed.`,
+    };
+  }
+
+  const result = await response.json();
+  return {
+    toolMessage: buildToolMessage(toolCall, JSON.stringify({ ok: true, tool: "search_analytics_filter_values", url, result })),
+    contextText: formatAnalyticsFilterValueSearchContext(url, result),
+  };
+}
+
 const PERSON_FILTER_STOP_WORDS = new Set(["dtsv", "qgate", "octane", "defect", "defects", "ticket", "tickets"]);
 
 function normalizePersonName(rawName) {
@@ -1426,6 +1586,9 @@ function aggregateDefectCount(payload) {
 }
 
 const STABLE_DIAGNOSIS_FILTER_KEYS = new Set(["years", "months"]);
+const COMMON_CHINESE_SURNAME_TOKENS = new Set([
+  "chen", "cai", "deng", "dong", "feng", "gao", "guo", "han", "he", "huang", "li", "lin", "luo", "ma", "qiao", "song", "tang", "wang", "wu", "xie", "xu", "yang", "zhang", "zhao", "zhou",
+]);
 
 async function executeDiagnosisProbe({ label, query, analyticsFetch, analyticsApiBase }) {
   const requestPayload = buildDefectAggregatePayloadFromAnalyticsQuery(query);
@@ -1459,8 +1622,42 @@ function buildDiagnosisRecommendation(probes) {
   if (!improved) {
     return "No single relaxed filter recovered data; verify the time window, data refresh, and whether the selected dataset supports the requested entity.";
   }
+  if (improved.alias_filter === "detected_by" && improved.alias_value) {
+    return `Try detected_by=${improved.alias_value}; the person name may be stored in Octane as given-name-first while the user typed surname-first.`;
+  }
   const relaxedKey = String(improved.relaxed_filter || "filter");
   return `${relaxedKey} may be too restrictive or mapped to the wrong field; verify the exact value or ask the user to choose from available values before concluding no data.`;
+}
+
+function buildStructuredDiagnosis({ probes, baseQuery }) {
+  const original = probes[0];
+  const originalCount = Number(original?.defect_count || 0);
+  const improved = probes.slice(1).find((probe) => Number(probe.defect_count || 0) > originalCount);
+  if (!improved) {
+    return {
+      causeCode: "NO_SINGLE_FILTER_RECOVERY",
+      retryQuery: null,
+      candidateValues: [],
+      recommendedClarification: "Verify the time window, data refresh, and whether this dataset supports the requested entity.",
+    };
+  }
+
+  if (improved.alias_filter === "detected_by" && improved.alias_value) {
+    return {
+      causeCode: "FILTER_VALUE_ALIAS",
+      retryQuery: { ...baseQuery, filters: improved.filters || {} },
+      candidateValues: [{ field: "detected_by", value: improved.alias_value, count: Number(improved.defect_count || 0) }],
+      recommendedClarification: `Use detected_by=${improved.alias_value} if that is the intended person.`,
+    };
+  }
+
+  const relaxedFilter = String(improved.relaxed_filter || "filter");
+  return {
+    causeCode: "FILTER_TOO_RESTRICTIVE",
+    retryQuery: { ...baseQuery, filters: improved.filters || {} },
+    candidateValues: [],
+    recommendedClarification: `Verify the exact ${relaxedFilter} value or choose from available values.`,
+  };
 }
 
 function formatDiagnosisContext(payload) {
@@ -1470,6 +1667,7 @@ function formatDiagnosisContext(payload) {
     "# Main agent tool result",
     "Tool: diagnose_analytics_empty",
     payload?.reason ? `Reason: ${payload.reason}` : "Reason: empty or suspicious analytics result",
+    `Cause: ${payload?.causeCode || "UNKNOWN"}`,
     lines.length ? "Diagnosis probes:" : "Diagnosis probes: none",
     ...lines,
     `Recommendation: ${payload?.recommendation || "No recommendation available."}`,
@@ -1481,11 +1679,24 @@ async function executeDiagnoseAnalyticsEmpty(toolCall, { analyticsFetch, analyti
   const args = parseToolArguments(toolCall?.function?.arguments);
   const baseQuery = normalizeAnalyticsQuery(args.query || args);
   const baseFilters = baseQuery.filters && typeof baseQuery.filters === "object" ? baseQuery.filters : {};
+  const detectedByAliases = buildDetectedByAliasFilters(baseFilters);
   const removableFilterKeys = Object.keys(baseFilters)
     .filter((key) => !STABLE_DIAGNOSIS_FILTER_KEYS.has(key))
     .slice(0, 6);
   const probes = [];
   probes.push(await executeDiagnosisProbe({ label: "original", query: baseQuery, analyticsFetch, analyticsApiBase }));
+  for (const aliasProbe of detectedByAliases) {
+    probes.push({
+      ...(await executeDiagnosisProbe({
+        label: `detected_by alias ${aliasProbe.alias}`,
+        query: { ...baseQuery, filters: aliasProbe.filters },
+        analyticsFetch,
+        analyticsApiBase,
+      })),
+      alias_filter: "detected_by",
+      alias_value: aliasProbe.alias,
+    });
+  }
   for (const filterKey of removableFilterKeys) {
     const relaxedFilters = { ...baseFilters };
     delete relaxedFilters[filterKey];
@@ -1503,12 +1714,76 @@ async function executeDiagnoseAnalyticsEmpty(toolCall, { analyticsFetch, analyti
     reason: String(args.reason || "").trim(),
     query: baseQuery,
     probes,
+    ...buildStructuredDiagnosis({ probes, baseQuery }),
     recommendation: buildDiagnosisRecommendation(probes),
   };
   return {
     toolMessage: buildToolMessage(toolCall, JSON.stringify({ ok: true, tool: "diagnose_analytics_empty", result: payload })),
     contextText: formatDiagnosisContext(payload),
   };
+}
+
+function formatAnalyticsFallbackContext(url, payload) {
+  const rows = Array.isArray(payload?.rows) ? payload.rows : [];
+  const columns = Array.isArray(payload?.columns) ? payload.columns.map(String) : [];
+  const metricColumns = columns.filter((column) => /count|rate|total|rows/i.test(column));
+  const labelColumns = columns.filter((column) => !metricColumns.includes(column));
+  const rowLines = rows.slice(0, 8).map((row, index) => {
+    const label = labelColumns.map((column) => String(row?.[column] ?? "").trim()).filter(Boolean).join(" / ") || "all_rows";
+    const metricText = (metricColumns.length ? metricColumns : columns)
+      .map((column) => `${column} ${row?.[column] ?? "N/A"}`)
+      .join(", ");
+    return `${index + 1}. ${label}: ${metricText}`;
+  });
+
+  return [
+    "# Main agent tool result",
+    "Tool: query_analytics_fallback",
+    `Source query: POST ${url}`,
+    `Dataset: ${payload?.dataset || "unknown"}`,
+    `Source table: ${payload?.source_table || "unknown"}`,
+    `Query fingerprint: ${payload?.query_fingerprint || "unknown"}`,
+    `Rows: ${Number(payload?.returned_rows || 0)}${payload?.truncated ? " (truncated)" : ""}`,
+    rowLines.length ? "Fallback rows:" : "Fallback rows: none",
+    ...rowLines,
+    `Audit: readonly=${Boolean(payload?.audit?.readonly)} allowlisted=${Boolean(payload?.audit?.allowlisted)}`,
+    "This is an allowlisted read-only fallback result, not arbitrary SQL or full-database search.",
+  ].join("\n");
+}
+
+async function executeAnalyticsFallback(toolCall, { analyticsFetch, analyticsApiBase }) {
+  const args = parseToolArguments(toolCall?.function?.arguments);
+  const { url, response } = await postAnalyticsJson("/api/analytics/fallback/query", args, { analyticsFetch, analyticsApiBase });
+  if (!response?.ok) {
+    const content = JSON.stringify({ error: `Analytics API request failed for query_analytics_fallback: ${response?.status || "unknown"}` });
+    return {
+      toolMessage: buildToolMessage(toolCall, content),
+      contextText: `# Main agent tool result\nTool: query_analytics_fallback\nSource query: POST ${url}\nResult: unavailable because the governed fallback API request failed.`,
+    };
+  }
+  const payload = await response.json();
+  return {
+    toolMessage: buildToolMessage(toolCall, JSON.stringify({ ok: true, tool: "query_analytics_fallback", url, request: args, result: payload })),
+    contextText: formatAnalyticsFallbackContext(url, payload),
+  };
+}
+
+function buildDetectedByAliasFilters(baseFilters) {
+  const detectedBy = baseFilters.detected_by;
+  const values = Array.isArray(detectedBy) ? detectedBy : detectedBy ? [detectedBy] : [];
+  const probes = [];
+  for (const value of values) {
+    const tokens = String(value || "").trim().split(/\s+/).filter(Boolean);
+    if (tokens.length !== 2 || !COMMON_CHINESE_SURNAME_TOKENS.has(tokens[0].toLowerCase())) {
+      continue;
+    }
+    const alias = [tokens[1], tokens[0]].join(" ");
+    if (alias === value) {
+      continue;
+    }
+    probes.push({ alias, filters: { ...baseFilters, detected_by: [alias] } });
+  }
+  return probes;
 }
 
 function formatDefectRecordsContext(payload) {
@@ -1712,6 +1987,9 @@ export async function executeMainAgentToolCall(toolCall, {
     if (name === "search_octane_fields") {
       return await executeOctaneFieldSearch(toolCall, { analyticsFetch, analyticsApiBase });
     }
+    if (name === "search_analytics_filter_values") {
+      return await executeAnalyticsFilterValueSearch(toolCall, { analyticsFetch, analyticsApiBase });
+    }
     if (name === "resolve_business_terms") {
       return executeResolveBusinessTerms(toolCall);
     }
@@ -1720,6 +1998,9 @@ export async function executeMainAgentToolCall(toolCall, {
     }
     if (name === "diagnose_analytics_empty") {
       return await executeDiagnoseAnalyticsEmpty(toolCall, { analyticsFetch, analyticsApiBase });
+    }
+    if (name === "query_analytics_fallback") {
+      return await executeAnalyticsFallback(toolCall, { analyticsFetch, analyticsApiBase });
     }
     if (SEMANTIC_TOOL_NAMES.has(name)) {
       return await executeSemanticQuery(toolCall, { analyticsFetch, analyticsApiBase, actor });

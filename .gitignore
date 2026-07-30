@@ -27,6 +27,7 @@ backend/database/*.sqlite
 backend/cache/
 __pycache__/
 .octane-browser-profile/
+.octane-browser-profile-refresh/
 .understand-anything/
 graphify-out/
 cookie.txt

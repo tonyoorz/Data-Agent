@@ -1,9 +1,8 @@
-import { MAIN_AGENT_TOOLS } from "./mainAgentTools.mjs";
-import {
-  buildSelectedToolsetContext,
-  selectMainAgentToolset as selectToolsetWithTools,
-  shouldPlanMainAgentTools,
-} from "./mainAgentToolRegistry.mjs";
+import { extractLatestUserQuery } from "./aiContext.mjs";
+import { executeMainAgentToolCall, MAIN_AGENT_TOOLS } from "./mainAgentTools.mjs";
+import { buildToolEvidence } from "./mainAgentEvidence.mjs";
+import { selectMainAgentToolset as selectToolsetWithTools } from "./mainAgentIntentRouter.mjs";
+import { buildBlockedToolResult, validateToolCallAllowed } from "./mainAgentPolicyGate.mjs";
 
 export function selectMainAgentToolset(messages) {
   return selectToolsetWithTools(messages, MAIN_AGENT_TOOLS);
@@ -14,9 +13,11 @@ You have access to typed dashboard and duplicate-search tools. Use them only whe
 If the supplied context already contains the exact factual result needed, answer normally without calling tools.
 Use get_data_catalog first when the user asks a broad analytics question and you need to discover available datasets, filters, metrics, or modules.
 Use get_ontology_catalog when the user asks what the ontology can answer, which entities/relationships/tools/actions exist, or which capability states are available/partial/unavailable/dry_run_only/disabled/blocked.
+For broad business risk, health, status, or "how does this look" questions, use get_ontology_catalog to ground the available governed metrics first, then call a small evidence set across defect trend/ranking, testing coverage, and high-frequency analysis before summarizing risk.
 Use Action Ontology capability states for Octane write/update/delete intents. Never execute write/update/delete directly from field candidates; disabled or blocked actions must not be executed, and dry_run_only actions require explicit approval before any external write path.
 Use search_octane_fields when the user asks which Octane/API/database field backs a business concept, asks about editable/filterable/sortable fields, or explores CRUD/action schema. Retrieve only top-k field candidates.
 Do not load the full Octane field catalog into the prompt; use search_octane_fields as local schema retrieval, then validate facts through governed ontology or analytics tools.
+Use search_analytics_filter_values before query_analytics when the user supplies a fuzzy or partial detected_by person name, ECU/module, business_module, or team value. Use returned exact values as filters; if none match, ask one focused clarification.
 Use resolve_business_terms when Chinese/English business wording needs normalization before choosing filters or metrics.
 Routing priority: use governed Ontology semantic tools first when the question fits approved ontology metrics, dimensions, filters, time windows, top-N ranking, records, or lineage.
 Use query_semantic_metrics first for aggregate, trend, compare, rank, count, and top-N questions over ontology-governed metrics and dimensions.
@@ -38,6 +39,8 @@ For high-frequency questions that can be answered as a simple assigned_ecu or bu
 Use get_test_case_context before drafting or extending a testcase when the user provides a test_id, defect_id, or asks to create a regression/coverage testcase from known QGate context. For defect-to-testcase workflows, call get_test_case_context first; use query_traceability only if the user explicitly asks for lineage beyond testcase drafting context.
 For an Octane ticket URL such as entityType=work_item&id=2774806, extract id=2774806 as anchor.type defect_id and call get_test_case_context; do not stop at external-link access limitations.
 Use query_full_picture_module as the fallback for factual Full Picture dashboard questions when no more specific tool fits. Prefer query_analytics first for defect counts/trends/rankings; use query_full_picture_module for page-parity payloads or modules not covered by query_analytics. Choose only one allowlisted module: dashboard_summary, dashboard_tickets, top_issue_analysis, long_runner_analysis, or defect_high_frequency_analysis.`;
+
+const TOOL_PLANNING_QUERY_RE = /\b(DTSV|QGate|Octane|ticket|work_item|dashboard|ontology|capability|available|partial|unavailable|bug|defect|issue|top\s*issue|octane_defects|solution_cluster|assigned_ecu|business_module|opened|created|raised|submitted|resolved|coverage|test|summary|count|metric|trend|growth|rising|increase|delta|duplicate|similar|write|update|delete|edit|empty\s*result|no\s*data|zero\s*rows)\b|entityType=work_item|id=\d+|本体|能力|缺陷|测试|覆盖率|多少|几个|统计|趋势|创建|提交|新建|解决|关闭|更新|修改|删除|写入|重复|查重|相似|模块|问题模块|上升|增长|环比|同比|根因|提票|报票|提了|数据.*(?:为空|没数据|没有数据|查不到)|为什么.*(?:为空|没数据|没有数据|查不到)|空结果/i;
 
 function formatPlanningDate(now = new Date()) {
   try {
@@ -61,10 +64,18 @@ export function buildToolPlanningContext(now) {
   ].join("\n\n");
 }
 
-export { buildSelectedToolsetContext, shouldPlanMainAgentTools };
+export function shouldPlanMainAgentTools(messages) {
+  const queryText = extractLatestUserQuery(messages);
+  return TOOL_PLANNING_QUERY_RE.test(queryText);
+}
 
 export function mergeToolContext(...parts) {
   return parts.filter(Boolean).join("\n\n");
+}
+
+export function buildSelectedToolsetContext(selectedToolset) {
+  const toolNames = (selectedToolset?.tools || []).map((tool) => tool.function?.name).filter(Boolean).join(", ");
+  return `# Selected toolset\nIntent: ${selectedToolset?.intent || "general"}. Tools: ${toolNames}.`;
 }
 
 export function parseToolInput(toolCall) {
@@ -116,5 +127,54 @@ export function buildEmptyDiagnosisToolCall(toolCall) {
         reason: "query_analytics returned no aggregate rows",
       }),
     },
+  };
+}
+
+export async function executeMainAgentPlannedToolCall({
+  toolCall,
+  selectedToolset,
+  executeToolCall = executeMainAgentToolCall,
+  toolDependencies = {},
+} = {}) {
+  const toolName = toolCall?.function?.name || "unknown_tool";
+  const toolEvents = [{
+    type: "tool-input-available",
+    toolCallId: toolCall?.id || "",
+    toolName,
+    input: parseToolInput(toolCall),
+  }];
+
+  const gate = validateToolCallAllowed(toolCall, selectedToolset);
+  if (!gate.allowed) {
+    const blockedResult = buildBlockedToolResult(toolCall, selectedToolset, gate.reason);
+    toolEvents.push({
+      type: "tool-blocked",
+      toolCallId: toolCall?.id || "",
+      toolName,
+      intent: selectedToolset?.intent,
+      reason: gate.reason,
+    });
+    return {
+      result: blockedResult,
+      toolEvents,
+      evidence: null,
+      stoppedReason: "tool_not_allowed",
+      blocked: true,
+    };
+  }
+
+  const result = await executeToolCall(toolCall, toolDependencies);
+  toolEvents.push({
+    type: "tool-output-available",
+    toolCallId: toolCall?.id || "",
+    toolName,
+    outputSummary: result.contextText,
+  });
+  return {
+    result,
+    toolEvents,
+    evidence: buildToolEvidence({ toolCall, result, intent: selectedToolset?.intent }),
+    stoppedReason: result.requiresUserInput ? "clarification_requested" : "",
+    blocked: false,
   };
 }

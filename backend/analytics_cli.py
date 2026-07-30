@@ -281,6 +281,11 @@ def refresh_octane_cookie(
     candidate_cookie_file = cookie_file.with_name(cookie_file.name + ".candidate")
     refresh_target_file = cookie_file if in_place else candidate_cookie_file
     local_error = ""
+    if not in_place:
+        try:
+            candidate_cookie_file.unlink()
+        except FileNotFoundError:
+            pass
     try:
         refresh_cookie_file(
             base_url=get_octane_base_url(),

@@ -143,8 +143,9 @@ describe("LangGraph chat runtime", () => {
       contextText: "# Main agent semantic tool result",
       toolMessage: { role: "tool", tool_call_id: "call-1", name: "query_semantic_metrics", content: "{}" },
     });
+    const resolveAnalyticsContext = vi.fn().mockResolvedValue({ contextText: "# Analytics", skipDefectContext: false });
     const runtime = createLangGraphChatRuntime({
-      resolveAnalyticsContext: vi.fn().mockResolvedValue({ contextText: "# Analytics", skipDefectContext: false }),
+      resolveAnalyticsContext,
       resolveDefectContext: vi.fn(),
       shouldPlanTools: vi.fn().mockReturnValue(true),
       requestToolCompletion,
@@ -178,6 +179,11 @@ describe("LangGraph chat runtime", () => {
       analyticsFetch: "fetch",
       actor: result.actorScope,
     }));
+    expect(resolveAnalyticsContext).toHaveBeenCalledWith({
+      messages: result.body.messages,
+      actor: result.actorScope,
+      ontologyRegistry: expect.objectContaining({ version: "v1" }),
+    });
     expect(runtimeStore.appendRunEvent).toHaveBeenCalledWith(
       expect.objectContaining({ runId: "run-123", threadId: "thread-123", type: "agent-runtime-started" }),
     );

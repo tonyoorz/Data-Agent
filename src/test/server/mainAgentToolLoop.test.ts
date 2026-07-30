@@ -20,11 +20,11 @@ describe("main agent tool loop", () => {
     expect(selected.reason).toContain("metric");
     expect(selected.requiredSlots).toEqual(expect.arrayContaining(["metric", "time_window"]));
     expect(selected.toolNames).toEqual(names);
-    expect(names).toEqual(expect.arrayContaining(["resolve_business_terms", "query_analytics", "diagnose_analytics_empty", "query_semantic_metrics", "ask_clarification"]));
+    expect(names).toEqual(expect.arrayContaining(["resolve_business_terms", "search_analytics_filter_values", "query_analytics", "diagnose_analytics_empty", "query_semantic_metrics", "ask_clarification"]));
     expect(names).not.toContain("search_duplicates");
     expect(names).not.toContain("get_test_case_context");
     expect(names).not.toContain("search_octane_fields");
-    expect(names.length).toBeLessThan(8);
+    expect(names.length).toBeLessThanOrEqual(8);
   });
 
   it("exposes testing coverage tools for coverage threshold questions", () => {
@@ -41,6 +41,26 @@ describe("main agent tool loop", () => {
     expect(aidaCoverage.intent).toBe("coverage_query");
     expect(aidaCoverage.toolNames).toContain("query_testing_coverage_aida_status");
     expect(aidaCoverage.toolNames).toContain("query_analytics");
+  });
+
+  it("exposes governed fallback only for analytics toolsets", () => {
+    const analyticsQueries = [
+      "最近一周 DTSV 新增缺陷按 ECU Top 5",
+      "覆盖率低于70%的模块有哪些？",
+      "列出最近一周新增缺陷 ticket 明细",
+      "缺陷高频分析里最近一周新增缺陷集中在哪些 ECU？",
+      "Full Picture dashboard ticket 按项目怎么看？",
+    ];
+
+    for (const query of analyticsQueries) {
+      expect(selectMainAgentToolset([{ role: "user", content: query }]).toolNames, query).toContain("query_analytics_fallback");
+      expect(selectMainAgentToolset([{ role: "user", content: query }]).toolNames, query).toContain("search_analytics_filter_values");
+    }
+
+    expect(selectMainAgentToolset([{ role: "user", content: "这个 camera black screen 缺陷是不是重复？" }]).toolNames).not.toContain("query_analytics_fallback");
+    expect(selectMainAgentToolset([{ role: "user", content: "这个 camera black screen 缺陷是不是重复？" }]).toolNames).not.toContain("search_analytics_filter_values");
+    expect(selectMainAgentToolset([{ role: "user", content: "Octane defect 字段能不能更新？" }]).toolNames).not.toContain("query_analytics_fallback");
+    expect(selectMainAgentToolset([{ role: "user", content: "Octane defect 字段能不能更新？" }]).toolNames).not.toContain("search_analytics_filter_values");
   });
 
   it("selects action and schema tools for write capability questions", () => {
@@ -88,12 +108,19 @@ describe("main agent tool loop", () => {
     expect(emptyData.toolNames).toEqual(expect.arrayContaining(["query_analytics", "diagnose_analytics_empty", "ask_clarification"]));
   });
 
-  it("keeps broad general questions on a compact discovery toolset", () => {
+  it("routes broad risk questions to an ontology-backed assessment toolset", () => {
     const selected = selectMainAgentToolset([{ role: "user", content: "DTSV 当前风险怎么看？" }]);
 
     expect(shouldPlanMainAgentTools([{ role: "user", content: "DTSV 当前风险怎么看？" }])).toBe(true);
-    expect(selected.intent).toBe("general");
-    expect(selected.toolNames).toEqual(["resolve_business_terms", "get_data_catalog", "ask_clarification"]);
+    expect(selected.intent).toBe("business_risk_assessment");
+    expect(selected.toolNames).toEqual(expect.arrayContaining([
+      "get_ontology_catalog",
+      "resolve_business_terms",
+      "query_semantic_metrics",
+      "query_analytics",
+      "query_defect_high_frequency_analysis",
+      "ask_clarification",
+    ]));
     expect(selected.toolNames).not.toContain("query_defect_aggregate");
     expect(selected.toolNames).not.toContain("search_duplicates");
   });

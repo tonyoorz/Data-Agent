@@ -24,6 +24,6 @@ describe("main agent tool registry", () => {
     const messages = [{ role: "user", content: "DTSV 当前风险怎么看？" }];
 
     expect(shouldPlanMainAgentTools(messages)).toBe(true);
-    expect(selectMainAgentToolset(messages).intent).toBe("general");
+    expect(selectMainAgentToolset(messages).intent).toBe("business_risk_assessment");
   });
 });

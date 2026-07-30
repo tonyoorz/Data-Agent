@@ -251,11 +251,24 @@ def test_analytics_cli_refresh_traceability_source_invokes_repo_owned_pipeline(
     def fake_build_default_octane_client() -> str:
         return "fake-client"
 
-    def fake_refresh_octane_traceability_source(*, source_db_path, team_name, years, client, progress=None) -> dict[str, object]:
+    def fake_refresh_octane_traceability_source(
+        *,
+        source_db_path,
+        team_name,
+        years,
+        client,
+        releases=(),
+        force=False,
+        workers=24,
+        progress=None,
+    ) -> dict[str, object]:
         captured["pipeline"] = {
             "source_db_path": source_db_path,
             "team_name": team_name,
             "years": years,
+            "releases": releases,
+            "force": force,
+            "workers": workers,
             "client": client,
         }
         if progress is not None:
@@ -279,6 +292,9 @@ def test_analytics_cli_refresh_traceability_source_invokes_repo_owned_pipeline(
         "source_db_path": database_root / "source" / "qgate_raw.db",
         "team_name": "DTSV_China",
         "years": (2026,),
+        "releases": (),
+        "force": False,
+        "workers": 24,
         "client": "fake-client",
     }
     assert "Starting traceability refresh for DTSV_China years=2026" in stdout
@@ -369,6 +385,37 @@ def test_analytics_cli_refresh_octane_cookie_fails_when_refreshed_cookie_is_inva
     assert exit_code == 1
     assert '"cookie_validated": false' in stdout
     assert "401 Unauthorized" in stdout
+
+
+def test_analytics_cli_refresh_octane_cookie_does_not_reuse_stale_candidate(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("VIZION_REPO_ROOT_OVERRIDE", str(tmp_path))
+    stale_candidate = tmp_path / "cookie.txt.candidate"
+    stale_candidate.write_text("SESSION=stale", encoding="utf-8")
+    validated_paths: list[Path] = []
+
+    def fake_refresh_cookie_file(*, base_url, cookie_file, headless):
+        raise RuntimeError("browser did not authenticate")
+
+    def fake_validate(cookie_file: Path):
+        validated_paths.append(Path(cookie_file))
+        return False, 0, "missing or invalid"
+
+    monkeypatch.setattr(analytics_cli, "refresh_cookie_file", fake_refresh_cookie_file)
+    monkeypatch.setattr(analytics_cli, "_validate_octane_cookie_file", fake_validate)
+    monkeypatch.setattr(
+        analytics_cli,
+        "_refresh_cookie_with_external_sso",
+        lambda candidate_cookie_file: {"attempted": False, "error": "not available"},
+    )
+
+    summary = analytics_cli.refresh_octane_cookie(headless=True)
+
+    assert stale_candidate not in [path for path in validated_paths if path.exists()]
+    assert not stale_candidate.exists()
+    assert summary["cookie_refreshed"] is False
 
 
 def test_analytics_cli_refresh_full_picture_outcomes_reports_progress(
@@ -509,7 +556,7 @@ def test_analytics_cli_refresh_all_sources_runs_steps_in_order(
     assert calls[5][1]["defect_ids"] == ("D-1", "D-2")
 
 
-def test_analytics_cli_refresh_all_sources_defaults_to_2025_and_2026_testing_years(
+def test_analytics_cli_refresh_all_sources_defaults_to_current_year(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -564,10 +611,10 @@ def test_analytics_cli_refresh_all_sources_defaults_to_2025_and_2026_testing_yea
 
     stdout = capsys.readouterr().out
     assert exit_code == 0
-    assert calls[1][1]["request"].years == (2025, 2026)
-    assert calls[3][1]["years"] == (2025, 2026)
-    assert "years=2025,2026" in stdout
-    assert "manual_years=2025,2026" in stdout
+    assert calls[1][1]["request"].years == (2026,)
+    assert calls[3][1]["years"] == (2026,)
+    assert "years=2026" in stdout
+    assert "manual_years=2026" in stdout
 
 
 def test_analytics_cli_prepare_duplicate_search_index_invokes_bridge_warmup(
@@ -596,6 +643,26 @@ def test_analytics_cli_prepare_duplicate_search_index_invokes_bridge_warmup(
     assert captured["called"] is True
     assert '"dataset_size": 42' in stdout
     assert '"index_ready": true' in stdout
+
+
+def test_prepare_duplicate_search_index_delegates_to_duplicate_bridge_warmup(
+    monkeypatch,
+) -> None:
+    from scripts import duplicate_search_bridge
+
+    captured: dict[str, object] = {}
+
+    def fake_warmup(payload, repo_root):
+        captured["payload"] = payload
+        captured["repo_root"] = repo_root
+        return {"success": True, "result": {"dataset_size": 42, "index_ready": True}}
+
+    monkeypatch.setattr(duplicate_search_bridge, "_warmup", fake_warmup)
+
+    summary = analytics_cli._prepare_duplicate_search_index()
+
+    assert summary == {"success": True, "result": {"dataset_size": 42, "index_ready": True}}
+    assert captured == {"payload": {}, "repo_root": duplicate_search_bridge.REPO_ROOT}
 
 
 def test_analytics_cli_evaluate_duplicate_search_invokes_eval_runner(

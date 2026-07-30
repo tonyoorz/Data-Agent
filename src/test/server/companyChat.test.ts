@@ -454,6 +454,103 @@ describe("streamCompanyChatCompletion", () => {
     expect(streamedText).toContain("data: [DONE]");
   });
 
+  it("emits fallback when a model stop token is split across streamed deltas after tool context", async () => {
+    const encoder = new TextEncoder();
+    const response = {
+      writeHead: vi.fn(),
+      write: vi.fn(),
+      end: vi.fn(),
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            encoder.encode(
+              'data: {"choices":[{"delta":{"content":"</"}}]}\n\n' +
+                'data: {"choices":[{"delta":{"content":"s>"}}]}\n\n' +
+                'data: [DONE]\n\n',
+            ),
+          );
+          controller.close();
+        },
+      }),
+      text: async () => "",
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await streamCompanyChatCompletion({
+      messages: [{ role: "user", content: "最近一周新增缺陷集中在哪些 ECU？" }],
+      model: "deepseek-v4-flash",
+      context: [
+        "# Main agent tool result",
+        "Tool: query_defect_high_frequency_analysis",
+        "Groups: 15 returned of 39 (truncated)",
+        "Aggregate rows:",
+        "1. IDCEVO-25: defect_count 582",
+      ].join("\n"),
+      response,
+    });
+
+    const streamedText = response.write.mock.calls
+      .map(([chunk]) => Buffer.from(chunk).toString("utf8"))
+      .join("");
+
+    expect(streamedText).not.toContain("</");
+    expect(streamedText).not.toContain("s>");
+    expect(streamedText).toContain("最终模型没有生成可见回答");
+    expect(streamedText).toContain("IDCEVO-25: defect_count 582");
+    expect(streamedText).toContain("data: [DONE]");
+  });
+
+  it("emits fallback when final answer stream is empty after tool context", async () => {
+    const encoder = new TextEncoder();
+    const response = {
+      writeHead: vi.fn(),
+      write: vi.fn(),
+      end: vi.fn(),
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          controller.close();
+        },
+      }),
+      text: async () => "",
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await streamCompanyChatCompletion({
+      messages: [{ role: "user", content: "覆盖率低于 70% 的模块有哪些？" }],
+      model: "deepseek-v4-flash",
+      context: [
+        "# Main agent tool result",
+        "Tool: query_testing_coverage_project_status",
+        "Rows: 4648",
+        "Use these Testing Coverage project-status rows as factual dashboard data.",
+        "# Main agent tool result",
+        "Tool: query_analytics",
+        "Groups: 12 returned of 398 (truncated)",
+        "Aggregate rows:",
+        "1. DIPS_TSP_Call_Services: defect_count 854",
+      ].join("\n"),
+      response,
+    });
+
+    const streamedText = response.write.mock.calls
+      .map(([chunk]) => Buffer.from(chunk).toString("utf8"))
+      .join("");
+
+    expect(streamedText).toContain("最终模型没有生成可见回答");
+    expect(streamedText).toContain("Rows: 4648");
+    expect(streamedText).toContain("DIPS_TSP_Call_Services: defect_count 854");
+    expect(streamedText).toContain("data: [DONE]");
+  });
+
   it("includes a deterministic tool-result summary when final generation produces no visible answer", async () => {
     const encoder = new TextEncoder();
     const response = {

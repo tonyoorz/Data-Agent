@@ -7,21 +7,21 @@ export const MAIN_AGENT_INTENT_PROFILES = Object.freeze({
     reason: "metric/trend/rank wording matched",
     requiredSlots: ["metric", "time_window", "scope"],
     policyHints: ["semantic_first", "ask_if_scope_ambiguous"],
-    toolNames: ["resolve_business_terms", "query_analytics", "diagnose_analytics_empty", "query_semantic_metrics", "query_dashboard_summary", "ask_clarification"],
+    toolNames: ["resolve_business_terms", "search_analytics_filter_values", "query_analytics", "diagnose_analytics_empty", "query_analytics_fallback", "query_semantic_metrics", "query_dashboard_summary", "ask_clarification"],
   },
   coverage_query: {
     confidence: 0.88,
     reason: "testing coverage wording matched",
     requiredSlots: ["coverage_metric", "dimension", "threshold"],
     policyHints: ["use_testing_coverage_tools", "join_defect_impact_when_requested"],
-    toolNames: ["resolve_business_terms", "query_testing_coverage_project_status", "query_testing_coverage_aida_status", "query_analytics", "diagnose_analytics_empty", "ask_clarification"],
+    toolNames: ["resolve_business_terms", "search_analytics_filter_values", "query_testing_coverage_project_status", "query_testing_coverage_aida_status", "query_analytics", "diagnose_analytics_empty", "query_analytics_fallback", "ask_clarification"],
   },
   record_query: {
     confidence: 0.82,
     reason: "record/list/drilldown wording matched",
     requiredSlots: ["entity", "filters", "limit"],
     policyHints: ["semantic_records_first"],
-    toolNames: ["resolve_business_terms", "query_analytics", "diagnose_analytics_empty", "query_semantic_records", "query_defect_records", "ask_clarification"],
+    toolNames: ["resolve_business_terms", "search_analytics_filter_values", "query_analytics", "diagnose_analytics_empty", "query_analytics_fallback", "query_semantic_records", "query_defect_records", "ask_clarification"],
   },
   traceability: {
     confidence: 0.86,
@@ -63,7 +63,14 @@ export const MAIN_AGENT_INTENT_PROFILES = Object.freeze({
     reason: "high-frequency or defect concentration wording matched",
     requiredSlots: ["time_window", "dimension"],
     policyHints: ["recent_week_maps_to_recent_days_7"],
-    toolNames: ["resolve_business_terms", "query_analytics", "diagnose_analytics_empty", "query_defect_high_frequency_analysis", "query_full_picture_module", "query_defect_records", "ask_clarification"],
+    toolNames: ["resolve_business_terms", "search_analytics_filter_values", "query_analytics", "diagnose_analytics_empty", "query_analytics_fallback", "query_defect_high_frequency_analysis", "query_full_picture_module", "query_defect_records", "ask_clarification"],
+  },
+  business_risk_assessment: {
+    confidence: 0.84,
+    reason: "business risk or health assessment wording matched",
+    requiredSlots: ["scope", "time_window"],
+    policyHints: ["ontology_capability_first", "multi_signal_risk_assessment"],
+    toolNames: ["get_ontology_catalog", "resolve_business_terms", "search_analytics_filter_values", "query_semantic_metrics", "query_analytics", "diagnose_analytics_empty", "query_analytics_fallback", "query_testing_coverage_project_status", "query_testing_coverage_aida_status", "query_defect_high_frequency_analysis", "query_full_picture_module", "ask_clarification"],
   },
   ontology_catalog: {
     confidence: 0.82,
@@ -77,7 +84,7 @@ export const MAIN_AGENT_INTENT_PROFILES = Object.freeze({
     reason: "dashboard fallback or page-parity wording matched",
     requiredSlots: ["module", "filters"],
     policyHints: ["dashboard_fallback_only"],
-    toolNames: ["get_data_catalog", "query_analytics", "diagnose_analytics_empty", "query_full_picture_module", "query_defect_records", "ask_clarification"],
+    toolNames: ["get_data_catalog", "search_analytics_filter_values", "query_analytics", "diagnose_analytics_empty", "query_analytics_fallback", "query_full_picture_module", "query_defect_records", "ask_clarification"],
   },
   general: {
     confidence: 0.5,
@@ -99,7 +106,7 @@ export const MAIN_AGENT_TOOL_POLICIES = Object.freeze(
   }, {}),
 );
 
-const PLANNING_QUERY_RE = /\b(DTSV|QGate|Octane|ticket|work_item|dashboard|ontology|capability|available|partial|unavailable|bug|defect|issue|top\s*issue|octane_defects|solution_cluster|assigned_ecu|business_module|opened|created|raised|submitted|resolved|coverage|test|summary|count|metric|trend|growth|rising|increase|delta|duplicate|similar|write|update|delete|edit|empty\s*result|no\s*data|zero\s*rows)\b|entityType=work_item|id=\d+|本体|能力|缺陷|测试|覆盖率|多少|几个|统计|趋势|创建|提交|新建|解决|关闭|更新|修改|删除|写入|重复|查重|相似|模块|问题模块|上升|增长|环比|同比|根因|提票|报票|提了|数据.*(?:为空|没数据|没有数据|查不到)|为什么.*(?:为空|没数据|没有数据|查不到)|空结果/i;
+const PLANNING_QUERY_RE = /\b(DTSV|QGate|Octane|ticket|work_item|dashboard|ontology|capability|available|partial|unavailable|bug|defect|issue|top\s*issue|octane_defects|solution_cluster|assigned_ecu|business_module|opened|created|raised|submitted|resolved|coverage|test|summary|count|metric|trend|growth|rising|increase|delta|duplicate|similar|write|update|delete|edit|risk|health|overview|assessment|empty\s*result|no\s*data|zero\s*rows)\b|entityType=work_item|id=\d+|本体|能力|缺陷|测试|覆盖率|多少|几个|统计|趋势|风险|健康度|当前情况|怎么看|怎么样|创建|提交|新建|解决|关闭|更新|修改|删除|写入|重复|查重|相似|模块|问题模块|上升|增长|环比|同比|根因|提票|报票|提了|数据.*(?:为空|没数据|没有数据|查不到)|为什么.*(?:为空|没数据|没有数据|查不到)|空结果/i;
 
 function routeToolIntent(queryText) {
   if (/删除|更新|修改|写入|评论|comment|write|update|delete|edit/i.test(queryText)) return "action_capability";
@@ -112,6 +119,7 @@ function routeToolIntent(queryText) {
   if (/覆盖率|通过率|执行率|manual[-\s]?run|coverage|pass\s*rate|execution\s*rate/i.test(queryText)) return "coverage_query";
   if (/Full Picture|dashboard|Top Issue|long runner|page.?parity/i.test(queryText)) return "dashboard_fallback";
   if (/列出|明细|ticket|record|drilldown|list/i.test(queryText)) return "record_query";
+  if (/\b(risk|health|overview|assessment)\b|\u98ce\u9669|\u5065\u5eb7\u5ea6|\u5f53\u524d\u60c5\u51b5|\u600e\u4e48\u770b|\u600e\u4e48\u6837/i.test(queryText)) return "business_risk_assessment";
   if (/覆盖率|通过率|执行率|manual[-\s]?run|多少|几个|统计|趋势|Top|排名|排序|低于|高于|新增|解决|关闭|增长|上升|环比|同比|提票|报票|提了|数据.*(?:为空|没数据|没有数据|查不到)|为什么.*(?:为空|没数据|没有数据|查不到)|空结果|coverage|pass\s*rate|execution\s*rate|count|metric|trend|rank|growth|delta|empty\s*result|no\s*data|zero\s*rows/i.test(queryText)) return "metric_query";
   return "general";
 }
