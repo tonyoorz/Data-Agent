@@ -392,12 +392,11 @@ describe("AIChat duplicate search integration", () => {
       );
     });
 
-    expect(
-      JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)).useDefectContext,
-    ).toBe(false);
-    expect(
-      JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)).useAnalyticsContext,
-    ).toBe(true);
+    const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+    expect(requestBody.useDefectContext).toBe(false);
+    expect(requestBody.useAnalyticsContext).toBe(true);
+    expect(requestBody.threadId).toEqual(expect.any(String));
+    expect(requestBody.threadId).not.toBe("");
 
     expect(await screen.findByText("已完成")).toBeInTheDocument();
     expect(screen.queryByText("2686999")).not.toBeInTheDocument();

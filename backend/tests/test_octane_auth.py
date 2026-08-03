@@ -294,6 +294,7 @@ def test_windows_security_pin_handler_keeps_pin_out_of_command_line(monkeypatch)
         return Result()
 
     monkeypatch.setattr(playwright_cookie_manager.subprocess, "run", fake_run)
+    monkeypatch.setattr(playwright_cookie_manager.os, "name", "nt")
 
     assert _try_handle_windows_security_pin("123456")
     assert captured["env_pin"] == "123456"

@@ -127,7 +127,7 @@ function matchesFilters(
     matchesListFilter(filters.years, row.year) &&
     matchesCreationTimeRange(row, filters) &&
     matchesListFilter(filters.months, getTicketMonthValue(row.creationTime) ?? "") &&
-    matchesRequirementFilter(filters.requirements, row.requirement ?? "") &&
+    matchesRequirementFilter(filters.requirements ?? [], row.requirement ?? "") &&
     matchesListFilter(filters.chinaScopes, getTicketChinaScope(row)) &&
     matchesListFilter(filters.projects, row.project) &&
     matchesListFilter(filters.assignedEcus, row.assignedEcu) &&

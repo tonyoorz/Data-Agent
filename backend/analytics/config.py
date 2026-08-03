@@ -18,6 +18,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_DATABASE_ROOT = REPO_ROOT / "database"
 DEFAULT_FULL_PICTURE_SOURCE_DB_PATH = DEFAULT_DATABASE_ROOT / "source" / "qgate_raw.db"
 DEFAULT_FULL_PICTURE_HOT_DB_PATH = DEFAULT_DATABASE_ROOT / "hot" / "vizion_serving.db"
+DEFAULT_SEMANTIC_ANALYSIS_DB_PATH = DEFAULT_DATABASE_ROOT / "hot" / "semantic_analysis.db"
 DEFAULT_FULL_PICTURE_COLD_DB_PATH = DEFAULT_DATABASE_ROOT / "cold" / "qgate_archive.duckdb"
 DEFAULT_FULL_PICTURE_COLD_PARQUET_DIR = DEFAULT_DATABASE_ROOT / "cold" / "parquet"
 DEFAULT_ANALYTICS_DB_PATH = REPO_ROOT / "backend" / "database" / "octane_data.db"
@@ -53,6 +54,13 @@ def get_full_picture_hot_db_path() -> Path:
     if not database_root:
         return _repo_root() / "database" / "hot" / "vizion_serving.db"
     return Path(database_root) / "hot" / "vizion_serving.db"
+
+
+def get_semantic_analysis_db_path() -> Path:
+    configured = str(os.environ.get("VIZION_SEMANTIC_ANALYSIS_DB_PATH", "")).strip()
+    if configured:
+        return Path(configured)
+    return get_full_picture_hot_db_path().parent / "semantic_analysis.db"
 
 
 def get_full_picture_cold_db_path() -> Path:

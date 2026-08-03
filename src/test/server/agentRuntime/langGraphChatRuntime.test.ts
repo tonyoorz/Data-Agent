@@ -207,4 +207,54 @@ describe("LangGraph chat runtime", () => {
       }),
     );
   });
+
+  it("carries a valid analysis ref into the next same-scope thread turn and resets the tool budget", async () => {
+    const metricToolCall = { id: "metric-1", type: "function", function: { name: "query_semantic_metrics", arguments: "{}" } };
+    const requestToolCompletion = vi
+      .fn()
+      .mockResolvedValueOnce({ content: "", toolCalls: [metricToolCall], answerModel: "deepseek-v4-flash" })
+      .mockResolvedValueOnce({ content: "Done.", toolCalls: [], answerModel: "deepseek-v4-flash" })
+      .mockResolvedValueOnce({ content: "No tool needed.", toolCalls: [], answerModel: "deepseek-v4-flash" });
+    const semanticPayload = {
+      ontologyVersion: "v1",
+      schemaFingerprint: "f".repeat(64),
+      analysisRef: "analysis-1",
+      sourceRevision: { revisionId: "snap-1", status: "pinned" },
+      scope: { actorScopeHash: "scope-a", filters: [] },
+      quality: { completeness: "complete", warnings: [] },
+      evidence: { kind: "semantic_metric_result", analysisRef: "analysis-1", sourceRevisionId: "snap-1" },
+    };
+    const runtime = createLangGraphChatRuntime({
+      resolveAnalyticsContext: vi.fn().mockResolvedValue({ contextText: "# Analytics", skipDefectContext: false }),
+      resolveDefectContext: vi.fn(),
+      shouldPlanTools: vi.fn().mockReturnValue(true),
+      requestToolCompletion,
+      executeToolCall: vi.fn().mockResolvedValue({
+        contextText: "# Semantic result",
+        toolMessage: {
+          role: "tool",
+          tool_call_id: "metric-1",
+          name: "query_semantic_metrics",
+          content: JSON.stringify({ ok: true, tool: "query_semantic_metrics", result: semanticPayload }),
+        },
+      }),
+      maxToolSteps: 2,
+      now: () => new Date("2026-08-03T08:00:00.000Z"),
+    });
+    const actor = { actorId: "alice", scopeHash: "scope-a", scopes: { workspaceIds: ["DTSV"] } };
+
+    const first = await runtime.invoke({
+      body: { threadId: "thread-continuation", useAnalyticsContext: true, actor, messages: [{ role: "user", content: "按 ECU 排名" }] },
+    });
+    const second = await runtime.invoke({
+      body: { threadId: "thread-continuation", useAnalyticsContext: true, actor, messages: [{ role: "user", content: "显示 HU 的缺陷明细" }] },
+    });
+
+    expect(first.metrics.evidenceGate).toMatchObject({ status: "pass", analysisRefs: ["analysis-1"] });
+    expect(first.context).toContain("Status: PASS");
+    expect(requestToolCompletion).toHaveBeenCalledTimes(3);
+    expect(requestToolCompletion.mock.calls[2][0].context).toContain("analysis_ref: analysis-1");
+    expect(requestToolCompletion.mock.calls[2][0].context).toContain("source_revision: snap-1");
+    expect(second.metrics.mainAgentToolCallCount).toBe(0);
+  });
 });

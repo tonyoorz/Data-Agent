@@ -4,6 +4,11 @@ import { resolveAiAnalyticsContext } from "../aiAnalyticsContext.mjs";
 import { extractLatestUserQuery, resolveAiDefectContext } from "../aiContext.mjs";
 import { requestCompanyChatCompletion } from "../companyChat.mjs";
 import {
+  buildSemanticContinuationContext,
+  evaluateSemanticEvidence,
+  formatSemanticEvidenceGate,
+} from "../mainAgentEvidence.mjs";
+import {
   buildEmptyDiagnosisToolCall,
   buildToolPlanningContext,
   executeMainAgentPlannedToolCall,
@@ -39,6 +44,12 @@ const ChatState = Annotation.Root({
   toolEvents: Annotation({ reducer: append, default: () => [] }),
   toolEvidence: Annotation({ reducer: append, default: () => [] }),
   toolResultTexts: Annotation({ reducer: append, default: () => [] }),
+  turnToolCallStart: Annotation({ reducer: overwrite, default: () => 0 }),
+  turnToolMessageStart: Annotation({ reducer: overwrite, default: () => 0 }),
+  turnToolConversationStart: Annotation({ reducer: overwrite, default: () => 0 }),
+  turnToolEventStart: Annotation({ reducer: overwrite, default: () => 0 }),
+  turnToolEvidenceStart: Annotation({ reducer: overwrite, default: () => 0 }),
+  turnToolResultStart: Annotation({ reducer: overwrite, default: () => 0 }),
   mainAgentToolContext: Annotation({ reducer: overwrite, default: () => null }),
   baseContext: Annotation({ reducer: overwrite, default: () => "" }),
   context: Annotation({ reducer: overwrite, default: () => "" }),
@@ -256,13 +267,20 @@ function buildSelectedToolsetContext(selectedToolset) {
 }
 
 function buildMainAgentToolContextFromState(state) {
+  const toolCalls = (state.toolCalls || []).slice(Number(state.turnToolCallStart || 0));
+  const toolMessages = (state.toolMessages || []).slice(Number(state.turnToolMessageStart || 0));
+  const toolConversationMessages = (state.toolConversationMessages || []).slice(Number(state.turnToolConversationStart || 0));
+  const toolEvents = (state.toolEvents || []).slice(Number(state.turnToolEventStart || 0));
+  const evidence = (state.toolEvidence || []).slice(Number(state.turnToolEvidenceStart || 0));
+  const toolResultTexts = (state.toolResultTexts || []).slice(Number(state.turnToolResultStart || 0));
   return {
-    contextText: (state.toolResultTexts || []).filter(Boolean).join("\n\n"),
-    toolCalls: state.toolCalls || [],
-    toolMessages: state.toolMessages || [],
-    toolConversationMessages: state.toolConversationMessages || [],
-    toolEvents: state.toolEvents || [],
-    evidence: state.toolEvidence || [],
+    contextText: toolResultTexts.filter(Boolean).join("\n\n"),
+    toolCalls,
+    toolMessages,
+    toolConversationMessages,
+    toolEvents,
+    evidence,
+    evidenceGate: evaluateSemanticEvidence(evidence),
     selectedToolset: state.toolRouting?.selectedToolset,
     stoppedReason: state.stoppedReason || "no_tool_calls",
   };
@@ -302,6 +320,15 @@ export function createLangGraphChatRuntime({
       actorScope,
       queryText,
       model: String(body?.model || ""),
+      plannedToolCalls: [],
+      toolStepIndex: 0,
+      stoppedReason: "",
+      turnToolCallStart: (state.toolCalls || []).length,
+      turnToolMessageStart: (state.toolMessages || []).length,
+      turnToolConversationStart: (state.toolConversationMessages || []).length,
+      turnToolEventStart: (state.toolEvents || []).length,
+      turnToolEvidenceStart: (state.toolEvidence || []).length,
+      turnToolResultStart: (state.toolResultTexts || []).length,
       runtimeEvents: [event],
     };
   }
@@ -378,13 +405,14 @@ export function createLangGraphChatRuntime({
     const planningResult = await requestToolCompletion({
       messages: [
         ...(Array.isArray(body?.messages) ? body.messages : []),
-        ...(state.toolConversationMessages || []),
+        ...(state.toolConversationMessages || []).slice(Number(state.turnToolConversationStart || 0)),
       ],
       model: body?.model,
       context: mergeContext(
         state.baseContext,
         buildToolPlanningContext(now()),
         buildSelectedToolsetContext(selectedToolset),
+        buildSemanticContinuationContext(state.toolEvidence || [], state.actorScope),
       ),
       tools: selectedToolset.tools,
       toolChoice: "auto",
@@ -478,7 +506,11 @@ export function createLangGraphChatRuntime({
   async function finalize(state, config) {
     const body = state.body || {};
     const mainAgentToolContext = state.toolRouting?.shouldUseTools ? buildMainAgentToolContextFromState(state) : null;
-    const context = mergeContext(state.baseContext, mainAgentToolContext?.contextText);
+    const context = mergeContext(
+      state.baseContext,
+      mainAgentToolContext?.contextText,
+      formatSemanticEvidenceGate(mainAgentToolContext?.evidenceGate),
+    );
     const finalMessages = [
       ...(Array.isArray(body?.messages) ? body.messages : []),
       ...(mainAgentToolContext?.toolConversationMessages || []),
@@ -505,6 +537,7 @@ export function createLangGraphChatRuntime({
       aiContextEnabled: body?.useDefectContext === true,
       analyticsContextEnabled: body?.useAnalyticsContext === true,
       mainAgentToolCallCount: mainAgentToolContext?.toolCalls?.length || 0,
+      evidenceGate: mainAgentToolContext?.evidenceGate || { status: "not_required", violations: [], analysisRefs: [], sourceRevisionIds: [], warnings: [] },
       toolRouting: compactToolRouting(state.toolRouting),
       aiContextTimings: state.defectContext?.timings || null,
     };

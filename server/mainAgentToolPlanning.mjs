@@ -21,7 +21,7 @@ Use search_analytics_filter_values before query_analytics when the user supplies
 Use resolve_business_terms when Chinese/English business wording needs normalization before choosing filters or metrics.
 Routing priority: use governed Ontology semantic tools first when the question fits approved ontology metrics, dimensions, filters, time windows, top-N ranking, records, or lineage.
 Use query_semantic_metrics first for aggregate, trend, compare, rank, count, and top-N questions over ontology-governed metrics and dimensions.
-Use query_semantic_records for governed Ontology list or drilldown requests.
+Use query_semantic_records for governed Ontology list or drilldown requests. When a prior governed semantic result supplies analysis_ref, continue from that ref and only narrow it with explicit selections; never rebuild or widen the original query.
 Use query_traceability for governed Ontology requirement, testcase, test-run, and defect lineage questions when the user asks for lineage rather than testcase drafting.
 Never redefine metrics after a semantic tool result; use the returned ontologyVersion, schemaFingerprint, sourceRevision, quality, and metrics as factual evidence.
 Use query_analytics as the canonical high-level tool for defect analytics counts, trends, rankings, and aggregate questions when the question is not covered by the semantic tools. It wraps governed defect aggregate execution so you do not need to choose a page-specific endpoint first.

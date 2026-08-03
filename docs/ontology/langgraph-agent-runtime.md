@@ -54,9 +54,9 @@ The current migration makes the graph boundary the default runtime and keeps the
 - Explicit graph nodes: `initialize`, `resolve_context`, `route_tools`, `plan_tool_calls`, `execute_tool_calls`, `finalize`.
 - Conditional graph edges skip tool planning when routing says tools are not needed, stop when the model produces no tool calls, continue after tool execution, and finalize on `max_steps`, policy blocks, or clarification requests.
 - In-process `MemorySaver` checkpointing.
-- Explicit `threadId` support from `body.threadId`, `body.conversationId`, or `body.sessionId`.
+- Explicit `threadId` support from `body.threadId`, `body.conversationId`, or `body.sessionId`; AI Chat sends its persisted conversation ID so semantic continuations remain in one graph thread.
 - Explicit `runId` support from `body.runId`, with generated IDs when omitted.
-- `actorScope` persistence from `body.actor` or `body.actorScope`.
+- Server-owned internal `actorScope` persistence; browser-supplied actor fields are not trusted by the gateway.
 - Runtime SSE events emitted as `agent-runtime-event`.
 - Tool routing state emitted as `tool-routing-completed` and included in runtime metrics.
 - Empty `query_analytics` aggregate results automatically invoke `diagnose_analytics_empty` when the selected toolset allows it.
@@ -72,6 +72,23 @@ The store location can be overridden:
 $env:VIZION_AGENT_RUNTIME_STORE_DIR = "D:\vizion-agent-runtime"
 ```
 
+## Internal Deployment Principal
+
+The current LAN deployment uses one server-owned principal rather than a user/RBAC subsystem. By default it can query the governed defect, testcase, test-run, and AIDA object types without adding a team or project restriction. Optional environment variables narrow that shared principal:
+
+```powershell
+$env:VIZION_INTERNAL_ACTOR_ID = "vizion-internal"
+$env:VIZION_INTERNAL_WORKSPACE_IDS = "workspace-a,workspace-b"
+$env:VIZION_INTERNAL_PROJECT_IDS = "project-a"
+$env:VIZION_INTERNAL_TEAM_IDS = "DTSV_China"
+$env:VIZION_INTERNAL_ALLOWED_OBJECT_TYPES = "quality.defect,testing.test_case,testing.test_run,requirements.aida_node"
+$env:VIZION_INTERNAL_ALLOWED_PROPERTY_IDS = ""
+$env:VIZION_INTERNAL_ROW_POLICY_IDS = ""
+$env:VIZION_INTERNAL_SENSITIVE_FIELD_POLICY_IDS = ""
+```
+
+The gateway derives `scopeHash` from this server configuration. A later authenticated multi-user deployment can replace this principal at the same actor-scope boundary without changing the Semantic Kernel or tool contracts.
+
 ## Production Follow-Up
 
 For multi-user intranet production, the next hardening step is to replace the in-process checkpointer and file-backed audit store with database-backed persistence:
@@ -79,7 +96,7 @@ For multi-user intranet production, the next hardening step is to replace the in
 - durable LangGraph checkpoint backend instead of in-process `MemorySaver`
 - indexed thread/run/tool audit tables
 - evidence references
-- actor scope from authenticated user identity rather than client-supplied payload only
+- actor scope from authenticated user identity instead of the shared internal principal
 - cancel/retry state
 - retention and cleanup policy for audit records
 

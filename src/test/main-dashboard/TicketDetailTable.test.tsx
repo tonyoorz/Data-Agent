@@ -1,8 +1,11 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
+import type { ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import TicketDetailTable from "@/components/dashboard/main-dashboard/TicketDetailTable";
 import type { MainDashboardTicketRow } from "@/components/dashboard/main-dashboard/mainDashboardTypes";
+
+type TicketDetailTableProps = ComponentProps<typeof TicketDetailTable>;
 
 function createRows(count: number): MainDashboardTicketRow[] {
   return Array.from({ length: count }, (_value, index) => ({
@@ -33,14 +36,14 @@ function createRows(count: number): MainDashboardTicketRow[] {
 
 function renderTicketDetailTable(
   rows = createRows(2),
-  overrides: Record<string, unknown> = {},
+  overrides: Partial<TicketDetailTableProps> = {},
 ) {
   const onPageChange = vi.fn();
   const onPageSizeChange = vi.fn();
   const onSearchChange = vi.fn();
   const onSortChange = vi.fn();
 
-  const props: any = {
+  const props: TicketDetailTableProps = {
     rows,
     totalRows: 120,
     page: 1,

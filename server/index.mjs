@@ -14,6 +14,7 @@ import { createDuplicateWarmupManager } from "./duplicateWarmup.mjs";
 import { extractLatestUserQuery, resolveAiDefectContext } from "./aiContext.mjs";
 import { streamCompanyChatCompletion, writeSseEvent } from "./companyChat.mjs";
 import { resolveRequestUrl } from "./httpRequestUrl.mjs";
+import { withInternalActorScope } from "./internalActorScope.mjs";
 import { attachDuplicateSummary } from "./duplicateResultEnrichment.mjs";
 import { loadLocalEnv } from "./loadLocalEnv.mjs";
 import {
@@ -70,7 +71,8 @@ function shouldResolveGatewayAnalyticsContext({ runtimeMode, useAnalyticsContext
   return String(runtimeMode || "").trim().toLowerCase() !== "langgraph";
 }
 
-async function handleAiChatRequest(body, response) {
+async function handleAiChatRequest(rawBody, response) {
+  const body = withInternalActorScope(rawBody, process.env);
   const startedAt = nowMs();
   const requestId = buildRequestId("ai-chat");
   const queryText = extractLatestUserQuery(body?.messages);

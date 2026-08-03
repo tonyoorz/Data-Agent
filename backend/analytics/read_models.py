@@ -1898,10 +1898,21 @@ def _build_full_picture_dataset(
 def build_full_picture_summary_payload(**kwargs: Any) -> dict[str, Any]:
     query = normalize_query(**kwargs)
     snapshot_metadata = _read_snapshot_metadata()
+    serialized_filters = _serialize_query_filters(query)
+    active_snapshot_version = _resolve_snapshot_version(snapshot_metadata)
+    if active_snapshot_version:
+        active_cache_key = normalize_summary_cache_key(
+            snapshot_version=active_snapshot_version,
+            filters=serialized_filters,
+        )
+        cached_active_payload = get_summary_cache().get(active_cache_key)
+        if cached_active_payload is not None:
+            return cached_active_payload
+
     snapshot_version = _resolve_effective_snapshot_version(snapshot_metadata)
     cache_key = normalize_summary_cache_key(
         snapshot_version=snapshot_version,
-        filters=_serialize_query_filters(query),
+        filters=serialized_filters,
     )
     cached_payload = get_summary_cache().get(cache_key)
     if cached_payload is not None:
@@ -2503,6 +2514,54 @@ def build_full_picture_payload(**kwargs: Any) -> dict[str, Any]:
         "overview": _build_overview(ticket_rows),
         "outcome_summary": _build_outcome_summary(ticket_rows),
         "team_outcome_rows": _build_team_outcome_rows(ticket_rows),
+        "ticket_rows": ticket_rows,
+    }
+
+
+def build_semantic_defect_payload(**kwargs: Any) -> dict[str, Any]:
+    """Return all governed defect rows from one stable dashboard snapshot.
+
+    Semantic aggregate and records execution share this provider so a follow-up
+    can either reuse the exact active revision or fail closed after a refresh.
+    """
+
+    query = normalize_query(**kwargs)
+    requested_snapshot_version = str(kwargs.get("snapshot_version") or "").strip()
+    snapshot_metadata = _read_snapshot_metadata()
+    snapshot_version = _resolve_effective_snapshot_version(snapshot_metadata)
+    if requested_snapshot_version and snapshot_version and requested_snapshot_version != snapshot_version:
+        raise FullPictureDashboardRequestError(
+            f"Requested snapshot version is stale: {requested_snapshot_version}"
+        )
+
+    if snapshot_version:
+        if snapshot_version.startswith("live-"):
+            _materialize_snapshot_ticket_rows(snapshot_version)
+        snapshot_metadata = _read_snapshot_metadata()
+        snapshot_version_after = _resolve_effective_snapshot_version(snapshot_metadata)
+        if snapshot_version_after != snapshot_version:
+            raise FullPictureDashboardRequestError("Dashboard snapshot changed during request")
+        if requested_snapshot_version and requested_snapshot_version != snapshot_version_after:
+            raise FullPictureDashboardRequestError(
+                f"Requested snapshot version is stale: {requested_snapshot_version}"
+            )
+        generated_from = _build_generated_from_payload(query)
+        ticket_rows = _load_materialized_ticket_rows(
+            snapshot_version=snapshot_version_after,
+            query=query,
+        )
+        snapshot_version = snapshot_version_after
+    else:
+        snapshot_metadata, generated_from, ticket_rows = _build_snapshot_bound_dataset(
+            query,
+            requested_snapshot_version=requested_snapshot_version,
+        )
+        snapshot_version = _resolve_snapshot_version(snapshot_metadata)
+
+    return {
+        "snapshot_version": snapshot_version,
+        "generated_from": generated_from,
+        "refresh_metadata": snapshot_metadata,
         "ticket_rows": ticket_rows,
     }
 

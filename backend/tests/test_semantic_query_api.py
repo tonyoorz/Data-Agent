@@ -9,7 +9,8 @@ from fastapi.testclient import TestClient
 
 from backend.analytics.api import app
 from backend.analytics.ontology import OntologyCatalog, load_ontology
-from backend.analytics.semantic_query import SemanticQueryError, execute_semantic_query
+from backend.analytics.semantic_analysis_store import SemanticAnalysisStore
+from backend.analytics.semantic_query import SemanticQueryError, execute_semantic_query, execute_semantic_records
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -65,6 +66,178 @@ def test_semantic_query_api_reads_json_body_and_returns_safe_error() -> None:
     assert str(payload["code"]).startswith("SEMANTIC_REQUEST_MISSING:")
     assert payload["safeMessage"] == "semantic query rejected"
     assert payload["retryable"] is False
+
+
+def test_semantic_records_api_reads_json_body_and_returns_safe_error() -> None:
+    client = TestClient(app)
+
+    response = client.post("/api/semantic/records", json={})
+
+    assert response.status_code == 400
+    payload = response.json()
+    assert str(payload["code"]).startswith("SEMANTIC_RECORD_REQUEST_MISSING:")
+    assert payload["safeMessage"] == "semantic records query rejected"
+    assert payload["retryable"] is False
+
+
+def _records_payload(catalog, *, analysis_ref: str | None, query: dict[str, Any] | None = None) -> dict[str, Any]:
+    return {
+        "schemaVersion": "1.0",
+        "queryId": "records-1",
+        "ontologyVersion": catalog.version,
+        "schemaFingerprint": catalog.fingerprint,
+        "query": query,
+        "analysisRef": analysis_ref,
+        "actorScope": _payload(catalog)["actorScope"],
+        "selections": [{"dimensionId": "product.ecu", "operator": "in", "values": ["HU"]}],
+        "fields": ["defect_id", "name", "assigned_ecu", "status"],
+        "page": 1,
+        "pageSize": 1,
+    }
+
+
+def test_metric_result_issues_durable_analysis_ref_and_evidence(catalog, tmp_path: Path) -> None:
+    payload = _payload(catalog)
+    payload["query"]["dimensionIds"] = ["product.ecu"]
+    store = SemanticAnalysisStore(tmp_path / "analysis.db")
+    result = execute_semantic_query(
+        payload,
+        catalog=catalog,
+        analysis_store=store,
+        defect_provider=lambda _filters: {
+            "snapshot_version": "snap-analysis-1",
+            "generated_from": {},
+            "ticket_rows": [
+                {"ticket_id": "D-1", "problem_finder_team": "DTSV_China", "assigned_ecu": "HU"},
+                {"ticket_id": "D-2", "problem_finder_team": "DTSV_China", "assigned_ecu": "HU"},
+            ],
+        },
+    )
+
+    assert result["analysisRef"].startswith("analysis-")
+    assert result["evidence"] == {
+        "kind": "semantic_metric_result",
+        "analysisRef": result["analysisRef"],
+        "sourceRevisionId": "snap-analysis-1",
+        "rowCount": 2,
+        "metricValues": {"defect.count": 2},
+        "groupRows": [{"product.ecu": "HU", "defect.count": 2}],
+    }
+    stored = store.load(result["analysisRef"], actor_scope_hash="scope-a")
+    assert stored["query"] == payload["query"]
+    assert stored["source_revision"]["revisionId"] == "snap-analysis-1"
+
+
+def test_records_continuation_returns_allowlisted_raw_rows_from_same_revision(catalog, tmp_path: Path) -> None:
+    store = SemanticAnalysisStore(tmp_path / "analysis.db")
+    metric_payload = _payload(catalog)
+    metric_payload["query"]["dimensionIds"] = ["product.ecu"]
+    rows = [
+        {"ticket_id": "D-1", "ticket_name": "Audio issue", "problem_finder_team": "DTSV_China", "assigned_ecu": "HU", "status": "Open"},
+        {"ticket_id": "D-2", "ticket_name": "Navigation issue", "problem_finder_team": "DTSV_China", "assigned_ecu": "HU", "status": "Fixed"},
+        {"ticket_id": "D-3", "ticket_name": "Camera issue", "problem_finder_team": "DTSV_China", "assigned_ecu": "ADAS", "status": "Open"},
+    ]
+    aggregate = execute_semantic_query(
+        metric_payload,
+        catalog=catalog,
+        analysis_store=store,
+        defect_provider=lambda _filters: {"snapshot_version": "snap-records-1", "generated_from": {}, "ticket_rows": rows},
+    )
+    captured: dict[str, Any] = {}
+
+    def provider(filters: dict[str, Any]) -> dict[str, Any]:
+        captured.update(filters)
+        return {"snapshot_version": "snap-records-1", "generated_from": {}, "ticket_rows": rows}
+
+    result = execute_semantic_records(
+        _records_payload(catalog, analysis_ref=aggregate["analysisRef"]),
+        catalog=catalog,
+        analysis_store=store,
+        defect_provider=provider,
+    )
+
+    assert captured["snapshot_version"] == "snap-records-1"
+    assert captured["assigned_ecus"] == ["HU"]
+    assert result["analysisRef"] == aggregate["analysisRef"]
+    assert result["sourceRevision"]["revisionId"] == "snap-records-1"
+    assert result["data"] == [{"defect_id": "D-1", "name": "Audio issue", "assigned_ecu": "HU", "status": "Open"}]
+    assert result["pagination"] == {"page": 1, "pageSize": 1, "totalRows": 2, "totalPages": 2}
+    assert result["evidence"] == {
+        "kind": "semantic_record_set",
+        "analysisRef": aggregate["analysisRef"],
+        "sourceRevisionId": "snap-records-1",
+        "rowCount": 1,
+        "totalRows": 2,
+        "fieldIds": ["defect_id", "name", "assigned_ecu", "status"],
+    }
+
+
+def test_direct_record_query_issues_analysis_ref_without_prior_aggregate(catalog, tmp_path: Path) -> None:
+    store = SemanticAnalysisStore(tmp_path / "analysis.db")
+    semantic_query = deepcopy(_payload(catalog)["query"])
+    semantic_query["intent"] = "list"
+    semantic_query["dimensionIds"] = ["product.ecu"]
+    request = _records_payload(catalog, analysis_ref=None, query=semantic_query)
+
+    result = execute_semantic_records(
+        request,
+        catalog=catalog,
+        analysis_store=store,
+        defect_provider=lambda _filters: {
+            "snapshot_version": "snap-direct-1",
+            "generated_from": {},
+            "ticket_rows": [
+                {"ticket_id": "D-1", "ticket_name": "Audio issue", "problem_finder_team": "DTSV_China", "assigned_ecu": "HU", "status": "Open"},
+                {"ticket_id": "D-2", "ticket_name": "Camera issue", "problem_finder_team": "DTSV_China", "assigned_ecu": "ADAS", "status": "Open"},
+            ],
+        },
+    )
+
+    assert result["analysisRef"].startswith("analysis-")
+    assert result["sourceRevision"]["revisionId"] == "snap-direct-1"
+    assert result["data"] == [{"defect_id": "D-1", "name": "Audio issue", "assigned_ecu": "HU", "status": "Open"}]
+
+
+def test_records_continuation_rejects_scope_revision_selection_and_field_widening(catalog, tmp_path: Path) -> None:
+    store = SemanticAnalysisStore(tmp_path / "analysis.db")
+    metric_payload = _payload(catalog)
+    metric_payload["query"]["dimensionIds"] = ["product.ecu"]
+    aggregate = execute_semantic_query(
+        metric_payload,
+        catalog=catalog,
+        analysis_store=store,
+        defect_provider=lambda _filters: {
+            "snapshot_version": "snap-safe-1",
+            "generated_from": {},
+            "ticket_rows": [{"ticket_id": "D-1", "problem_finder_team": "DTSV_China", "assigned_ecu": "HU"}],
+        },
+    )
+    base = _records_payload(catalog, analysis_ref=aggregate["analysisRef"])
+
+    wrong_scope = deepcopy(base)
+    wrong_scope["actorScope"]["scopeHash"] = "scope-b"
+    with pytest.raises(SemanticQueryError, match="SEMANTIC_ANALYSIS_SCOPE_DENIED") as scope_error:
+        execute_semantic_records(wrong_scope, catalog=catalog, analysis_store=store)
+    assert scope_error.value.status_code == 403
+
+    with pytest.raises(SemanticQueryError, match="SEMANTIC_ANALYSIS_REVISION_STALE") as revision_error:
+        execute_semantic_records(
+            base,
+            catalog=catalog,
+            analysis_store=store,
+            defect_provider=lambda _filters: {"snapshot_version": "snap-safe-2", "generated_from": {}, "ticket_rows": []},
+        )
+    assert revision_error.value.status_code == 409
+
+    wrong_selection = deepcopy(base)
+    wrong_selection["selections"] = [{"dimensionId": "product.project", "operator": "in", "values": ["P1"]}]
+    with pytest.raises(SemanticQueryError, match="SEMANTIC_RECORD_SELECTION_NOT_IN_ANALYSIS"):
+        execute_semantic_records(wrong_selection, catalog=catalog, analysis_store=store)
+
+    wrong_field = deepcopy(base)
+    wrong_field["fields"] = ["requirements_json"]
+    with pytest.raises(SemanticQueryError, match="SEMANTIC_RECORD_FIELD_DENIED"):
+        execute_semantic_records(wrong_field, catalog=catalog, analysis_store=store)
 
 
 def test_defect_metric_is_grouped_with_scope_and_revision(catalog) -> None:

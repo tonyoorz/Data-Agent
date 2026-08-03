@@ -27,10 +27,12 @@ from backend.analytics.read_models import (
     list_testcases,
 )
 from backend.analytics.fallback_query import build_analytics_fallback_query_payload
+from backend.analytics.octane_field_catalog import load_local_octane_field_catalog, search_octane_fields
 from backend.analytics.ontology import OntologyLoadError, load_ontology
 from backend.analytics.ontology_context import build_ontology_catalog_payload, build_test_case_context_payload
 from backend.analytics.qgate_weekly_report import build_qgate_weekly_report_payload
-from backend.analytics.semantic_query import SemanticQueryError, execute_semantic_query
+from backend.analytics.semantic_analysis_store import SemanticAnalysisStore
+from backend.analytics.semantic_query import SemanticQueryError, execute_semantic_query, execute_semantic_records
 from backend.analytics.testing_coverage_models import (
     TestingCoverageDataNotReadyError,
     build_aida_status_rows,
@@ -221,11 +223,37 @@ async def analytics_filter_values_search(request: Request) -> JSONResponse:
 async def semantic_query(request: Request) -> JSONResponse:
     try:
         raw_payload = await request.json()
-        payload = execute_semantic_query(raw_payload if isinstance(raw_payload, dict) else {}, catalog=load_ontology())
+        payload = execute_semantic_query(
+            raw_payload if isinstance(raw_payload, dict) else {},
+            catalog=load_ontology(),
+            analysis_store=SemanticAnalysisStore(),
+        )
     except SemanticQueryError as exc:
         return JSONResponse(
             status_code=exc.status_code,
             content={"code": exc.code, "safeMessage": "semantic query rejected", "retryable": False},
+        )
+    except OntologyLoadError as exc:
+        return JSONResponse(
+            status_code=503,
+            content={"code": str(exc), "safeMessage": "semantic ontology unavailable", "retryable": True},
+        )
+    return JSONResponse(status_code=200, content=payload)
+
+
+@app.post("/api/semantic/records")
+async def semantic_records(request: Request) -> JSONResponse:
+    try:
+        raw_payload = await request.json()
+        payload = execute_semantic_records(
+            raw_payload if isinstance(raw_payload, dict) else {},
+            catalog=load_ontology(),
+            analysis_store=SemanticAnalysisStore(),
+        )
+    except SemanticQueryError as exc:
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"code": exc.code, "safeMessage": "semantic records query rejected", "retryable": False},
         )
     except OntologyLoadError as exc:
         return JSONResponse(
@@ -248,6 +276,26 @@ async def ontology_context(request: Request) -> JSONResponse:
 @app.get("/api/ontology/catalog")
 def ontology_catalog() -> JSONResponse:
     return JSONResponse(status_code=200, content=build_ontology_catalog_payload())
+
+
+@app.post("/api/ontology/fields/search")
+async def ontology_fields_search(request: Request) -> JSONResponse:
+    raw_payload = await request.json()
+    payload = raw_payload if isinstance(raw_payload, dict) else {}
+    query = str(payload.get("query") or "").strip()
+    if not query:
+        return JSONResponse(status_code=400, content={"error": "query is required"})
+    top_k = max(1, min(50, int(payload.get("top_k") or 20)))
+    entity = str(payload.get("entity") or "").strip() or None
+    catalog = load_local_octane_field_catalog()
+    return JSONResponse(
+        status_code=200,
+        content={
+            "summary": catalog["summary"],
+            "results": search_octane_fields(catalog, query, entity=entity, top_k=top_k),
+            "source": catalog["source"],
+        },
+    )
 
 
 @app.get("/api/full-picture/dashboard/refresh-status")

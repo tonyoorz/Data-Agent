@@ -1,4 +1,279 @@
 {
+  "actions": [
+    {
+      "apiBinding": {
+        "endpointTemplate": "/api/shared_spaces/{sharedSpaceId}/workspaces/{workspaceId}/work_items/{defect_id}/comments",
+        "method": "POST",
+        "sourceId": "analytics.full_picture_defects",
+        "system": "octane"
+      },
+      "audit": {
+        "externalRequestAudit": true,
+        "rollbackStrategy": "manual",
+        "runAudit": true,
+        "toolCallAudit": true
+      },
+      "capabilityState": "dry_run_only",
+      "description": "Draft action for posting a governed comment to an Octane defect. The current system supports dry-run preview and explicit apply through the duplicate-comment workflow, but this ontology action is not approved for autonomous execution.",
+      "execution": {
+        "executor": "backend.analytics_cli.post-duplicate-search-comment",
+        "mode": "dry_run_only",
+        "requiresActorScope": true,
+        "requiresDryRun": true,
+        "requiresHumanApproval": true,
+        "sideEffects": [
+          "comment_create",
+          "octane_write",
+          "audit_log"
+        ]
+      },
+      "fieldBindings": [
+        {
+          "fieldId": "octane_defects.table_column.defect_id",
+          "localPropertyId": "defect_id",
+          "required": true,
+          "role": "target"
+        },
+        {
+          "fieldId": "octane_defects.table_column.comments",
+          "localPropertyId": "comments",
+          "required": true,
+          "role": "editable"
+        }
+      ],
+      "governance": {
+        "decisionRef": "docs/ontology/octane-field-catalog.md",
+        "owner": "Agent Platform",
+        "status": "draft"
+      },
+      "id": "octane.defect.add_comment",
+      "inputSchema": {
+        "properties": {
+          "comment_html": {
+            "type": "string"
+          },
+          "defect_id": {
+            "type": "string"
+          },
+          "rationale": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "defect_id",
+          "comment_html",
+          "rationale"
+        ],
+        "type": "object"
+      },
+      "intentHints": [
+        "add comment",
+        "post comment",
+        "write comment",
+        "添加评论",
+        "写评论",
+        "duplicate analysis comment"
+      ],
+      "labels": {
+        "en-US": "Add Defect Comment",
+        "zh-CN": "添加缺陷评论"
+      },
+      "operation": "comment",
+      "policies": [
+        "actor.scope.mandatory"
+      ],
+      "targetEntityId": "quality.defect",
+      "version": "0.1.0"
+    },
+    {
+      "apiBinding": {
+        "endpointTemplate": "/api/shared_spaces/{sharedSpaceId}/workspaces/{workspaceId}/work_items/{defect_id}",
+        "method": "DELETE",
+        "sourceId": "analytics.full_picture_defects",
+        "system": "octane"
+      },
+      "audit": {
+        "externalRequestAudit": true,
+        "rollbackStrategy": "not_supported",
+        "runAudit": true,
+        "toolCallAudit": true
+      },
+      "capabilityState": "blocked",
+      "description": "Blocked action documenting that destructive Octane defect deletion is outside autonomous agent capability. Keep this explicit so delete intents are routed to policy explanation instead of ad-hoc tool use.",
+      "execution": {
+        "executor": "none",
+        "mode": "blocked",
+        "requiresActorScope": true,
+        "requiresDryRun": true,
+        "requiresHumanApproval": true,
+        "sideEffects": [
+          "destructive_delete",
+          "octane_write",
+          "audit_log"
+        ]
+      },
+      "fieldBindings": [
+        {
+          "fieldId": "octane_defects.table_column.defect_id",
+          "localPropertyId": "defect_id",
+          "required": true,
+          "role": "target"
+        }
+      ],
+      "governance": {
+        "decisionRef": "docs/ontology/octane-field-catalog.md",
+        "owner": "Agent Security",
+        "status": "draft"
+      },
+      "id": "octane.defect.delete_work_item",
+      "inputSchema": {
+        "properties": {
+          "business_approval_ref": {
+            "type": "string"
+          },
+          "defect_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "defect_id",
+          "business_approval_ref"
+        ],
+        "type": "object"
+      },
+      "intentHints": [
+        "delete defect",
+        "remove defect",
+        "删除缺陷",
+        "删除问题单"
+      ],
+      "labels": {
+        "en-US": "Delete Defect Work Item",
+        "zh-CN": "删除缺陷单"
+      },
+      "operation": "delete",
+      "policies": [
+        "actor.scope.mandatory"
+      ],
+      "targetEntityId": "quality.defect",
+      "version": "0.1.0"
+    },
+    {
+      "apiBinding": {
+        "endpointTemplate": "/api/shared_spaces/{sharedSpaceId}/workspaces/{workspaceId}/work_items/{defect_id}",
+        "method": "PUT",
+        "sourceId": "analytics.full_picture_defects",
+        "system": "octane"
+      },
+      "audit": {
+        "externalRequestAudit": true,
+        "rollbackStrategy": "manual",
+        "runAudit": true,
+        "toolCallAudit": true
+      },
+      "capabilityState": "disabled",
+      "description": "Disabled draft action for future governed updates to selected Octane defect triage fields. It records field candidates and guardrails before any executor is implemented.",
+      "execution": {
+        "executor": "none",
+        "mode": "disabled",
+        "requiresActorScope": true,
+        "requiresDryRun": true,
+        "requiresHumanApproval": true,
+        "sideEffects": [
+          "field_update",
+          "octane_write",
+          "audit_log"
+        ]
+      },
+      "fieldBindings": [
+        {
+          "fieldId": "octane_defects.table_column.defect_id",
+          "localPropertyId": "defect_id",
+          "required": true,
+          "role": "target"
+        },
+        {
+          "fieldId": "octane_defects.raw_json.problem_finder_team_udf",
+          "localPropertyId": "problem_finder_team",
+          "required": false,
+          "role": "editable"
+        },
+        {
+          "fieldId": "octane_defects.raw_json.model_series_udf",
+          "localPropertyId": "model_series",
+          "required": false,
+          "role": "editable"
+        },
+        {
+          "fieldId": "octane_defects.raw_json.assigned_ecu_udf",
+          "localPropertyId": "assigned_ecu",
+          "required": false,
+          "role": "editable"
+        },
+        {
+          "fieldId": "octane_defects.table_column.severity",
+          "localPropertyId": "severity",
+          "required": false,
+          "role": "editable"
+        },
+        {
+          "fieldId": "octane_defects.table_column.phase",
+          "localPropertyId": "phase",
+          "required": false,
+          "role": "editable"
+        },
+        {
+          "fieldId": "octane_defects.raw_json.software_version_udf",
+          "localPropertyId": "software_version",
+          "required": false,
+          "role": "editable"
+        }
+      ],
+      "governance": {
+        "decisionRef": "docs/ontology/octane-field-catalog.md",
+        "owner": "Quality Governance",
+        "status": "draft"
+      },
+      "id": "octane.defect.update_triage_fields",
+      "inputSchema": {
+        "properties": {
+          "changes": {
+            "type": "object"
+          },
+          "defect_id": {
+            "type": "string"
+          },
+          "rationale": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "defect_id",
+          "changes",
+          "rationale"
+        ],
+        "type": "object"
+      },
+      "intentHints": [
+        "update defect",
+        "edit field",
+        "change triage",
+        "更新缺陷",
+        "修改字段",
+        "分诊"
+      ],
+      "labels": {
+        "en-US": "Update Defect Triage Fields",
+        "zh-CN": "更新缺陷分诊字段"
+      },
+      "operation": "update",
+      "policies": [
+        "actor.scope.mandatory"
+      ],
+      "targetEntityId": "quality.defect",
+      "version": "0.1.0"
+    }
+  ],
   "compilerVersion": "ontology-compiler-v1",
   "constraints": [
     {

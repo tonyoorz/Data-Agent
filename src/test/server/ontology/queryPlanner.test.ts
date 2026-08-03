@@ -70,6 +70,26 @@ describe("Ontology query planner", () => {
     expect(planner.createPlan({ frame: similarityFrame, actor, query: "蓝牙断连缺陷查重" }).steps[0].toolName).toBe("search_duplicates");
   });
 
+  it("plans direct record lists with governed fields and pagination defaults", () => {
+    const frame = resolver.resolve({ query: "DTSV 本月缺陷明细列表", actor });
+    const plan = planner.createPlan({ frame, actor, query: "DTSV 本月缺陷明细列表" });
+
+    expect(plan.steps[0]).toMatchObject({
+      operation: "semantic_record_query",
+      toolName: "query_semantic_records",
+      canonicalArgs: {
+        ontology_version: "v1",
+        schema_fingerprint: registry.fingerprint,
+        query: expect.objectContaining({ intent: "list", entityIds: ["quality.defect"] }),
+        analysis_ref: null,
+        selections: [],
+        fields: ["defect_id", "name", "status", "assigned_ecu", "problem_finder_team", "creation_time"],
+        page: 1,
+        page_size: 20,
+      },
+    });
+  });
+
   it("enforces Ontology capability and query-limit records at plan time", () => {
     const frame = resolver.resolve({ query: "2026 年缺陷数", actor });
     const limitedRegistry = {

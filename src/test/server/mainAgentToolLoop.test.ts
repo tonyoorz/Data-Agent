@@ -329,8 +329,11 @@ describe("main agent tool loop", () => {
           result: {
             ontologyVersion: "v1",
             schemaFingerprint: "f".repeat(64),
-            sourceRevision: { revisionId: "snap-1" },
-            quality: { completeness: "complete" },
+            analysisRef: "analysis-1",
+            sourceRevision: { revisionId: "snap-1", status: "pinned" },
+            scope: { actorScopeHash: "scope-a" },
+            quality: { completeness: "complete", warnings: [] },
+            evidence: { kind: "semantic_metric_result", analysisRef: "analysis-1", sourceRevisionId: "snap-1" },
           },
         }),
       },
@@ -350,8 +353,11 @@ describe("main agent tool loop", () => {
         intent: "metric_query",
         ontologyVersion: "v1",
         schemaFingerprint: "f".repeat(64),
-        sourceRevision: { revisionId: "snap-1" },
-        quality: { completeness: "complete" },
+        sourceRevision: { revisionId: "snap-1", status: "pinned" },
+        quality: { completeness: "complete", warnings: [] },
+        analysisRef: "analysis-1",
+        scope: { actorScopeHash: "scope-a" },
+        evidence: { kind: "semantic_metric_result", analysisRef: "analysis-1", sourceRevisionId: "snap-1" },
       }),
     ]);
   });

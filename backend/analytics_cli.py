@@ -8,6 +8,7 @@ import sqlite3
 import subprocess
 import sys
 from collections.abc import Sequence
+from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -50,6 +51,13 @@ from backend.analytics.testing_coverage_hot import refresh_materialized_testing_
 
 HISTORY_SOURCE_REQUIRED_COLUMNS = frozenset({"defect_id", "field_name", "event_timestamp"})
 SOURCE_STAGE_REQUIRED_TABLES = frozenset({"octane_defects", "octane_defect_history_events"})
+TESTING_SOURCE_REQUIRED_TABLES = frozenset({"octane_manual_runs"})
+
+
+def _table_column_names(conn: sqlite3.Connection, table_name: str) -> list[str]:
+    return [str(row[1]).strip() for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()]
+
+
 def _parse_csv_values(raw_value: str | None) -> tuple[str, ...]:
     if raw_value is None:
         return ()
@@ -345,12 +353,10 @@ def _refresh_full_picture_outcomes_with_progress(
 ) -> dict[str, object]:
     _emit_progress(f"Starting full-picture outcomes refresh force={bool(force)}")
     _emit_progress(f"Deriving hot outcomes from {Path(source_db_path).resolve()}")
-    summary = refresh_materialized_outcomes(
-        source_db_path,
-        hot_db_path,
-        force=force,
-        defect_ids=defect_ids,
-    )
+    refresh_kwargs: dict[str, object] = {"force": force}
+    if defect_ids is not None:
+        refresh_kwargs["defect_ids"] = defect_ids
+    summary = refresh_materialized_outcomes(source_db_path, hot_db_path, **refresh_kwargs)
     _emit_progress("Recording dashboard snapshot metadata...")
     snapshot_version = build_full_picture_snapshot_version(source_db_path)
     record_snapshot_refresh(
@@ -665,6 +671,160 @@ def _stage_full_picture_source(source_db_path: Path | str) -> dict[str, object]:
     }
 
 
+def _is_valid_testing_source_path(candidate: Path) -> bool:
+    if not candidate.exists() or not candidate.is_file():
+        return False
+    try:
+        conn = sqlite3.connect(str(candidate))
+    except sqlite3.Error:
+        return False
+    try:
+        tables = {
+            str(row[0]).strip().lower()
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
+        }
+    except sqlite3.Error:
+        return False
+    finally:
+        conn.close()
+    return TESTING_SOURCE_REQUIRED_TABLES.issubset(tables)
+
+
+def _require_valid_testing_source_path(candidate: str | Path | None) -> Path:
+    if not candidate:
+        raise SystemExit("--db-path is required for stage-testing-source")
+    resolved = Path(candidate)
+    if _is_valid_testing_source_path(resolved):
+        return resolved
+    raise SystemExit(f"Provided testing source database is invalid: {resolved}")
+
+
+def _first_non_blank(row: sqlite3.Row, *names: str) -> str:
+    for name in names:
+        try:
+            value = row[name]
+        except (IndexError, KeyError):
+            continue
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def _stage_testing_source(source_db_path: Path | str) -> dict[str, object]:
+    """Import a legacy/manual-run database into the governed local source store."""
+    resolved_source_path = Path(source_db_path).resolve()
+    target_path = get_full_picture_source_db_path().resolve()
+    ensure_schema(target_path)
+
+    source_conn = sqlite3.connect(str(resolved_source_path))
+    source_conn.row_factory = sqlite3.Row
+    try:
+        source_rows = source_conn.execute("SELECT * FROM octane_manual_runs ORDER BY mr_id").fetchall()
+    finally:
+        source_conn.close()
+
+    fetched_at_default = datetime.now(timezone.utc).isoformat()
+    manual_run_payloads: list[dict[str, object]] = []
+    grouped_rows: dict[str, list[dict[str, object]]] = defaultdict(list)
+    for row in source_rows:
+        payload: dict[str, object] = {
+            "mr_id": _first_non_blank(row, "mr_id"),
+            "defect_id": _first_non_blank(row, "defect_id"),
+            "test_id": _first_non_blank(row, "test_id"),
+            "test_name": _first_non_blank(row, "test_name", "name"),
+            "status": _first_non_blank(row, "status"),
+            "year": _first_non_blank(row, "year"),
+            "test_week": _first_non_blank(row, "test_week"),
+            "pu": _first_non_blank(row, "pu"),
+            "top_aida": _first_non_blank(row, "top_aida", "product_areas"),
+            "feature_region": _first_non_blank(row, "feature_region"),
+            "tester": _first_non_blank(row, "tester", "run_by", "author", "author_name"),
+            "project": _first_non_blank(row, "project"),
+            "fv": _first_non_blank(row, "fv"),
+            "fvp": _first_non_blank(row, "fvp"),
+            "team": _first_non_blank(row, "team"),
+            "lead_model": _first_non_blank(row, "lead_model"),
+            "raw_json": _first_non_blank(row, "raw_json") or "{}",
+            "fetched_at": _first_non_blank(row, "fetched_at") or fetched_at_default,
+        }
+        manual_run_payloads.append(payload)
+        test_id = str(payload["test_id"] or "").strip()
+        if test_id:
+            grouped_rows[test_id].append(payload)
+
+    testcase_payloads: list[dict[str, object]] = []
+    for test_id, rows in grouped_rows.items():
+        defect_ids = sorted(
+            {str(item["defect_id"]).strip() for item in rows if str(item["defect_id"]).strip()}
+        )
+        testcase_payloads.append(
+            {
+                "test_id": test_id,
+                "scope_team": "ALL",
+                "scope_release": "ALL",
+                "source": "stage-testing-source",
+                "test_name": next(
+                    (str(item["test_name"]).strip() for item in rows if str(item["test_name"]).strip()),
+                    "",
+                ),
+                "test_subtype": "",
+                "run_count": len(rows),
+                "run_ids_json": "[]",
+                "run_status_distribution_json": "{}",
+                "defect_ids_json": json.dumps(defect_ids, ensure_ascii=False),
+                "manual_test_ids_json": "[]",
+                "feature_ids_json": "[]",
+                "story_ids_json": "[]",
+                "raw_json": "{}",
+                "fetched_at": next(
+                    (str(item["fetched_at"]).strip() for item in rows if str(item["fetched_at"]).strip()),
+                    fetched_at_default,
+                ),
+            }
+        )
+
+    target_conn = sqlite3.connect(str(target_path))
+    try:
+        manual_run_columns = _table_column_names(target_conn, "octane_manual_runs")
+        testcase_columns = _table_column_names(target_conn, "octane_testcases")
+        target_conn.execute("BEGIN IMMEDIATE")
+        target_conn.execute("DELETE FROM octane_manual_runs")
+        tables = {
+            str(row[0]).strip()
+            for row in target_conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        }
+        if "octane_testcase_relations" in tables:
+            target_conn.execute("DELETE FROM octane_testcase_relations")
+        target_conn.execute("DELETE FROM octane_testcases")
+
+        if manual_run_payloads:
+            placeholders = ", ".join("?" for _ in manual_run_columns)
+            target_conn.executemany(
+                f"INSERT OR REPLACE INTO octane_manual_runs ({', '.join(manual_run_columns)}) VALUES ({placeholders})",
+                [[payload.get(column, "") for column in manual_run_columns] for payload in manual_run_payloads],
+            )
+        if testcase_payloads:
+            placeholders = ", ".join("?" for _ in testcase_columns)
+            target_conn.executemany(
+                f"INSERT OR REPLACE INTO octane_testcases ({', '.join(testcase_columns)}) VALUES ({placeholders})",
+                [[payload.get(column, "") for column in testcase_columns] for payload in testcase_payloads],
+            )
+        target_conn.commit()
+    except Exception:
+        target_conn.rollback()
+        raise
+    finally:
+        target_conn.close()
+
+    return {
+        "source_db_path": str(resolved_source_path),
+        "staged_db_path": str(target_path),
+        "manual_run_row_count": len(manual_run_payloads),
+        "testcase_row_count": len(testcase_payloads),
+    }
+
+
 def _is_valid_history_source_path(candidate: Path) -> bool:
     return _get_history_source_row_count(candidate) is not None
 
@@ -709,6 +869,53 @@ def _get_history_source_row_count(candidate: Path) -> int | None:
         conn.close()
 
     return int(count_row[0] or 0) if count_row else 0
+
+
+def _compact_source_history_storage(source_db_path: Path | str) -> dict[str, object]:
+    """Remove superseded raw history payloads without changing normalized events."""
+    resolved_path = _require_valid_history_source_path(source_db_path).resolve()
+    conn = sqlite3.connect(str(resolved_path))
+    try:
+        history_columns = {
+            str(row[1]).strip()
+            for row in conn.execute("PRAGMA table_info(octane_defect_history_events)").fetchall()
+        }
+        raw_columns = [
+            column
+            for column in ("raw_event_json", "raw_change_json")
+            if column in history_columns
+        ]
+        tables = {
+            str(row[0]).strip()
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        }
+        legacy_tables = [
+            table
+            for table in ("octane_defect_histories",)
+            if table in tables
+        ]
+        row_count = int(
+            conn.execute("SELECT COUNT(*) FROM octane_defect_history_events").fetchone()[0] or 0
+        )
+
+        conn.execute("BEGIN IMMEDIATE")
+        for column in raw_columns:
+            conn.execute(f'ALTER TABLE octane_defect_history_events DROP COLUMN "{column}"')
+        for table in legacy_tables:
+            conn.execute(f'DROP TABLE "{table}"')
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+    return {
+        "source_db_path": str(resolved_path),
+        "history_row_count": row_count,
+        "dropped_raw_columns": raw_columns,
+        "dropped_tables": legacy_tables,
+    }
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -865,17 +1072,31 @@ def main(argv: Sequence[str] | None = None) -> int:
         summary = _stage_full_picture_source(source_db_path)
         print(json.dumps(summary, ensure_ascii=False))
         return 0
+    if args.command == "stage-testing-source":
+        source_db_path = _require_valid_testing_source_path(args.db_path)
+        summary = _stage_testing_source(source_db_path)
+        print(json.dumps(summary, ensure_ascii=False))
+        return 0
     if args.command == "archive-full-picture-cold":
-        source_db_path = (
-            _require_valid_source_stage_input_path(args.db_path)
-            if args.db_path
-            else _require_source_stage_input_path()
-        )
+        if args.db_path:
+            source_db_path = _require_valid_source_stage_input_path(args.db_path)
+        else:
+            staged_source_path = get_full_picture_source_db_path()
+            source_db_path = (
+                staged_source_path
+                if _is_valid_source_stage_path(staged_source_path)
+                else _require_source_stage_input_path()
+            )
         summary = archive_source_to_cold_storage(
             source_db_path,
             get_full_picture_cold_db_path(),
             get_full_picture_cold_parquet_dir(),
         )
+        print(json.dumps(summary, ensure_ascii=False))
+        return 0
+    if args.command == "compact-source-history-storage":
+        source_db_path = Path(args.db_path) if args.db_path else _require_history_source_path()
+        summary = _compact_source_history_storage(source_db_path)
         print(json.dumps(summary, ensure_ascii=False))
         return 0
     if args.command == "refresh-full-picture-outcomes":

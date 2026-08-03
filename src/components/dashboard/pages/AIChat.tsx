@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ArrowUp,
   Check,
@@ -18,6 +18,7 @@ import {
   Trash2,
   User,
   X,
+  type LucideIcon,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import MessageRenderer from "../chat/MessageRenderer";
@@ -68,6 +69,18 @@ interface Conversation {
   messages: Msg[];
   updatedAt: number;
 }
+
+type GatewayContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } }
+  | { type: "file_data"; file_data: { name: string; mime_type?: string; url: string } };
+
+type ToolStreamEvent = {
+  type?: unknown;
+  toolName?: unknown;
+  input?: unknown;
+  outputSummary?: unknown;
+};
 
 const STORAGE_KEY = "dtsv.chat.v2";
 
@@ -162,7 +175,9 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
         const parsed = JSON.parse(raw) as Conversation[];
         if (Array.isArray(parsed) && parsed.length) return parsed;
       }
-    } catch {}
+    } catch {
+      // Ignore malformed persisted state and start a fresh conversation.
+    }
     return [newConversation()];
   });
   const [activeId, setActiveId] = useState<string>(() => conversations[0].id);
@@ -201,7 +216,9 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations));
-    } catch {}
+    } catch {
+      // Storage can be unavailable in privacy-restricted browser contexts.
+    }
   }, [conversations]);
 
   useEffect(() => {
@@ -454,7 +471,7 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
   const buildGatewayMessages = (history: Msg[]) =>
     history.map((m) => {
       if (m.role === "user" && m.attachments?.some((a) => a.dataUrl && (a.kind === "image" || a.mimeType === "application/pdf"))) {
-        const parts: any[] = [{ type: "text", text: m.content || "(附件)" }];
+        const parts: GatewayContentPart[] = [{ type: "text", text: m.content || "(附件)" }];
         for (const a of m.attachments) {
           if (a.kind === "image" && a.dataUrl) {
             parts.push({ type: "image_url", image_url: { url: a.dataUrl } });
@@ -545,7 +562,7 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
     return normalized.length > maxLength ? `${normalized.slice(0, maxLength - 3).trimEnd()}...` : normalized;
   };
 
-  const formatToolEventStep = (event: any) => {
+  const formatToolEventStep = (event: ToolStreamEvent) => {
     if (event?.type === "tool-input-available") {
       return `<step title="调用工具" source="${escapeAgentAttr(event.toolName || "tool")}">${escapeAgentAttr(summarizeToolEventPayload(event.input))}</step>`;
     }
@@ -583,6 +600,7 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
+          threadId: active.id,
           messages: buildGatewayMessages(history),
           model,
           context: contextStr,
@@ -721,8 +739,9 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
       }
 
       await animator.finish();
-    } catch (e: any) {
-      if (e.name !== "AbortError") {
+    } catch (error: unknown) {
+      const errorName = error instanceof Error ? error.name : "";
+      if (errorName !== "AbortError") {
         updateActive((c) => ({
           ...c,
           messages: c.messages.map((m) =>
@@ -1503,7 +1522,7 @@ const ActionBtn = ({
   label,
   onClick,
 }: {
-  icon: any;
+  icon: LucideIcon;
   label: string;
   onClick: () => void;
 }) => (
@@ -1551,8 +1570,8 @@ const MenuItem = ({
   onClick,
   destructive,
 }: {
-  icon: any;
-  children: any;
+  icon: LucideIcon;
+  children: ReactNode;
   onClick: () => void;
   destructive?: boolean;
 }) => (

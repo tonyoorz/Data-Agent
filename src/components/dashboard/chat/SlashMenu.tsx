@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import type { LucideIcon } from "lucide-react";
 import {
   BarChart3,
   Bug,
@@ -14,7 +15,7 @@ export interface SlashCommand {
   label: string;
   hint: string;
   prompt: string;
-  icon: any;
+  icon: LucideIcon;
 }
 
 export const SLASH_COMMANDS: SlashCommand[] = [

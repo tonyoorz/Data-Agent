@@ -158,6 +158,14 @@ const FULL_PICTURE_MODULE_ENDPOINTS = {
 };
 
 const SEMANTIC_TOOL_NAMES = new Set(["query_semantic_metrics", "query_semantic_records", "query_traceability"]);
+const SEMANTIC_RECORD_FIELD_VALUES = [
+  "defect_id", "name", "creation_time", "status", "severity", "phase", "china_scope",
+  "problem_finder_team", "project", "service_pack", "pu", "i_step", "os", "platform",
+  "assigned_ecu", "model_series", "aida", "detected_by", "solution_cluster",
+  "defect_category", "lead_model", "market", "year", "mr_id", "test_id", "test_name",
+  "finished", "test_week", "tester", "team", "started", "release", "trace_status",
+  "run_count", "scope_team", "scope_release",
+];
 
 export const MAIN_AGENT_TOOLS = [
   {
@@ -362,12 +370,33 @@ export const MAIN_AGENT_TOOLS = [
     type: "function",
     function: {
       name: "query_semantic_records",
-      description: "Execute a validated Ontology record or drill-down query against the semantic analytics API.",
+      description: "Return governed raw records. For a drilldown, reuse analysis_ref from a prior semantic metric result and narrow it with selections; never reconstruct or widen the original scope.",
       parameters: {
         type: "object",
-        required: ["query"],
+        required: ["ontology_version", "schema_fingerprint", "query", "analysis_ref", "selections", "fields", "page", "page_size"],
         additionalProperties: false,
-        properties: { query: semanticQuerySchema },
+        properties: {
+          ontology_version: { type: "string", minLength: 1 },
+          schema_fingerprint: { type: "string", pattern: "^[a-f0-9]{64}$" },
+          query: { anyOf: [semanticQuerySchema, { type: "null" }] },
+          analysis_ref: { anyOf: [{ type: "string", minLength: 1 }, { type: "null" }] },
+          selections: {
+            type: "array",
+            items: {
+              type: "object",
+              required: ["dimensionId", "operator", "values"],
+              additionalProperties: false,
+              properties: {
+                dimensionId: { type: "string", minLength: 1 },
+                operator: { enum: ["in", "eq"] },
+                values: { type: "array", minItems: 1, items: { anyOf: [{ type: "string" }, { type: "number" }, { type: "boolean" }] } },
+              },
+            },
+          },
+          fields: { type: "array", minItems: 1, maxItems: 20, uniqueItems: true, items: { type: "string", enum: SEMANTIC_RECORD_FIELD_VALUES } },
+          page: { type: "integer", minimum: 1 },
+          page_size: { type: "integer", minimum: 1, maximum: 200 },
+        },
       },
     },
   },
@@ -964,16 +993,23 @@ function buildToolMessage(toolCall, content) {
 function formatSemanticContext(name, payload) {
   const metrics = payload?.summary?.metrics || {};
   const metricLines = Object.entries(metrics).map(([metricId, value]) => `${metricId}: ${value}`);
-  const rows = Array.isArray(payload?.data) ? payload.data.length : 0;
+  const data = Array.isArray(payload?.data) ? payload.data : [];
+  const rows = data.length;
+  const rowLines = data.slice(0, 20).map((row) => JSON.stringify(row));
   return [
     "# Main agent semantic tool result",
     `Tool: ${name}`,
     `Ontology: ${payload?.ontologyVersion || "unknown"} (${payload?.schemaFingerprint || "no fingerprint"})`,
+    `Analysis ref: ${payload?.analysisRef || "unavailable"}`,
     `Source revision: ${payload?.sourceRevision?.revisionId || "unpinned"}`,
+    `Revision status: ${payload?.sourceRevision?.status || "unknown"}`,
     `Rows: ${rows}`,
+    ...(payload?.pagination ? [`Pagination: page ${payload.pagination.page}/${payload.pagination.totalPages}, total ${payload.pagination.totalRows}`] : []),
     ...metricLines,
+    ...rowLines,
+    `Evidence: ${payload?.evidence?.kind || "unavailable"}`,
     `Completeness: ${payload?.quality?.completeness || "unknown"}`,
-    "Use only the returned governed metrics, scope, source revision, and quality metadata as factual evidence.",
+    "Use only the returned governed metrics or records, scope, source revision, analysis ref, and evidence envelope as factual evidence.",
   ].join("\n");
 }
 
@@ -1010,6 +1046,50 @@ async function executeSemanticQuery(toolCall, { analyticsFetch, analyticsApiBase
     });
   }
 
+  const payload = await response.json();
+  return {
+    toolMessage: buildToolMessage(toolCall, JSON.stringify({ ok: true, tool: toolCall.function.name, result: payload })),
+    contextText: formatSemanticContext(toolCall.function.name, payload),
+  };
+}
+
+async function executeSemanticRecords(toolCall, { analyticsFetch, analyticsApiBase, actor }) {
+  const args = parseToolArguments(toolCall?.function?.arguments);
+  const query = args.query && typeof args.query === "object" ? args.query : null;
+  const url = new URL("/api/semantic/records", analyticsApiBase).toString();
+  const body = {
+    schemaVersion: "1.0",
+    queryId: String(toolCall?.id || `semantic-records-${Date.now()}`),
+    ontologyVersion: String(args.ontology_version || query?.ontologyVersion || ""),
+    schemaFingerprint: String(args.schema_fingerprint || query?.schemaFingerprint || ""),
+    query,
+    analysisRef: args.analysis_ref == null ? null : String(args.analysis_ref),
+    actorScope: buildActorScope(actor),
+    selections: Array.isArray(args.selections) ? args.selections : [],
+    fields: Array.isArray(args.fields) ? args.fields.map(String) : [],
+    page: Number(args.page || 1),
+    pageSize: Number(args.page_size || 20),
+  };
+  const response = await analyticsFetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response?.ok) {
+    let failure = {};
+    try {
+      failure = await response.json();
+    } catch {
+      failure = {};
+    }
+    const code = String(failure?.code || `SEMANTIC_RECORDS_API_HTTP_${response?.status || "UNKNOWN"}`);
+    throw Object.assign(new Error(code), {
+      code,
+      status: response?.status === 403 ? "denied" : "failed",
+      statusCode: response?.status || 502,
+      retryable: response?.status === 429 || Number(response?.status || 0) >= 500,
+    });
+  }
   const payload = await response.json();
   return {
     toolMessage: buildToolMessage(toolCall, JSON.stringify({ ok: true, tool: toolCall.function.name, result: payload })),
@@ -2002,7 +2082,10 @@ export async function executeMainAgentToolCall(toolCall, {
     if (name === "query_analytics_fallback") {
       return await executeAnalyticsFallback(toolCall, { analyticsFetch, analyticsApiBase });
     }
-    if (SEMANTIC_TOOL_NAMES.has(name)) {
+    if (name === "query_semantic_records") {
+      return await executeSemanticRecords(toolCall, { analyticsFetch, analyticsApiBase, actor });
+    }
+    if (name === "query_semantic_metrics" || name === "query_traceability") {
       return await executeSemanticQuery(toolCall, { analyticsFetch, analyticsApiBase, actor });
     }
     if (name === "query_dashboard_summary") {

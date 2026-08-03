@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { isValidElement, useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { motion, AnimatePresence } from "framer-motion";
@@ -165,7 +165,7 @@ function TextBlock({ text }: { text: string }) {
   );
 }
 
-function CitationChip({ source, children }: { source: string; children: any }) {
+function CitationChip({ source, children }: { source: string; children: ReactNode }) {
   return (
     <span
       title={`来源: ${source}`}
@@ -177,10 +177,12 @@ function CitationChip({ source, children }: { source: string; children: any }) {
   );
 }
 
-function CodeBlock({ children }: { children: any }) {
+function CodeBlock({ children }: { children: ReactNode }) {
   const [copied, setCopied] = useState(false);
   const codeText =
-    (children?.props?.children as string) ??
+    (isValidElement<{ children?: ReactNode }>(children) && typeof children.props.children === "string"
+      ? children.props.children
+      : "") ||
     (typeof children === "string" ? children : "");
   return (
     <div className="group relative my-3 overflow-hidden rounded-lg border border-border bg-[hsl(220_15%_15%)]">

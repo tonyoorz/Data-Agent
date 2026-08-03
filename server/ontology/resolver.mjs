@@ -255,14 +255,15 @@ export function createSemanticResolver({ registry, now = () => new Date().toISOS
       }
       const metrics = metricIds.map((id) => registry.getMetric(id));
       const candidateEntityIds = unique(candidate?.entityIds || []).map((id) => registry.getEntity(id).id);
-      const entityIds = unique([
-        ...metrics.map((metric) => metric.entityId),
-        ...matchedTerms.map((term) => term.resolution.entityId),
-        ...(usingInheritedMetric ? priorFrame.entityIds || [] : []),
-        ...candidateEntityIds,
-        intent === "similarity" ? "quality.defect" : null,
-        ...(intent === "trace" ? ["requirements.aida_node", "testing.test_case", "testing.test_run", "quality.defect"] : []),
-      ]);
+      const entityIds = intent === "trace"
+        ? ["requirements.aida_node", "testing.test_case", "testing.test_run", "quality.defect"]
+        : intent === "similarity"
+          ? ["quality.defect"]
+          : unique([
+              ...metrics.map((metric) => metric.entityId),
+              ...(metrics.length ? [] : candidateEntityIds),
+              ...(metrics.length || !usingInheritedMetric ? [] : priorFrame.entityIds || []),
+            ]);
       const metricAllowedDimensions = new Set(metrics.flatMap((metric) => metric.allowedDimensions || []));
       const matchedTermIds = new Set(matchedTerms.map((term) => term.id));
       const inferredPatternTerms = registry.bundle.terms.filter((term) => term.kind === "value_pattern"

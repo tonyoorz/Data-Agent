@@ -147,6 +147,19 @@ describe("main agent analytics tools", () => {
     expect(names).toContain("query_semantic_metrics");
     expect(names).toContain("query_semantic_records");
     expect(names).toContain("query_traceability");
+
+    const recordsTool = MAIN_AGENT_TOOLS.find((tool) => tool.function.name === "query_semantic_records");
+    expect(recordsTool?.function.parameters).toMatchObject({
+      required: ["ontology_version", "schema_fingerprint", "query", "analysis_ref", "selections", "fields", "page", "page_size"],
+      additionalProperties: false,
+      properties: {
+        analysis_ref: expect.any(Object),
+        selections: expect.any(Object),
+        fields: expect.any(Object),
+        page: expect.any(Object),
+        page_size: expect.any(Object),
+      },
+    });
   });
 
   it("registers high-level analytics orchestration tools", () => {
@@ -255,6 +268,75 @@ describe("main agent analytics tools", () => {
     expect(result.contextText).toContain("Tool: query_semantic_metrics");
     expect(result.contextText).toContain("defect.count: 2");
     expect(result.contextText).toContain("Completeness: complete");
+  });
+
+  it("executes query_semantic_records through the dedicated records API", async () => {
+    const analyticsFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        ontologyVersion: "v1",
+        schemaFingerprint: "a".repeat(64),
+        analysisRef: "analysis-1",
+        sourceRevision: { revisionId: "snap-1", status: "pinned" },
+        scope: { actorScopeHash: "scope-a", entityId: "quality.defect" },
+        data: [{ defect_id: "D-1", name: "Audio issue", assigned_ecu: "HU", status: "Open" }],
+        pagination: { page: 1, pageSize: 20, totalRows: 1, totalPages: 1 },
+        quality: { completeness: "complete", truncated: false, warnings: [] },
+        evidence: {
+          kind: "semantic_record_set",
+          analysisRef: "analysis-1",
+          sourceRevisionId: "snap-1",
+          rowCount: 1,
+          totalRows: 1,
+          fieldIds: ["defect_id", "name", "assigned_ecu", "status"],
+        },
+      }),
+    });
+
+    const result = await executeMainAgentToolCall(
+      {
+        id: "semantic-records-1",
+        type: "function",
+        function: {
+          name: "query_semantic_records",
+          arguments: JSON.stringify({
+            ontology_version: "v1",
+            schema_fingerprint: "a".repeat(64),
+            query: null,
+            analysis_ref: "analysis-1",
+            selections: [{ dimensionId: "product.ecu", operator: "in", values: ["HU"] }],
+            fields: ["defect_id", "name", "assigned_ecu", "status"],
+            page: 1,
+            page_size: 20,
+          }),
+        },
+      },
+      {
+        analyticsFetch,
+        analyticsApiBase: "http://127.0.0.1:3003",
+        actor: { actorId: "alice", scopeHash: "scope-a", scopes: { workspaceIds: ["DTSV"], teamIds: ["DTSV"] } },
+      },
+    );
+
+    expect(analyticsFetch).toHaveBeenCalledWith("http://127.0.0.1:3003/api/semantic/records", expect.objectContaining({ method: "POST" }));
+    const body = JSON.parse(analyticsFetch.mock.calls[0][1].body);
+    expect(body).toMatchObject({
+      schemaVersion: "1.0",
+      queryId: "semantic-records-1",
+      ontologyVersion: "v1",
+      schemaFingerprint: "a".repeat(64),
+      query: null,
+      analysisRef: "analysis-1",
+      selections: [{ dimensionId: "product.ecu", operator: "in", values: ["HU"] }],
+      fields: ["defect_id", "name", "assigned_ecu", "status"],
+      page: 1,
+      pageSize: 20,
+      actorScope: { actorId: "alice", scopeHash: "scope-a" },
+    });
+    expect(result.contextText).toContain("Analysis ref: analysis-1");
+    expect(result.contextText).toContain("Revision status: pinned");
+    expect(result.contextText).toContain('"defect_id":"D-1"');
+    expect(result.contextText).toContain("Evidence: semantic_record_set");
   });
 
   it("executes get_data_catalog without calling data APIs", async () => {

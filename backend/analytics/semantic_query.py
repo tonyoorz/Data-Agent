@@ -9,7 +9,19 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from backend.analytics.ontology import OntologyCatalog, OntologyLoadError
-from backend.analytics.read_models import build_full_picture_payload, list_runs, list_testcases
+from backend.analytics.read_models import (
+    FullPictureDashboardDataError,
+    FullPictureDashboardRequestError,
+    build_semantic_defect_payload,
+    list_runs,
+    list_testcases,
+)
+from backend.analytics.semantic_analysis_store import (
+    AnalysisRefExpired,
+    AnalysisRefNotFound,
+    AnalysisRefScopeDenied,
+    SemanticAnalysisStore,
+)
 from backend.analytics.traceability_models import build_traceability_analysis_payload
 
 
@@ -67,6 +79,69 @@ TESTCASE_DIMENSION_FIELDS = {
     "product.project": "project",
     "product.pu": "pu",
     "requirements.aida": "aida",
+}
+
+RECORD_FIELD_MAPS = {
+    "quality.defect": {
+        "defect_id": "ticket_id",
+        "name": "ticket_name",
+        "creation_time": "creation_time",
+        "status": "status",
+        "severity": "problem_severity",
+        "phase": "phase",
+        "china_scope": "china_scope",
+        "problem_finder_team": "problem_finder_team",
+        "project": "project",
+        "service_pack": "service_pack",
+        "pu": "pu",
+        "i_step": "i_step",
+        "os": "os",
+        "platform": "platform",
+        "assigned_ecu": "assigned_ecu",
+        "model_series": "model_series",
+        "aida": "aida",
+        "detected_by": "detected_by",
+        "solution_cluster": "solution_cluster",
+        "defect_category": "defect_category",
+        "lead_model": "lead_model",
+        "market": "market",
+        "year": "year",
+    },
+    "testing.test_run": {
+        "mr_id": "mr_id",
+        "test_id": "test_id",
+        "name": "test_name",
+        "test_name": "test_name",
+        "status": "status",
+        "finished": "finished",
+        "test_week": "test_week",
+        "tester": "tester",
+        "team": "team",
+        "project": "project",
+        "pu": "pu",
+        "aida": "aida",
+        "defect_id": "defect_id",
+        "started": "started",
+        "release": "release",
+    },
+    "testing.test_case": {
+        "test_id": "test_id",
+        "name": "test_name",
+        "test_name": "test_name",
+        "project": "project",
+        "pu": "pu",
+        "aida": "aida",
+        "trace_status": "trace_status",
+        "run_count": "run_count",
+        "scope_team": "scope_team",
+        "scope_release": "scope_release",
+    },
+}
+
+RECORD_IDENTIFIERS = {
+    "quality.defect": ("ticket_id", "defect_id"),
+    "testing.test_run": ("mr_id", "mr_id"),
+    "testing.test_case": ("test_id", "test_id"),
 }
 
 QUERY_INTENTS = frozenset({"aggregate", "trend", "compare", "rank", "list", "drilldown", "trace"})
@@ -553,10 +628,16 @@ def _aggregate_rows(
 
 
 def _defect_provider(query_filters: dict[str, Any]) -> dict[str, Any]:
-    return build_full_picture_payload(**query_filters)
+    try:
+        return build_semantic_defect_payload(**query_filters)
+    except FullPictureDashboardRequestError as exc:
+        status_code = 409 if "snapshot" in str(exc).casefold() else 400
+        raise SemanticQueryError("SEMANTIC_ANALYSIS_REVISION_STALE" if status_code == 409 else "SEMANTIC_DEFECT_QUERY_INVALID", status_code=status_code) from exc
+    except FullPictureDashboardDataError as exc:
+        raise SemanticQueryError("SEMANTIC_DEFECT_DATA_UNAVAILABLE", status_code=503) from exc
 
 
-def _execute_defects(query: dict[str, Any], provider: Callable[[dict[str, Any]], dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any], list[str]]:
+def _defect_provider_kwargs(query: dict[str, Any]) -> dict[str, Any]:
     kwargs: dict[str, Any] = {}
     for item in query["filters"]:
         parameter = DEFECT_FILTER_PARAMS.get(item["dimensionId"])
@@ -568,6 +649,11 @@ def _execute_defects(query: dict[str, Any], provider: Callable[[dict[str, Any]],
         kwargs["creation_time_start"] = min(scope["start"] for scope in query["timeScopes"])
         kwargs["creation_time_end"] = max(scope["end"] for scope in query["timeScopes"])
         kwargs["years"] = sorted({year for scope in query["timeScopes"] for year in (scope["start"][:4], scope["end"][:4])})
+    return kwargs
+
+
+def _execute_defects(query: dict[str, Any], provider: Callable[[dict[str, Any]], dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any], list[str]]:
+    kwargs = _defect_provider_kwargs(query)
     payload = provider(kwargs)
     rows = [dict(row) for row in payload.get("ticket_rows", [])]
     rows = _apply_filters(rows, query["filters"], DEFECT_DIMENSION_FIELDS)
@@ -592,7 +678,8 @@ def _execute_defects(query: dict[str, Any], provider: Callable[[dict[str, Any]],
 
 
 def _execute_test_runs(query: dict[str, Any], provider: Callable[[], list[dict[str, Any]]]) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any], list[str]]:
-    rows = [dict(row) for row in provider()]
+    source_rows = [dict(row) for row in provider()]
+    rows = source_rows
     rows = _apply_filters(rows, query["filters"], TEST_RUN_DIMENSION_FIELDS)
     rows, field_map = _apply_time_scopes(rows, query["timeScopes"], TEST_RUN_DIMENSION_FIELDS, query["comparison"])
     data, metric_values, warnings = _aggregate_rows(
@@ -604,12 +691,13 @@ def _execute_test_runs(query: dict[str, Any], provider: Callable[[], list[dict[s
         limit=query["limit"],
         sort_items=query["sort"],
     )
-    revision = {"sourceId": "analytics.testing_coverage", "revisionId": _stable_hash(rows), "status": "unpinned", "asOf": datetime.now(timezone.utc).isoformat(), "ingestionWatermark": "unknown"}
+    revision = {"sourceId": "analytics.testing_coverage", "revisionId": _stable_hash(source_rows), "status": "unpinned", "asOf": datetime.now(timezone.utc).isoformat(), "ingestionWatermark": "unknown"}
     return data, {"metrics": metric_values, "rowCount": len(rows)}, revision, warnings
 
 
 def _execute_testcases(query: dict[str, Any], provider: Callable[[], list[dict[str, Any]]]) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any], list[str]]:
-    rows = [dict(row) for row in provider()]
+    source_rows = [dict(row) for row in provider()]
+    rows = source_rows
     unsupported = [dimension_id for dimension_id in query["dimensionIds"] if dimension_id not in TESTCASE_DIMENSION_FIELDS]
     if unsupported:
         raise SemanticQueryError(f"SEMANTIC_DIMENSION_NOT_EXECUTABLE:{unsupported[0]}")
@@ -623,7 +711,7 @@ def _execute_testcases(query: dict[str, Any], provider: Callable[[], list[dict[s
         limit=query["limit"],
         sort_items=query["sort"],
     )
-    revision = {"sourceId": "analytics.testing_coverage", "revisionId": _stable_hash(rows), "status": "unpinned", "asOf": datetime.now(timezone.utc).isoformat(), "ingestionWatermark": "unknown"}
+    revision = {"sourceId": "analytics.testing_coverage", "revisionId": _stable_hash(source_rows), "status": "unpinned", "asOf": datetime.now(timezone.utc).isoformat(), "ingestionWatermark": "unknown"}
     return data, {"metrics": metric_values, "rowCount": len(rows)}, revision, warnings
 
 
@@ -735,6 +823,7 @@ def execute_semantic_query(
     run_provider: Callable[[], list[dict[str, Any]]] = list_runs,
     testcase_provider: Callable[[], list[dict[str, Any]]] = list_testcases,
     trace_provider: Callable[[Any], dict[str, Any]] = _trace_provider,
+    analysis_store: SemanticAnalysisStore | None = None,
 ) -> dict[str, Any]:
     query, actor_scope = _validate_request(payload, catalog)
     metric_ids = set(query["metricIds"])
@@ -755,7 +844,7 @@ def execute_semantic_query(
     row_count = int(summary.get("rowCount", len(data)) or 0)
     has_missing_warning = any("MISSING" in warning or "UNAVAILABLE" in warning for warning in warnings)
     missingness = "zero" if row_count == 0 and metric_ids else "missing" if has_missing_warning and row_count > 0 else "not_applicable"
-    return {
+    result = {
         "schemaVersion": "1.0",
         "queryId": str(payload["queryId"]),
         "ontologyVersion": catalog.version,
@@ -776,4 +865,337 @@ def execute_semantic_query(
             "warnings": warnings,
             "redactionStatus": redaction_status,
         },
+    }
+    if analysis_store is not None and query["intent"] != "trace":
+        evidence = {
+            "kind": "semantic_metric_result",
+            "sourceRevisionId": str(revision.get("revisionId") or ""),
+            "rowCount": row_count,
+            "metricValues": dict(summary.get("metrics", {})),
+            "groupRows": data,
+        }
+        analysis_ref = analysis_store.create(
+            actor_scope_hash=actor_scope["scopeHash"],
+            ontology_version=catalog.version,
+            schema_fingerprint=catalog.fingerprint,
+            query=query,
+            source_revision=revision,
+            evidence=evidence,
+        )
+        evidence = {**evidence, "analysisRef": analysis_ref}
+        result["analysisRef"] = analysis_ref
+        result["evidence"] = evidence
+    return result
+
+
+def _analysis_record_or_error(
+    analysis_store: SemanticAnalysisStore,
+    analysis_ref: str,
+    actor_scope_hash: str,
+) -> dict[str, Any]:
+    try:
+        return analysis_store.load(analysis_ref, actor_scope_hash=actor_scope_hash)
+    except AnalysisRefScopeDenied as exc:
+        raise SemanticQueryError(str(exc), status_code=403) from exc
+    except AnalysisRefExpired as exc:
+        raise SemanticQueryError(str(exc), status_code=410) from exc
+    except AnalysisRefNotFound as exc:
+        raise SemanticQueryError(str(exc), status_code=404) from exc
+
+
+def _validate_record_request(
+    payload: dict[str, Any],
+    catalog: OntologyCatalog,
+    analysis_store: SemanticAnalysisStore | None,
+) -> tuple[dict[str, Any], dict[str, Any], list[str], int, int, str | None, dict[str, Any] | None]:
+    if not isinstance(payload, dict):
+        raise SemanticQueryError("SEMANTIC_RECORD_REQUEST_OBJECT_REQUIRED")
+    _assert_exact_keys(
+        payload,
+        allowed={
+            "schemaVersion", "queryId", "ontologyVersion", "schemaFingerprint", "query",
+            "analysisRef", "actorScope", "selections", "fields", "page", "pageSize",
+        },
+        required={
+            "schemaVersion", "queryId", "ontologyVersion", "schemaFingerprint", "query",
+            "analysisRef", "actorScope", "selections", "fields", "page", "pageSize",
+        },
+        label="RECORD_REQUEST",
+    )
+    if payload["schemaVersion"] != "1.0":
+        raise SemanticQueryError("SEMANTIC_RECORD_REQUEST_VERSION_INVALID")
+    _require_string(payload["queryId"], "RECORD_QUERY_ID")
+    if payload["ontologyVersion"] != catalog.version or payload["schemaFingerprint"] != catalog.fingerprint:
+        raise SemanticQueryError("SEMANTIC_ONTOLOGY_VERSION_MISMATCH", status_code=409)
+    actor_scope = payload["actorScope"]
+    if not isinstance(actor_scope, dict):
+        raise SemanticQueryError("SEMANTIC_ACTOR_SCOPE_OBJECT_REQUIRED")
+    scope_hash = str(actor_scope.get("scopeHash") or "")
+    query_value = payload["query"]
+    analysis_ref = str(payload["analysisRef"] or "").strip() or None
+    if (isinstance(query_value, dict)) == bool(analysis_ref):
+        raise SemanticQueryError("SEMANTIC_RECORD_QUERY_OR_ANALYSIS_REF_REQUIRED")
+    if analysis_ref and analysis_store is None:
+        raise SemanticQueryError("SEMANTIC_ANALYSIS_STORE_REQUIRED", status_code=503)
+
+    stored: dict[str, Any] | None = None
+    if analysis_ref:
+        stored = _analysis_record_or_error(analysis_store, analysis_ref, scope_hash)
+        if stored["ontology_version"] != catalog.version or stored["schema_fingerprint"] != catalog.fingerprint:
+            raise SemanticQueryError("SEMANTIC_ANALYSIS_ONTOLOGY_STALE", status_code=409)
+        base_query = stored["query"]
+    else:
+        base_query = query_value
+        if base_query.get("intent") not in {"list", "drilldown"}:
+            raise SemanticQueryError("SEMANTIC_RECORD_INTENT_REQUIRED")
+
+    selections = payload["selections"]
+    if not isinstance(selections, list):
+        raise SemanticQueryError("SEMANTIC_RECORD_SELECTIONS_ARRAY_REQUIRED")
+    selection_filters: list[dict[str, Any]] = []
+    for selection in selections:
+        if not isinstance(selection, dict):
+            raise SemanticQueryError("SEMANTIC_RECORD_SELECTION_OBJECT_REQUIRED")
+        _assert_exact_keys(
+            selection,
+            allowed={"dimensionId", "operator", "values"},
+            required={"dimensionId", "operator", "values"},
+            label="RECORD_SELECTION",
+        )
+        dimension_id = _require_string(selection["dimensionId"], "RECORD_SELECTION_DIMENSION")
+        if dimension_id not in base_query.get("dimensionIds", []):
+            raise SemanticQueryError(f"SEMANTIC_RECORD_SELECTION_NOT_IN_ANALYSIS:{dimension_id}")
+        if selection["operator"] not in {"in", "eq"}:
+            raise SemanticQueryError("SEMANTIC_RECORD_SELECTION_OPERATOR_INVALID")
+        if not isinstance(selection["values"], list) or not selection["values"]:
+            raise SemanticQueryError("SEMANTIC_RECORD_SELECTION_VALUES_REQUIRED")
+        selection_filters.append({
+            "dimensionId": dimension_id,
+            "operator": selection["operator"],
+            "values": selection["values"],
+            "source": "context",
+        })
+
+    derived_query = {
+        **base_query,
+        "intent": "drilldown",
+        "filters": [*base_query.get("filters", []), *selection_filters],
+        "comparison": None,
+        "sort": [],
+    }
+    validated_query, validated_scope = _validate_request(
+        {
+            "schemaVersion": "1.0",
+            "queryId": payload["queryId"],
+            "ontologyVersion": catalog.version,
+            "schemaFingerprint": catalog.fingerprint,
+            "query": derived_query,
+            "actorScope": actor_scope,
+        },
+        catalog,
+    )
+    if len(validated_query["entityIds"]) != 1:
+        raise SemanticQueryError("SEMANTIC_RECORD_SINGLE_ENTITY_REQUIRED")
+
+    fields = _require_string_list(payload["fields"], "RECORD_FIELDS")
+    if not fields or len(fields) > 20:
+        raise SemanticQueryError("SEMANTIC_RECORD_FIELDS_INVALID")
+    page = payload["page"]
+    page_size = payload["pageSize"]
+    maximum = int(_catalog_constraint(catalog, "query.max_limit")["parameters"]["maximum"])
+    if not isinstance(page, int) or page < 1:
+        raise SemanticQueryError("SEMANTIC_RECORD_PAGE_INVALID")
+    if not isinstance(page_size, int) or page_size < 1 or page_size > maximum:
+        raise SemanticQueryError("SEMANTIC_RECORD_PAGE_SIZE_INVALID")
+    return validated_query, validated_scope, fields, page, page_size, analysis_ref, stored
+
+
+def _record_revision(
+    query: dict[str, Any],
+    *,
+    defect_provider: Callable[[dict[str, Any]], dict[str, Any]],
+    run_provider: Callable[[], list[dict[str, Any]]],
+    testcase_provider: Callable[[], list[dict[str, Any]]],
+    requested_revision_id: str = "",
+) -> tuple[list[dict[str, Any]], dict[str, Any], list[str], dict[str, str]]:
+    entity_id = query["entityIds"][0]
+    warnings: list[str] = []
+    if entity_id == "quality.defect":
+        kwargs = _defect_provider_kwargs(query)
+        if requested_revision_id:
+            kwargs["snapshot_version"] = requested_revision_id
+        payload = defect_provider(kwargs)
+        source_rows = [dict(row) for row in payload.get("ticket_rows", [])]
+        rows = _apply_filters(source_rows, query["filters"], DEFECT_DIMENSION_FIELDS)
+        rows, field_map = _apply_time_scopes(rows, query["timeScopes"], DEFECT_DIMENSION_FIELDS, None)
+        revision_id = str(payload.get("snapshot_version") or _stable_hash(payload.get("generated_from", {})))
+        revision = {
+            "sourceId": "analytics.full_picture_defects",
+            "revisionId": revision_id,
+            "status": "pinned" if payload.get("snapshot_version") else "unpinned",
+            "asOf": datetime.now(timezone.utc).isoformat(),
+            "ingestionWatermark": str(payload.get("generated_from", {}).get("fetched_at") or "unknown"),
+        }
+        return rows, revision, warnings, field_map
+    if entity_id == "testing.test_run":
+        source_rows = [dict(row) for row in run_provider()]
+        rows = _apply_filters(source_rows, query["filters"], TEST_RUN_DIMENSION_FIELDS)
+        rows, field_map = _apply_time_scopes(rows, query["timeScopes"], TEST_RUN_DIMENSION_FIELDS, None)
+        revision = {
+            "sourceId": "analytics.testing_coverage",
+            "revisionId": _stable_hash(source_rows),
+            "status": "unpinned",
+            "asOf": datetime.now(timezone.utc).isoformat(),
+            "ingestionWatermark": "unknown",
+        }
+        return rows, revision, warnings, field_map
+    if entity_id == "testing.test_case":
+        source_rows = [dict(row) for row in testcase_provider()]
+        rows = _apply_filters(source_rows, query["filters"], TESTCASE_DIMENSION_FIELDS)
+        revision = {
+            "sourceId": "analytics.testing_coverage",
+            "revisionId": _stable_hash(source_rows),
+            "status": "unpinned",
+            "asOf": datetime.now(timezone.utc).isoformat(),
+            "ingestionWatermark": "unknown",
+        }
+        return rows, revision, warnings, TESTCASE_DIMENSION_FIELDS
+    raise SemanticQueryError(f"SEMANTIC_RECORD_ENTITY_NOT_EXECUTABLE:{entity_id}")
+
+
+def _record_field_projection(
+    rows: list[dict[str, Any]],
+    *,
+    entity_id: str,
+    fields: list[str],
+    actor_scope: dict[str, Any],
+    catalog: OntologyCatalog,
+) -> tuple[list[dict[str, Any]], list[str], str]:
+    field_map = RECORD_FIELD_MAPS.get(entity_id, {})
+    entities = {str(item["id"]): item for item in catalog.bundle["entities"]}
+    entity = entities.get(entity_id)
+    properties = {str(item["id"]): item for item in entity.get("properties", [])} if entity else {}
+    allowed_properties = set(actor_scope["allowedPropertyIds"])
+    sensitive_policies = set(actor_scope["sensitiveFieldPolicyIds"])
+    sensitive_levels = set(_catalog_policy(catalog, "sensitive.property.redaction").get("sensitivityLevels", []))
+    redact_fields: set[str] = set()
+    for field in fields:
+        source_field = field_map.get(field)
+        prop = properties.get(field)
+        if source_field is None or prop is None:
+            raise SemanticQueryError(f"SEMANTIC_RECORD_FIELD_DENIED:{field}", status_code=403)
+        refs = {field, f"{entity_id}.{field}"}
+        if allowed_properties and not (refs & allowed_properties):
+            raise SemanticQueryError(f"SEMANTIC_RECORD_FIELD_DENIED:{field}", status_code=403)
+        if rows and not any(source_field in row for row in rows):
+            raise SemanticQueryError(f"SEMANTIC_RECORD_SOURCE_FIELD_UNAVAILABLE:{field}", status_code=422)
+        if prop.get("sensitivity") in sensitive_levels and "raw:confidential" not in sensitive_policies:
+            if "pseudonymize:confidential" not in sensitive_policies or (allowed_properties and not (refs & allowed_properties)):
+                raise SemanticQueryError(f"SEMANTIC_SENSITIVE_FIELD_DENIED:{field}", status_code=403)
+            redact_fields.add(field)
+
+    projected: list[dict[str, Any]] = []
+    for row in rows:
+        item: dict[str, Any] = {}
+        for field in fields:
+            value = row.get(field_map[field])
+            if field in redact_fields and value not in {None, ""}:
+                digest = hashlib.sha256(f"{actor_scope['actorId']}:{entity_id}:{field}:{value}".encode("utf-8")).hexdigest()[:12]
+                value = f"pseudonym-{digest}"
+            item[field] = value
+        projected.append(item)
+    warnings = [f"SENSITIVE_FIELD_PSEUDONYMIZED:{field}" for field in sorted(redact_fields)]
+    return projected, warnings, "applied" if redact_fields else "not_required"
+
+
+def execute_semantic_records(
+    payload: dict[str, Any],
+    *,
+    catalog: OntologyCatalog,
+    analysis_store: SemanticAnalysisStore | None = None,
+    defect_provider: Callable[[dict[str, Any]], dict[str, Any]] = _defect_provider,
+    run_provider: Callable[[], list[dict[str, Any]]] = list_runs,
+    testcase_provider: Callable[[], list[dict[str, Any]]] = list_testcases,
+) -> dict[str, Any]:
+    query, actor_scope, fields, page, page_size, analysis_ref, stored = _validate_record_request(
+        payload,
+        catalog,
+        analysis_store,
+    )
+    entity_id = query["entityIds"][0]
+    _record_field_projection(
+        [],
+        entity_id=entity_id,
+        fields=fields,
+        actor_scope=actor_scope,
+        catalog=catalog,
+    )
+    expected_revision = str(stored.get("source_revision", {}).get("revisionId") or "") if stored else ""
+    rows, revision, warnings, _dimension_field_map = _record_revision(
+        query,
+        defect_provider=defect_provider,
+        run_provider=run_provider,
+        testcase_provider=testcase_provider,
+        requested_revision_id=expected_revision,
+    )
+    if expected_revision and str(revision.get("revisionId") or "") != expected_revision:
+        raise SemanticQueryError("SEMANTIC_ANALYSIS_REVISION_STALE", status_code=409)
+
+    source_identifier, _output_identifier = RECORD_IDENTIFIERS[entity_id]
+    distinct = {str(row.get(source_identifier) or ""): row for row in rows if str(row.get(source_identifier) or "")}
+    ordered_rows = [distinct[key] for key in sorted(distinct)]
+    total_rows = len(ordered_rows)
+    total_pages = max((total_rows + page_size - 1) // page_size, 1)
+    start = (page - 1) * page_size
+    page_rows = ordered_rows[start : start + page_size]
+    data, redaction_warnings, redaction_status = _record_field_projection(
+        page_rows,
+        entity_id=entity_id,
+        fields=fields,
+        actor_scope=actor_scope,
+        catalog=catalog,
+    )
+    warnings = [*warnings, *_source_freshness_warnings(revision, catalog), *redaction_warnings]
+    evidence_seed = {
+        "kind": "semantic_record_set",
+        "sourceRevisionId": str(revision.get("revisionId") or ""),
+        "rowCount": len(data),
+        "totalRows": total_rows,
+        "fieldIds": fields,
+    }
+    if analysis_ref is None:
+        if analysis_store is None:
+            raise SemanticQueryError("SEMANTIC_ANALYSIS_STORE_REQUIRED", status_code=503)
+        analysis_ref = analysis_store.create(
+            actor_scope_hash=actor_scope["scopeHash"],
+            ontology_version=catalog.version,
+            schema_fingerprint=catalog.fingerprint,
+            query=query,
+            source_revision=revision,
+            evidence=evidence_seed,
+        )
+    evidence = {**evidence_seed, "analysisRef": analysis_ref}
+    return {
+        "schemaVersion": "1.0",
+        "queryId": str(payload["queryId"]),
+        "ontologyVersion": catalog.version,
+        "schemaFingerprint": catalog.fingerprint,
+        "analysisRef": analysis_ref,
+        "sourceRevision": revision,
+        "scope": {
+            "actorScopeHash": actor_scope["scopeHash"],
+            "filters": query["filters"],
+            "timeScopes": query["timeScopes"],
+            "entityId": entity_id,
+        },
+        "data": data,
+        "pagination": {"page": page, "pageSize": page_size, "totalRows": total_rows, "totalPages": total_pages},
+        "quality": {
+            "completeness": "partial" if warnings else "complete",
+            "missingness": "zero" if total_rows == 0 else "not_applicable",
+            "truncated": start + len(data) < total_rows,
+            "warnings": warnings,
+            "redactionStatus": redaction_status,
+        },
+        "evidence": evidence,
     }

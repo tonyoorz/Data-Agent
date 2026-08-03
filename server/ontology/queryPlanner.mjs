@@ -47,6 +47,12 @@ function planId(frame, actorScopeHash) {
   return `plan-${createHash("sha256").update(canonicalJson({ frame, actorScopeHash })).digest("hex").slice(0, 16)}`;
 }
 
+const DEFAULT_RECORD_FIELDS = Object.freeze({
+  "quality.defect": ["defect_id", "name", "status", "assigned_ecu", "problem_finder_team", "creation_time"],
+  "testing.test_run": ["mr_id", "test_id", "test_name", "status", "team", "finished"],
+  "testing.test_case": ["test_id", "test_name", "project", "pu", "aida", "trace_status"],
+});
+
 function validatePlan(plan) {
   if (!validate(plan)) throw new Error(`QUERY_PLAN_INVALID:${ajv.errorsText(validate.errors)}`);
   return plan;
@@ -99,7 +105,17 @@ export function createQueryPlanner({ registry } = {}) {
       } else if (["list", "drilldown"].includes(frame.intent)) {
         operation = "semantic_record_query";
         toolName = "query_semantic_records";
-        canonicalArgs = { query: compileSemanticQuery(frame) };
+        const entityId = frame.entityIds[0];
+        canonicalArgs = {
+          ontology_version: frame.ontologyVersion,
+          schema_fingerprint: frame.schemaFingerprint,
+          query: compileSemanticQuery(frame),
+          analysis_ref: null,
+          selections: [],
+          fields: DEFAULT_RECORD_FIELDS[entityId] || [],
+          page: 1,
+          page_size: Math.min(50, frame.limit),
+        };
       } else {
         canonicalArgs = { query: compileSemanticQuery(frame) };
       }

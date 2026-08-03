@@ -6,6 +6,7 @@ import pytest
 from backend.analytics import config as analytics_config
 from backend.analytics.api import app
 from backend.analytics.schema import ensure_schema
+from backend.analytics.testing_coverage_hot import refresh_materialized_testing_coverage
 
 
 REQUIRED_MISSING_FIELDS = [
@@ -137,6 +138,14 @@ def _seed_source_testing_tables(db_path):
         conn.commit()
     finally:
         conn.close()
+
+
+def _publish_testing_coverage_snapshot(source_db_path, database_root):
+    refresh_materialized_testing_coverage(
+        source_db_path=source_db_path,
+        hot_db_path=database_root / "hot" / "vizion_serving.db",
+        force=True,
+    )
 
 
 def _seed_hot_testing_coverage_rows(db_path):
@@ -373,6 +382,8 @@ def test_testing_coverage_analysis_uses_tpmdashboard_feature_region_mapping(
     finally:
         conn.close()
 
+    _publish_testing_coverage_snapshot(source_db_path, database_root)
+
     monkeypatch.setattr(analytics_config, "DEFAULT_ANALYTICS_DB_PATH", tmp_path / "legacy" / "octane_data.db")
     monkeypatch.delenv("VIZION_ANALYTICS_DB_PATH", raising=False)
     monkeypatch.setenv("VIZION_DATABASE_ROOT", str(database_root))
@@ -523,6 +534,8 @@ def test_testing_coverage_analysis_falls_back_from_legacy_columns_when_feature_r
     finally:
         conn.close()
 
+    _publish_testing_coverage_snapshot(source_db_path, database_root)
+
     monkeypatch.setattr(analytics_config, "DEFAULT_ANALYTICS_DB_PATH", tmp_path / "legacy" / "octane_data.db")
     monkeypatch.delenv("VIZION_ANALYTICS_DB_PATH", raising=False)
     monkeypatch.setenv("VIZION_DATABASE_ROOT", str(database_root))
@@ -664,6 +677,8 @@ def test_testing_coverage_analysis_prefers_tpmdashboard_finished_and_project_rul
     finally:
         conn.close()
 
+    _publish_testing_coverage_snapshot(source_db_path, database_root)
+
     monkeypatch.setattr(analytics_config, "DEFAULT_ANALYTICS_DB_PATH", tmp_path / "legacy" / "octane_data.db")
     monkeypatch.delenv("VIZION_ANALYTICS_DB_PATH", raising=False)
     monkeypatch.setenv("VIZION_DATABASE_ROOT", str(database_root))
@@ -797,6 +812,8 @@ def test_testing_coverage_analysis_uses_tester_column_when_run_by_and_author_are
     finally:
         conn.close()
 
+    _publish_testing_coverage_snapshot(source_db_path, database_root)
+
     monkeypatch.setattr(analytics_config, "DEFAULT_ANALYTICS_DB_PATH", tmp_path / "legacy" / "octane_data.db")
     monkeypatch.delenv("VIZION_ANALYTICS_DB_PATH", raising=False)
     monkeypatch.setenv("VIZION_DATABASE_ROOT", str(database_root))
@@ -817,6 +834,8 @@ def test_testing_coverage_analysis_uses_tester_column_when_run_by_and_author_are
             "top_aida": "Use Speech operation [01.04.02.01.01.05]",
             "project": "IDCEVO",
             "pu": "ICV",
+            "fvp": "Voice Experience",
+            "fv": "Speech",
             "tester": "Tester From Column",
             "count": 1,
         }
@@ -949,6 +968,8 @@ def test_testing_coverage_analysis_source_queries_prefer_manual_run_dimensions_w
     finally:
         conn.close()
 
+    _publish_testing_coverage_snapshot(source_db_path, database_root)
+
     monkeypatch.setattr(analytics_config, "DEFAULT_ANALYTICS_DB_PATH", tmp_path / "legacy" / "octane_data.db")
     monkeypatch.delenv("VIZION_ANALYTICS_DB_PATH", raising=False)
     monkeypatch.setenv("VIZION_DATABASE_ROOT", str(database_root))
@@ -1001,6 +1022,8 @@ def test_testing_coverage_analysis_source_queries_prefer_manual_run_dimensions_w
             "top_aida": "Use Speech operation [01.04.02.01.01.05]",
             "project": "IDCEVO",
             "pu": "ICV",
+            "fvp": "Voice Experience",
+            "fv": "Speech",
             "tester": "Tester From Manual Run",
             "count": 1,
         }
@@ -1455,6 +1478,8 @@ def test_testing_coverage_analysis_grouped_endpoints_merge_normalized_bucket_val
             "top_aida": "AIDA-1",
             "project": "IDCEVO",
             "pu": "PU1",
+            "fvp": "Voice",
+            "fv": "Speech",
             "tester": "Tester A",
             "count": 2,
         }
