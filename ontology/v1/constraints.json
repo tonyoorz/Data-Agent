@@ -2,10 +2,70 @@
   "schemaVersion": "1.0",
   "ontologyVersion": "v1",
   "constraints": [
-    { "id": "query.max_limit", "version": "1.0.0", "kind": "query_limit", "enforcement": "plan", "parameters": { "maximum": 200 }, "governance": { "status": "approved", "owner": "Agent Platform" } },
-    { "id": "planner.approved_metric_only", "version": "1.0.0", "kind": "approved_metric_only", "enforcement": "plan", "parameters": { "enabled": true }, "governance": { "status": "approved", "owner": "Metric Governance" } },
-    { "id": "planner.forbid_arbitrary_sql", "version": "1.0.0", "kind": "forbid_arbitrary_sql", "enforcement": "compile", "parameters": { "enabled": true }, "governance": { "status": "approved", "owner": "Agent Security" } },
-    { "id": "answer.claim_evidence_binding", "version": "1.0.0", "kind": "claim_evidence_binding", "enforcement": "claim", "parameters": { "coverage": 1 }, "governance": { "status": "approved", "owner": "Agent Platform" } },
-    { "id": "similarity.not_population_statistic", "version": "1.0.0", "kind": "similarity_not_statistic", "enforcement": "claim", "parameters": { "enabled": true }, "governance": { "status": "approved", "owner": "Quality Analytics" } }
+    {
+      "id": "query.max_limit",
+      "version": "1.0.0",
+      "kind": "query_limit",
+      "enforcement": "plan",
+      "parameters": {
+        "maximum": 200
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Agent Platform"
+      }
+    },
+    {
+      "id": "planner.approved_metric_only",
+      "version": "1.0.0",
+      "kind": "approved_metric_only",
+      "enforcement": "plan",
+      "parameters": {
+        "enabled": true
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Metric Governance"
+      }
+    },
+    {
+      "id": "planner.forbid_arbitrary_sql",
+      "version": "1.0.0",
+      "kind": "forbid_arbitrary_sql",
+      "enforcement": "compile",
+      "parameters": {
+        "enabled": true
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Agent Security"
+      }
+    },
+    {
+      "id": "answer.claim_evidence_binding",
+      "version": "1.0.0",
+      "kind": "claim_evidence_binding",
+      "enforcement": "claim",
+      "parameters": {
+        "coverage": 1
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Agent Platform"
+      }
+    },
+    {
+      "id": "similarity.not_population_statistic",
+      "version": "1.0.0",
+      "kind": "similarity_not_statistic",
+      "enforcement": "claim",
+      "parameters": {
+        "enabled": true
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    }
   ]
 }
