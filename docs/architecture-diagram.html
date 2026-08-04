@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Data-Agent 架构图</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --panel2: #1c2230;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --purple: #bc8cff;
+    --orange: #f0883e;
+    --red: #f85149;
+    --teal: #2dd4bf;
+    --yellow: #e3b341;
+    --pink: #f778ba;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "SF Pro Text", "Helvetica Neue", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    line-height: 1.55;
+    padding: 32px 20px 80px;
+  }
+  .wrap { max-width: 1280px; margin: 0 auto; }
+  h1 {
+    font-size: 26px; font-weight: 700; margin-bottom: 6px;
+    background: linear-gradient(90deg, #58a6ff, #bc8cff 60%, #f778ba);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .subtitle { color: var(--muted); font-size: 14px; margin-bottom: 36px; }
+  h2.section {
+    font-size: 19px; font-weight: 700; margin: 48px 0 18px;
+    padding-left: 12px; border-left: 4px solid var(--accent);
+    display: flex; align-items: center; gap: 10px;
+  }
+  h2.section .tag {
+    font-size: 11px; font-weight: 500; color: var(--muted);
+    background: var(--panel); border: 1px solid var(--border);
+    padding: 2px 8px; border-radius: 10px;
+  }
+  h2.s2 { border-color: var(--purple); }
+  h2.s3 { border-color: var(--teal); }
+
+  /* ===== Overview diagram ===== */
+  .overview {
+    background: linear-gradient(180deg, #0f1622 0%, #0d1117 100%);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 28px 24px;
+    position: relative;
+  }
+  .layer { display: flex; flex-direction: column; align-items: center; gap: 14px; position: relative; }
+  .layer + .layer { margin-top: 18px; }
+  .row { display: flex; gap: 14px; align-items: stretch; justify-content: center; flex-wrap: wrap; }
+  .node {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 16px;
+    min-width: 170px;
+    position: relative;
+    transition: transform .15s, border-color .15s;
+  }
+  .node:hover { transform: translateY(-2px); border-color: var(--accent); }
+  .node .title { font-weight: 600; font-size: 13.5px; margin-bottom: 3px; }
+  .node .desc { font-size: 11.5px; color: var(--muted); }
+  .node .file { font-size: 10.5px; color: var(--accent); font-family: "SF Mono", ui-monospace, Menlo, monospace; margin-top: 4px; }
+  .n-user { border-color: var(--green); }
+  .n-user .title { color: var(--green); }
+  .n-gateway { border-color: var(--accent); background: linear-gradient(135deg,#0d2238,#13283f); }
+  .n-gateway .title { color: var(--accent); }
+  .n-graph { border-color: var(--purple); background: linear-gradient(135deg,#1a1430,#241a40); }
+  .n-graph .title { color: var(--purple); }
+  .n-orch { border-color: var(--orange); background: linear-gradient(135deg,#2a1c0f,#3a2817); }
+  .n-orch .title { color: var(--orange); }
+  .n-llm { border-color: var(--yellow); }
+  .n-llm .title { color: var(--yellow); }
+  .n-tool { border-color: var(--teal); background: linear-gradient(135deg,#0c2a26,#103630); }
+  .n-tool .title { color: var(--teal); }
+  .n-py { border-color: var(--pink); background: linear-gradient(135deg,#2a0f23,#3a172f); }
+  .n-py .title { color: var(--pink); }
+  .n-data { border-color: var(--muted); }
+  .n-onto { border-color: var(--green); background: linear-gradient(135deg,#0d2618,#103020); }
+  .n-onto .title { color: var(--green); }
+
+  .arrow {
+    color: var(--muted); font-size: 20px; line-height: 1;
+    text-align: center; font-family: ui-monospace, monospace;
+  }
+  .arrow-label { font-size: 10.5px; color: var(--muted); text-align: center; margin-top:-8px; margin-bottom:4px;}
+
+  .pill {
+    display: inline-block; font-size: 10.5px; padding: 2px 8px;
+    border-radius: 10px; background: var(--panel2); border: 1px solid var(--border);
+    color: var(--muted); margin-right: 4px;
+  }
+
+  /* ===== LangGraph flow ===== */
+  .flow { display: flex; align-items: stretch; gap: 0; flex-wrap: wrap; }
+  .step {
+    flex: 1; min-width: 150px;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px 12px; position: relative;
+  }
+  .step .num {
+    position: absolute; top: -10px; left: 12px;
+    width: 22px; height: 22px; border-radius: 50%;
+    background: var(--purple); color:#0d1117; font-weight:700; font-size:12px;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .step .st { font-weight: 600; font-size: 13px; color: var(--purple); margin-bottom: 4px; margin-top: 4px;}
+  .step .sd { font-size: 11.5px; color: var(--muted); }
+  .step .sf { font-size: 10px; color: var(--accent); font-family: ui-monospace, monospace; margin-top: 6px;}
+  .chev { display:flex; align-items:center; color: var(--border); font-size: 22px; padding: 0 4px;}
+
+  /* ===== Intent grid ===== */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px,1fr)); gap: 12px; }
+  .intent {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px 14px;
+    border-left: 3px solid var(--orange);
+  }
+  .intent .iname { font-weight: 600; font-size: 13px; color: var(--orange); display:flex; justify-content:space-between; align-items:center;}
+  .intent .conf { font-size: 10px; color: var(--muted); font-weight: 400;}
+  .intent .tools { font-size: 11px; color: var(--muted); margin-top: 6px; font-family: ui-monospace, monospace; line-height:1.5;}
+
+  /* ===== Ontology layered ===== */
+  .stack { display: flex; flex-direction: column; gap: 10px; }
+  .band {
+    border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px;
+    position: relative;
+  }
+  .band h3 { font-size: 13px; font-weight: 700; margin-bottom: 4px; display:flex; align-items:center; gap:8px;}
+  .band .bsub { font-size: 11.5px; color: var(--muted); margin-bottom: 12px;}
+  .band .tagstage { font-size: 10px; padding: 2px 7px; border-radius: 8px; border:1px solid var(--border); color:var(--muted);}
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    background: var(--panel2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 10px; font-size: 11.5px; min-width: 130px;
+  }
+  .chip .ct { font-weight: 600; font-size: 12px; }
+  .chip .cd { color: var(--muted); font-size: 10.5px; margin-top: 2px;}
+  .b-auth { background: linear-gradient(180deg,#0f1d14,#0d1117); border-color:#1f4d2e; }
+  .b-auth h3 { color: var(--green); }
+  .b-schema { background: var(--panel); border-color:#3a2f0a; }
+  .b-schema h3 { color: var(--yellow); }
+  .b-compiled { background: linear-gradient(180deg,#1a1430,#0d1117); border-color:#3a2f6a; }
+  .b-compiled h3 { color: var(--purple); }
+  .b-runtime { background: var(--panel); border-color:#0f3a36; }
+  .b-runtime h3 { color: var(--teal); }
+  .b-exec { background: linear-gradient(180deg,#2a0f23,#0d1117); border-color:#6a2f55; }
+  .b-exec h3 { color: var(--pink); }
+
+  .conn { text-align:center; color: var(--border); font-size:18px; line-height:1;}
+
+  /* ===== Semantic graph ===== */
+  .semgraph { display:flex; justify-content:center; padding: 10px 0; }
+  .semgraph svg { max-width: 100%; height: auto; }
+
+  .legend { display:flex; gap:14px; flex-wrap:wrap; margin-top: 16px; justify-content:center; font-size:11.5px; color: var(--muted);}
+  .legend span { display:inline-flex; align-items:center; gap:5px;}
+  .dot { width:10px; height:10px; border-radius:3px; display:inline-block;}
+
+  .stats { display:flex; gap: 18px; flex-wrap: wrap; margin: 14px 0 0; justify-content:center;}
+  .stat { text-align:center; }
+  .stat .v { font-size: 22px; font-weight: 700; }
+  .stat .l { font-size: 11px; color: var(--muted);}
+
+  footer { margin-top: 60px; padding-top: 20px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; text-align:center;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Data-Agent · 系统架构图</h1>
+  <div class="subtitle">DTSV Intelligence · Main Agent Orchestrator (LangGraph) + Ontology Semantic Runtime · 2026-07-29</div>
+
+  <!-- ============ 1. OVERVIEW ============ -->
+  <h2 class="section">① 整体系统架构 <span class="tag">双进程 · Node + Python</span></h2>
+  <div class="overview">
+    <div class="layer">
+      <div class="node n-user" style="min-width:260px">
+        <div class="title">👤 用户 (Browser)</div>
+        <div class="desc">React AIChat 聊天界面</div>
+        <div class="file">src/components/dashboard/pages/AIChat.tsx</div>
+      </div>
+    </div>
+    <div class="arrow">│</div>
+    <div class="arrow-label">POST /api/ai/chat (SSE)</div>
+
+    <!-- Node gateway band -->
+    <div style="border:1px dashed var(--accent); border-radius:12px; padding:18px; background:rgba(88,166,255,.04)">
+      <div style="text-align:center; font-size:11px; color:var(--accent); margin-bottom:14px; letter-spacing:1px;">
+        ▼ NODE API GATEWAY · server/ · port 3004
+      </div>
+
+      <div class="row">
+        <div class="node n-gateway">
+          <div class="title">HTTP 入口</div>
+          <div class="desc">handleAiChatRequest · 路由 / SSE</div>
+          <div class="file">server/index.mjs</div>
+        </div>
+        <div class="node n-gateway">
+          <div class="title">SSE Handler</div>
+          <div class="desc">流式事件 agent-runtime-event</div>
+          <div class="file">agentRuntime/langGraphChatHandler.mjs</div>
+        </div>
+      </div>
+      <div class="arrow">│</div>
+
+      <div class="row">
+        <div class="node n-graph" style="min-width:380px">
+          <div class="title">🧠 LangGraph Orchestrator (Main Agent Harness)</div>
+          <div class="desc">StateGraph 状态机 · MemorySaver 检查点 · 审计落盘</div>
+          <div class="file">agentRuntime/langGraphChatRuntime.mjs</div>
+        </div>
+      </div>
+      <div class="arrow">│</div>
+      <div class="arrow-label">execute_tool_turn → runMainAgentToolTurn</div>
+
+      <div class="row">
+        <div class="node n-orch" style="min-width:380px">
+          <div class="title">⚙️ Tool Turn Orchestrator</div>
+          <div class="desc">意图路由 → 策略校验 → 证据捕获 → 空结果自诊断 · maxSteps=4</div>
+          <div class="file">mainAgentToolOrchestrator.mjs · registry · planning</div>
+        </div>
+      </div>
+
+      <div style="display:flex; gap:14px; justify-content:center; margin-top:8px;">
+        <div class="arrow" style="flex:0 0 auto">↙</div>
+        <div style="flex:0 0 auto; width:60px"></div>
+        <div class="arrow" style="flex:0 0 auto">↘</div>
+      </div>
+
+      <div class="row">
+        <div class="node n-llm" style="min-width:200px">
+          <div class="title">LLM 推理</div>
+          <div class="desc">规划工具调用 ≤3 / step</div>
+          <div class="file">companyChat.mjs → deepseek / qwen / glm</div>
+        </div>
+        <div class="node n-tool" style="min-width:240px">
+          <div class="title">🛠 19 个 Agent 工具</div>
+          <div class="desc">ontology语义 · analytics · duplicate · coverage</div>
+          <div class="file">mainAgentTools.mjs</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin: 14px 0;"><div class="arrow">│</div>
+    <div class="arrow-label">HTTP (query_semantic_* / query_analytics / search_duplicates)</div></div>
+
+    <!-- Python band -->
+    <div style="border:1px dashed var(--pink); border-radius:12px; padding:18px; background:rgba(247,120,186,.04)">
+      <div style="text-align:center; font-size:11px; color:var(--pink); margin-bottom:14px; letter-spacing:1px;">
+        ▼ PYTHON ANALYTICS DATA-PLANE · backend/analytics/ · port 3003 (uvicorn)
+      </div>
+      <div class="row">
+        <div class="node n-py">
+          <div class="title">FastAPI App</div>
+          <div class="desc">/api/semantic/query · /api/ontology/* · /api/full-picture/*</div>
+          <div class="file">api.py</div>
+        </div>
+        <div class="node n-py">
+          <div class="title">Semantic Executor</div>
+          <div class="desc">受 ontology 治理的查询执行</div>
+          <div class="file">semantic_query.py</div>
+        </div>
+        <div class="node n-py">
+          <div class="title">Ontology Catalog</div>
+          <div class="desc">Python 侧 load_ontology() 镜像</div>
+          <div class="file">ontology.py</div>
+        </div>
+      </div>
+      <div class="arrow">│</div>
+      <div class="arrow-label">reads (pinned by fingerprint)</div>
+      <div class="row">
+        <div class="node n-data">
+          <div class="title">🗄 数据层</div>
+          <div class="desc">SQLite read-models · cold parquet</div>
+          <div class="file">database/*.db</div>
+        </div>
+        <div class="node n-onto">
+          <div class="title">📦 Compiled Ontology</div>
+          <div class="desc">fingerprint ce5c4040… · v1</div>
+          <div class="file">ontology/generated/ontology.compiled.json</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="legend">
+      <span><i class="dot" style="background:var(--accent)"></i>Node Gateway</span>
+      <span><i class="dot" style="background:var(--purple)"></i>LangGraph 编排</span>
+      <span><i class="dot" style="background:var(--orange)"></i>工具回合编排</span>
+      <span><i class="dot" style="background:var(--teal)"></i>Agent 工具</span>
+      <span><i class="dot" style="background:var(--pink)"></i>Python 数据面</span>
+      <span><i class="dot" style="background:var(--green)"></i>Ontology 契约</span>
+    </div>
+  </div>
+
+  <!-- ============ 2. LANGGRAPH FLOW ============ -->
+  <h2 class="section s2">② Main Agent 编排流程 <span class="tag">LangGraph StateGraph</span></h2>
+  <div class="overview">
+    <div class="flow">
+      <div class="step">
+        <div class="num">1</div>
+        <div class="st">initialize</div>
+        <div class="sd">runId / threadId / actorScope / queryText 初始化</div>
+      </div>
+      <div class="chev">›</div>
+      <div class="step">
+        <div class="num">2</div>
+        <div class="st">resolve_context</div>
+        <div class="sd">analytics 上下文 + defect/duplicate 上下文 (可选)</div>
+        <div class="sf">aiAnalyticsContext.mjs</div>
+      </div>
+      <div class="chev">›</div>
+      <div class="step">
+        <div class="num">3</div>
+        <div class="st">route_tools</div>
+        <div class="sd">意图识别 → 选择允许的工具集 (policy gate)</div>
+        <div class="sf">selectMainAgentToolset</div>
+      </div>
+      <div class="chev">›</div>
+      <div class="step">
+        <div class="num">4</div>
+        <div class="st">execute_tool_turn</div>
+        <div class="sd">LLM 规划 → 策略校验 → 执行 → 证据/自诊断 · 循环 ≤4</div>
+        <div class="sf">runMainAgentToolTurn</div>
+      </div>
+      <div class="chev">›</div>
+      <div class="step">
+        <div class="num">5</div>
+        <div class="st">finalize</div>
+        <div class="sd">合并上下文 → finalMessages → 指标 → 审计落盘</div>
+      </div>
+    </div>
+
+    <div style="margin-top:22px;">
+      <div style="font-size:12px; color:var(--muted); margin-bottom:10px;">
+        <span class="pill">关键特征</span>
+        单一 Main Agent（无具名子 Agent），靠 <b style="color:var(--orange)">意图路由 + 策略门控的工具集</b> 决定 LLM 可调用哪些工具
+      </div>
+      <div style="font-size:12px; color:var(--muted);">
+        <span class="pill">输出协议</span>
+        最终回答以 <code style="color:var(--accent)">&lt;step&gt;</code> / <code style="color:var(--accent)">&lt;cite&gt;</code> 标签流式输出，每个 claim 须有证据绑定 (<code>answer.claim_evidence_binding</code>)
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 3. INTENT PROFILES ============ -->
+  <h2 class="section s2" style="border-color:var(--orange)">③ 意图路由 <span class="tag">12 个 Intent Profile · 事实上承担"子 Agent"职责</span></h2>
+  <div class="grid">
+    <div class="intent">
+      <div class="iname">metric_query <span class="conf">0.88</span></div>
+      <div class="tools">query_analytics · query_semantic_metrics · diagnose_analytics_empty</div>
+    </div>
+    <div class="intent">
+      <div class="iname">coverage_query <span class="conf">0.88</span></div>
+      <div class="tools">query_testing_coverage_project_status · aida_status</div>
+    </div>
+    <div class="intent">
+      <div class="iname">traceability <span class="conf">0.86</span></div>
+      <div class="tools">query_traceability · get_test_case_context</div>
+    </div>
+    <div class="intent">
+      <div class="iname">action_capability <span class="conf">0.90</span></div>
+      <div class="tools">get_ontology_catalog · search_octane_fields (写/改/删)</div>
+    </div>
+    <div class="intent">
+      <div class="iname">duplicate_search <span class="conf">0.86</span></div>
+      <div class="tools">search_duplicates</div>
+    </div>
+    <div class="intent">
+      <div class="iname">record_query <span class="conf">0.82</span></div>
+      <div class="tools">query_semantic_records · query_defect_records</div>
+    </div>
+    <div class="intent">
+      <div class="iname">schema_discovery <span class="conf">0.84</span></div>
+      <div class="tools">get_ontology_catalog · search_octane_fields</div>
+    </div>
+    <div class="intent">
+      <div class="iname">testcase_context <span class="conf">0.84</span></div>
+      <div class="tools">get_test_case_context</div>
+    </div>
+    <div class="intent">
+      <div class="iname">high_frequency <span class="conf">0.86</span></div>
+      <div class="tools">query_defect_high_frequency_analysis</div>
+    </div>
+    <div class="intent">
+      <div class="iname">ontology_catalog <span class="conf">0.82</span></div>
+      <div class="tools">get_ontology_catalog</div>
+    </div>
+    <div class="intent">
+      <div class="iname">dashboard_fallback <span class="conf">0.78</span></div>
+      <div class="tools">query_full_picture_module</div>
+    </div>
+    <div class="intent">
+      <div class="iname">general <span class="conf">0.50</span></div>
+      <div class="tools">resolve_business_terms · get_data_catalog</div>
+    </div>
+  </div>
+
+  <!-- ============ 4. ONTOLOGY LAYERED ============ -->
+  <h2 class="section s3">④ Ontology 分层架构 <span class="tag">受治理的语义契约</span></h2>
+  <div class="overview">
+    <div class="stats">
+      <div class="stat"><div class="v" style="color:var(--green)">15</div><div class="l">sources 数据源</div></div>
+      <div class="stat"><div class="v" style="color:var(--accent)">28</div><div class="l">entities 实体</div></div>
+      <div class="stat"><div class="v" style="color:var(--purple)">27</div><div class="l">relationships 关系</div></div>
+      <div class="stat"><div class="v" style="color:var(--teal)">50</div><div class="l">dimensions 维度</div></div>
+      <div class="stat"><div class="v" style="color:var(--orange)">30</div><div class="l">metrics 指标</div></div>
+      <div class="stat"><div class="v" style="color:var(--yellow)">78</div><div class="l">terms 词表</div></div>
+      <div class="stat"><div class="v" style="color:var(--pink)">5</div><div class="l">constraints 约束</div></div>
+    </div>
+
+    <div class="stack" style="margin-top:22px;">
+      <!-- Layer 1: authored -->
+      <div class="band b-auth">
+        <h3>📝 L1 · 人工编写层 <span class="tagstage">ontology/v1/*.json · source of truth</span></h3>
+        <div class="bsub">业务语义的唯一事实来源，人工编辑的 JSON 文档（每项含 governance.status: approved/draft/deprecated）</div>
+        <div class="chips">
+          <div class="chip"><div class="ct">sources.json</div><div class="cd">15 个物理数据源 (DB/table/readModel/SLO)</div></div>
+          <div class="chip"><div class="ct">entities.json</div><div class="cd">28 实体节点 + 属性 + 灵敏度</div></div>
+          <div class="chip"><div class="ct">relationships.json</div><div class="cd">27 有向类型边 + join 路径</div></div>
+          <div class="chip"><div class="ct">dimensions.json</div><div class="cd">50 可分组/过滤维度轴</div></div>
+          <div class="chip"><div class="ct">metrics.json</div><div class="cd">30 受治理度量 + allowedDimensions</div></div>
+          <div class="chip"><div class="ct">vocab.zh-CN.json</div><div class="cd">78 NLP 词条 → 本体 ID 映射</div></div>
+          <div class="chip"><div class="ct">policies.json</div><div class="cd">3 访问/能力策略 (actor scope)</div></div>
+          <div class="chip"><div class="ct">constraints.json</div><div class="cd">5 硬护栏 (max_limit/no-sql…)</div></div>
+          <div class="chip"><div class="ct">actions.json</div><div class="cd">3 写操作 (均锁定 dry_run/blocked)</div></div>
+          <div class="chip"><div class="ct">business_rules.json</div><div class="cd">12 业务规则 (Top Issue/KPI/ maturity)</div></div>
+        </div>
+      </div>
+      <div class="conn">▼ Ajv 校验</div>
+
+      <!-- Layer 2: schema -->
+      <div class="band b-schema">
+        <h3>📏 L2 · Schema 校验层 <span class="tagstage">ontology/schema/*.schema.json · JSON Schema 2020-12</span></h3>
+        <div class="bsub">每个 v1 文档对应一份 schema；common.schema.json 提供 labels/governance/documentHeader 共享定义</div>
+        <div class="chips">
+          <div class="chip"><div class="ct">common.schema</div><div class="cd">共享 $defs</div></div>
+          <div class="chip"><div class="ct">entities / metrics / dimensions</div><div class="cd">核心三件套 schema</div></div>
+          <div class="chip"><div class="ct">relationships / sources</div><div class="cd">图结构 + 数据源 schema</div></div>
+          <div class="chip"><div class="ct">vocab / policies / constraints / actions</div><div class="cd">治理 schema</div></div>
+        </div>
+      </div>
+      <div class="conn">▼ compileOntology.mjs (npm ontology:compile) · 合并 + id 排序 + 引用完整性校验</div>
+
+      <!-- Layer 3: compiled -->
+      <div class="band b-compiled">
+        <h3>📦 L3 · 编译产物层 <span class="tagstage">ontology/generated/ · 构建产物 (勿手改)</span></h3>
+        <div class="bsub">单一运行时制品，运行时每次加载都用指纹校验，失配即 ONTOLOGY_FINGERPRINT_MISMATCH 拒绝启动</div>
+        <div class="chips">
+          <div class="chip"><div class="ct">ontology.compiled.json</div><div class="cd">175 KB · 规范化 + 引用验证过的合集</div></div>
+          <div class="chip"><div class="ct">fingerprint.txt</div><div class="cd">SHA-256 · ce5c4040… · 防篡改</div></div>
+          <div class="chip"><div class="ct">ontology_graph_v2.html</div><div class="cd">人工可视化 (力导向图)</div></div>
+          <div class="chip"><div class="ct">enhance_ontology.py</div><div class="cd">一次性增强脚本 (非运行时)</div></div>
+        </div>
+      </div>
+      <div class="conn">▼ 双侧 Registry 加载 (fingerprint re-verify)</div>
+
+      <!-- Layer 4: runtime registries -->
+      <div class="band b-runtime">
+        <h3>🔌 L4 · 运行时 Registry 层 <span class="tagstage">内存冻结 Map · 双语言镜像</span></h3>
+        <div class="bsub">同一编译产物，Node 和 Python 各自加载为只读 Registry，提供实体/维度/指标/关系/策略的查询 API</div>
+        <div class="chips">
+          <div class="chip"><div class="ct">server/ontology/registry.mjs</div><div class="cd">createOntologyRegistry() · matchTerms 词匹配</div></div>
+          <div class="chip"><div class="ct">backend/analytics/ontology.py</div><div class="cd">load_ontology() · OntologyCatalog</div></div>
+          <div class="chip"><div class="ct">resolver.mjs</div><div class="cd">NL → semantic frame (意图/指标/维度/过滤/时间)</div></div>
+          <div class="chip"><div class="ct">queryPlanner.mjs</div><div class="cd">frame → 可执行 QueryPlan (R0-risk steps)</div></div>
+          <div class="chip"><div class="ct">queryCompiler.mjs</div><div class="cd">plan → 受治理 semantic SQL</div></div>
+          <div class="chip"><div class="ct">scopePolicy / timeResolver</div><div class="cd">actor scope 强制 · 相对时间解析</div></div>
+        </div>
+      </div>
+      <div class="conn">▼ 注入工具执行</div>
+
+      <!-- Layer 5: execution -->
+      <div class="band b-exec">
+        <h3>⚡ L5 · 执行/消费层 <span class="tagstage">Agent 工具 + Python 数据面</span></h3>
+        <div class="bsub">Agent 的语义类工具委托给本体运行时；Python 侧执行受治理查询并落库读取</div>
+        <div class="chips">
+          <div class="chip"><div class="ct">query_semantic_metrics</div><div class="cd">Agent 工具 → analytics API</div></div>
+          <div class="chip"><div class="ct">query_semantic_records</div><div class="cd">Agent 工具 → analytics API</div></div>
+          <div class="chip"><div class="ct">query_traceability</div><div class="cd">Agent 工具 → analytics API</div></div>
+          <div class="chip"><div class="ct">get_ontology_catalog</div><div class="cd">/api/ontology/catalog</div></div>
+          <div class="chip"><div class="ct">search_octane_fields</div><div class="cd">octane_field_catalog.py</div></div>
+          <div class="chip"><div class="ct">semantic_query.py</div><div class="cd">execute_semantic_query → SQLite</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 5. SEMANTIC GRAPH ============ -->
+  <h2 class="section s3">⑤ Ontology 语义图谱 <span class="tag">实体关系子图示例</span></h2>
+  <div class="overview">
+    <div class="semgraph">
+      <svg width="820" height="380" viewBox="0 0 820 380" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#8b949e"/>
+          </marker>
+        </defs>
+        <!-- edges -->
+        <g stroke="#8b949e" stroke-width="1.5" fill="none" marker-end="url(#arr)">
+          <path d="M 410 95 C 300 130, 250 160, 180 195"/>
+          <path d="M 410 95 C 520 130, 560 160, 620 195"/>
+          <path d="M 180 235 C 250 270, 320 290, 380 310"/>
+          <path d="M 620 235 C 550 270, 480 290, 440 310"/>
+          <path d="M 130 235 C 90 270, 90 300, 120 320"/>
+          <path d="M 670 235 C 720 270, 730 300, 700 320"/>
+        </g>
+        <!-- edge labels -->
+        <g font-size="10" fill="#8b949e" font-family="ui-monospace, monospace" text-anchor="middle">
+          <text x="280" y="150">detected_in</text>
+          <text x="540" y="150">affects</text>
+          <text x="270" y="285">executes</text>
+          <text x="540" y="285">validates</text>
+          <text x="85" y="285" transform="rotate(-60 85 285)">parent_of</text>
+        </g>
+        <!-- nodes -->
+        <g font-family="-apple-system, sans-serif" text-anchor="middle">
+          <!-- defect -->
+          <rect x="350" y="50" width="120" height="50" rx="8" fill="#0d2238" stroke="#58a6ff" stroke-width="1.5"/>
+          <text x="410" y="72" fill="#58a6ff" font-size="13" font-weight="600">quality.defect</text>
+          <text x="410" y="88" fill="#8b949e" font-size="10">entity · 28</text>
+          <!-- test_run -->
+          <rect x="110" y="195" width="140" height="50" rx="8" fill="#1a1430" stroke="#bc8cff" stroke-width="1.5"/>
+          <text x="180" y="217" fill="#bc8cff" font-size="13" font-weight="600">testing.test_run</text>
+          <text x="180" y="233" fill="#8b949e" font-size="10">entity</text>
+          <!-- ecu -->
+          <rect x="560" y="195" width="130" height="50" rx="8" fill="#103630" stroke="#2dd4bf" stroke-width="1.5"/>
+          <text x="625" y="217" fill="#2dd4bf" font-size="13" font-weight="600">product.ecu</text>
+          <text x="625" y="233" fill="#8b949e" font-size="10">entity</text>
+          <!-- test_case -->
+          <rect x="320" y="310" width="130" height="50" rx="8" fill="#1a1430" stroke="#bc8cff" stroke-width="1.5"/>
+          <text x="385" y="332" fill="#bc8cff" font-size="13" font-weight="600">testing.test_case</text>
+          <text x="385" y="348" fill="#8b949e" font-size="10">entity</text>
+          <!-- aida self -->
+          <rect x="60" y="320" width="130" height="50" rx="8" fill="#1a1430" stroke="#bc8cff" stroke-width="1.5" stroke-dasharray="4 3"/>
+          <text x="125" y="342" fill="#bc8cff" font-size="13" font-weight="600">req.aida_node</text>
+          <text x="125" y="358" fill="#8b949e" font-size="10">self-ref</text>
+          <!-- pu -->
+          <rect x="640" y="320" width="130" height="50" rx="8" fill="#103630" stroke="#2dd4bf" stroke-width="1.5"/>
+          <text x="705" y="342" fill="#2dd4bf" font-size="13" font-weight="600">product.pu</text>
+          <text x="705" y="358" fill="#8b949e" font-size="10">→ service_pack</text>
+        </g>
+        <!-- metric badge -->
+        <g>
+          <rect x="345" y="5" width="130" height="32" rx="16" fill="#3a2817" stroke="#f0883e" stroke-width="1.5"/>
+          <text x="410" y="25" fill="#f0883e" font-size="11.5" font-weight="600" text-anchor="middle" font-family="ui-monospace, monospace">defect.count (metric)</text>
+        </g>
+        <path d="M 410 37 L 410 50" stroke="#f0883e" stroke-width="1.5" stroke-dasharray="2 2"/>
+      </svg>
+    </div>
+    <div style="font-size:11.5px; color:var(--muted); text-align:center; margin-top:8px;">
+      虚线 = 自引用/层级关系 · 实线 = 类型化有向边 · 编译器强制校验所有 endpoint、join path 与引用完整性
+    </div>
+    <div class="legend">
+      <span><i class="dot" style="background:var(--accent)"></i>quality 域</span>
+      <span><i class="dot" style="background:var(--purple)"></i>testing / requirements 域</span>
+      <span><i class="dot" style="background:var(--teal)"></i>product 域</span>
+      <span><i class="dot" style="background:var(--orange)"></i>metric (绑定实体)</span>
+    </div>
+  </div>
+
+  <footer>
+    Data-Agent Architecture · 生成于 2026-07-29 · 基于 commit 8bec8681 (main agent orchestrator) + 2a7df4a2 (ontology semantic runtime)
+  </footer>
+
+</div>
+</body>
+</html>

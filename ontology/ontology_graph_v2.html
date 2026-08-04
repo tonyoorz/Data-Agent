@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ontology Knowledge Graph v2</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0d1117;color:#c9d1d9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;overflow:hidden}
+#container{display:flex;width:100vw;height:100vh}
+#graph{flex:1;height:100vh}
+#sidebar{width:360px;background:#161b22;border-left:1px solid #30363d;padding:20px;overflow-y:auto;flex-shrink:0}
+h1{font-size:18px;color:#58a6ff;margin-bottom:4px}
+.subtitle{font-size:12px;color:#8b949e;margin-bottom:16px}
+.stats{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+.stat{background:#21262d;padding:8px 12px;border-radius:6px;font-size:12px}
+.stat-val{font-weight:700;font-size:18px}
+.stat-val.new{color:#3fb950}
+.stat-label{color:#8b949e}
+.legend-title{font-size:12px;color:#8b949e;margin:12px 0 8px;text-transform:uppercase;letter-spacing:.5px}
+.legend-items{display:flex;flex-wrap:wrap;gap:6px}
+.legend-item{display:flex;align-items:center;gap:4px;font-size:11px}
+.legend-dot{width:10px;height:10px;border-radius:50%}
+.node-info{background:#21262d;border-radius:8px;padding:14px;margin-top:12px;border:1px solid #30363d}
+.node-info h3{font-size:14px;margin-bottom:6px}
+.node-info table{width:100%;font-size:11px;margin-top:8px;border-collapse:collapse}
+.node-info td{padding:3px 4px;border-bottom:1px solid #30363d}
+.node-info td:first-child{color:#7ee787;width:45%}
+.node-info .tag{display:inline-block;padding:2px 6px;border-radius:3px;font-size:10px;margin-left:4px}
+.tag-new{background:#1a4731;color:#3fb950}
+.edge-label{font-size:9px;fill:#6e7681}
+.node-label{font-size:11px;fill:#c9d1d9;font-weight:500;pointer-events:none}
+.new-badge{font-size:9px;fill:#3fb950;font-weight:700}
+.tooltip{position:absolute;background:#1c2128;border:1px solid #30363d;padding:8px 12px;border-radius:6px;font-size:12px;pointer-events:none;z-index:100;max-width:320px;display:none}
+.btn{background:#21262d;border:1px solid #30363d;color:#c9d1d9;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:12px;margin-right:6px}
+.btn:hover{background:#30363d}
+.controls{margin-bottom:16px}
+</style>
+</head>
+<body>
+<div id="container">
+  <div id="graph"></div>
+  <div id="sidebar">
+    <h1>🧠 Ontology Knowledge Graph</h1>
+    <div class="subtitle">PreAnalysis Data-Agent · 增强后知识图谱</div>
+
+    <div class="stats">
+      <div class="stat"><span class="stat-val">28</span> <span class="stat-label">实体</span></div>
+      <div class="stat"><span class="stat-val">27</span> <span class="stat-label">关系</span></div>
+      <div class="stat"><span class="stat-val">50</span> <span class="stat-label">维度</span></div>
+      <div class="stat"><span class="stat-val">30</span> <span class="stat-label">指标</span></div>
+    </div>
+
+    <div class="legend-title">域 Domains</div>
+    <div class="legend-items" id="legend"></div>
+
+    <div class="controls" style="margin-top:16px">
+      <button class="btn" onclick="toggleLabels()">切换标签</button>
+      <button class="btn" onclick="resetView()">重置视图</button>
+    </div>
+
+    <div id="node-info" style="display:none"></div>
+
+    <div style="margin-top:20px;font-size:11px;color:#8b949e">
+      <p>💡 <b>新增内容标记为绿色</b></p>
+      <p>• 拖拽节点调整位置</p>
+      <p>• 点击节点查看详情</p>
+      <p>• 滚轮缩放</p>
+    </div>
+  </div>
+</div>
+<div class="tooltip" id="tooltip"></div>
+
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<script>
+const data = {"nodes": [{"id": "quality.defect", "label": "缺陷", "labelEn": "Defect", "domain": "quality", "domainColor": "#e74c3c", "domainName": "质量", "props": 64, "isNew": false}, {"id": "testing.test_case", "label": "测试用例", "labelEn": "Test Case", "domain": "testing", "domainColor": "#3498db", "domainName": "测试", "props": 16, "isNew": false}, {"id": "testing.test_run", "label": "测试执行", "labelEn": "Test Run", "domain": "testing", "domainColor": "#3498db", "domainName": "测试", "props": 39, "isNew": false}, {"id": "requirements.aida_node", "label": "AIDA 需求节点", "labelEn": "AIDA Requirement Node", "domain": "requirements", "domainColor": "#2ecc71", "domainName": "需求", "props": 4, "isNew": false}, {"id": "requirements.epic", "label": "Epic", "labelEn": "Epic", "domain": "requirements", "domainColor": "#2ecc71", "domainName": "需求", "props": 2, "isNew": false}, {"id": "requirements.feature", "label": "Feature", "labelEn": "Feature", "domain": "requirements", "domainColor": "#2ecc71", "domainName": "需求", "props": 2, "isNew": false}, {"id": "requirements.story", "label": "Story", "labelEn": "Story", "domain": "requirements", "domainColor": "#2ecc71", "domainName": "需求", "props": 2, "isNew": false}, {"id": "product.project", "label": "项目", "labelEn": "Project", "domain": "product", "domainColor": "#f39c12", "domainName": "产品", "props": 2, "isNew": false}, {"id": "product.service_pack", "label": "Service Pack", "labelEn": "Service Pack", "domain": "product", "domainColor": "#f39c12", "domainName": "产品", "props": 2, "isNew": false}, {"id": "product.pu", "label": "PU", "labelEn": "Product Unit", "domain": "product", "domainColor": "#f39c12", "domainName": "产品", "props": 3, "isNew": false}, {"id": "product.i_step", "label": "I-Step", "labelEn": "I-Step", "domain": "product", "domainColor": "#f39c12", "domainName": "产品", "props": 3, "isNew": false}, {"id": "product.os", "label": "操作系统代际", "labelEn": "Operating System Generation", "domain": "product", "domainColor": "#f39c12", "domainName": "产品", "props": 2, "isNew": false}, {"id": "product.platform", "label": "平台", "labelEn": "Platform", "domain": "product", "domainColor": "#f39c12", "domainName": "产品", "props": 3, "isNew": false}, {"id": "product.ecu", "label": "ECU/模块", "labelEn": "ECU or Module", "domain": "product", "domainColor": "#f39c12", "domainName": "产品", "props": 2, "isNew": false}, {"id": "vehicle.model_series", "label": "车型系列", "labelEn": "Model Series", "domain": "vehicle", "domainColor": "#9b59b6", "domainName": "车型", "props": 3, "isNew": false}, {"id": "organization.team", "label": "团队", "labelEn": "Team", "domain": "organization", "domainColor": "#1abc9c", "domainName": "组织", "props": 2, "isNew": false}, {"id": "organization.tester", "label": "测试人员", "labelEn": "Tester", "domain": "organization", "domainColor": "#1abc9c", "domainName": "组织", "props": 3, "isNew": false}, {"id": "quality.qgate", "label": "质量门", "labelEn": "Quality Gate", "domain": "quality", "domainColor": "#e74c3c", "domainName": "质量", "props": 3, "isNew": false}, {"id": "evidence.artifact", "label": "证据附件", "labelEn": "Evidence Artifact", "domain": "evidence", "domainColor": "#e67e22", "domainName": "证据", "props": 3, "isNew": false}, {"id": "quality.defect_history_event", "label": "缺陷历史事件", "labelEn": "Defect History Event", "domain": "quality", "domainColor": "#e74c3c", "domainName": "质量", "props": 10, "isNew": false}, {"id": "traceability.link", "label": "追溯链接", "labelEn": "Traceability Link", "domain": "traceability", "domainColor": "#34495e", "domainName": "追溯", "props": 10, "isNew": false}, {"id": "traceability.testcase_summary", "label": "测试用例追溯汇总", "labelEn": "Traceability Test Case Summary", "domain": "traceability", "domainColor": "#34495e", "domainName": "追溯", "props": 18, "isNew": false}, {"id": "quality.defect_outcome", "label": "缺陷结果", "labelEn": "Defect Outcome", "domain": "quality", "domainColor": "#e74c3c", "domainName": "质量", "props": 6, "isNew": false}, {"id": "quality.maturity_grade", "label": "成熟度等级", "labelEn": "Maturity Grade (RG)", "domain": "quality", "domainColor": "#e74c3c", "domainName": "质量", "props": 6, "isNew": true}, {"id": "organization.function_team_mapping", "label": "功能团队映射", "labelEn": "Function to Team Mapping", "domain": "organization", "domainColor": "#1abc9c", "domainName": "组织", "props": 3, "isNew": true}, {"id": "testing.test_event", "label": "测试事件", "labelEn": "Test Event", "domain": "testing", "domainColor": "#3498db", "domainName": "测试", "props": 10, "isNew": true}, {"id": "product.test_rack", "label": "测试台架", "labelEn": "Test Rack", "domain": "product", "domainColor": "#f39c12", "domainName": "产品", "props": 5, "isNew": true}, {"id": "vehicle.test_vehicle", "label": "测试车辆", "labelEn": "Test Vehicle", "domain": "vehicle", "domainColor": "#9b59b6", "domainName": "车型", "props": 6, "isNew": true}], "edges": [{"source": "testing.test_run", "target": "testing.test_case", "predicate": "executes", "cardinality": "many_to_one", "isNew": false}, {"source": "testing.test_case", "target": "requirements.aida_node", "predicate": "validates", "cardinality": "many_to_many", "isNew": false}, {"source": "requirements.aida_node", "target": "requirements.aida_node", "predicate": "parent_of", "cardinality": "one_to_many", "isNew": false}, {"source": "testing.test_run", "target": "requirements.feature", "predicate": "traces_to", "cardinality": "many_to_many", "isNew": false}, {"source": "testing.test_run", "target": "requirements.story", "predicate": "traces_to", "cardinality": "many_to_many", "isNew": false}, {"source": "quality.defect", "target": "testing.test_run", "predicate": "detected_in", "cardinality": "many_to_one", "isNew": false}, {"source": "quality.defect", "target": "product.ecu", "predicate": "affects", "cardinality": "many_to_one", "isNew": false}, {"source": "quality.defect", "target": "requirements.aida_node", "predicate": "affects", "cardinality": "many_to_many", "isNew": false}, {"source": "product.pu", "target": "product.service_pack", "predicate": "belongs_to", "cardinality": "many_to_one", "isNew": false}, {"source": "product.i_step", "target": "product.pu", "predicate": "implements", "cardinality": "many_to_many", "isNew": false}, {"source": "product.platform", "target": "product.os", "predicate": "runs", "cardinality": "many_to_one", "isNew": false}, {"source": "vehicle.model_series", "target": "product.platform", "predicate": "uses", "cardinality": "many_to_one", "isNew": false}, {"source": "organization.tester", "target": "organization.team", "predicate": "belongs_to", "cardinality": "many_to_one", "isNew": false}, {"source": "quality.qgate", "target": "product.pu", "predicate": "evaluates", "cardinality": "many_to_one", "isNew": false}, {"source": "evidence.artifact", "target": "quality.defect", "predicate": "supports", "cardinality": "many_to_many", "isNew": false}, {"source": "quality.defect", "target": "quality.defect", "predicate": "parent_of", "cardinality": "one_to_many", "isNew": false}, {"source": "quality.defect", "target": "quality.defect_history_event", "predicate": "has_history", "cardinality": "one_to_many", "isNew": false}, {"source": "quality.defect", "target": "quality.defect_outcome", "predicate": "has_outcome", "cardinality": "one_to_one", "isNew": false}, {"source": "traceability.testcase_summary", "target": "testing.test_case", "predicate": "aggregates", "cardinality": "many_to_one", "isNew": false}, {"source": "traceability.link", "target": "testing.test_run", "predicate": "belongs_to", "cardinality": "many_to_one", "isNew": false}, {"source": "quality.defect", "target": "quality.qgate", "predicate": "evaluated_by", "cardinality": "many_to_one", "isNew": true}, {"source": "quality.defect", "target": "quality.maturity_grade", "predicate": "has_maturity_grade", "cardinality": "many_to_one", "isNew": true}, {"source": "organization.function_team_mapping", "target": "organization.team", "predicate": "belongs_to", "cardinality": "many_to_one", "isNew": true}, {"source": "quality.maturity_grade", "target": "product.i_step", "predicate": "measured_at", "cardinality": "many_to_one", "isNew": true}, {"source": "testing.test_event", "target": "testing.test_run", "predicate": "includes", "cardinality": "one_to_many", "isNew": true}, {"source": "testing.test_run", "target": "vehicle.test_vehicle", "predicate": "executed_on", "cardinality": "many_to_one", "isNew": true}, {"source": "testing.test_run", "target": "product.test_rack", "predicate": "executed_on", "cardinality": "many_to_one", "isNew": true}], "domainColors": {"quality": "#e74c3c", "testing": "#3498db", "requirements": "#2ecc71", "product": "#f39c12", "vehicle": "#9b59b6", "organization": "#1abc9c", "evidence": "#e67e22", "traceability": "#34495e"}, "domainNames": {"quality": "质量", "testing": "测试", "requirements": "需求", "product": "产品", "vehicle": "车型", "organization": "组织", "evidence": "证据", "traceability": "追溯"}, "stats": {"entities": 28, "relationships": 27, "dimensions": 50, "metrics": 30}, "metricsPerEntity": {"quality.defect": 16, "testing.test_run": 7, "testing.test_case": 2, "requirements.aida_node": 2, "organization.team": 1, "vehicle.test_vehicle": 2}};
+
+// Legend
+const legendEl = document.getElementById('legend');
+const domains = {};
+data.nodes.forEach(n => { domains[n.domain] = (domains[n.domain]||0)+1; });
+Object.entries(domains).sort((a,b)=>b[1]-a[1]).forEach(([d,c]) => {
+  const item = document.createElement('div');
+  item.className = 'legend-item';
+  item.innerHTML = `<span class="legend-dot" style="background:${data.domainColors[d]}"></span>${data.domainNames[d]} (${c})`;
+  legendEl.appendChild(item);
+});
+
+const width = document.getElementById('graph').clientWidth;
+const height = window.innerHeight;
+
+const svg = d3.select('#graph').append('svg').attr('width',width).attr('height',height).style('background','#0d1117');
+
+const defs = svg.append('defs');
+Object.entries(data.domainColors).forEach(([d,c]) => {
+  defs.append('marker').attr('id',`arrow-${d}`).attr('viewBox','0 -5 10 10')
+    .attr('refX',26).attr('refY',0).attr('markerWidth',5).attr('markerHeight',5).attr('orient','auto')
+    .append('path').attr('d','M0,-5L10,0L0,5').attr('fill',c).attr('opacity',0.6);
+});
+
+const g = svg.append('g');
+const zoom = d3.zoom().scaleExtent([0.2,5]).on('zoom',e=>g.attr('transform',e.transform));
+svg.call(zoom);
+
+const nodes = data.nodes.map(n=>({...n}));
+const links = data.edges.map(e=>({...e}));
+
+const sim = d3.forceSimulation(nodes)
+  .force('link',d3.forceLink(links).id(d=>d.id).distance(130).strength(0.3))
+  .force('charge',d3.forceManyBody().strength(-450))
+  .force('center',d3.forceCenter(width/2,height/2))
+  .force('collision',d3.forceCollide().radius(42));
+
+const link = g.append('g').selectAll('line').data(links).enter().append('line')
+  .attr('stroke',d=>d.isNew?'#3fb950':'#30363d').attr('stroke-width',d=>d.isNew?2.5:1.5)
+  .attr('stroke-dasharray',d=>d.isNew?'5,3':'none')
+  .attr('marker-end',d=>`url(#arrow-${d.target.domain})`).attr('opacity',d=>d.isNew?0.7:0.4);
+
+const edgeLabel = g.append('g').selectAll('text').data(links).enter().append('text')
+  .attr('class','edge-label').attr('text-anchor','middle').attr('dy',-4)
+  .attr('opacity',0.5).text(d=>d.predicate);
+
+const nodeG = g.append('g').selectAll('g').data(nodes).enter().append('g')
+  .attr('cursor','pointer')
+  .call(d3.drag().on('start',(e,d)=>{if(!e.active)sim.alphaTarget(0.3).restart();d.fx=d.x;d.fy=d.y})
+    .on('drag',(e,d)=>{d.fx=e.x;d.fy=e.y})
+    .on('end',(e,d)=>{if(!e.active)sim.alphaTarget(0);d.fx=null;d.fy=null}));
+
+nodeG.append('circle')
+  .attr('r',d=>Math.max(14,Math.min(32,d.props*0.55)))
+  .attr('fill',d=>d.domainColor).attr('stroke',d=>d.isNew?'#3fb950':'#1c2128')
+  .attr('stroke-width',d=>d.isNew?3:2).attr('opacity',0.85);
+
+nodeG.append('text').attr('class','node-label')
+  .attr('dy',d=>Math.max(14,Math.min(32,d.props*0.55))+14)
+  .attr('text-anchor','middle').text(d=>d.label);
+
+const tooltip = d3.select('#tooltip');
+
+nodeG.on('mouseenter',(e,d)=>{
+  const m = data.metricsPerEntity[d.id]||0;
+  let html = `<b style="color:${d.domainColor}">${d.label}</b> (${d.labelEn})${d.isNew?' <span style="color:#3fb950">🆕</span>':''}<br>`;
+  html += `域: ${d.domainName} · 属性: ${d.props} · 指标: ${m}`;
+  tooltip.style('display','block').html(html);
+}).on('mousemove',e=>tooltip.style('left',(e.pageX+14)+'px').style('top',(e.pageY-10)+'px'))
+  .on('mouseleave',()=>tooltip.style('display','none'));
+
+nodeG.on('click',(e,d)=>{
+  const connected = links.filter(l=>(l.source.id||l.source)===d.id||(l.target.id||l.target)===d.id);
+  const info = document.getElementById('node-info');
+  info.style.display='block';
+  info.innerHTML = `
+    <h3 style="color:${d.domainColor}">${d.isNew?'🆕 ':''}${d.label}</h3>
+    <div style="font-size:12px;color:#8b949e">${d.labelEn} · ${d.domainName}域 · ${d.props}属性 · ${data.metricsPerEntity[d.id]||0}指标</div>
+    <table>
+      <tr><td>关系数</td><td>${connected.length}</td></tr>
+      ${connected.map(c=>{
+        const src=c.source.id||c.source;const tgt=c.target.id||c.target;
+        const dir=src===d.id?'→':'←';const other=src===d.id?tgt:src;
+        const n=data.nodes.find(x=>x.id===other);
+        return `<tr><td style="color:${c.isNew?'#3fb950':'#7ee787'}">${c.predicate}${c.isNew?' 🆕':''}</td><td>${dir} ${n?n.label:other}</td></tr>`;
+      }).join('')}
+    </table>`;
+  nodeG.select('circle').attr('opacity',n=>n.id===d.id||connected.some(c=>(c.source.id||c.source)===n.id||(c.target.id||c.target)===n.id)?1.0:0.12);
+  link.attr('opacity',l=>(l.source.id||l.source)===d.id||(l.target.id||l.target)===d.id?0.95:0.03);
+  edgeLabel.attr('opacity',l=>(l.source.id||l.source)===d.id||(l.target.id||l.target)===d.id?1.0:0);
+});
+
+svg.on('click',e=>{
+  if(e.target.tagName==='svg'){
+    nodeG.select('circle').attr('opacity',0.85);
+    link.attr('opacity',d=>d.isNew?0.7:0.4);
+    edgeLabel.attr('opacity',0.5);
+  }
+});
+
+sim.on('tick',()=>{
+  link.attr('x1',d=>d.source.x).attr('y1',d=>d.source.y).attr('x2',d=>d.target.x).attr('y2',d=>d.target.y);
+  edgeLabel.attr('x',d=>(d.source.x+d.target.x)/2).attr('y',d=>(d.source.y+d.target.y)/2);
+  nodeG.attr('transform',d=>`translate(${d.x},${d.y})`);
+});
+
+let labelsOn=true;
+function toggleLabels(){labelsOn=!labelsOn;d3.selectAll('.edge-label').attr('opacity',labelsOn?0.5:0);d3.selectAll('.node-label').attr('opacity',labelsOn?1:0)}
+function resetView(){svg.transition().duration(750).call(zoom.transform,d3.zoomIdentity)}
+</script>
+</body>
+</html>
