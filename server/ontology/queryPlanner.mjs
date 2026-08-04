@@ -1,13 +1,13 @@
 import { createHash } from "node:crypto";
 import Ajv2020 from "ajv/dist/2020.js";
-import { canonicalJson } from "./fingerprint.mjs";
+import { canonicalJson, fingerprintSourceQuery, normalizeSourceQuery } from "./fingerprint.mjs";
 import { compileSemanticQuery } from "./queryCompiler.mjs";
 import { assertOntologyScopeAccess } from "./scopePolicy.mjs";
 
 const string = { type: "string", minLength: 1 };
 const queryPlanSchema = {
   type: "object",
-  required: ["schemaVersion", "planId", "version", "status", "ontologyVersion", "schemaFingerprint", "actorScopeHash", "steps", "violations", "warnings"],
+  required: ["schemaVersion", "planId", "version", "status", "ontologyVersion", "schemaFingerprint", "actorScopeHash", "sourceQueryFingerprint", "executionFingerprint", "steps", "violations", "warnings"],
   additionalProperties: false,
   properties: {
     schemaVersion: { const: "1.0" },
@@ -17,6 +17,8 @@ const queryPlanSchema = {
     ontologyVersion: string,
     schemaFingerprint: { type: "string", pattern: "^[a-f0-9]{64}$" },
     actorScopeHash: string,
+    sourceQueryFingerprint: { type: "string", pattern: "^[a-f0-9]{64}$" },
+    executionFingerprint: { type: "string", pattern: "^[a-f0-9]{64}$" },
     steps: {
       type: "array",
       items: {
@@ -43,42 +45,122 @@ const queryPlanSchema = {
 const ajv = new Ajv2020({ allErrors: true, strict: true });
 const validate = ajv.compile(queryPlanSchema);
 
-function planId(frame, actorScopeHash) {
-  return `plan-${createHash("sha256").update(canonicalJson({ frame, actorScopeHash })).digest("hex").slice(0, 16)}`;
-}
-
 const DEFAULT_RECORD_FIELDS = Object.freeze({
   "quality.defect": ["defect_id", "name", "status", "assigned_ecu", "problem_finder_team", "creation_time"],
   "testing.test_run": ["mr_id", "test_id", "test_name", "status", "team", "finished"],
   "testing.test_case": ["test_id", "test_name", "project", "pu", "aida", "trace_status"],
 });
 
+export function defaultRecordFieldsForEntity(entityId) {
+  return [...(DEFAULT_RECORD_FIELDS[entityId] || [])];
+}
+
 function validatePlan(plan) {
   if (!validate(plan)) throw new Error(`QUERY_PLAN_INVALID:${ajv.errorsText(validate.errors)}`);
   return plan;
+}
+
+export function fingerprintQueryPlanSteps(steps) {
+  return createHash("sha256").update(canonicalJson(steps || [])).digest("hex");
+}
+
+export function createQueryPlanId({ frame, actorScopeHash, sourceQueryFingerprint, executionFingerprint }) {
+  return `plan-${createHash("sha256").update(canonicalJson({ frame, actorScopeHash, sourceQueryFingerprint, executionFingerprint })).digest("hex").slice(0, 16)}`;
+}
+
+function unique(values) {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function completePlan({ base, frame, actorScopeHash, status, steps, violations }) {
+  const executionFingerprint = fingerprintQueryPlanSteps(steps);
+  return validatePlan({
+    ...base,
+    planId: createQueryPlanId({ frame, actorScopeHash, sourceQueryFingerprint: base.sourceQueryFingerprint, executionFingerprint }),
+    executionFingerprint,
+    status,
+    steps,
+    violations,
+  });
+}
+
+function matchingBusinessRuleWarnings(registry, frame) {
+  if (typeof registry.listBusinessRules !== "function") return [];
+  const metricIds = new Set(frame.metricIds || []);
+  return registry.listBusinessRules({ status: "approved", kind: "plan_warning" })
+    .filter((rule) => {
+      const appliesTo = rule.appliesTo || {};
+      const ruleMetricIds = appliesTo.metricIds || [];
+      const ruleIntents = appliesTo.intents || [];
+      return (!ruleMetricIds.length || ruleMetricIds.some((metricId) => metricIds.has(metricId)))
+        && (!ruleIntents.length || ruleIntents.includes(frame.intent));
+    })
+    .map((rule) => rule.effect?.warningCode || `BUSINESS_RULE:${rule.id}`);
+}
+
+function enabledConstraintWarning(registry, id) {
+  try {
+    const constraint = registry.getConstraint(id);
+    return constraint.parameters?.enabled === false ? null : `CONSTRAINT:${id}`;
+  } catch {
+    return null;
+  }
+}
+
+function matchingConstraintWarnings(registry, frame) {
+  return [
+    enabledConstraintWarning(registry, "planner.forbid_arbitrary_sql"),
+    frame.intent === "similarity" ? enabledConstraintWarning(registry, "similarity.not_population_statistic") : null,
+  ].filter(Boolean);
+}
+
+function traceRelationshipWarnings(registry, frame) {
+  if (frame.intent !== "trace" || typeof registry.findRelationshipPath !== "function") return [];
+  const entityIds = new Set(frame.entityIds || []);
+  const path = entityIds.has("requirements.aida_node") && entityIds.has("quality.defect")
+    ? registry.findRelationshipPath("requirements.aida_node", "quality.defect")
+    : [];
+  return path.length ? [`RELATIONSHIP_PATH:${path.map((relationship) => relationship.id).join(">")}`] : [];
 }
 
 export function createQueryPlanner({ registry } = {}) {
   if (!registry) throw new Error("ONTOLOGY_REGISTRY_REQUIRED");
   return Object.freeze({
     createPlan({ frame, actor, query }) {
+      const sourceQuery = normalizeSourceQuery(query);
       if (frame.schemaFingerprint !== registry.fingerprint || frame.ontologyVersion !== registry.version) {
         throw new Error("SEMANTIC_ONTOLOGY_VERSION_MISMATCH");
       }
+      if (frame.intent === "similarity" && fingerprintSourceQuery(sourceQuery) !== frame.sourceQueryFingerprint) {
+        throw new Error("QUERY_PLAN_SOURCE_QUERY_MISMATCH");
+      }
       assertOntologyScopeAccess({ actor, frame, registry });
       const actorScopeHash = String(actor?.scopeHash || "missing-scope-hash");
+      const warnings = unique([
+        ...frame.assumptions,
+        ...matchingBusinessRuleWarnings(registry, frame),
+        ...matchingConstraintWarnings(registry, frame),
+        ...traceRelationshipWarnings(registry, frame),
+      ]);
       const base = {
         schemaVersion: "1.0",
-        planId: planId(frame, actorScopeHash),
         version: 1,
         ontologyVersion: frame.ontologyVersion,
         schemaFingerprint: frame.schemaFingerprint,
         actorScopeHash,
+        sourceQueryFingerprint: frame.sourceQueryFingerprint,
         violations: [],
-        warnings: [...frame.assumptions],
+        warnings,
       };
       if (frame.ambiguities.length) {
-        return validatePlan({ ...base, status: "needs_clarification", steps: [], violations: frame.ambiguities.map((item) => item.code) });
+        return completePlan({
+          base,
+          frame,
+          actorScopeHash,
+          status: "needs_clarification",
+          steps: [],
+          violations: frame.ambiguities.map((item) => item.code),
+        });
       }
       const metricConstraint = registry.getConstraint("planner.approved_metric_only");
       for (const metricId of frame.metricIds) {
@@ -97,7 +179,7 @@ export function createQueryPlanner({ registry } = {}) {
       if (frame.intent === "similarity") {
         operation = "similarity_search";
         toolName = "search_duplicates";
-        canonicalArgs = { query: String(query || ""), top_k: Math.min(20, frame.limit) };
+        canonicalArgs = { query: sourceQuery, top_k: Math.min(20, frame.limit) };
       } else if (frame.intent === "trace") {
         operation = "traceability_query";
         toolName = "query_traceability";
@@ -112,7 +194,7 @@ export function createQueryPlanner({ registry } = {}) {
           query: compileSemanticQuery(frame),
           analysis_ref: null,
           selections: [],
-          fields: DEFAULT_RECORD_FIELDS[entityId] || [],
+          fields: defaultRecordFieldsForEntity(entityId),
           page: 1,
           page_size: Math.min(50, frame.limit),
         };
@@ -136,10 +218,13 @@ export function createQueryPlanner({ registry } = {}) {
         dependsOn: index === 0 ? [] : [`s${index}`],
         riskLevel: "R0",
       }));
-      return validatePlan({
-        ...base,
+      return completePlan({
+        base,
+        frame,
+        actorScopeHash,
         status: "valid",
         steps,
+        violations: [],
       });
     },
   });

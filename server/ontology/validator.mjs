@@ -25,6 +25,7 @@ export function validateOntologyBundle(bundle) {
   const dimensions = bundle.dimensions || [];
   const metrics = bundle.metrics || [];
   const terms = bundle.terms || [];
+  const businessRules = bundle.businessRules || [];
   const policies = bundle.policies || [];
   const constraints = bundle.constraints || [];
   const actions = bundle.actions || [];
@@ -34,6 +35,7 @@ export function validateOntologyBundle(bundle) {
   const dimensionIds = uniqueById(dimensions, "dimension");
   const metricIds = uniqueById(metrics, "metric");
   uniqueById(terms, "term");
+  uniqueById(businessRules, "business_rule");
   const policyIds = uniqueById(policies, "policy");
   uniqueById(constraints, "constraint");
   uniqueById(actions, "action");
@@ -150,6 +152,15 @@ export function validateOntologyBundle(bundle) {
     }
   }
 
+  for (const rule of businessRules) {
+    for (const metricId of rule.appliesTo?.metricIds || []) {
+      if (!metricIds.has(metricId)) fail("ONTOLOGY_BUSINESS_RULE_METRIC_NOT_FOUND", `${rule.id}:${metricId}`);
+    }
+    if (governanceStatus(rule) === "approved" && rule.kind === "plan_warning" && !rule.effect?.warningCode) {
+      fail("ONTOLOGY_BUSINESS_RULE_WARNING_REQUIRED", rule.id);
+    }
+  }
+
   for (const constraint of constraints) {
     for (const metricId of constraint.metricIds || []) if (!metricIds.has(metricId)) fail("ONTOLOGY_CONSTRAINT_METRIC_NOT_FOUND", `${constraint.id}:${metricId}`);
     for (const dimensionId of constraint.dimensionIds || []) if (!dimensionIds.has(dimensionId)) fail("ONTOLOGY_CONSTRAINT_DIMENSION_NOT_FOUND", `${constraint.id}:${dimensionId}`);
@@ -201,6 +212,7 @@ export function validateOntologyBundle(bundle) {
     dimensionCount: dimensions.length,
     metricCount: metrics.length,
     termCount: terms.length,
+    businessRuleCount: businessRules.length,
     policyCount: policies.length,
     constraintCount: constraints.length,
     actionCount: actions.length,

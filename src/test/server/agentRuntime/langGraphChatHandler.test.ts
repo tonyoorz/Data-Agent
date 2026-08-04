@@ -3,6 +3,37 @@ import { describe, expect, it, vi } from "vitest";
 import { streamLangGraphChatResponse } from "../../../../server/agentRuntime/langGraphChatHandler.mjs";
 
 describe("LangGraph chat handler", () => {
+  it("streams a runtime direct response without calling the final chat model", async () => {
+    const response = { writeHead: vi.fn(), write: vi.fn(), end: vi.fn(), flushHeaders: vi.fn() };
+    const runtime = {
+      invoke: vi.fn(async () => ({
+        runtime: "langgraph",
+        threadId: "thread-1",
+        directResponse: { content: "你好，我可以帮你看测试质量和缺陷数据。" },
+        metrics: { mainAgentToolCallCount: 0 },
+      })),
+    };
+    const streamCompletion = vi.fn();
+
+    const result = await streamLangGraphChatResponse({
+      body: {
+        threadId: "thread-1",
+        model: "deepseek-v4-flash",
+        messages: [{ role: "user", content: "你好" }],
+      },
+      response,
+      runtime,
+      streamCompletion,
+    });
+
+    const streamedText = response.write.mock.calls.map(([chunk]) => String(chunk)).join("");
+    expect(streamCompletion).not.toHaveBeenCalled();
+    expect(streamedText).toContain("你好，我可以帮你看测试质量和缺陷数据。");
+    expect(streamedText).toContain("data: [DONE]");
+    expect(response.end).toHaveBeenCalled();
+    expect(result.streamMetrics).toEqual(expect.objectContaining({ directResponse: true }));
+  });
+
   it("streams a response using graph-produced messages, context, and preface events", async () => {
     const response = { writeHead: vi.fn(), write: vi.fn(), end: vi.fn() };
     const runtime = {
@@ -17,6 +48,7 @@ describe("LangGraph chat handler", () => {
           ],
           context: "# Tool context",
           prefaceEvents: [{ type: "tool-output-available", toolName: "query_semantic_metrics" }],
+          mainAgentToolContext: { evidence: [{ toolCallId: "call-1", tool: "query_semantic_metrics" }] },
           metrics: { mainAgentToolCallCount: 1 },
         };
       }),
@@ -60,6 +92,10 @@ describe("LangGraph chat handler", () => {
         context: "# Tool context",
         response,
         prefaceEvents: [{ type: "tool-output-available", toolName: "query_semantic_metrics" }],
+        answerValidation: expect.objectContaining({
+          evidence: [{ toolCallId: "call-1", tool: "query_semantic_metrics" }],
+          registry: expect.objectContaining({ version: "v1" }),
+        }),
       }),
     );
     expect(result.runtimeResult.threadId).toBe("thread-1");

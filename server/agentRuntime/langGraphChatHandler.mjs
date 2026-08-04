@@ -1,4 +1,17 @@
-import { streamCompanyChatCompletion, writeSseEvent } from "../companyChat.mjs";
+import { streamCompanyChatCompletion, writeSseEvent, writeSseResponse } from "../companyChat.mjs";
+import { createOntologyRegistry } from "../ontology/registry.mjs";
+
+function createAnswerValidation(runtimeResult) {
+  const evidence = runtimeResult?.mainAgentToolContext?.evidence;
+  if (!Array.isArray(evidence) || !evidence.length) {
+    return undefined;
+  }
+  try {
+    return { evidence, registry: createOntologyRegistry() };
+  } catch {
+    return { evidence };
+  }
+}
 
 export async function streamLangGraphChatResponse({
   body = {},
@@ -20,6 +33,11 @@ export async function streamLangGraphChatResponse({
     },
   );
 
+  if (typeof runtimeResult?.directResponse?.content === "string" && runtimeResult.directResponse.content.trim()) {
+    writeSseResponse(response, runtimeResult.directResponse.content);
+    return { runtimeResult, streamMetrics: { directResponse: true } };
+  }
+
   await streamCompletion({
     messages: runtimeResult.finalMessages,
     model: body?.model,
@@ -28,6 +46,7 @@ export async function streamLangGraphChatResponse({
     prefaceEvents: runtimeResult.prefaceEvents,
     imageOcrRunner,
     documentTextRunner,
+    answerValidation: createAnswerValidation(runtimeResult),
     onMetrics: (metrics) => {
       streamMetrics = metrics;
     },

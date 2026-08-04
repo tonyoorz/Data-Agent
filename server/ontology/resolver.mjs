@@ -1,4 +1,5 @@
 import { validateSemanticFrame } from "./semanticFrame.mjs";
+import { composeSourceQuery, fingerprintSourceQuery } from "./fingerprint.mjs";
 import { resolveTimeScopes } from "./timeResolver.mjs";
 import { mandatoryScopeFilters } from "./scopePolicy.mjs";
 
@@ -209,13 +210,15 @@ export function createSemanticResolver({ registry, now = () => new Date().toISOS
   if (!registry) throw new Error("ONTOLOGY_REGISTRY_REQUIRED");
   return Object.freeze({
     resolve({ query, actor, requestAnchorAt = now(), clarification = null, candidate = null, priorSemanticFrame = null }) {
+      const rawQuery = String(query || "").trim();
       const clarificationText = String(clarification?.text || "").trim();
       const clarificationSelection = String(clarification?.selection || "");
-      const text = [String(query || "").trim(), clarificationText].filter(Boolean).join(" ");
+      const sourceQuery = composeSourceQuery(rawQuery, clarificationText);
+      const text = sourceQuery;
       if (!text) throw new Error("SEMANTIC_QUERY_REQUIRED");
       const anchorAt = new Date(requestAnchorAt).toISOString();
       const priorFrame = compatiblePriorFrame(priorSemanticFrame, registry);
-      const followUp = isEllipticalFollowUp(query, priorFrame);
+      const followUp = isEllipticalFollowUp(rawQuery, priorFrame);
       const matchedTerms = registry.matchTerms(text);
       const clarificationMetricIds = unique(registry.matchTerms(clarificationText)
         .map((term) => term.resolution.metricId)
@@ -381,6 +384,7 @@ export function createSemanticResolver({ registry, now = () => new Date().toISOS
         ontologyVersion: registry.version,
         schemaFingerprint: registry.fingerprint,
         requestAnchorAt: anchorAt,
+        sourceQueryFingerprint: fingerprintSourceQuery(sourceQuery),
         intent,
         entityIds,
         metricIds,

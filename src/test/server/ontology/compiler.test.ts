@@ -25,8 +25,12 @@ describe("Ontology compiler", () => {
       relationshipCount: 27,
       dimensionCount: 50,
       metricCount: 30,
+      businessRuleCount: 1,
       actionCount: 3,
     });
+    expect(first.bundle.businessRules).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "business.defect_created_count.creation_time", kind: "plan_warning" }),
+    ]));
   });
 
   it("rejects invalid relationship endpoints and metric references", () => {

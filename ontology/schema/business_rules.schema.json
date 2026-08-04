@@ -1,0 +1,45 @@
+{
+  "$id": "https://vizion-lab.local/ontology/schema/business_rules.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["schemaVersion", "ontologyVersion", "businessRules"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "ontologyVersion": { "const": "v1" },
+    "description": { "type": "string" },
+    "rules": { "type": "array", "items": { "type": "object" } },
+    "businessRules": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "version", "kind", "appliesTo", "effect", "governance"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]+$" },
+          "version": { "type": "string", "minLength": 1 },
+          "kind": { "enum": ["plan_warning"] },
+          "appliesTo": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "metricIds": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+              "intents": { "type": "array", "items": { "enum": ["aggregate", "trend", "compare", "rank", "list", "drilldown", "trace", "similarity"] }, "uniqueItems": true }
+            }
+          },
+          "effect": {
+            "type": "object",
+            "required": ["warningCode"],
+            "additionalProperties": false,
+            "properties": {
+              "warningCode": { "type": "string", "minLength": 1 },
+              "message": { "type": "string" }
+            }
+          },
+          "governance": { "$ref": "common.schema.json#/$defs/governance" }
+        }
+      }
+    }
+  }
+}

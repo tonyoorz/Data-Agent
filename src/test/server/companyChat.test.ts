@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { requestCompanyChatCompletion, streamCompanyChatCompletion } from "../../../server/companyChat.mjs";
+import { createOntologyRegistry } from "../../../server/ontology/registry.mjs";
 
 describe("streamCompanyChatCompletion", () => {
   beforeEach(() => {
@@ -603,12 +604,79 @@ describe("streamCompanyChatCompletion", () => {
     expect(streamedText).toContain("IDCEVO-25: 582");
     expect(streamedText).toContain("SAM-HERE: 86");
   });
+
+  it("emits answer-validation before DONE when cited evidence is missing", async () => {
+    const encoder = new TextEncoder();
+    const response = {
+      writeHead: vi.fn(),
+      write: vi.fn(),
+      end: vi.fn(),
+    };
+    const registry = createOntologyRegistry();
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            encoder.encode(
+              'data: {"choices":[{"delta":{"content":"缺陷数是 12"}}]}\n\n' +
+                'data: [DONE]\n\n',
+            ),
+          );
+          controller.close();
+        },
+      }),
+      text: async () => "",
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await streamCompanyChatCompletion({
+      messages: [{ role: "user", content: "缺陷数是多少？" }],
+      model: "deepseek-v4-flash",
+      context: "# Main agent tool result\nTool: query_semantic_metrics\nResult: 12",
+      response,
+      answerValidation: {
+        registry,
+        evidence: [{ toolCallId: "call-1", tool: "query_semantic_metrics", ontologyVersion: "v1", schemaFingerprint: registry.fingerprint }],
+      },
+    });
+
+    const streamedText = response.write.mock.calls
+      .map(([chunk]) => Buffer.from(chunk).toString("utf8"))
+      .join("");
+    expect(streamedText).toContain('"type":"answer-validation"');
+    expect(streamedText).toContain("ANSWER_CITATION_REQUIRED");
+    expect(streamedText.indexOf('"type":"answer-validation"')).toBeLessThan(streamedText.indexOf("data: [DONE]"));
+  });
 });
 
 describe("requestCompanyChatCompletion", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     process.env.DUPSEARCH_CHAT_ACCESS_CODE = "test-access-code";
+    process.env.DUPSEARCH_CHAT_RETRY_DELAY_MS = "0";
+  });
+
+  it("retries retryable upstream failures before returning a non-streaming completion", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, status: 500, statusText: "Server Error", text: async () => "upstream failed" })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ choices: [{ message: { content: "recovered" } }] }),
+        text: async () => "",
+      });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await requestCompanyChatCompletion({
+      messages: [{ role: "user", content: "hello" }],
+      model: "deepseek-v4-flash",
+    });
+
+    expect(result.content).toBe("recovered");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("returns tool calls from non-streaming company chat responses", async () => {

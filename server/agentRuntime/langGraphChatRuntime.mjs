@@ -2,7 +2,9 @@ import { Annotation, END, MemorySaver, START, StateGraph } from "@langchain/lang
 
 import { resolveAiAnalyticsContext } from "../aiAnalyticsContext.mjs";
 import { extractLatestUserQuery, resolveAiDefectContext } from "../aiContext.mjs";
+import { buildCitationContractContext } from "../answerValidator.mjs";
 import { requestCompanyChatCompletion } from "../companyChat.mjs";
+import { classifyDirectMainAgentIntent } from "../mainAgentDirectIntent.mjs";
 import {
   buildSemanticContinuationContext,
   evaluateSemanticEvidence,
@@ -18,6 +20,7 @@ import {
   shouldPlanMainAgentTools,
 } from "../mainAgentToolPlanning.mjs";
 import { createOntologyRegistry } from "../ontology/registry.mjs";
+import { validateGovernedAnalysisPlan } from "../ontology/analysisPlanner.mjs";
 
 const SUPPORTED_RUNTIME_MODES = new Set(["langgraph"]);
 
@@ -38,6 +41,7 @@ const ChatState = Annotation.Root({
   plannedToolCalls: Annotation({ reducer: overwrite, default: () => [] }),
   toolStepIndex: Annotation({ reducer: overwrite, default: () => 0 }),
   stoppedReason: Annotation({ reducer: overwrite, default: () => "" }),
+  directResponse: Annotation({ reducer: overwrite, default: () => null }),
   toolCalls: Annotation({ reducer: append, default: () => [] }),
   toolMessages: Annotation({ reducer: append, default: () => [] }),
   toolConversationMessages: Annotation({ reducer: append, default: () => [] }),
@@ -106,8 +110,14 @@ function hasActorScope(actorScope) {
   return Boolean(actorScope?.actorId || actorScope?.scopeHash || Object.keys(actorScope?.scopes || {}).length);
 }
 
+function cloneEventForObserver(event) {
+  if (!event || typeof event !== "object") return event;
+  if (typeof globalThis.structuredClone === "function") return globalThis.structuredClone(event);
+  return JSON.parse(JSON.stringify(event));
+}
+
 function emit(config, event) {
-  config?.configurable?.onEvent?.(event);
+  config?.configurable?.onEvent?.(cloneEventForObserver(event));
   return event;
 }
 
@@ -216,6 +226,29 @@ function toolLifecycleEventsFromContext(mainAgentToolContext, { runId, threadId 
   return events;
 }
 
+function governedAnalysisAuditFromContext(analyticsContext) {
+  const candidate = analyticsContext?.analysisPlan || analyticsContext?.shadowObservation?.analysisPlan;
+  if (!candidate || typeof candidate !== "object") return null;
+  try {
+    const plan = validateGovernedAnalysisPlan(candidate);
+    return {
+      schemaVersion: plan.schemaVersion,
+      analysisPlanId: plan.analysisPlanId,
+      sourcePlanId: plan.sourcePlanId,
+      sourcePlanFingerprint: plan.sourcePlanFingerprint,
+      ontologyVersion: plan.ontologyVersion,
+      schemaFingerprint: plan.schemaFingerprint,
+      status: plan.status,
+      operation: plan.operation,
+      visualization: plan.visualization,
+      maxRows: plan.maxRows,
+      guardrails: [...plan.guardrails],
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function persistRuntimeState(runtimeStore, state) {
   if (!runtimeStore) {
     return;
@@ -223,6 +256,7 @@ async function persistRuntimeState(runtimeStore, state) {
   const runId = state.runId || "";
   const threadId = state.threadId || "";
   const actorScope = state.actorScope || {};
+  const governedAnalysisPlan = governedAnalysisAuditFromContext(state.analyticsContext);
   for (const event of state.runtimeEvents || []) {
     await runtimeStore.appendRunEvent({ ...event, runId, threadId, actorScope });
   }
@@ -238,7 +272,28 @@ async function persistRuntimeState(runtimeStore, state) {
       queryText: state.queryText || "",
       metrics: state.metrics || {},
       runtimeEvents: state.runtimeEvents || [],
+      ...(governedAnalysisPlan ? { governedAnalysisPlan } : {}),
     },
+  });
+}
+
+function runtimeErrorPayload(error) {
+  return {
+    name: String(error?.name || "Error"),
+    message: String(error?.message || error || "Unknown runtime error"),
+    stack: String(error?.stack || ""),
+  };
+}
+
+async function persistRuntimeFailure(runtimeStore, { runId, threadId, actorScope, queryText, error }) {
+  if (!runtimeStore) return;
+  await runtimeStore.appendRunEvent({
+    runId,
+    threadId,
+    actorScope,
+    queryText,
+    type: "agent-runtime-failed",
+    error: runtimeErrorPayload(error),
   });
 }
 
@@ -346,6 +401,14 @@ export function createLangGraphChatRuntime({
         ...(hasActorScope(state.actorScope) ? { actor: state.actorScope } : {}),
         ...(hasActorScope(state.actorScope) && ontologyRegistry ? { ontologyRegistry } : {}),
       });
+      const governedAnalysisPlan = governedAnalysisAuditFromContext(analyticsContext);
+      if (governedAnalysisPlan) {
+        events.push(emit(config, {
+          type: "governed-analysis-plan-ready",
+          threadId: state.threadId,
+          analysisPlan: governedAnalysisPlan,
+        }));
+      }
     }
 
     if (body?.useDefectContext === true && !analyticsContext?.skipDefectContext) {
@@ -368,8 +431,10 @@ export function createLangGraphChatRuntime({
 
   async function routeTools(state, config) {
     const body = state.body || {};
+    const directResponse = classifyDirectMainAgentIntent(state.queryText || extractLatestUserQuery(body?.messages));
     const selectedToolset = selectMainAgentToolset(body?.messages);
     const shouldUseTools =
+      !directResponse &&
       body?.useAnalyticsContext === true &&
       !state.analyticsContext?.skipDefectContext &&
       shouldPlanTools(body?.messages);
@@ -379,10 +444,11 @@ export function createLangGraphChatRuntime({
       type: "tool-routing-completed",
       threadId: state.threadId,
       shouldUseTools: compact.shouldUseTools,
-      intent: compact.intent,
+      intent: directResponse?.intent || compact.intent,
       toolNames: compact.toolNames,
     });
     return {
+      directResponse,
       toolRouting,
       runtimeEvents: [event],
     };
@@ -506,10 +572,12 @@ export function createLangGraphChatRuntime({
   async function finalize(state, config) {
     const body = state.body || {};
     const mainAgentToolContext = state.toolRouting?.shouldUseTools ? buildMainAgentToolContextFromState(state) : null;
+    const citationContractContext = buildCitationContractContext({ evidence: mainAgentToolContext?.evidence, registry: ontologyRegistry });
     const context = mergeContext(
       state.baseContext,
       mainAgentToolContext?.contextText,
       formatSemanticEvidenceGate(mainAgentToolContext?.evidenceGate),
+      citationContractContext,
     );
     const finalMessages = [
       ...(Array.isArray(body?.messages) ? body.messages : []),
@@ -538,7 +606,9 @@ export function createLangGraphChatRuntime({
       analyticsContextEnabled: body?.useAnalyticsContext === true,
       mainAgentToolCallCount: mainAgentToolContext?.toolCalls?.length || 0,
       evidenceGate: mainAgentToolContext?.evidenceGate || { status: "not_required", violations: [], analysisRefs: [], sourceRevisionIds: [], warnings: [] },
-      toolRouting: compactToolRouting(state.toolRouting),
+      toolRouting: state.directResponse
+        ? { ...compactToolRouting(state.toolRouting), intent: state.directResponse.intent }
+        : compactToolRouting(state.toolRouting),
       aiContextTimings: state.defectContext?.timings || null,
     };
     const event = emit(config, { type: "agent-runtime-ready", runId: state.runId, threadId: state.threadId });
@@ -547,6 +617,7 @@ export function createLangGraphChatRuntime({
       finalMessages,
       prefaceEvents,
       mainAgentToolContext,
+      directResponse: state.directResponse || null,
       metrics,
       runtimeEvents: [event],
     };
@@ -586,16 +657,28 @@ export function createLangGraphChatRuntime({
     async invoke({ body = {}, toolDependencies = {} } = {}, { onEvent } = {}) {
       const runId = normalizeRunId(body, now);
       const threadId = normalizeThreadId(body, now);
-      const state = await graph.invoke(
-        { body, runId, threadId, toolDependencies },
-        {
-          signal: createRunnableSignal(),
-          configurable: {
-            thread_id: threadId,
-            onEvent,
+      let state;
+      try {
+        state = await graph.invoke(
+          { body, runId, threadId, toolDependencies },
+          {
+            signal: createRunnableSignal(),
+            configurable: {
+              thread_id: threadId,
+              onEvent,
+            },
           },
-        },
-      );
+        );
+      } catch (error) {
+        await persistRuntimeFailure(runtimeStore, {
+          runId,
+          threadId,
+          actorScope: normalizeActorScope(body),
+          queryText: extractLatestUserQuery(body?.messages),
+          error,
+        });
+        throw error;
+      }
       await persistRuntimeState(runtimeStore, state);
       return {
         runtime: "langgraph",
@@ -607,6 +690,7 @@ export function createLangGraphChatRuntime({
         analyticsContext: state.analyticsContext || null,
         aiContext: state.defectContext || null,
         mainAgentToolContext: state.mainAgentToolContext || null,
+        directResponse: state.directResponse || null,
         context: state.context || "",
         finalMessages: state.finalMessages || [],
         prefaceEvents: state.prefaceEvents || [],

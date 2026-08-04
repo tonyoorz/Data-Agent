@@ -2,6 +2,7 @@ import { buildChatCompletionRequest, resolveChatModelConfig } from "./chatModelC
 import { compactChatMessages } from "./chatMessageBudget.mjs";
 import { expandMessagesWithDocumentText } from "./documentText.mjs";
 import { expandImageMessagesWithOcr } from "./imageOcr.mjs";
+import { validateAnswerTextCitations } from "./answerValidator.mjs";
 
 const SYSTEM_PROMPT = `You are DTSV Intelligence — a senior data analyst embedded in a quality engineering dashboard.
 
@@ -77,6 +78,63 @@ function nowMs() {
 
 function roundMs(value) {
   return Number(value.toFixed(1));
+}
+
+function positiveInteger(value, fallback) {
+  const parsed = Number.parseInt(String(value || ""), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function nonNegativeInteger(value, fallback) {
+  const parsed = Number.parseInt(String(value || ""), 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function chatResilienceOptions(env = process.env) {
+  return {
+    maxAttempts: positiveInteger(env.DUPSEARCH_CHAT_MAX_ATTEMPTS, 2),
+    timeoutMs: positiveInteger(env.DUPSEARCH_CHAT_TIMEOUT_MS, 30000),
+    retryDelayMs: nonNegativeInteger(env.DUPSEARCH_CHAT_RETRY_DELAY_MS, 250),
+  };
+}
+
+function isRetryableStatus(status) {
+  return status === 408 || status === 429 || status >= 500;
+}
+
+function isRetryableFetchError(error) {
+  return error?.name === "AbortError" || error?.retryable === true || /fetch failed|network|timeout/i.test(String(error?.message || ""));
+}
+
+function waitForRetry(ms) {
+  if (!ms) return Promise.resolve();
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function fetchWithResilience(url, init, { env = process.env } = {}) {
+  const { maxAttempts, timeoutMs, retryDelayMs } = chatResilienceOptions(env);
+  let lastError;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const timeout = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+    try {
+      const response = await fetch(url, { ...init, ...(controller ? { signal: controller.signal } : {}) });
+      if (response.ok || !isRetryableStatus(response.status) || attempt >= maxAttempts) return response;
+      const text = await response.text().catch(() => "");
+      lastError = new Error(`Chat request failed (${response.status}): ${text || response.statusText}`);
+      lastError.status = response.status;
+      lastError.retryable = true;
+    } catch (error) {
+      lastError = error;
+      if (!isRetryableFetchError(error) || attempt >= maxAttempts) throw error;
+    } finally {
+      if (timeout) clearTimeout(timeout);
+    }
+    await waitForRetry(retryDelayMs);
+  }
+  throw lastError || new Error("Chat request failed after retries");
 }
 
 const PSEUDO_TOOL_FALLBACK_CONTENT = "工具调用阶段已结束；无法继续调用工具。我会基于已有工具结果说明数据限制。";
@@ -276,6 +334,7 @@ function flushPendingSanitizedContent(response, state) {
       state.suppressedPseudoToolCall = true;
     } else {
       writeSseEvent(response, { choices: [{ delta: { content: pending } }] });
+      state.visibleContentParts?.push(pending);
       state.emittedVisibleContent = true;
     }
   }
@@ -290,6 +349,7 @@ function flushPendingSanitizedContent(response, state) {
     return;
   }
   writeSseEvent(response, { choices: [{ delta: { content: pendingStopToken } }] });
+  state.visibleContentParts?.push(pendingStopToken);
   state.emittedVisibleContent = true;
 }
 
@@ -309,9 +369,24 @@ function writePseudoToolFallbackIfNeeded(response, state) {
   if (!needsFallback || state.emittedVisibleContent || state.fallbackEmitted) {
     return;
   }
-  writeSseEvent(response, { choices: [{ delta: { content: buildToolResultFallbackContent(state.context) } }] });
+  const fallbackContent = buildToolResultFallbackContent(state.context);
+  writeSseEvent(response, { choices: [{ delta: { content: fallbackContent } }] });
+  state.visibleContentParts?.push(fallbackContent);
   state.emittedVisibleContent = true;
   state.fallbackEmitted = true;
+}
+
+function writeAnswerValidationIfNeeded(response, state) {
+  if (!state.answerValidation || state.answerValidationEmitted) {
+    return;
+  }
+  state.answerValidationEmitted = true;
+  const validation = validateAnswerTextCitations({
+    text: (state.visibleContentParts || []).join(""),
+    evidence: state.answerValidation.evidence,
+    registry: state.answerValidation.registry,
+  });
+  writeSseEvent(response, { type: "answer-validation", ...validation });
 }
 
 function writeSanitizedSseFrame(response, frame, state) {
@@ -330,6 +405,7 @@ function writeSanitizedSseFrame(response, frame, state) {
   if (data === "[DONE]") {
     flushPendingSanitizedContent(response, state);
     writePseudoToolFallbackIfNeeded(response, state);
+    writeAnswerValidationIfNeeded(response, state);
     response.write("data: [DONE]\n\n");
     return;
   }
@@ -341,6 +417,7 @@ function writeSanitizedSseFrame(response, frame, state) {
     const sanitized = stripModelStopTokenFragments(sanitizeFinalAnswerContent(data, state), state);
     if (sanitized) {
       response.write(`data: ${sanitized}\n\n`);
+      state.visibleContentParts?.push(sanitized);
       state.emittedVisibleContent = true;
     }
     return;
@@ -357,6 +434,7 @@ function writeSanitizedSseFrame(response, frame, state) {
     }
     choice.delta.content = sanitized;
     if (sanitized) {
+      state.visibleContentParts?.push(sanitized);
       state.emittedVisibleContent = true;
     }
   }
@@ -394,7 +472,7 @@ export async function requestCompanyChatCompletion({
     toolChoice,
   });
 
-  const response = await fetch(requestConfig.url, {
+  const response = await fetchWithResilience(requestConfig.url, {
     method: "POST",
     headers: requestConfig.headers,
     body: JSON.stringify(requestConfig.body),
@@ -429,6 +507,7 @@ export async function streamCompanyChatCompletion({
   onMetrics,
   imageOcrRunner,
   documentTextRunner,
+  answerValidation,
 }) {
   const startedAt = nowMs();
   const config = resolveChatModelConfig(model || "", process.env);
@@ -456,7 +535,7 @@ export async function streamCompanyChatCompletion({
   let streamError = null;
 
   try {
-    const upstreamResponse = await fetch(requestConfig.url, {
+    const upstreamResponse = await fetchWithResilience(requestConfig.url, {
       method: "POST",
       headers: requestConfig.headers,
       body: JSON.stringify(requestConfig.body),
@@ -492,6 +571,9 @@ export async function streamCompanyChatCompletion({
       pseudoToolKind: "",
       pendingPseudoToolText: "",
       pendingStopTokenText: "",
+      visibleContentParts: [],
+      answerValidation,
+      answerValidationEmitted: false,
     };
     let sseBuffer = "";
 

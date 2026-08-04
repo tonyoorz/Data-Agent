@@ -53,6 +53,7 @@ export function createOntologyRegistry({
   const dimensions = new Map(bundle.dimensions.map((item) => [item.id, Object.freeze(item)]));
   const metrics = new Map(bundle.metrics.map((item) => [item.id, Object.freeze(item)]));
   const relationships = new Map(bundle.relationships.map((item) => [item.id, Object.freeze(item)]));
+  const businessRules = new Map((bundle.businessRules || []).map((item) => [item.id, Object.freeze(item)]));
   const policies = new Map(bundle.policies.map((item) => [item.id, Object.freeze(item)]));
   const constraints = new Map(bundle.constraints.map((item) => [item.id, Object.freeze(item)]));
   const terms = bundle.terms.flatMap((term) => term.phrases.map((phrase) => ({ term, phrase, normalized: phrase.toLocaleLowerCase("zh-CN") })))
@@ -71,6 +72,38 @@ export function createOntologyRegistry({
       return metric;
     },
     getRelationship(id) { return requireItem(relationships, id, "RELATIONSHIP"); },
+    findRelationshipPath(sourceEntity, targetEntity, { approvedOnly = true, maxDepth = 6 } = {}) {
+      const source = String(sourceEntity || "");
+      const target = String(targetEntity || "");
+      if (!source || !target || source === target) return [];
+      const edges = [];
+      for (const relationship of relationships.values()) {
+        if (approvedOnly && relationship.governance?.status !== "approved") continue;
+        edges.push({ from: relationship.sourceEntity, to: relationship.targetEntity, relationship });
+        if (relationship.reversible) {
+          edges.push({ from: relationship.targetEntity, to: relationship.sourceEntity, relationship });
+        }
+      }
+      const queue = [{ entity: source, path: [] }];
+      const visited = new Set([source]);
+      while (queue.length) {
+        const current = queue.shift();
+        if (current.path.length >= maxDepth) continue;
+        for (const edge of edges.filter((item) => item.from === current.entity)) {
+          if (visited.has(edge.to)) continue;
+          const nextPath = [...current.path, edge.relationship];
+          if (edge.to === target) return nextPath;
+          visited.add(edge.to);
+          queue.push({ entity: edge.to, path: nextPath });
+        }
+      }
+      return [];
+    },
+    getBusinessRule(id, { approvedOnly = true } = {}) {
+      const rule = requireItem(businessRules, id, "BUSINESS_RULE");
+      if (approvedOnly && rule.governance.status !== "approved") fail("ONTOLOGY_BUSINESS_RULE_NOT_APPROVED", id);
+      return rule;
+    },
     getPolicy(id, { approvedOnly = true } = {}) {
       const policy = requireItem(policies, id, "POLICY");
       if (approvedOnly && policy.governance.status !== "approved") fail("ONTOLOGY_POLICY_NOT_APPROVED", id);
@@ -83,6 +116,9 @@ export function createOntologyRegistry({
     },
     listMetrics({ status } = {}) {
       return [...metrics.values()].filter((metric) => !status || metric.governance.status === status);
+    },
+    listBusinessRules({ status, kind } = {}) {
+      return [...businessRules.values()].filter((rule) => (!status || rule.governance.status === status) && (!kind || rule.kind === kind));
     },
     matchTerms(query) {
       const normalizedQuery = String(query || "").toLocaleLowerCase("zh-CN");

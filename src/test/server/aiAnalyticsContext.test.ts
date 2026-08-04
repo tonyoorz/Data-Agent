@@ -60,9 +60,48 @@ describe("resolveAiAnalyticsContext", () => {
     expect(resolved.contextText).toContain("Intent: rank");
     expect(resolved.contextText).toContain("defect.created_count");
     expect(resolved.contextText).toContain("Plan status: valid");
+    expect(resolved.contextText).toContain("# Governed analysis plan");
+    expect(resolved.analysisPlan).toMatchObject({ operation: "ranked_comparison", visualization: "bar" });
+    expect(resolved.contextText).toContain(`Analysis plan: ${resolved.analysisPlan.analysisPlanId}`);
+    expect(resolved.contextText).toContain(`Ontology version: ${resolved.analysisPlan.ontologyVersion}`);
+    expect(resolved.contextText).toContain(`Source plan fingerprint: ${resolved.analysisPlan.sourcePlanFingerprint}`);
     expect(resolved.shadowObservation).toMatchObject({
       status: "completed",
       tools: ["query_semantic_metrics"],
+      analysisPlan: expect.objectContaining({
+        analysisPlanId: resolved.analysisPlan.analysisPlanId,
+        sourcePlanId: resolved.analysisPlan.sourcePlanId,
+        ontologyVersion: resolved.analysisPlan.ontologyVersion,
+        schemaFingerprint: resolved.analysisPlan.schemaFingerprint,
+        sourcePlanFingerprint: resolved.analysisPlan.sourcePlanFingerprint,
+        operation: "ranked_comparison",
+        visualization: "bar",
+        maxRows: 5,
+        guardrails: expect.arrayContaining(["READ_ONLY_SOURCE_PLAN", "NO_ARBITRARY_CODE", "NO_ARBITRARY_SQL"]),
+      }),
     });
+  });
+
+  it("passes an LLM semantic candidate into the ontology resolver", async () => {
+    const requestSemanticCandidate = vi.fn().mockResolvedValue({
+      intent: "aggregate",
+      entityIds: ["testing.test_run"],
+      metricIds: ["testing.run_count"],
+      dimensionIds: [],
+    });
+
+    const resolved = await resolveAiAnalyticsContext({
+      messages: [{ role: "user", content: "各楼层工位利用率" }],
+      now: new Date("2026-07-15T04:00:00.000Z"),
+      actor: { actorId: "alice", scopeHash: "scope-a", scopes: { workspaceIds: ["DTSV"], teamIds: ["DTSV"] } },
+      ontologyRegistry: createOntologyRegistry(),
+      requestSemanticCandidate,
+    });
+
+    expect(requestSemanticCandidate).toHaveBeenCalledWith(
+      expect.objectContaining({ query: "各楼层工位利用率", registry: expect.objectContaining({ version: "v1" }) }),
+    );
+    expect(resolved.contextText).toContain("testing.run_count");
+    expect(resolved.contextText).not.toContain("defect.count@1.0.0");
   });
 });

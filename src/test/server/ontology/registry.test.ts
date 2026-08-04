@@ -48,6 +48,25 @@ describe("Ontology registry", () => {
     expect(registry.matchTerms("ECU模块统计").map((term) => term.id)).toContain("dimension.ecu");
   });
 
+  it("lists approved planner warnings from the compiled business-rule catalog", () => {
+    const registry = createOntologyRegistry();
+
+    expect(registry.listBusinessRules({ status: "approved", kind: "plan_warning" })).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: "business.defect_created_count.creation_time",
+        effect: expect.objectContaining({ warningCode: "BUSINESS_RULE:business.defect_created_count.creation_time" }),
+      }),
+    ]));
+  });
+
+  it("finds governed relationship paths across reversible ontology edges", () => {
+    const registry = createOntologyRegistry();
+
+    expect(registry.findRelationshipPath("requirements.aida_node", "quality.defect").map((item) => item.id)).toEqual([
+      "quality.defect.affects.aida_node",
+    ]);
+  });
+
   it("fails closed when the declared fingerprint does not match content", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "ontology-registry-"));
     temporaryRoots.push(root);

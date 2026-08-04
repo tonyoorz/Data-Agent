@@ -1,6 +1,19 @@
 {
   "schemaVersion": "1.0",
   "ontologyVersion": "v1",
+  "businessRules": [
+    {
+      "id": "business.defect_created_count.creation_time",
+      "version": "1.0.0",
+      "kind": "plan_warning",
+      "appliesTo": { "metricIds": ["defect.created_count"] },
+      "effect": {
+        "warningCode": "BUSINESS_RULE:business.defect_created_count.creation_time",
+        "message": "Created/submitted/opened defect questions use octane_defects.creation_time semantics."
+      },
+      "governance": { "status": "approved", "owner": "Quality Analytics" }
+    }
+  ],
   "description": "从8份业务文档提取的纯业务逻辑规则。这些规则不属于数据约束，而是业务领域知识。",
   "rules": [
     {

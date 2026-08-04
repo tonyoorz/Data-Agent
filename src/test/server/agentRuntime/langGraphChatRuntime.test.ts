@@ -128,6 +128,52 @@ describe("LangGraph chat runtime", () => {
     expect(result.metrics.toolRouting).toEqual(expect.objectContaining({ shouldUseTools: false }));
   });
 
+  it("returns a deterministic direct response for chitchat without tool planning", async () => {
+    const requestToolCompletion = vi.fn();
+    const runtime = createLangGraphChatRuntime({
+      resolveAnalyticsContext: vi.fn(),
+      resolveDefectContext: vi.fn(),
+      shouldPlanTools: vi.fn().mockReturnValue(true),
+      requestToolCompletion,
+      now: () => new Date("2026-07-23T08:00:00.000Z"),
+    });
+
+    const result = await runtime.invoke({
+      body: {
+        threadId: "thread-chat-1",
+        useAnalyticsContext: true,
+        messages: [{ role: "user", content: "你好" }],
+      },
+    });
+
+    expect(result.directResponse).toEqual(expect.objectContaining({ intent: "chitchat" }));
+    expect(result.directResponse.content).toContain("测试质量");
+    expect(result.metrics.toolRouting).toEqual(expect.objectContaining({ shouldUseTools: false, intent: "chitchat" }));
+    expect(requestToolCompletion).not.toHaveBeenCalled();
+  });
+
+  it("returns a deterministic direct response for out-of-scope requests", async () => {
+    const runtime = createLangGraphChatRuntime({
+      resolveAnalyticsContext: vi.fn(),
+      resolveDefectContext: vi.fn(),
+      shouldPlanTools: vi.fn().mockReturnValue(true),
+      requestToolCompletion: vi.fn(),
+      now: () => new Date("2026-07-23T08:00:00.000Z"),
+    });
+
+    const result = await runtime.invoke({
+      body: {
+        threadId: "thread-oos-1",
+        useAnalyticsContext: true,
+        messages: [{ role: "user", content: "帮我写一首诗" }],
+      },
+    });
+
+    expect(result.directResponse).toEqual(expect.objectContaining({ intent: "out_of_scope" }));
+    expect(result.directResponse.content).toContain("汽车测试质量");
+    expect(result.metrics.toolRouting).toEqual(expect.objectContaining({ shouldUseTools: false, intent: "out_of_scope" }));
+  });
+
   it("persists actor scope, run events, checkpoint, and tool-call audit", async () => {
     const runtimeStore = {
       appendRunEvent: vi.fn(async () => undefined),
@@ -208,6 +254,91 @@ describe("LangGraph chat runtime", () => {
     );
   });
 
+  it("persists governed analysis plan provenance in runtime audit records", async () => {
+    const runtimeStore = {
+      appendRunEvent: vi.fn(async () => undefined),
+      writeThreadCheckpoint: vi.fn(async () => undefined),
+      appendToolAudit: vi.fn(async () => undefined),
+    };
+    const analysisPlan = {
+      schemaVersion: "1.0",
+      analysisPlanId: `analysis-${"c".repeat(16)}`,
+      sourcePlanId: `plan-${"d".repeat(16)}`,
+      sourcePlanFingerprint: "a".repeat(64),
+      ontologyVersion: "v1",
+      schemaFingerprint: "b".repeat(64),
+      status: "ready",
+      operation: "ranked_comparison",
+      visualization: "bar",
+      maxRows: 5,
+      guardrails: ["READ_ONLY_SOURCE_PLAN", "NO_ARBITRARY_CODE", "NO_ARBITRARY_SQL", "NO_CAUSAL_CLAIMS"],
+    };
+    const runtime = createLangGraphChatRuntime({
+      resolveAnalyticsContext: vi.fn().mockResolvedValue({
+        contextText: "# Analytics",
+        skipDefectContext: false,
+        analysisPlan,
+      }),
+      resolveDefectContext: vi.fn(),
+      shouldPlanTools: vi.fn().mockReturnValue(false),
+      runtimeStore,
+      now: () => new Date("2026-07-24T08:00:00.000Z"),
+    });
+
+    await runtime.invoke({
+      body: {
+        runId: "run-analysis-1",
+        threadId: "thread-analysis-1",
+        useAnalyticsContext: true,
+        actor: { actorId: "u1", scopeHash: "scope-1" },
+        messages: [{ role: "user", content: "最近一周 DTSV 新增缺陷按 ECU Top 5" }],
+      },
+    });
+
+    expect(runtimeStore.writeThreadCheckpoint).toHaveBeenCalledWith(expect.objectContaining({
+      checkpoint: expect.objectContaining({ governedAnalysisPlan: analysisPlan }),
+    }));
+    expect(runtimeStore.appendRunEvent).toHaveBeenCalledWith(expect.objectContaining({
+      runId: "run-analysis-1",
+      threadId: "thread-analysis-1",
+      type: "governed-analysis-plan-ready",
+      analysisPlan,
+    }));
+  });
+
+  it("persists a failure audit event when a graph run throws before finalize", async () => {
+    const runtimeStore = {
+      appendRunEvent: vi.fn(async () => undefined),
+      writeThreadCheckpoint: vi.fn(async () => undefined),
+      appendToolAudit: vi.fn(async () => undefined),
+    };
+    const runtime = createLangGraphChatRuntime({
+      resolveAnalyticsContext: vi.fn().mockRejectedValue(new Error("analytics context unavailable")),
+      resolveDefectContext: vi.fn(),
+      shouldPlanTools: vi.fn().mockReturnValue(false),
+      runtimeStore,
+      now: () => new Date("2026-07-24T08:00:00.000Z"),
+    });
+
+    await expect(runtime.invoke({
+      body: {
+        runId: "run-fail-1",
+        threadId: "thread-fail-1",
+        useAnalyticsContext: true,
+        actor: { actorId: "u1", scopeHash: "scope-1" },
+        messages: [{ role: "user", content: "DTSV 6月份提了多少bug？" }],
+      },
+    })).rejects.toThrow("analytics context unavailable");
+
+    expect(runtimeStore.appendRunEvent).toHaveBeenCalledWith(expect.objectContaining({
+      runId: "run-fail-1",
+      threadId: "thread-fail-1",
+      actorScope: { actorId: "u1", scopeHash: "scope-1" },
+      type: "agent-runtime-failed",
+      error: expect.objectContaining({ message: "analytics context unavailable" }),
+    }));
+  });
+
   it("carries a valid analysis ref into the next same-scope thread turn and resets the tool budget", async () => {
     const metricToolCall = { id: "metric-1", type: "function", function: { name: "query_semantic_metrics", arguments: "{}" } };
     const requestToolCompletion = vi
@@ -252,6 +383,8 @@ describe("LangGraph chat runtime", () => {
 
     expect(first.metrics.evidenceGate).toMatchObject({ status: "pass", analysisRefs: ["analysis-1"] });
     expect(first.context).toContain("Status: PASS");
+    expect(first.context).toContain("# Citation contract");
+    expect(first.context).toContain("Allowed toolCallIds: metric-1");
     expect(requestToolCompletion).toHaveBeenCalledTimes(3);
     expect(requestToolCompletion.mock.calls[2][0].context).toContain("analysis_ref: analysis-1");
     expect(requestToolCompletion.mock.calls[2][0].context).toContain("source_revision: snap-1");

@@ -1,6 +1,14 @@
 import { extractLatestUserQuery } from "./aiContext.mjs";
+import { requestCompanyChatCompletion } from "./companyChat.mjs";
+import { createGovernedAnalysisPlanner } from "./ontology/analysisPlanner.mjs";
 import { createQueryPlanner } from "./ontology/queryPlanner.mjs";
 import { createSemanticResolver } from "./ontology/resolver.mjs";
+import {
+  createSemanticCandidateCatalog,
+  createSemanticCandidateMessages,
+  createSemanticCandidateSchema,
+  parseSemanticCandidate,
+} from "./ontology/semanticCandidate.mjs";
 
 const ANALYTICS_API_BASE = process.env.VIZION_ANALYTICS_API_BASE || "http://127.0.0.1:3003";
 
@@ -151,14 +159,14 @@ function safeErrorCode(error, fallback) {
   return /^[A-Z][A-Z0-9_:.\-]{2,120}$/.test(code) ? code : fallback;
 }
 
-function governedContext(frame, plan, registry) {
+function governedContext(frame, plan, registry, analysisPlan = null) {
   const metrics = (frame.metricIds || []).map((metricId) => {
     const metric = registry.getMetric(metricId);
     return `${metric.id}@${metric.definitionVersion} [${metric.governance.status}] ${metric.labels?.["zh-CN"] || metric.id}`;
   });
   const scope = (frame.filters || []).map((filter) => `${filter.source}:${filter.dimensionId}:${filter.operator}:${(filter.values || []).join("|")}`);
   const times = (frame.timeScopes || []).map((time) => `${time.role}:${time.fieldId}:${time.start}..${time.end}:${time.timezone}`);
-  return [
+  const ontologyContext = [
     "# Governed Ontology interpretation",
     `Intent: ${frame.intent}`,
     `Metrics: ${metrics.join(", ") || "none"}`,
@@ -169,13 +177,43 @@ function governedContext(frame, plan, registry) {
     `Approved tools: ${(plan.steps || []).map((step) => step.toolName).join(", ") || "none"}`,
     "This interpretation is authoritative. Do not redefine metrics, remove policy filters, or infer unavailable values.",
   ].join("\n");
+  if (!analysisPlan) return ontologyContext;
+  return [
+    ontologyContext,
+    [
+      "# Governed analysis plan",
+      `Status: ${analysisPlan.status}`,
+      `Analysis plan: ${analysisPlan.analysisPlanId}`,
+      `Source plan: ${analysisPlan.sourcePlanId}`,
+      `Source plan fingerprint: ${analysisPlan.sourcePlanFingerprint}`,
+      `Ontology version: ${analysisPlan.ontologyVersion}`,
+      `Schema fingerprint: ${analysisPlan.schemaFingerprint}`,
+      `Allowed operation: ${analysisPlan.operation}`,
+      `Visualization: ${analysisPlan.visualization}`,
+      `Maximum source rows: ${analysisPlan.maxRows}`,
+      `Guardrails: ${analysisPlan.guardrails.join(", ")}`,
+      "Use only this read-only plan. Do not execute arbitrary code or SQL, expand the source data, or make causal claims.",
+    ].join("\n"),
+  ].join("\n\n");
 }
 
-function buildShadowObservation({ semanticFrame, plan }) {
+function buildShadowObservation({ semanticFrame, plan, analysisPlan = null }) {
   return {
     status: "completed",
     intent: semanticFrame.intent,
     tools: (plan.steps || []).map((step) => step.toolName),
+    analysisPlan: analysisPlan ? {
+      analysisPlanId: analysisPlan.analysisPlanId,
+      sourcePlanId: analysisPlan.sourcePlanId,
+      sourcePlanFingerprint: analysisPlan.sourcePlanFingerprint,
+      ontologyVersion: analysisPlan.ontologyVersion,
+      schemaFingerprint: analysisPlan.schemaFingerprint,
+      status: analysisPlan.status,
+      operation: analysisPlan.operation,
+      visualization: analysisPlan.visualization,
+      maxRows: analysisPlan.maxRows,
+      guardrails: [...analysisPlan.guardrails],
+    } : null,
     semanticFrameRef: {
       ontologyVersion: semanticFrame.ontologyVersion,
       schemaFingerprint: semanticFrame.schemaFingerprint,
@@ -234,7 +272,34 @@ async function resolveDetectedMetricContext(metric, analyticsFetch) {
   }
 }
 
-export async function resolveAiAnalyticsContext({ messages, analyticsFetch = globalThis.fetch, now = new Date(), actor, ontologyRegistry }) {
+async function requestCompanySemanticCandidate({ registry, query, priorSemanticContext = null, model } = {}) {
+  const catalog = createSemanticCandidateCatalog({ registry, query });
+  const schema = createSemanticCandidateSchema(registry, catalog);
+  const completion = await requestCompanyChatCompletion({
+    messages: createSemanticCandidateMessages({ registry, query, priorSemanticContext, catalog }),
+    model,
+  });
+  return parseSemanticCandidate(completion.content, schema);
+}
+
+async function bestEffortSemanticCandidate({ requestSemanticCandidate, registry, query, priorSemanticContext, model }) {
+  if (typeof requestSemanticCandidate !== "function") return null;
+  try {
+    return await requestSemanticCandidate({ registry, query, priorSemanticContext, model });
+  } catch {
+    return null;
+  }
+}
+
+export async function resolveAiAnalyticsContext({
+  messages,
+  analyticsFetch = globalThis.fetch,
+  now = new Date(),
+  actor,
+  ontologyRegistry,
+  model,
+  requestSemanticCandidate = requestCompanySemanticCandidate,
+}) {
   const queryText = extractLatestUserQuery(messages);
   if (!queryText) {
     return { queryText: "", contextText: "" };
@@ -243,16 +308,25 @@ export async function resolveAiAnalyticsContext({ messages, analyticsFetch = glo
   const recentUserText = extractRecentUserText(messages);
   let semanticFrame;
   let semanticPlan;
+  let analysisPlan;
   let semanticContext = "";
   let shadowObservation = {};
   let governanceFailed = false;
   if (actor && ontologyRegistry) {
     try {
       const resolver = createSemanticResolver({ registry: ontologyRegistry, now: () => now.toISOString() });
-      semanticFrame = resolver.resolve({ query: recentUserText || queryText, actor, requestAnchorAt: now.toISOString() });
+      const candidate = await bestEffortSemanticCandidate({
+        requestSemanticCandidate,
+        registry: ontologyRegistry,
+        query: recentUserText || queryText,
+        priorSemanticContext: null,
+        model,
+      });
+      semanticFrame = resolver.resolve({ query: recentUserText || queryText, actor, requestAnchorAt: now.toISOString(), candidate });
       semanticPlan = createQueryPlanner({ registry: ontologyRegistry }).createPlan({ frame: semanticFrame, actor, query: recentUserText || queryText });
-      semanticContext = governedContext(semanticFrame, semanticPlan, ontologyRegistry);
-      shadowObservation = buildShadowObservation({ semanticFrame, plan: semanticPlan });
+      analysisPlan = createGovernedAnalysisPlanner().createPlan({ frame: semanticFrame, queryPlan: semanticPlan });
+      semanticContext = governedContext(semanticFrame, semanticPlan, ontologyRegistry, analysisPlan);
+      shadowObservation = buildShadowObservation({ semanticFrame, plan: semanticPlan, analysisPlan });
     } catch (error) {
       governanceFailed = true;
       semanticContext = `# Governed Ontology interpretation\nStatus: ${safeErrorCode(error, "SEMANTIC_CONTEXT_UNAVAILABLE")}\nDo not answer analytics questions without governed evidence.`;
@@ -266,5 +340,6 @@ export async function resolveAiAnalyticsContext({ messages, analyticsFetch = glo
     contextText: [ANALYTICS_CONTEXT, semanticContext, detectedMetricContext].filter(Boolean).join("\n\n"),
     skipDefectContext: Boolean(detectedMetric),
     shadowObservation,
+    analysisPlan,
   };
 }
