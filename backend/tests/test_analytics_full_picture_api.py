@@ -1283,6 +1283,7 @@ def test_analytics_fallback_query_runs_allowlisted_defect_grouping(tmp_path, mon
     assert payload["query_fingerprint"]
     assert payload["audit"]["readonly"] is True
     assert payload["audit"]["allowlisted"] is True
+    assert "planner.forbid_arbitrary_sql" in payload["audit"]["constraints"]
     assert payload["columns"] == ["assigned_ecu", "defect_count"]
     assert payload["rows"] == [
         {"assigned_ecu": "ECU-A", "defect_count": 2},

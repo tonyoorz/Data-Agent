@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { createOntologyRegistry } from "../../../../server/ontology/registry.mjs";
 import { createSemanticResolver } from "../../../../server/ontology/resolver.mjs";
 import { createQueryPlanner } from "../../../../server/ontology/queryPlanner.mjs";
+import { composeSourceQuery, fingerprintSourceQuery } from "../../../../server/ontology/fingerprint.mjs";
 
 const anchorAt = "2026-07-15T04:00:00.000Z";
 const actor = { actorId: "alice", scopeHash: "scope-a", scopes: { workspaceIds: ["DTSV"], teamIds: ["DTSV"] } };
@@ -25,6 +26,8 @@ describe("Ontology query planner", () => {
       dimensionIds: expect.arrayContaining(["product.ecu"]),
       riskLevel: "R0",
     });
+    expect(first.warnings).toContain("BUSINESS_RULE:business.defect_created_count.creation_time");
+    expect(first.warnings).toContain("CONSTRAINT:planner.forbid_arbitrary_sql");
   });
 
   it("does not plan a draft metric before clarification", () => {
@@ -66,8 +69,45 @@ describe("Ontology query planner", () => {
   it("routes trace and similarity intents only to their typed tools", () => {
     const traceFrame = resolver.resolve({ query: "追溯 Requirement 到 Defect", actor });
     const similarityFrame = resolver.resolve({ query: "蓝牙断连缺陷查重", actor });
-    expect(planner.createPlan({ frame: traceFrame, actor, query: "追溯 Requirement 到 Defect" }).steps[0].toolName).toBe("query_traceability");
-    expect(planner.createPlan({ frame: similarityFrame, actor, query: "蓝牙断连缺陷查重" }).steps[0].toolName).toBe("search_duplicates");
+    const tracePlan = planner.createPlan({ frame: traceFrame, actor, query: "追溯 Requirement 到 Defect" });
+    expect(tracePlan.steps[0].toolName).toBe("query_traceability");
+    expect(tracePlan.warnings).toContain("RELATIONSHIP_PATH:quality.defect.affects.aida_node");
+    const similarityPlan = planner.createPlan({ frame: similarityFrame, actor, query: "蓝牙断连缺陷查重" });
+    expect(similarityPlan.steps[0].toolName).toBe("search_duplicates");
+    expect(similarityPlan.warnings).toContain("CONSTRAINT:similarity.not_population_statistic");
+  });
+
+  it("binds a similarity plan to the resolver-originated search payload", () => {
+    const frame = resolver.resolve({ query: "蓝牙断连缺陷查重", actor });
+    const expected = planner.createPlan({ frame, actor, query: "蓝牙断连缺陷查重" });
+
+    expect(expected.steps[0].canonicalArgs).toEqual({ query: "蓝牙断连缺陷查重", top_k: 20 });
+    expect(expected.sourceQueryFingerprint).toBe(frame.sourceQueryFingerprint);
+    expect(() => planner.createPlan({ frame, actor, query: "unrelated payload" }))
+      .toThrow("QUERY_PLAN_SOURCE_QUERY_MISMATCH");
+  });
+
+  it("binds clarified similarity semantics to one effective source query", () => {
+    const query = "这个";
+    const clarification = { selection: "补充其他明确口径", text: "蓝牙断连缺陷查重" };
+    const effectiveSourceQuery = composeSourceQuery(query, clarification.text);
+    const frame = resolver.resolve({ query, actor, clarification });
+    const plan = planner.createPlan({ frame, actor, query: effectiveSourceQuery });
+
+    expect(frame.intent).toBe("similarity");
+    expect(frame.sourceQueryFingerprint).toBe(fingerprintSourceQuery(effectiveSourceQuery));
+    expect(plan.steps[0].canonicalArgs).toEqual({ query: effectiveSourceQuery, top_k: 20 });
+    expect(() => planner.createPlan({ frame, actor, query }))
+      .toThrow("QUERY_PLAN_SOURCE_QUERY_MISMATCH");
+  });
+
+  it("uses the canonical normalized source as the similarity execution payload", () => {
+    const rawQuery = "\uFF21   duplicate";
+    const frame = resolver.resolve({ query: rawQuery, actor });
+    const plan = planner.createPlan({ frame, actor, query: rawQuery });
+
+    expect(frame.sourceQueryFingerprint).toBe(fingerprintSourceQuery("A duplicate"));
+    expect(plan.steps[0].canonicalArgs).toEqual({ query: "A duplicate", top_k: 20 });
   });
 
   it("plans direct record lists with governed fields and pagination defaults", () => {

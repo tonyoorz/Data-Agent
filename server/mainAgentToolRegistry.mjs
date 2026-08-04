@@ -1,7 +1,16 @@
 import { extractLatestUserQuery } from "./aiContext.mjs";
+import { classifyDirectMainAgentIntent, DIRECT_MAIN_AGENT_INTENT_PROFILES } from "./mainAgentDirectIntent.mjs";
 import { MAIN_AGENT_TOOLS } from "./mainAgentTools.mjs";
 
 export const MAIN_AGENT_INTENT_PROFILES = Object.freeze({
+  chitchat: {
+    ...DIRECT_MAIN_AGENT_INTENT_PROFILES.chitchat,
+    toolNames: [],
+  },
+  out_of_scope: {
+    ...DIRECT_MAIN_AGENT_INTENT_PROFILES.out_of_scope,
+    toolNames: [],
+  },
   metric_query: {
     confidence: 0.88,
     reason: "metric/trend/rank wording matched",
@@ -145,6 +154,10 @@ export function createMainAgentToolRegistry(allTools = MAIN_AGENT_TOOLS) {
 
   function routeIntent(messages) {
     const queryText = extractLatestUserQuery(messages);
+    const directIntent = classifyDirectMainAgentIntent(queryText);
+    if (directIntent) {
+      return { queryText, ...directIntent, toolNames: [] };
+    }
     const intent = routeToolIntent(queryText);
     return { intent, queryText, ...MAIN_AGENT_INTENT_PROFILES[intent] };
   }

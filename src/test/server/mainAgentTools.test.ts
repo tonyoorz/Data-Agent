@@ -873,6 +873,7 @@ describe("main agent analytics tools", () => {
     expect(result.contextText).toContain("Tool: search_duplicates");
     expect(result.contextText).toContain("Candidate count: 1");
     expect(result.contextText).toContain("Ticket 2687001");
+    expect(result.contextText).toContain("Constraint: similarity.not_population_statistic");
   });
 
   it("executes query_defect_high_frequency_analysis against the analytics API", async () => {

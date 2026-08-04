@@ -120,6 +120,49 @@ def _action_catalog_items() -> list[dict[str, object]]:
     ]
 
 
+def _entity_source_tables(entity_id: str) -> list[str]:
+    if entity_id == "quality.defect":
+        return ["octane_defects"]
+    if entity_id == "testing.test_run":
+        return ["octane_manual_runs"]
+    if entity_id == "testing.test_case":
+        return ["octane_manual_runs", "octane_traceability_testcases", "octane_testcases"]
+    if entity_id in {"requirements.feature", "requirements.story"}:
+        return ["octane_run_traceability"]
+    if entity_id == "requirements.aida_node":
+        return ["octane_defects", "octane_run_traceability"]
+    if entity_id.startswith("product."):
+        return ["octane_defects", "octane_manual_runs"]
+    if entity_id.startswith("organization."):
+        return ["octane_defects", "octane_manual_runs"]
+    return []
+
+
+def _relationship_catalog_items(tables: dict[str, dict[str, object]]) -> list[dict[str, object]]:
+    try:
+        catalog = load_ontology()
+    except OntologyLoadError:
+        return []
+
+    items: list[dict[str, object]] = []
+    for relationship in catalog.bundle.get("relationships", []):
+        source_entity = str(relationship.get("sourceEntity") or "")
+        target_entity = str(relationship.get("targetEntity") or "")
+        required_tables = sorted(set(_entity_source_tables(source_entity) + _entity_source_tables(target_entity)))
+        items.append(
+            {
+                "id": relationship["id"],
+                "predicate": relationship.get("predicate", ""),
+                "from": source_entity,
+                "to": target_entity,
+                "capability_state": _capability_state(tables, required_tables) if required_tables else "unavailable",
+                "source_tables": required_tables,
+                "governance_status": relationship.get("governance", {}).get("status", "unknown"),
+            }
+        )
+    return items
+
+
 def build_ontology_catalog_payload() -> dict[str, object]:
     db_path = get_full_picture_source_db_path()
     tables = _source_table_catalog()
@@ -161,13 +204,7 @@ def build_ontology_catalog_payload() -> dict[str, object]:
                 "source_tables": ["octane_defects"],
             },
         ],
-        "relationship_types": [
-            {"id": "EXECUTES_TESTCASE", "from": "ManualRun", "to": "Testcase", "capability_state": _capability_state(tables, ["octane_manual_runs"])},
-            {"id": "COVERS_FEATURE", "from": "Testcase", "to": "Feature", "capability_state": _capability_state(tables, ["octane_run_traceability"])},
-            {"id": "COVERS_STORY", "from": "Testcase", "to": "Story", "capability_state": _capability_state(tables, ["octane_run_traceability"])},
-            {"id": "LINKED_DEFECT", "from": "ManualRun", "to": "Defect", "capability_state": "partial" if tables.get("octane_manual_runs", {}).get("rows") else "unavailable"},
-            {"id": "SIMILAR_TO", "from": "Defect", "to": "Defect", "capability_state": "available"},
-        ],
+        "relationship_types": _relationship_catalog_items(tables),
         "agent_tools": [
             {"id": "get_test_case_context", "primitive": "context", "capability_state": _capability_state(tables, ["octane_manual_runs", "octane_run_traceability"])},
             {"id": "query_defect_aggregate", "primitive": "aggregate", "capability_state": _capability_state(tables, ["octane_defects"])},

@@ -8,6 +8,7 @@ from typing import Any
 
 from backend.analytics.config import get_full_picture_source_db_path
 from backend.analytics.db import connect
+from backend.analytics.ontology import OntologyLoadError, load_ontology
 
 
 _PLAN_CW_RE = re.compile(r"(?:^|[^A-Za-z0-9])(?:(20\d{2})[-_ ]*)?CW\s*0?(\d{1,2})(?:$|[^A-Za-z0-9])", re.IGNORECASE)
@@ -237,6 +238,29 @@ def _has_release_filter(query_params: Any) -> bool:
 
 
 GRAPH_LAYERS = ["epic", "feature", "story", "testcase", "manual_run", "defect"]
+TRACEABILITY_EDGE_RELATIONSHIPS = {
+    ("epic", "feature"): "requirements.aida_node.parent_of.aida_node",
+    ("feature", "story"): "requirements.aida_node.parent_of.aida_node",
+    ("feature", "testcase"): "testing.test_run.traces_to.feature",
+    ("story", "testcase"): "testing.test_run.traces_to.story",
+    ("testcase", "manual_run"): "testing.test_run.executes.test_case",
+    ("manual_run", "defect"): "quality.defect.detected_in.test_run",
+}
+
+
+def _ontology_relationship_ids() -> set[str]:
+    try:
+        catalog = load_ontology()
+    except OntologyLoadError:
+        return set()
+    return {str(item.get("id") or "") for item in catalog.bundle.get("relationships", [])}
+
+
+def _edge_relationship_id(from_id: str, to_id: str, known_relationship_ids: set[str]) -> str:
+    from_type = str(from_id or "").split(":", 1)[0]
+    to_type = str(to_id or "").split(":", 1)[0]
+    relationship_id = TRACEABILITY_EDGE_RELATIONSHIPS.get((from_type, to_type), "")
+    return relationship_id if relationship_id in known_relationship_ids else ""
 
 
 def _empty_graph() -> dict[str, object]:
@@ -278,15 +302,20 @@ def _build_traceability_graph(chain_rows: list[dict[str, object]]) -> dict[str, 
                 node["status"] = status
         return node_id
 
+    known_relationship_ids = _ontology_relationship_ids()
+
     def add_edge(from_id: str, to_id: str) -> None:
         if not from_id or not to_id:
             return
         edge_id = f"{from_id}->{to_id}"
+        relationship_id = _edge_relationship_id(from_id, to_id, known_relationship_ids)
         edge = edges_by_id.get(edge_id)
         if edge is None:
-            edges_by_id[edge_id] = {"id": edge_id, "from": from_id, "to": to_id, "count": 1}
+            edges_by_id[edge_id] = {"id": edge_id, "from": from_id, "to": to_id, "count": 1, "relationship_id": relationship_id}
         else:
             edge["count"] = int(edge["count"] or 0) + 1
+            if not edge.get("relationship_id") and relationship_id:
+                edge["relationship_id"] = relationship_id
 
     for row in chain_rows:
         epic_nodes = [
@@ -376,15 +405,20 @@ def _build_traceability_graph_from_relations(relation_rows: list[dict[str, objec
                 node["status"] = status
         return node_id
 
+    known_relationship_ids = _ontology_relationship_ids()
+
     def add_edge(from_id: str, to_id: str) -> None:
         if not from_id or not to_id:
             return
         edge_id = f"{from_id}->{to_id}"
+        relationship_id = _edge_relationship_id(from_id, to_id, known_relationship_ids)
         edge = edges_by_id.get(edge_id)
         if edge is None:
-            edges_by_id[edge_id] = {"id": edge_id, "from": from_id, "to": to_id, "count": 1}
+            edges_by_id[edge_id] = {"id": edge_id, "from": from_id, "to": to_id, "count": 1, "relationship_id": relationship_id}
         else:
             edge["count"] = int(edge["count"] or 0) + 1
+            if not edge.get("relationship_id") and relationship_id:
+                edge["relationship_id"] = relationship_id
 
     for row in relation_rows:
         run_id = str(row.get("run_id") or "").strip()

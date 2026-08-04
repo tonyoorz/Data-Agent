@@ -337,6 +337,10 @@ def test_build_ontology_catalog_payload_reports_capabilities_and_source_counts(t
         {"id": "Story", "capability_state": "available", "source_tables": ["octane_run_traceability"]},
         {"id": "Requirement", "capability_state": "partial", "source_tables": ["octane_defects"]},
     ]
+    relationship_ids = {item["id"] for item in payload["relationship_types"]}
+    assert "testing.test_run.executes.test_case" in relationship_ids
+    assert "quality.defect.detected_in.test_run" in relationship_ids
+    assert "EXECUTES_TESTCASE" not in relationship_ids
     assert {"id": "get_test_case_context", "primitive": "context", "capability_state": "available"} in payload["agent_tools"]
     assert {"id": "octane.defect.add_comment", "operation": "comment", "target_entity": "quality.defect", "capability_state": "dry_run_only", "execution_mode": "dry_run_only", "approval_required": True, "dry_run_required": True} in payload["actions"]
     assert {"id": "octane.defect.update_triage_fields", "operation": "update", "target_entity": "quality.defect", "capability_state": "disabled", "execution_mode": "disabled", "approval_required": True, "dry_run_required": True} in payload["actions"]

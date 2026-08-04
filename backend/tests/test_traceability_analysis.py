@@ -237,11 +237,11 @@ def test_build_traceability_analysis_payload_summarizes_relations(tmp_path: Path
         },
     ]
     assert payload["graph"]["edges"] == [
-        {"id": "epic:E-TRACE-1->feature:F-TRACE-1", "from": "epic:E-TRACE-1", "to": "feature:F-TRACE-1", "count": 1},
-        {"id": "feature:F-TRACE-1->story:S-TRACE-1", "from": "feature:F-TRACE-1", "to": "story:S-TRACE-1", "count": 1},
-        {"id": "story:S-TRACE-1->testcase:T-TRACE-1", "from": "story:S-TRACE-1", "to": "testcase:T-TRACE-1", "count": 1},
-        {"id": "testcase:T-TRACE-1->manual_run:MR-TRACE-1", "from": "testcase:T-TRACE-1", "to": "manual_run:MR-TRACE-1", "count": 1},
-        {"id": "manual_run:MR-TRACE-1->defect:D-TRACE-1", "from": "manual_run:MR-TRACE-1", "to": "defect:D-TRACE-1", "count": 1},
+        {"id": "epic:E-TRACE-1->feature:F-TRACE-1", "from": "epic:E-TRACE-1", "to": "feature:F-TRACE-1", "count": 1, "relationship_id": "requirements.aida_node.parent_of.aida_node"},
+        {"id": "feature:F-TRACE-1->story:S-TRACE-1", "from": "feature:F-TRACE-1", "to": "story:S-TRACE-1", "count": 1, "relationship_id": "requirements.aida_node.parent_of.aida_node"},
+        {"id": "story:S-TRACE-1->testcase:T-TRACE-1", "from": "story:S-TRACE-1", "to": "testcase:T-TRACE-1", "count": 1, "relationship_id": "testing.test_run.traces_to.story"},
+        {"id": "testcase:T-TRACE-1->manual_run:MR-TRACE-1", "from": "testcase:T-TRACE-1", "to": "manual_run:MR-TRACE-1", "count": 1, "relationship_id": "testing.test_run.executes.test_case"},
+        {"id": "manual_run:MR-TRACE-1->defect:D-TRACE-1", "from": "manual_run:MR-TRACE-1", "to": "defect:D-TRACE-1", "count": 1, "relationship_id": "quality.defect.detected_in.test_run"},
     ]
     assert payload["gap_rows"] == [
         {

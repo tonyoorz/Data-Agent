@@ -1981,6 +1981,7 @@ function formatDuplicateSearchContext(payload) {
     result?.dataset_size != null ? `Dataset size: ${result.dataset_size}` : "",
     rows.length ? "Top candidates:" : "Top candidates: none",
     ...rows,
+    "Constraint: similarity.not_population_statistic",
     "Use duplicate-search results only for similarity/duplication reasoning; keep analytics counts separate.",
   ].filter(Boolean).join("\n");
 }

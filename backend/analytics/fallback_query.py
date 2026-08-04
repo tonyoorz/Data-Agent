@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from backend.analytics import read_models
+from backend.analytics.ontology import OntologyLoadError, load_ontology
 
 
 MAX_FALLBACK_LIMIT = 100
@@ -233,6 +234,23 @@ def _fingerprint(query_ast: dict[str, Any]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:24]
 
 
+def _enabled_constraint_ids(*constraint_ids: str) -> list[str]:
+    try:
+        catalog = load_ontology()
+    except OntologyLoadError:
+        return []
+    enabled: list[str] = []
+    for constraint_id in constraint_ids:
+        try:
+            constraint = catalog.get_constraint(constraint_id)
+        except OntologyLoadError:
+            continue
+        if constraint.get("parameters", {}).get("enabled") is False:
+            continue
+        enabled.append(constraint_id)
+    return enabled
+
+
 def build_analytics_fallback_query_payload(**kwargs: Any) -> dict[str, Any]:
     if _normalize_text(kwargs.get("sql")):
         raise read_models.FullPictureDashboardRequestError("Fallback query does not accept raw SQL")
@@ -290,6 +308,7 @@ def build_analytics_fallback_query_payload(**kwargs: Any) -> dict[str, Any]:
         "audit": {
             "readonly": True,
             "allowlisted": True,
+            "constraints": _enabled_constraint_ids("planner.forbid_arbitrary_sql"),
             "dataset": dataset.id,
             "source_table": dataset.table,
             "reason": _normalize_text(kwargs.get("reason")),
