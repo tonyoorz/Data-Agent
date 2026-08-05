@@ -29,7 +29,11 @@ describe("Ontology compiler", () => {
       actionCount: 3,
     });
     expect(first.bundle.businessRules).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "business.defect_created_count.creation_time", kind: "plan_warning" }),
+      expect.objectContaining({
+        id: "business.defect_created_count.creation_time",
+        kind: "require",
+        effect: expect.objectContaining({ requiredTimeField: "time.defect_creation_date" }),
+      }),
     ]));
   });
 

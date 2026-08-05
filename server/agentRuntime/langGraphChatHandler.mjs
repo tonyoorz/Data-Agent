@@ -22,8 +22,10 @@ export async function streamLangGraphChatResponse({
   writeEvent = writeSseEvent,
   imageOcrRunner,
   documentTextRunner,
+  onCompleted,
 } = {}) {
   let streamMetrics = null;
+  let answerValidationResult = null;
   const runtimeResult = await runtime.invoke(
     { body, toolDependencies },
     {
@@ -35,7 +37,13 @@ export async function streamLangGraphChatResponse({
 
   if (typeof runtimeResult?.directResponse?.content === "string" && runtimeResult.directResponse.content.trim()) {
     writeSseResponse(response, runtimeResult.directResponse.content);
-    return { runtimeResult, streamMetrics: { directResponse: true } };
+    const result = { runtimeResult, streamMetrics: { directResponse: true }, answerValidation: null };
+    try {
+      await onCompleted?.(result);
+    } catch {
+      // Completion observers are best effort and cannot affect an ended response.
+    }
+    return result;
   }
 
   await streamCompletion({
@@ -47,10 +55,19 @@ export async function streamLangGraphChatResponse({
     imageOcrRunner,
     documentTextRunner,
     answerValidation: createAnswerValidation(runtimeResult),
+    onAnswerValidation: (validation) => {
+      answerValidationResult = validation;
+    },
     onMetrics: (metrics) => {
       streamMetrics = metrics;
     },
   });
 
-  return { runtimeResult, streamMetrics };
+  const result = { runtimeResult, streamMetrics, answerValidation: answerValidationResult };
+  try {
+    await onCompleted?.(result);
+  } catch {
+    // Completion observers are best effort and cannot affect an ended response.
+  }
+  return result;
 }

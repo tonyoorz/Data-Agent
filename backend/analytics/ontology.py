@@ -44,6 +44,45 @@ class OntologyCatalog:
             raise OntologyLoadError(f"ONTOLOGY_DIMENSION_NOT_FOUND:{dimension_id}")
         return dimension
 
+    def find_relationship_path(
+        self,
+        source_entity: str,
+        target_entity: str,
+        *,
+        approved_only: bool = True,
+        max_depth: int = 6,
+    ) -> list[dict[str, Any]]:
+        source = str(source_entity or "")
+        target = str(target_entity or "")
+        if not source or not target or source == target:
+            return []
+        edges: list[tuple[str, str, dict[str, Any]]] = []
+        for relationship in sorted(self.bundle.get("relationships", []), key=lambda item: str(item.get("id") or "")):
+            if approved_only and relationship.get("governance", {}).get("status") != "approved":
+                continue
+            source_id = str(relationship.get("sourceEntity") or "")
+            target_id = str(relationship.get("targetEntity") or "")
+            if not source_id or not target_id:
+                continue
+            edges.append((source_id, target_id, relationship))
+            if relationship.get("reversible"):
+                edges.append((target_id, source_id, relationship))
+        queue: list[tuple[str, list[dict[str, Any]]]] = [(source, [])]
+        visited = {source}
+        while queue:
+            current, path = queue.pop(0)
+            if len(path) >= max_depth:
+                continue
+            for edge_source, edge_target, relationship in edges:
+                if edge_source != current or edge_target in visited:
+                    continue
+                next_path = [*path, relationship]
+                if edge_target == target:
+                    return next_path
+                visited.add(edge_target)
+                queue.append((edge_target, next_path))
+        return []
+
     def get_policy(self, policy_id: str) -> dict[str, Any]:
         policy = next((item for item in self.bundle["policies"] if item["id"] == policy_id), None)
         if policy is None or policy["governance"]["status"] != "approved":
@@ -55,6 +94,14 @@ class OntologyCatalog:
         if constraint is None or constraint["governance"]["status"] != "approved":
             raise OntologyLoadError(f"ONTOLOGY_CONSTRAINT_NOT_APPROVED:{constraint_id}")
         return constraint
+
+    def list_business_rules(self, *, kind: str | None = None, approved_only: bool = True) -> list[dict[str, Any]]:
+        return [
+            rule
+            for rule in self.bundle.get("businessRules", [])
+            if (not approved_only or rule.get("governance", {}).get("status") == "approved")
+            and (kind is None or rule.get("kind") == kind)
+        ]
 
     def get_action(self, action_id: str, *, approved_only: bool = False) -> dict[str, Any]:
         action = next((item for item in self.bundle.get("actions", []) if item["id"] == action_id), None)

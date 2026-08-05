@@ -103,6 +103,7 @@ describe("streamCompanyChatCompletion", () => {
     });
 
     vi.stubGlobal("fetch", fetchMock);
+    const onAnswerValidation = vi.fn();
 
     await streamCompanyChatCompletion({
       messages: [
@@ -222,6 +223,7 @@ describe("streamCompanyChatCompletion", () => {
     expect(systemPrompt).not.toContain("narrate your work as an agent does");
     expect(systemPrompt).not.toContain("private reasoning");
     expect(systemPrompt).toContain("Do not invent tool use");
+    expect(systemPrompt).toContain("Do not make causal claims");
     expect(systemPrompt).toContain("Only emit <step>");
   });
 
@@ -630,6 +632,7 @@ describe("streamCompanyChatCompletion", () => {
     });
 
     vi.stubGlobal("fetch", fetchMock);
+    const onAnswerValidation = vi.fn();
 
     await streamCompanyChatCompletion({
       messages: [{ role: "user", content: "缺陷数是多少？" }],
@@ -640,6 +643,7 @@ describe("streamCompanyChatCompletion", () => {
         registry,
         evidence: [{ toolCallId: "call-1", tool: "query_semantic_metrics", ontologyVersion: "v1", schemaFingerprint: registry.fingerprint }],
       },
+      onAnswerValidation,
     });
 
     const streamedText = response.write.mock.calls
@@ -648,6 +652,59 @@ describe("streamCompanyChatCompletion", () => {
     expect(streamedText).toContain('"type":"answer-validation"');
     expect(streamedText).toContain("ANSWER_CITATION_REQUIRED");
     expect(streamedText.indexOf('"type":"answer-validation"')).toBeLessThan(streamedText.indexOf("data: [DONE]"));
+    expect(onAnswerValidation).toHaveBeenCalledWith(expect.objectContaining({
+      valid: false,
+      violations: ["ANSWER_CITATION_REQUIRED"],
+    }));
+  });
+
+  it("emits a causal-claim violation for cited observational analytics output", async () => {
+    const encoder = new TextEncoder();
+    const response = {
+      writeHead: vi.fn(),
+      write: vi.fn(),
+      end: vi.fn(),
+    };
+    const registry = createOntologyRegistry();
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            encoder.encode(
+              'data: {"choices":[{"delta":{"content":"ECU A 导致缺陷数上升 <cite source=\\"call-1\\">evidence</cite>"}}]}\n\n' +
+                'data: [DONE]\n\n',
+            ),
+          );
+          controller.close();
+        },
+      }),
+      text: async () => "",
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+    const onAnswerValidation = vi.fn();
+
+    await streamCompanyChatCompletion({
+      messages: [{ role: "user", content: "缺陷数为什么上升？" }],
+      model: "deepseek-v4-flash",
+      context: "# Main agent tool result\nTool: query_semantic_metrics\nResult: 12",
+      response,
+      answerValidation: {
+        registry,
+        evidence: [{ toolCallId: "call-1", tool: "query_semantic_metrics", ontologyVersion: "v1", schemaFingerprint: registry.fingerprint }],
+      },
+      onAnswerValidation,
+    });
+
+    const streamedText = response.write.mock.calls
+      .map(([chunk]) => Buffer.from(chunk).toString("utf8"))
+      .join("");
+    expect(streamedText).toContain("ANSWER_CAUSAL_CLAIM_UNSUPPORTED");
+    expect(onAnswerValidation).toHaveBeenCalledWith(expect.objectContaining({
+      valid: false,
+      violations: ["ANSWER_CAUSAL_CLAIM_UNSUPPORTED"],
+    }));
   });
 });
 

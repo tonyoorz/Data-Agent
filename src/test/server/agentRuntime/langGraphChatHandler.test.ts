@@ -53,7 +53,8 @@ describe("LangGraph chat handler", () => {
         };
       }),
     };
-    const streamCompletion = vi.fn(async ({ onMetrics }) => {
+    const streamCompletion = vi.fn(async ({ onMetrics, onAnswerValidation }) => {
+      onAnswerValidation({ valid: true, violations: [] });
       onMetrics({ streamTotalMs: 12 });
     });
     const writeEvent = vi.fn();
@@ -100,5 +101,37 @@ describe("LangGraph chat handler", () => {
     );
     expect(result.runtimeResult.threadId).toBe("thread-1");
     expect(result.streamMetrics).toEqual({ streamTotalMs: 12 });
+    expect(result.answerValidation).toEqual({ valid: true, violations: [] });
+  });
+
+  it("does not write after stream completion when a telemetry observer fails", async () => {
+    const response = { writeHead: vi.fn(), write: vi.fn(), end: vi.fn(), writableEnded: false };
+    const runtime = {
+      invoke: vi.fn(async () => ({
+        runtime: "langgraph",
+        runId: "run-1",
+        threadId: "thread-1",
+        finalMessages: [{ role: "user", content: "DTSV count" }],
+        context: "",
+        prefaceEvents: [],
+        mainAgentToolContext: null,
+        metrics: { mainAgentToolCallCount: 0 },
+      })),
+    };
+    const streamCompletion = vi.fn(async ({ onMetrics }) => {
+      response.writableEnded = true;
+      onMetrics({ streamTotalMs: 10 });
+    });
+    const onCompleted = vi.fn(async () => { throw new Error("telemetry unavailable"); });
+
+    await expect(streamLangGraphChatResponse({
+      body: { threadId: "thread-1", messages: [{ role: "user", content: "DTSV count" }] },
+      response,
+      runtime,
+      streamCompletion,
+      onCompleted,
+    })).resolves.toEqual(expect.objectContaining({ streamMetrics: { streamTotalMs: 10 } }));
+    expect(response.write).not.toHaveBeenCalled();
+    expect(response.end).not.toHaveBeenCalled();
   });
 });

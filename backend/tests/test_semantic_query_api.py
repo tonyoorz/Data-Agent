@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from datetime import datetime, timezone
+import json
 from pathlib import Path
 from typing import Any
 
@@ -8,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend.analytics.api import app
-from backend.analytics.ontology import OntologyCatalog, load_ontology
+from backend.analytics.ontology import OntologyCatalog, load_ontology, ontology_fingerprint
 from backend.analytics.semantic_analysis_store import SemanticAnalysisStore
 from backend.analytics.semantic_query import SemanticQueryError, execute_semantic_query, execute_semantic_records
 
@@ -56,6 +58,40 @@ def _payload(catalog, *, metric_id: str = "defect.count", entity_id: str = "qual
     }
 
 
+def _catalog_with_deny_rule(catalog: OntologyCatalog, *, metric_id: str, intents: list[str]) -> OntologyCatalog:
+    bundle = deepcopy(catalog.bundle)
+    rule_id = "business.test.no_metric_execution"
+    bundle["businessRules"].append({
+        "id": rule_id,
+        "version": "1.0.0",
+        "kind": "deny",
+        "appliesTo": {"metricIds": [metric_id], "intents": intents},
+        "effect": {
+            "denialCode": f"BUSINESS_RULE_DENY:{rule_id}",
+            "message": "Metric execution is blocked for this policy test.",
+        },
+        "governance": {"status": "approved", "owner": "Agent Security"},
+    })
+    return OntologyCatalog(version=catalog.version, fingerprint=ontology_fingerprint(bundle), bundle=bundle)
+
+
+def _catalog_with_derived_project_rule(catalog: OntologyCatalog, *, intents: list[str] = ["aggregate"]) -> OntologyCatalog:
+    bundle = deepcopy(catalog.bundle)
+    rule_id = "business.test.project_scope"
+    bundle["businessRules"].append({
+        "id": rule_id,
+        "version": "1.0.0",
+        "kind": "derive",
+        "appliesTo": {"metricIds": ["defect.count"], "intents": intents},
+        "effect": {
+            "derivedFilter": {"dimensionId": "product.project", "operator": "in", "values": ["SP25"]},
+            "message": "This policy test is scoped to SP25.",
+        },
+        "governance": {"status": "approved", "owner": "Quality Analytics"},
+    })
+    return OntologyCatalog(version=catalog.version, fingerprint=ontology_fingerprint(bundle), bundle=bundle)
+
+
 def test_semantic_query_api_reads_json_body_and_returns_safe_error() -> None:
     client = TestClient(app)
 
@@ -94,6 +130,17 @@ def _records_payload(catalog, *, analysis_ref: str | None, query: dict[str, Any]
         "page": 1,
         "pageSize": 1,
     }
+
+
+def _trace_payload(catalog) -> dict[str, Any]:
+    payload = _payload(catalog)
+    payload["query"].update({
+        "intent": "trace",
+        "entityIds": ["requirements.aida_node", "testing.test_case", "testing.test_run", "quality.defect"],
+        "metricIds": [],
+        "filters": [{"dimensionId": "org.team", "operator": "in", "values": ["DTSV_China"], "source": "policy"}],
+    })
+    return payload
 
 
 def test_metric_result_issues_durable_analysis_ref_and_evidence(catalog, tmp_path: Path) -> None:
@@ -299,6 +346,141 @@ def test_metric_required_filter_is_enforced_independently_of_actor_policy(catalo
         execute_semantic_query(payload, catalog=catalog)
 
 
+def test_approved_deny_rule_blocks_direct_semantic_metric_execution(catalog) -> None:
+    denied_catalog = _catalog_with_deny_rule(catalog, metric_id="defect.created_count", intents=["rank"])
+    payload = _payload(denied_catalog, metric_id="defect.created_count")
+    payload["query"].update({
+        "intent": "rank",
+        "dimensionIds": ["product.ecu"],
+        "sort": [{"fieldId": "defect.created_count", "direction": "desc"}],
+    })
+
+    with pytest.raises(SemanticQueryError, match="SEMANTIC_BUSINESS_RULE_DENIED") as exc_info:
+        execute_semantic_query(
+            payload,
+            catalog=denied_catalog,
+            defect_provider=lambda _filters: {"snapshot_version": "deny-metric-1", "generated_from": {}, "ticket_rows": []},
+        )
+
+    assert exc_info.value.status_code == 403
+
+
+def test_approved_deny_rule_blocks_direct_semantic_record_execution(catalog, tmp_path: Path) -> None:
+    denied_catalog = _catalog_with_deny_rule(catalog, metric_id="defect.count", intents=["drilldown"])
+    query = deepcopy(_payload(denied_catalog)["query"])
+    query["intent"] = "list"
+    request = _records_payload(denied_catalog, analysis_ref=None, query=query)
+    request["selections"] = []
+
+    with pytest.raises(SemanticQueryError, match="SEMANTIC_BUSINESS_RULE_DENIED") as exc_info:
+        execute_semantic_records(
+            request,
+            catalog=denied_catalog,
+            analysis_store=SemanticAnalysisStore(tmp_path / "deny-rule-analysis.db"),
+            defect_provider=lambda _filters: {"snapshot_version": "deny-record-1", "generated_from": {}, "ticket_rows": []},
+        )
+
+    assert exc_info.value.status_code == 403
+
+
+def test_approved_required_time_rule_blocks_direct_semantic_metric_execution(catalog) -> None:
+    payload = _payload(catalog, metric_id="defect.created_count")
+    payload["query"]["timeScopes"] = [{
+        "role": "primary",
+        "fieldId": "time.defect_last_modified",
+        "start": "2026-07-01",
+        "end": "2026-07-15",
+        "timezone": "Asia/Shanghai",
+        "anchorAt": "2026-07-15T04:00:00.000Z",
+    }]
+
+    with pytest.raises(SemanticQueryError, match="SEMANTIC_BUSINESS_RULE_REQUIREMENT_UNMET") as exc_info:
+        execute_semantic_query(
+            payload,
+            catalog=catalog,
+            defect_provider=lambda _filters: {"snapshot_version": "require-time-1", "generated_from": {}, "ticket_rows": []},
+        )
+
+    assert exc_info.value.status_code == 400
+
+
+def test_semantic_api_returns_safe_business_rule_code_for_required_time_rejection(catalog) -> None:
+    payload = _payload(catalog, metric_id="defect.created_count")
+    payload["query"]["timeScopes"] = [{
+        "role": "primary",
+        "fieldId": "time.defect_last_modified",
+        "start": "2026-07-01",
+        "end": "2026-07-15",
+        "timezone": "Asia/Shanghai",
+        "anchorAt": "2026-07-15T04:00:00.000Z",
+    }]
+
+    response = TestClient(app).post("/api/semantic/query", json=payload)
+
+    assert response.status_code == 400
+    assert response.json() == {
+        "code": "SEMANTIC_BUSINESS_RULE_REQUIREMENT_UNMET",
+        "ruleCodes": ["BUSINESS_RULE_REQUIRE:business.defect_created_count.creation_time"],
+        "safeMessage": "semantic query rejected",
+        "retryable": False,
+    }
+
+
+def test_approved_derive_rule_scopes_direct_semantic_metric_execution(catalog) -> None:
+    derived_catalog = _catalog_with_derived_project_rule(catalog)
+    payload = _payload(derived_catalog)
+    captured: dict[str, Any] = {}
+
+    def provider(filters: dict[str, Any]) -> dict[str, Any]:
+        captured.update(filters)
+        return {
+            "snapshot_version": "derive-project-1",
+            "generated_from": {},
+            "ticket_rows": [
+                {"ticket_id": "D-1", "problem_finder_team": "DTSV_China", "project": "SP25"},
+                {"ticket_id": "D-2", "problem_finder_team": "DTSV_China", "project": "OTHER"},
+            ],
+        }
+
+    result = execute_semantic_query(payload, catalog=derived_catalog, defect_provider=provider)
+
+    assert captured["projects"] == ["SP25"]
+    assert result["summary"]["metrics"] == {"defect.count": 1}
+    assert result["businessRules"] == {"applied": ["BUSINESS_RULE_DERIVE:business.test.project_scope"]}
+
+
+def test_approved_derive_rule_scopes_direct_semantic_record_execution(catalog, tmp_path: Path) -> None:
+    derived_catalog = _catalog_with_derived_project_rule(catalog, intents=["drilldown"])
+    query = deepcopy(_payload(derived_catalog)["query"])
+    query["intent"] = "list"
+    request = _records_payload(derived_catalog, analysis_ref=None, query=query)
+    request["selections"] = []
+    request["fields"] = ["defect_id", "project"]
+    captured: dict[str, Any] = {}
+
+    def provider(filters: dict[str, Any]) -> dict[str, Any]:
+        captured.update(filters)
+        return {
+            "snapshot_version": "derive-project-records-1",
+            "generated_from": {},
+            "ticket_rows": [
+                {"ticket_id": "D-1", "problem_finder_team": "DTSV_China", "project": "SP25"},
+                {"ticket_id": "D-2", "problem_finder_team": "DTSV_China", "project": "OTHER"},
+            ],
+        }
+
+    result = execute_semantic_records(
+        request,
+        catalog=derived_catalog,
+        analysis_store=SemanticAnalysisStore(tmp_path / "derive-record-analysis.db"),
+        defect_provider=provider,
+    )
+
+    assert captured["projects"] == ["SP25"]
+    assert result["data"] == [{"defect_id": "D-1", "project": "SP25"}]
+    assert result["businessRules"] == {"applied": ["BUSINESS_RULE_DERIVE:business.test.project_scope"]}
+
+
 def test_empty_result_is_zero_not_missing(catalog) -> None:
     result = execute_semantic_query(
         _payload(catalog),
@@ -309,6 +491,28 @@ def test_empty_result_is_zero_not_missing(catalog) -> None:
     assert result["summary"]["metrics"]["defect.count"] == 0
     assert result["quality"]["missingness"] == "zero"
     assert result["quality"]["completeness"] == "complete"
+
+
+def test_stale_snapshot_quality_warning_is_deterministic(catalog) -> None:
+    quality_cases = [
+        json.loads(line)
+        for line in (REPO_ROOT / "evals" / "main-agent" / "target" / "semantic-quality-golden.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    expected = next(item["expected"] for item in quality_cases if item["caseId"] == "quality-005-stale-snapshot")
+    result = execute_semantic_query(
+        _payload(catalog),
+        catalog=catalog,
+        defect_provider=lambda _filters: {
+            "snapshot_version": "snap-stale-1",
+            "generated_from": {"fetched_at": "2026-07-01T00:00:00Z"},
+            "ticket_rows": [],
+        },
+        now=lambda: datetime(2026, 7, 15, tzinfo=timezone.utc),
+    )
+
+    assert result["quality"]["completeness"] == expected["completeness"]
+    assert result["quality"]["warnings"] == [expected["warning"]]
 
 
 def test_comparison_values_are_union_filtered_and_grouped(catalog) -> None:
@@ -527,6 +731,91 @@ def test_traceability_passes_and_rechecks_team_scope(catalog) -> None:
     assert captured == {"teams": ["DTSV_China"]}
     assert result["data"] == [{"run_id": "MR-1", "scope_team": "DTSV_China"}]
     assert result["summary"]["rowCount"] == 1
+    assert result["lineage"] == {
+        "path": [
+            {
+                "id": "testing.test_case.validates.aida_node",
+                "predicate": "validates",
+                "sourceEntity": "testing.test_case",
+                "targetEntity": "requirements.aida_node",
+                "cardinality": "many_to_many",
+                "joinPath": ["testing.test_case", "requirements.aida_node"],
+                "explosionPolicy": "distinct_source",
+            },
+            {
+                "id": "testing.test_run.executes.test_case",
+                "predicate": "executes",
+                "sourceEntity": "testing.test_run",
+                "targetEntity": "testing.test_case",
+                "cardinality": "many_to_one",
+                "joinPath": ["testing.test_run", "testing.test_case"],
+            },
+            {
+                "id": "quality.defect.detected_in.test_run",
+                "predicate": "detected_in",
+                "sourceEntity": "quality.defect",
+                "targetEntity": "testing.test_run",
+                "cardinality": "many_to_one",
+                "joinPath": ["quality.defect", "testing.test_run"],
+            },
+        ],
+        "sourceRevision": result["sourceRevision"],
+        "evidence": {
+            "rowCount": 1,
+            "rowIndexes": [0],
+            "relationshipIds": [
+                "testing.test_case.validates.aida_node",
+                "testing.test_run.executes.test_case",
+                "quality.defect.detected_in.test_run",
+            ],
+        },
+    }
+
+
+def test_traceability_rejects_an_unsupported_join_before_reading_source_data(catalog) -> None:
+    bundle = deepcopy(catalog.bundle)
+    bundle["relationships"] = [
+        relationship
+        for relationship in bundle["relationships"]
+        if relationship["id"] != "testing.test_run.executes.test_case"
+    ]
+    unsupported_catalog = OntologyCatalog(
+        version=catalog.version,
+        fingerprint=ontology_fingerprint(bundle),
+        bundle=bundle,
+    )
+
+    with pytest.raises(SemanticQueryError, match="SEMANTIC_UNSUPPORTED_JOIN:testing.test_case:testing.test_run") as exc_info:
+        execute_semantic_query(
+            _trace_payload(unsupported_catalog),
+            catalog=unsupported_catalog,
+            trace_provider=lambda _params: pytest.fail("trace provider must not run for an unsupported join"),
+        )
+
+    assert exc_info.value.status_code == 422
+
+
+def test_traceability_rejects_an_unbounded_many_to_many_path_before_reading_source_data(catalog) -> None:
+    bundle = deepcopy(catalog.bundle)
+    next(
+        relationship
+        for relationship in bundle["relationships"]
+        if relationship["id"] == "testing.test_case.validates.aida_node"
+    ).pop("explosionPolicy")
+    unbounded_catalog = OntologyCatalog(
+        version=catalog.version,
+        fingerprint=ontology_fingerprint(bundle),
+        bundle=bundle,
+    )
+
+    with pytest.raises(SemanticQueryError, match="SEMANTIC_UNBOUNDED_CARDINALITY:testing.test_case.validates.aida_node") as exc_info:
+        execute_semantic_query(
+            _trace_payload(unbounded_catalog),
+            catalog=unbounded_catalog,
+            trace_provider=lambda _params: pytest.fail("trace provider must not run for an unbounded path"),
+        )
+
+    assert exc_info.value.status_code == 422
 
 
 def test_traceability_rechecks_status_and_shanghai_time_scope(catalog) -> None:

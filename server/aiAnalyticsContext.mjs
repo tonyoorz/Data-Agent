@@ -174,6 +174,8 @@ function governedContext(frame, plan, registry, analysisPlan = null) {
     `Authorized filters: ${scope.join("; ") || "none"}`,
     `Time scopes: ${times.join("; ") || "none"}`,
     `Plan status: ${plan.status}`,
+    `Plan violations: ${(plan.violations || []).join(", ") || "none"}`,
+    `Business rule effects: ${(plan.ruleEffects || []).map((effect) => effect.code).join(", ") || "none"}`,
     `Approved tools: ${(plan.steps || []).map((step) => step.toolName).join(", ") || "none"}`,
     "This interpretation is authoritative. Do not redefine metrics, remove policy filters, or infer unavailable values.",
   ].join("\n");
@@ -192,6 +194,8 @@ function governedContext(frame, plan, registry, analysisPlan = null) {
       `Visualization: ${analysisPlan.visualization}`,
       `Maximum source rows: ${analysisPlan.maxRows}`,
       `Guardrails: ${analysisPlan.guardrails.join(", ")}`,
+      `Business rule denials: ${(analysisPlan.ruleCodes || []).join(", ") || "none"}`,
+      `Business rule effects: ${(analysisPlan.ruleEffects || []).map((effect) => effect.code).join(", ") || "none"}`,
       "Use only this read-only plan. Do not execute arbitrary code or SQL, expand the source data, or make causal claims.",
     ].join("\n"),
   ].join("\n\n");
@@ -213,6 +217,7 @@ function buildShadowObservation({ semanticFrame, plan, analysisPlan = null }) {
       visualization: analysisPlan.visualization,
       maxRows: analysisPlan.maxRows,
       guardrails: [...analysisPlan.guardrails],
+      ruleEffects: [...(analysisPlan.ruleEffects || [])],
     } : null,
     semanticFrameRef: {
       ontologyVersion: semanticFrame.ontologyVersion,
@@ -324,7 +329,7 @@ export async function resolveAiAnalyticsContext({
       });
       semanticFrame = resolver.resolve({ query: recentUserText || queryText, actor, requestAnchorAt: now.toISOString(), candidate });
       semanticPlan = createQueryPlanner({ registry: ontologyRegistry }).createPlan({ frame: semanticFrame, actor, query: recentUserText || queryText });
-      analysisPlan = createGovernedAnalysisPlanner().createPlan({ frame: semanticFrame, queryPlan: semanticPlan });
+      analysisPlan = createGovernedAnalysisPlanner({ registry: ontologyRegistry }).createPlan({ frame: semanticFrame, queryPlan: semanticPlan });
       semanticContext = governedContext(semanticFrame, semanticPlan, ontologyRegistry, analysisPlan);
       shadowObservation = buildShadowObservation({ semanticFrame, plan: semanticPlan, analysisPlan });
     } catch (error) {
@@ -341,5 +346,6 @@ export async function resolveAiAnalyticsContext({
     skipDefectContext: Boolean(detectedMetric),
     shadowObservation,
     analysisPlan,
+    queryPlan: semanticPlan,
   };
 }

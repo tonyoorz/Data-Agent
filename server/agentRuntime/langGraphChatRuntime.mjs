@@ -1,5 +1,6 @@
 import { Annotation, END, MemorySaver, START, StateGraph } from "@langchain/langgraph";
 
+import { isOidcScopedActor } from "../agentAuth.mjs";
 import { resolveAiAnalyticsContext } from "../aiAnalyticsContext.mjs";
 import { extractLatestUserQuery, resolveAiDefectContext } from "../aiContext.mjs";
 import { buildCitationContractContext } from "../answerValidator.mjs";
@@ -10,6 +11,7 @@ import {
   evaluateSemanticEvidence,
   formatSemanticEvidenceGate,
 } from "../mainAgentEvidence.mjs";
+import { buildRuntimeRunSummary } from "./runSummary.mjs";
 import {
   buildEmptyDiagnosisToolCall,
   buildToolPlanningContext,
@@ -19,6 +21,12 @@ import {
   selectMainAgentToolset,
   shouldPlanMainAgentTools,
 } from "../mainAgentToolPlanning.mjs";
+import { isToolAllowed } from "../mainAgentToolRegistry.mjs";
+import {
+  buildCatalogBackedAnalyticsRetry,
+  buildGovernedSemanticPlanRetry,
+  completeCatalogBackedAnalyticsRetry,
+} from "../mainAgentToolRecovery.mjs";
 import { createOntologyRegistry } from "../ontology/registry.mjs";
 import { validateGovernedAnalysisPlan } from "../ontology/analysisPlanner.mjs";
 
@@ -178,12 +186,21 @@ function toolAuditsFromContext(mainAgentToolContext, { runId, threadId, actorSco
     if (event.type === "tool-output-available") {
       current.outputSummary = event.outputSummary;
     }
+    if (event.type === "tool-recovery") {
+      current.recovery = event.recovery;
+      delete current.input;
+    }
     if (event.toolName) {
       current.toolName = String(event.toolName);
     }
     byId.set(toolCallId, current);
   }
-  return [...byId.values()];
+  return [...byId.values()].map((audit) => {
+    if (audit.recovery) {
+      delete audit.input;
+    }
+    return audit;
+  });
 }
 
 function toolLifecycleEventsFromContext(mainAgentToolContext, { runId, threadId }) {
@@ -219,7 +236,7 @@ function toolLifecycleEventsFromContext(mainAgentToolContext, { runId, threadId 
         toolCallId: String(event.toolCallId || ""),
         toolName: String(event.toolName || ""),
         intent,
-        stoppedReason: "tool_not_allowed",
+        stoppedReason: String(event.reason || "tool_not_allowed"),
       });
     }
   }
@@ -243,6 +260,8 @@ function governedAnalysisAuditFromContext(analyticsContext) {
       visualization: plan.visualization,
       maxRows: plan.maxRows,
       guardrails: [...plan.guardrails],
+      ...(Array.isArray(plan.ruleCodes) ? { ruleCodes: [...plan.ruleCodes] } : {}),
+      ...(Array.isArray(plan.ruleEffects) ? { ruleEffects: [...plan.ruleEffects] } : {}),
     };
   } catch {
     return null;
@@ -262,6 +281,16 @@ async function persistRuntimeState(runtimeStore, state) {
   }
   for (const audit of toolAuditsFromContext(state.mainAgentToolContext, { runId, threadId, actorScope })) {
     await runtimeStore.appendToolAudit(audit);
+  }
+  if (typeof runtimeStore.appendRunSummary === "function") {
+    await runtimeStore.appendRunSummary(buildRuntimeRunSummary({
+      runId,
+      threadId,
+      actorScope,
+      metrics: state.metrics,
+      mainAgentToolContext: state.mainAgentToolContext,
+      governedAnalysisPlan,
+    }));
   }
   await runtimeStore.writeThreadCheckpoint({
     runId,
@@ -295,6 +324,23 @@ async function persistRuntimeFailure(runtimeStore, { runId, threadId, actorScope
     type: "agent-runtime-failed",
     error: runtimeErrorPayload(error),
   });
+  if (typeof runtimeStore.appendRunSummary === "function") {
+    await runtimeStore.appendRunSummary({
+      schemaVersion: "1.0",
+      runId,
+      threadId,
+      actorScopeHash: String(actorScope?.scopeHash || ""),
+      intent: "unknown",
+      outcome: "failed",
+      evidenceStatus: "not_required",
+      toolNames: [],
+      toolOutcomes: [],
+      recoveryOutcomes: [],
+      sourceRevisionIds: [],
+      citationValidation: "pending",
+      failureCode: "AGENT_RUNTIME_FAILED",
+    });
+  }
 }
 
 export function resolveAgentRuntimeMode(env = process.env) {
@@ -411,7 +457,7 @@ export function createLangGraphChatRuntime({
       }
     }
 
-    if (body?.useDefectContext === true && !analyticsContext?.skipDefectContext) {
+    if (body?.useDefectContext === true && !analyticsContext?.skipDefectContext && !isOidcScopedActor(state.actorScope)) {
       events.push(emit(config, { type: "defect-context-started", threadId: state.threadId }));
       defectContext = await resolveDefectContext({
         messages: body?.messages,
@@ -433,8 +479,10 @@ export function createLangGraphChatRuntime({
     const body = state.body || {};
     const directResponse = classifyDirectMainAgentIntent(state.queryText || extractLatestUserQuery(body?.messages));
     const selectedToolset = selectMainAgentToolset(body?.messages);
+    const governedPlanDenied = state.analyticsContext?.analysisPlan?.status === "denied";
     const shouldUseTools =
       !directResponse &&
+      !governedPlanDenied &&
       body?.useAnalyticsContext === true &&
       !state.analyticsContext?.skipDefectContext &&
       shouldPlanTools(body?.messages);
@@ -458,6 +506,9 @@ export function createLangGraphChatRuntime({
     const toolDependencies = { ...(state.toolDependencies || {}) };
     if (hasActorScope(state.actorScope)) {
       toolDependencies.actor = state.actorScope;
+    }
+    if (state.analyticsContext?.queryPlan?.status === "valid") {
+      toolDependencies.governedQueryPlan = state.analyticsContext.queryPlan;
     }
     return toolDependencies;
   }
@@ -494,8 +545,6 @@ export function createLangGraphChatRuntime({
     return {
       plannedToolCalls,
       stoppedReason: "",
-      toolCalls: plannedToolCalls,
-      toolConversationMessages: [{ role: "assistant", content: "", tool_calls: plannedToolCalls }],
       runtimeEvents: events,
     };
   }
@@ -513,7 +562,9 @@ export function createLangGraphChatRuntime({
     const allToolCalls = [...(state.toolCalls || [])];
     let stoppedReason = "";
 
-    async function executeOne(toolCall) {
+    async function executeOne(toolCall, { catalogRecovery = null, deferCatalogStop = false } = {}) {
+      toolCalls.push(toolCall);
+      toolConversationMessages.push({ role: "assistant", content: "", tool_calls: [toolCall] });
       const executed = await executeMainAgentPlannedToolCall({
         toolCall,
         selectedToolset,
@@ -529,24 +580,73 @@ export function createLangGraphChatRuntime({
       if (executed.result.contextText) {
         toolResultTexts.push(executed.result.contextText);
       }
-      if (executed.stoppedReason) {
+      const deferredCatalogStop = deferCatalogStop && executed.recovery?.action === "catalog";
+      if (executed.stoppedReason && !deferredCatalogStop) {
         stoppedReason = executed.stoppedReason;
       }
-      return executed.result;
+      if (catalogRecovery) {
+        toolEvents.push({
+          type: "tool-recovery",
+          toolCallId: toolCall?.id || "",
+          toolName: toolCall?.function?.name || "unknown_tool",
+          recovery: completeCatalogBackedAnalyticsRetry({
+            recovery: catalogRecovery,
+            result: executed.result,
+            stoppedReason: executed.stoppedReason,
+          }),
+        });
+      }
+      return {
+        result: executed.result,
+        recovery: executed.recovery,
+        stoppedReason: executed.stoppedReason,
+        deferredCatalogStop,
+      };
     }
 
     for (const toolCall of plannedToolCalls) {
-      const result = await executeOne(toolCall);
+      allToolCalls.push(toolCall);
+      const execution = await executeOne(toolCall, { deferCatalogStop: true });
+      const result = execution.result;
+      if (execution.deferredCatalogStop) {
+        const correction = buildGovernedSemanticPlanRetry({
+          originalToolCall: toolCall,
+          recovery: execution.recovery,
+          queryPlan: toolDependencies.governedQueryPlan,
+          actorScopeHash: state.actorScope?.scopeHash,
+        });
+        if (correction && isToolAllowed(correction.toolCall.function.name, selectedToolset)) {
+          allToolCalls.push(correction.toolCall);
+          await executeOne(correction.toolCall, { catalogRecovery: correction.recovery });
+          if (!stoppedReason) {
+            stoppedReason = "catalog_retry_completed";
+          }
+        } else {
+          stoppedReason = execution.stoppedReason || "tool_recovery_catalog";
+        }
+        break;
+      }
       if (stoppedReason) {
         break;
       }
       if (hasEmptyAnalyticsResult(toolCall, result) && !hasPlannedDiagnosis(allToolCalls)) {
         const diagnosisToolCall = buildEmptyDiagnosisToolCall(toolCall);
         allToolCalls.push(diagnosisToolCall);
-        toolCalls.push(diagnosisToolCall);
-        toolConversationMessages.push({ role: "assistant", content: "", tool_calls: [diagnosisToolCall] });
-        await executeOne(diagnosisToolCall);
+        const diagnosisExecution = await executeOne(diagnosisToolCall);
         if (stoppedReason) {
+          break;
+        }
+        const correction = buildCatalogBackedAnalyticsRetry({
+          originalToolCall: toolCall,
+          diagnosisToolCall,
+          diagnosisResult: diagnosisExecution.result,
+        });
+        if (correction && isToolAllowed(correction.toolCall.function.name, selectedToolset)) {
+          allToolCalls.push(correction.toolCall);
+          await executeOne(correction.toolCall, { catalogRecovery: correction.recovery });
+          if (!stoppedReason) {
+            stoppedReason = "catalog_retry_completed";
+          }
           break;
         }
       }

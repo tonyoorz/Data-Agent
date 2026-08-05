@@ -206,6 +206,124 @@ Default model order:
 - `qwen3.5-397b-a17b`
 - `glm-5`
 
+## Governed Agent Deployment
+
+The dashboard can run locally with its trusted internal principal. A shared or production deployment must use OIDC and keep the analytics service private.
+
+### Authentication Modes
+
+| Mode | Intended use | Behavior |
+| --- | --- | --- |
+| `internal` | local development or a trusted single-user machine | server-owned internal principal from `VIZION_INTERNAL_*` settings |
+| `oidc` | shared, LAN, or production deployment | default; fails closed unless a valid bearer token and server-owned scope policy resolve an actor |
+
+Set the mode explicitly in local deployment configuration:
+
+```powershell
+$env:VIZION_AGENT_AUTH_MODE = "oidc"
+$env:VIZION_OIDC_ISSUER = "https://issuer.example.com"
+$env:VIZION_OIDC_AUDIENCE = "vizion-lab"
+$env:VIZION_OIDC_JWKS_URI = "https://issuer.example.com/.well-known/jwks.json"
+```
+
+`VIZION_OIDC_ISSUER` and `VIZION_OIDC_JWKS_URI` must use HTTPS. The browser sends its current Supabase/OIDC session token only in the `Authorization: Bearer` header for AI Chat; identity and scopes in the JSON request body are ignored.
+
+Map verified subjects/groups to complete server-owned grants with `VIZION_AGENT_OIDC_SCOPE_POLICY_JSON`. A grant must include non-empty `allowedObjectTypes`; a user matching multiple different grants is denied rather than receiving a field-wise union.
+
+```json
+{
+  "groups": {
+    "dtsv-readers": {
+      "allowedObjectTypes": ["quality.defect"],
+      "teamIds": ["DTSV_China"],
+      "projectIds": ["IDCEVO"]
+    },
+    "agent-operators": {
+      "allowedObjectTypes": ["quality.defect"],
+      "teamIds": ["DTSV_China"],
+      "projectIds": ["IDCEVO"],
+      "rowPolicyIds": ["agent.operations.read"]
+    }
+  }
+}
+```
+
+### Actor Capability and Network Boundary
+
+The Node agent signs short-lived actor capabilities for agent-only analytics routes with `VIZION_AGENT_ACTOR_CAPABILITY_SECRET`. This secret is server-to-server only: do not expose it through Vite variables, browser storage, audit logs, or model prompts.
+
+Rotate the capability secret with a coordinated maintenance window:
+
+1. Stop new AI Chat traffic at the reverse proxy.
+2. Replace the secret in both Node and FastAPI service environments.
+3. Restart both services together.
+4. Restore traffic and run the qualification commands below.
+
+The current verifier accepts one secret at a time, so rolling one service before the other intentionally causes agent-only queries to fail closed. Keep FastAPI port `3003` bound to loopback or a private network; do not expose it directly to browsers. Place the Node API behind the authenticated reverse-proxy boundary for shared deployments.
+
+Duplicate search and the legacy allowlisted fallback query do not yet have row-scope enforcement. They are available only in `internal` mode; scoped OIDC actors receive a safe denial from the associated tools and `/api/ai/context` or `/api/duplicate-search*` routes. Do not re-enable them for OIDC users until their backend retrieval path enforces the same actor scope contract.
+
+### Runtime Ontology Governance
+
+Compiled business rules in `ontology/v1/business_rules.json` are executable in both the Node planner and the Python semantic API:
+
+- `deny` returns a safe policy rejection and never creates tool steps.
+- `require` turns an unmet governed semantic into a clarification/rejection before a data provider runs.
+- `derive` can add only an approved static policy filter; it narrows results and never broadens actor scope.
+- `plan_warning` remains informational only.
+
+The approved created-defect rule requires `time.defect_creation_date` whenever a created-defect query references event time. Matching rule codes are retained in the QueryPlan, governed context, semantic API response, and sanitized runtime summary. Semantic trace results also include an approved AIDA-to-TestCase-to-TestRun-to-Defect relationship path with cardinality/join policy, source revision, and row-index evidence; the Traceability dashboard exposes approved relationship IDs on graph edges.
+
+After changing ontology source, regenerate and validate the bundle before starting services:
+
+```powershell
+npm run ontology:compile
+npm run ontology:check
+npm run test:ontology
+```
+
+### Bounded Recovery and Quality Gates
+
+Agent recovery never generates SQL, code, or a broader scope. A failed read is retried only once in either of these cases:
+
+- The scoped empty-result diagnosis verifies a `FILTER_VALUE_ALIAS` and changes only the same `detected_by` filter value.
+- A semantic schema or draft-metric failure has exactly one valid, same-scope canonical step in the governed QueryPlan.
+
+Each recovery audit stores the original and revised query fingerprints, source tool call, applicable source plan, reason, and outcome. Filter relaxation, ambiguous catalog matches, policy denials, sensitivity denials, and multiple matching plan steps are never retried automatically.
+
+Semantic quality checks reject unsupported trace joins and unbounded many-to-many paths before source reads. Source freshness warnings, including `SOURCE_STALE`, appear in semantic tool context. The answer stream is instructed not to turn observational analytics into causality; cited unsupported causal claims emit `ANSWER_CAUSAL_CLAIM_UNSUPPORTED` in the answer-validation event.
+
+### Qualification Baseline
+
+The following non-production qualification was recorded on 2026-08-04 after two consecutive clean runs:
+
+| Check | Run 1 | Run 2 |
+| --- | ---: | ---: |
+| Agent scorecard | 6 files / 13 tests passed | 6 files / 13 tests passed |
+| Golden fixture cases | 134 defined cases | 134 defined cases |
+| P0 integrated Node suite | 18 files / 200 tests passed | 18 files / 200 tests passed |
+| Python capability/scope suite | 99 passed | 99 passed |
+| Production build | passed | passed |
+
+The 134 fixture cases comprise 12 routing, 113 semantic, 3 execution, and 6 policy scenarios. The synthetic non-production operations snapshot used for the qualification reported 2 completed runs, 1 correctly denied run, P50 `200 ms`, P95 `300 ms`, 2 citation passes, 1 citation block, and 1 bounded recovery. Those latency values validate aggregation only; they are not a production latency SLO.
+
+Repeat the full qualification twice after any OIDC policy, actor-capability, agent route, tool recovery, Ontology, or model-streaming change.
+
+### Operations Audit and Retention
+
+LangGraph writes append-only runtime artifacts below `logs/agent-runtime/` by default:
+
+- `run-summaries.jsonl`: normalized summary records
+- `run-events.jsonl`: lifecycle and stream-completion events
+- `tool-calls.jsonl`: tool audit records
+- `threads/`: checkpoints
+
+The Agent Operations page requires the server-resolved `agent.operations.read` row policy. Its API returns opaque run references and sanitized timeline fields only. Raw audit files still require filesystem access control because they are operational logs. Configure external retention and backup jobs; a recommended starting policy is 30 days for raw events/tool audits, 90 days for summaries, and no backup of thread checkpoints unless an approved incident process requires it.
+
+### Emergency Rollback
+
+To preserve dashboard read-only access during an agent incident, block `/api/ai/chat`, `/api/chat`, and `/api/agent-operations/*` at the reverse proxy or stop the Node API on port `3004`. The React dashboard's analytics routes continue to use the FastAPI service on port `3003`. Restore agent traffic only after the failed qualification check has been corrected.
+
 ## Commands
 
 ### Development
@@ -222,6 +340,12 @@ npm run dev:analytics
 ```powershell
 npm test
 .\.venv\Scripts\python.exe -m pytest backend\tests -q
+```
+
+Agent qualification scorecard:
+
+```powershell
+npm run test:agent-evals
 ```
 
 Focused runtime-isolation checks:

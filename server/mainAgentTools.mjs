@@ -1,4 +1,9 @@
 import { semanticQuerySchema } from "./ontology/queryCompiler.mjs";
+import { isOidcScopedActor } from "./agentAuth.mjs";
+import {
+  ACTOR_CAPABILITY_HEADER,
+  createActorCapability,
+} from "./agentActorCapability.mjs";
 
 const DEFAULT_ANALYTICS_API_BASE = process.env.VIZION_ANALYTICS_API_BASE || "http://127.0.0.1:3003";
 
@@ -966,6 +971,57 @@ async function postAnalyticsJson(path, payload, { analyticsFetch, analyticsApiBa
   return { url, response };
 }
 
+function createAgentAnalyticsHeaders({
+  actor,
+  actorCapabilitySecret,
+  actorCapabilityNow,
+  actorCapabilityNonce,
+  actorCapabilityEnv,
+} = {}) {
+  const capabilityOptions = {};
+  if (actorCapabilitySecret !== undefined) capabilityOptions.secret = actorCapabilitySecret;
+  if (actorCapabilityNow !== undefined) capabilityOptions.now = actorCapabilityNow;
+  if (actorCapabilityNonce !== undefined) capabilityOptions.nonce = actorCapabilityNonce;
+  if (actorCapabilityEnv !== undefined) capabilityOptions.env = actorCapabilityEnv;
+  return {
+    "Content-Type": "application/json",
+    [ACTOR_CAPABILITY_HEADER]: createActorCapability(actor, capabilityOptions),
+  };
+}
+
+async function postAgentAnalyticsJson(path, payload, dependencies = {}) {
+  const url = new URL(path, dependencies.analyticsApiBase).toString();
+  const response = await dependencies.analyticsFetch(url, {
+    method: "POST",
+    headers: createAgentAnalyticsHeaders(dependencies),
+    body: JSON.stringify(payload),
+  });
+  return { url, response };
+}
+
+async function sanitizedHttpFailure(response) {
+  let body = {};
+  try {
+    body = await response?.json();
+  } catch {
+    body = {};
+  }
+  const rawCode = typeof body?.code === "string" ? body.code.trim() : "";
+  const code = /^[A-Z][A-Z0-9_]{2,127}$/.test(rawCode) ? rawCode : "HTTP_REQUEST_FAILED";
+  return {
+    statusCode: Number(response?.status || 0) || 502,
+    code,
+    retryable: response?.status === 408 || response?.status === 429 || Number(response?.status || 0) >= 500,
+  };
+}
+
+function failedToolResult(toolCall, toolName, failure, contextText) {
+  return {
+    toolMessage: buildToolMessage(toolCall, JSON.stringify({ ok: false, tool: toolName, failure })),
+    contextText,
+  };
+}
+
 function buildActorScope(actor) {
   const scopes = actor?.scopes || {};
   return {
@@ -996,6 +1052,18 @@ function formatSemanticContext(name, payload) {
   const data = Array.isArray(payload?.data) ? payload.data : [];
   const rows = data.length;
   const rowLines = data.slice(0, 20).map((row) => JSON.stringify(row));
+  const lineagePath = Array.isArray(payload?.lineage?.path) ? payload.lineage.path : [];
+  const lineageText = lineagePath.map((relationship) => {
+    const id = String(relationship?.id || "unknown");
+    const source = String(relationship?.sourceEntity || "unknown");
+    const target = String(relationship?.targetEntity || "unknown");
+    const cardinality = String(relationship?.cardinality || "unknown");
+    return `${id} (${source} -> ${target}; ${cardinality})`;
+  }).join(" | ");
+  const lineageRelationshipIds = Array.isArray(payload?.lineage?.evidence?.relationshipIds)
+    ? payload.lineage.evidence.relationshipIds.map(String).join(", ")
+    : "";
+  const lineageRowCount = Number(payload?.lineage?.evidence?.rowCount);
   return [
     "# Main agent semantic tool result",
     `Tool: ${name}`,
@@ -1007,8 +1075,12 @@ function formatSemanticContext(name, payload) {
     ...(payload?.pagination ? [`Pagination: page ${payload.pagination.page}/${payload.pagination.totalPages}, total ${payload.pagination.totalRows}`] : []),
     ...metricLines,
     ...rowLines,
+    ...(lineageText ? [`Lineage path: ${lineageText}`] : []),
+    ...(lineageRelationshipIds ? [`Lineage evidence: ${Number.isFinite(lineageRowCount) ? lineageRowCount : rows} rows; relationships ${lineageRelationshipIds}`] : []),
     `Evidence: ${payload?.evidence?.kind || "unavailable"}`,
+    `Business rules: ${(payload?.businessRules?.applied || []).join(", ") || "none"}`,
     `Completeness: ${payload?.quality?.completeness || "unknown"}`,
+    `Warnings: ${(payload?.quality?.warnings || []).join(", ") || "none"}`,
     "Use only the returned governed metrics or records, scope, source revision, analysis ref, and evidence envelope as factual evidence.",
   ].join("\n");
 }
@@ -1622,16 +1694,17 @@ function formatDefectAggregateContext(payload, { toolName = "query_defect_aggreg
   ].filter(Boolean).join("\n");
 }
 
-async function executeQueryAnalytics(toolCall, { analyticsFetch, analyticsApiBase }) {
+async function executeQueryAnalytics(toolCall, dependencies) {
   const args = parseToolArguments(toolCall?.function?.arguments);
   const requestPayload = buildDefectAggregatePayloadFromAnalyticsQuery(args);
-  const { url, response } = await postAnalyticsJson("/api/analytics/defects/aggregate", requestPayload, { analyticsFetch, analyticsApiBase });
+  const { url, response } = await postAgentAnalyticsJson("/api/agent/analytics/defects/aggregate", requestPayload, dependencies);
   if (!response?.ok) {
-    const content = JSON.stringify({ error: `Analytics API request failed for query_analytics: ${response?.status || "unknown"}` });
-    return {
-      toolMessage: buildToolMessage(toolCall, content),
-      contextText: `# Main agent tool result\nTool: query_analytics\nSource query: POST ${url}\nResult: unavailable because the analytics API request failed.`,
-    };
+    return failedToolResult(
+      toolCall,
+      "query_analytics",
+      await sanitizedHttpFailure(response),
+      `# Main agent tool result\nTool: query_analytics\nSource query: POST ${url}\nResult: unavailable because the analytics API request failed.`,
+    );
   }
   const payload = await response.json();
   return {
@@ -1643,15 +1716,16 @@ async function executeQueryAnalytics(toolCall, { analyticsFetch, analyticsApiBas
   };
 }
 
-async function executeDefectAggregate(toolCall, { analyticsFetch, analyticsApiBase }) {
+async function executeDefectAggregate(toolCall, dependencies) {
   const args = parseToolArguments(toolCall?.function?.arguments);
-  const { url, response } = await postAnalyticsJson("/api/analytics/defects/aggregate", args, { analyticsFetch, analyticsApiBase });
+  const { url, response } = await postAgentAnalyticsJson("/api/agent/analytics/defects/aggregate", args, dependencies);
   if (!response?.ok) {
-    const content = JSON.stringify({ error: `Analytics API request failed for query_defect_aggregate: ${response?.status || "unknown"}` });
-    return {
-      toolMessage: buildToolMessage(toolCall, content),
-      contextText: `# Main agent tool result\nTool: query_defect_aggregate\nSource query: POST ${url}\nResult: unavailable because the analytics API request failed.`,
-    };
+    return failedToolResult(
+      toolCall,
+      "query_defect_aggregate",
+      await sanitizedHttpFailure(response),
+      `# Main agent tool result\nTool: query_defect_aggregate\nSource query: POST ${url}\nResult: unavailable because the analytics API request failed.`,
+    );
   }
   const payload = await response.json();
   return {
@@ -1670,9 +1744,9 @@ const COMMON_CHINESE_SURNAME_TOKENS = new Set([
   "chen", "cai", "deng", "dong", "feng", "gao", "guo", "han", "he", "huang", "li", "lin", "luo", "ma", "qiao", "song", "tang", "wang", "wu", "xie", "xu", "yang", "zhang", "zhao", "zhou",
 ]);
 
-async function executeDiagnosisProbe({ label, query, analyticsFetch, analyticsApiBase }) {
+async function executeDiagnosisProbe({ label, query, ...dependencies }) {
   const requestPayload = buildDefectAggregatePayloadFromAnalyticsQuery(query);
-  const { url, response } = await postAnalyticsJson("/api/analytics/defects/aggregate", requestPayload, { analyticsFetch, analyticsApiBase });
+  const { url, response } = await postAgentAnalyticsJson("/api/agent/analytics/defects/aggregate", requestPayload, dependencies);
   if (!response?.ok) {
     return {
       label,
@@ -1755,7 +1829,7 @@ function formatDiagnosisContext(payload) {
   ].join("\n");
 }
 
-async function executeDiagnoseAnalyticsEmpty(toolCall, { analyticsFetch, analyticsApiBase }) {
+async function executeDiagnoseAnalyticsEmpty(toolCall, dependencies) {
   const args = parseToolArguments(toolCall?.function?.arguments);
   const baseQuery = normalizeAnalyticsQuery(args.query || args);
   const baseFilters = baseQuery.filters && typeof baseQuery.filters === "object" ? baseQuery.filters : {};
@@ -1764,14 +1838,13 @@ async function executeDiagnoseAnalyticsEmpty(toolCall, { analyticsFetch, analyti
     .filter((key) => !STABLE_DIAGNOSIS_FILTER_KEYS.has(key))
     .slice(0, 6);
   const probes = [];
-  probes.push(await executeDiagnosisProbe({ label: "original", query: baseQuery, analyticsFetch, analyticsApiBase }));
+  probes.push(await executeDiagnosisProbe({ label: "original", query: baseQuery, ...dependencies }));
   for (const aliasProbe of detectedByAliases) {
     probes.push({
       ...(await executeDiagnosisProbe({
         label: `detected_by alias ${aliasProbe.alias}`,
         query: { ...baseQuery, filters: aliasProbe.filters },
-        analyticsFetch,
-        analyticsApiBase,
+        ...dependencies,
       })),
       alias_filter: "detected_by",
       alias_value: aliasProbe.alias,
@@ -1784,8 +1857,7 @@ async function executeDiagnoseAnalyticsEmpty(toolCall, { analyticsFetch, analyti
       ...(await executeDiagnosisProbe({
         label: `without ${filterKey}`,
         query: { ...baseQuery, filters: relaxedFilters },
-        analyticsFetch,
-        analyticsApiBase,
+        ...dependencies,
       })),
       relaxed_filter: filterKey,
     });
@@ -1831,7 +1903,15 @@ function formatAnalyticsFallbackContext(url, payload) {
   ].join("\n");
 }
 
-async function executeAnalyticsFallback(toolCall, { analyticsFetch, analyticsApiBase }) {
+async function executeAnalyticsFallback(toolCall, { analyticsFetch, analyticsApiBase, actor }) {
+  if (isOidcScopedActor(actor)) {
+    return failedToolResult(
+      toolCall,
+      "query_analytics_fallback",
+      { code: "OIDC_UNSCOPED_TOOL_DISABLED", statusCode: 403, retryable: false },
+      "# Main agent tool result\nTool: query_analytics_fallback\nResult: unavailable for scoped OIDC actors until a capability-enforced fallback route exists.",
+    );
+  }
   const args = parseToolArguments(toolCall?.function?.arguments);
   const { url, response } = await postAnalyticsJson("/api/analytics/fallback/query", args, { analyticsFetch, analyticsApiBase });
   if (!response?.ok) {
@@ -1885,15 +1965,16 @@ function formatDefectRecordsContext(payload) {
   ].filter(Boolean).join("\n");
 }
 
-async function executeDefectRecords(toolCall, { analyticsFetch, analyticsApiBase }) {
+async function executeDefectRecords(toolCall, dependencies) {
   const args = parseToolArguments(toolCall?.function?.arguments);
-  const { url, response } = await postAnalyticsJson("/api/analytics/defects/records", args, { analyticsFetch, analyticsApiBase });
+  const { url, response } = await postAgentAnalyticsJson("/api/agent/analytics/defects/records", args, dependencies);
   if (!response?.ok) {
-    const content = JSON.stringify({ error: `Analytics API request failed for query_defect_records: ${response?.status || "unknown"}` });
-    return {
-      toolMessage: buildToolMessage(toolCall, content),
-      contextText: `# Main agent tool result\nTool: query_defect_records\nSource query: POST ${url}\nResult: unavailable because the analytics API request failed.`,
-    };
+    return failedToolResult(
+      toolCall,
+      "query_defect_records",
+      await sanitizedHttpFailure(response),
+      `# Main agent tool result\nTool: query_defect_records\nSource query: POST ${url}\nResult: unavailable because the analytics API request failed.`,
+    );
   }
   const payload = await response.json();
   return {
@@ -1986,7 +2067,15 @@ function formatDuplicateSearchContext(payload) {
   ].filter(Boolean).join("\n");
 }
 
-async function executeDuplicateSearch(toolCall, { runDuplicateBridge, ensureDuplicateWarmup }) {
+async function executeDuplicateSearch(toolCall, { runDuplicateBridge, ensureDuplicateWarmup, actor }) {
+  if (isOidcScopedActor(actor)) {
+    return failedToolResult(
+      toolCall,
+      "search_duplicates",
+      { code: "OIDC_UNSCOPED_TOOL_DISABLED", statusCode: 403, retryable: false },
+      "# Main agent tool result\nTool: search_duplicates\nResult: unavailable for scoped OIDC actors until duplicate search has row-scope enforcement.",
+    );
+  }
   if (typeof runDuplicateBridge !== "function") {
     const content = JSON.stringify({ error: "Duplicate bridge is not available" });
     return {
@@ -2055,8 +2144,21 @@ export async function executeMainAgentToolCall(toolCall, {
   runDuplicateBridge,
   ensureDuplicateWarmup,
   actor,
+  actorCapabilitySecret,
+  actorCapabilityNow,
+  actorCapabilityNonce,
+  actorCapabilityEnv,
   now,
 } = {}) {
+  const agentAnalyticsDependencies = {
+    analyticsFetch,
+    analyticsApiBase,
+    actor,
+    actorCapabilitySecret,
+    actorCapabilityNow,
+    actorCapabilityNonce,
+    actorCapabilityEnv,
+  };
   const name = toolCall?.function?.name || "";
   try {
     if (name === "get_data_catalog") {
@@ -2075,13 +2177,13 @@ export async function executeMainAgentToolCall(toolCall, {
       return executeResolveBusinessTerms(toolCall);
     }
     if (name === "query_analytics") {
-      return await executeQueryAnalytics(toolCall, { analyticsFetch, analyticsApiBase });
+      return await executeQueryAnalytics(toolCall, agentAnalyticsDependencies);
     }
     if (name === "diagnose_analytics_empty") {
-      return await executeDiagnoseAnalyticsEmpty(toolCall, { analyticsFetch, analyticsApiBase });
+      return await executeDiagnoseAnalyticsEmpty(toolCall, agentAnalyticsDependencies);
     }
     if (name === "query_analytics_fallback") {
-      return await executeAnalyticsFallback(toolCall, { analyticsFetch, analyticsApiBase });
+      return await executeAnalyticsFallback(toolCall, { analyticsFetch, analyticsApiBase, actor });
     }
     if (name === "query_semantic_records") {
       return await executeSemanticRecords(toolCall, { analyticsFetch, analyticsApiBase, actor });
@@ -2105,16 +2207,16 @@ export async function executeMainAgentToolCall(toolCall, {
       return await executeDefectHighFrequency(toolCall, { analyticsFetch, analyticsApiBase, now });
     }
     if (name === "query_defect_aggregate") {
-      return await executeDefectAggregate(toolCall, { analyticsFetch, analyticsApiBase });
+      return await executeDefectAggregate(toolCall, agentAnalyticsDependencies);
     }
     if (name === "query_defect_records") {
-      return await executeDefectRecords(toolCall, { analyticsFetch, analyticsApiBase });
+      return await executeDefectRecords(toolCall, agentAnalyticsDependencies);
     }
     if (name === "query_full_picture_module") {
       return await executeFullPictureModule(toolCall, { analyticsFetch, analyticsApiBase, now });
     }
     if (name === "search_duplicates") {
-      return await executeDuplicateSearch(toolCall, { runDuplicateBridge, ensureDuplicateWarmup });
+      return await executeDuplicateSearch(toolCall, { runDuplicateBridge, ensureDuplicateWarmup, actor });
     }
     if (name === "ask_clarification") {
       return executeAskClarification(toolCall);

@@ -137,6 +137,34 @@ Vizion Lab 是一个本地全栈质量分析工作台，不是单一前端项目
 - `backend/analytics_cli.py`
   入口集中，命令多，容易把“查询链路”和“运维链路”混在一起看。
 
+## Agent 运行与权限
+
+AI Chat 的生产路径不是把浏览器传来的 scope 直接交给工具。Node 网关会先解析 OIDC bearer token，再按服务器配置的 subject/group grant 生成 actor scope。随后：
+
+1. LangGraph 根据 intent 选择紧凑工具集。
+2. agent-only 缺陷 aggregate/records 请求携带短期签名 actor capability。
+3. FastAPI 校验 capability，强制 team/project 行范围，并把 drilldown 绑定到 actor scope。
+4. 语义查询继续使用 Ontology scope、敏感字段和 source revision 校验。
+5. 最终回答带 evidence/citation contract；stream 完成后记录脱敏的 runtime summary。
+
+本地运行默认可显式使用 `VIZION_AGENT_AUTH_MODE=internal`。共享环境使用 `oidc`，需要 `VIZION_OIDC_ISSUER`、`VIZION_OIDC_AUDIENCE`、`VIZION_OIDC_JWKS_URI`、`VIZION_AGENT_OIDC_SCOPE_POLICY_JSON` 和 `VIZION_AGENT_ACTOR_CAPABILITY_SECRET`。不要把 capability secret 或 OIDC policy 放到前端环境变量。
+
+Agent Operations 是受限页面，只有 scope 中带 `rowPolicyIds: ["agent.operations.read"]` 的 server-resolved actor 可读取。页面只显示 opaque run reference、意图、结果、恢复、证据和 citation 状态，不显示 raw prompt、ticket/person 数据、tool input/output 或 actor ID。
+
+当前 duplicate search 和 legacy analytics fallback 还没有完整行级 scope enforcement。因此在 `oidc` 模式下，Node 会安全拒绝相关 direct routes 和 agent tools；它们仅供 `internal` trusted deployment 使用，直到 scoped retrieval 实现完成。
+
+## 上线前资格验证
+
+在非生产数据快照上连续执行两次下列检查。两次都通过才允许开启 shared-agent 流量：
+
+```powershell
+npm run test:agent-evals
+.\.venv\Scripts\python.exe -m pytest backend\tests\test_agent_actor_capability.py backend\tests\test_analytics_full_picture_api.py backend\tests\test_semantic_query_api.py -q
+npm run build
+```
+
+记录每次的 scorecard case 数、通过率、P50/P95 latency、tool failure/denial rate、citation pass/blocked 数和 operations summary。若需要紧急回退，先在代理层关闭 AI/agent-operations 路由，保留 dashboard analytics 路由，再排查资格检查失败原因。
+
 ## 本地演示建议
 
 如果你要给团队做 5 分钟介绍，建议按下面顺序：

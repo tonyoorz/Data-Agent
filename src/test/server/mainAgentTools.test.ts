@@ -1,9 +1,34 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  ACTOR_CAPABILITY_HEADER,
+  verifyActorCapabilityHeader,
+} from "../../../server/agentActorCapability.mjs";
+import {
   executeMainAgentToolCall,
   MAIN_AGENT_TOOLS,
 } from "../../../server/mainAgentTools.mjs";
+
+const AGENT_CAPABILITY_SECRET = "main-agent-tool-capability-secret";
+const AGENT_CAPABILITY_NOW = 1_700_000_000;
+const AGENT_ACTOR = Object.freeze({
+  actorId: "alice",
+  scopeHash: "scope-alice-dtsv",
+  scopes: {
+    allowedObjectTypes: ["quality.defect"],
+    teamIds: ["DTSV_China"],
+    projectIds: ["IDCEVO"],
+  },
+});
+
+function scopedAgentDependencies() {
+  return {
+    actor: AGENT_ACTOR,
+    actorCapabilitySecret: AGENT_CAPABILITY_SECRET,
+    actorCapabilityNow: AGENT_CAPABILITY_NOW,
+    actorCapabilityNonce: "main-agent-tool-capability-nonce",
+  };
+}
 
 describe("main agent analytics tools", () => {
   const semanticQuery = {
@@ -207,6 +232,7 @@ describe("main agent analytics tools", () => {
       {
         analyticsFetch,
         analyticsApiBase: "http://127.0.0.1:3003",
+        ...scopedAgentDependencies(),
       },
     );
 
@@ -225,6 +251,37 @@ describe("main agent analytics tools", () => {
     expect(result.contextText).toContain("allowlisted read-only fallback");
   });
 
+  it("fails closed for legacy fallback and duplicate search under an OIDC-scoped actor", async () => {
+    const oidcActor = {
+      actorId: "oidc-reader",
+      scopeHash: "oidc-0123456789abcdef",
+      scopes: { allowedObjectTypes: ["quality.defect"], teamIds: ["DTSV_China"] },
+    };
+    const analyticsFetch = vi.fn();
+    const runDuplicateBridge = vi.fn();
+    const fallback = await executeMainAgentToolCall(
+      {
+        id: "oidc-fallback",
+        type: "function",
+        function: { name: "query_analytics_fallback", arguments: JSON.stringify({ dataset: "defects" }) },
+      },
+      { analyticsFetch, analyticsApiBase: "http://127.0.0.1:3003", actor: oidcActor },
+    );
+    const duplicate = await executeMainAgentToolCall(
+      {
+        id: "oidc-duplicate",
+        type: "function",
+        function: { name: "search_duplicates", arguments: JSON.stringify({ query: "camera black screen" }) },
+      },
+      { runDuplicateBridge, actor: oidcActor },
+    );
+
+    expect(analyticsFetch).not.toHaveBeenCalled();
+    expect(runDuplicateBridge).not.toHaveBeenCalled();
+    expect(JSON.parse(fallback.toolMessage.content)).toMatchObject({ ok: false, failure: { code: "OIDC_UNSCOPED_TOOL_DISABLED" } });
+    expect(JSON.parse(duplicate.toolMessage.content)).toMatchObject({ ok: false, failure: { code: "OIDC_UNSCOPED_TOOL_DISABLED" } });
+  });
+
   it("executes query_semantic_metrics through the semantic API", async () => {
     const analyticsFetch = vi.fn().mockResolvedValue({
       ok: true,
@@ -234,7 +291,8 @@ describe("main agent analytics tools", () => {
         sourceRevision: { revisionId: "snap-1" },
         data: [],
         summary: { metrics: { "defect.count": 2 }, rowCount: 2 },
-        quality: { completeness: "complete" },
+        quality: { completeness: "complete", warnings: ["SOURCE_STALE:analytics.full_picture_defects"] },
+        businessRules: { applied: ["BUSINESS_RULE_DERIVE:business.test.project_scope"] },
       }),
     });
 
@@ -268,6 +326,8 @@ describe("main agent analytics tools", () => {
     expect(result.contextText).toContain("Tool: query_semantic_metrics");
     expect(result.contextText).toContain("defect.count: 2");
     expect(result.contextText).toContain("Completeness: complete");
+    expect(result.contextText).toContain("Warnings: SOURCE_STALE:analytics.full_picture_defects");
+    expect(result.contextText).toContain("Business rules: BUSINESS_RULE_DERIVE:business.test.project_scope");
   });
 
   it("executes query_semantic_records through the dedicated records API", async () => {
@@ -337,6 +397,51 @@ describe("main agent analytics tools", () => {
     expect(result.contextText).toContain("Revision status: pinned");
     expect(result.contextText).toContain('"defect_id":"D-1"');
     expect(result.contextText).toContain("Evidence: semantic_record_set");
+  });
+
+  it("renders governed lineage metadata for traceability tool results", async () => {
+    const analyticsFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        ontologyVersion: "v1",
+        schemaFingerprint: "a".repeat(64),
+        sourceRevision: { revisionId: "trace-snap-1", status: "pinned" },
+        data: [{ run_id: "MR-1" }],
+        summary: { rowCount: 1 },
+        quality: { completeness: "complete" },
+        lineage: {
+          path: [{
+            id: "testing.test_run.executes.test_case",
+            sourceEntity: "testing.test_run",
+            targetEntity: "testing.test_case",
+            cardinality: "many_to_one",
+          }],
+          evidence: { rowCount: 1, relationshipIds: ["testing.test_run.executes.test_case"] },
+        },
+      }),
+    });
+    const traceQuery = {
+      ...semanticQuery,
+      intent: "trace",
+      entityIds: ["requirements.aida_node", "testing.test_case", "testing.test_run", "quality.defect"],
+      metricIds: [],
+    };
+
+    const result = await executeMainAgentToolCall(
+      {
+        id: "semantic-trace-1",
+        type: "function",
+        function: { name: "query_traceability", arguments: JSON.stringify({ query: traceQuery }) },
+      },
+      {
+        analyticsFetch,
+        analyticsApiBase: "http://127.0.0.1:3003",
+        actor: { actorId: "alice", scopeHash: "scope-a", scopes: { allowedObjectTypes: ["testing.test_run"] } },
+      },
+    );
+
+    expect(result.contextText).toContain("Lineage path: testing.test_run.executes.test_case (testing.test_run -> testing.test_case; many_to_one)");
+    expect(result.contextText).toContain("Lineage evidence: 1 rows; relationships testing.test_run.executes.test_case");
   });
 
   it("executes get_data_catalog without calling data APIs", async () => {
@@ -1003,16 +1108,26 @@ describe("main agent analytics tools", () => {
       {
         analyticsFetch,
         analyticsApiBase: "http://127.0.0.1:3003",
+        ...scopedAgentDependencies(),
       },
     );
 
     expect(analyticsFetch).toHaveBeenCalledWith(
-      "http://127.0.0.1:3003/api/analytics/defects/aggregate",
+      "http://127.0.0.1:3003/api/agent/analytics/defects/aggregate",
       expect.objectContaining({ method: "POST" }),
     );
     const requestBody = JSON.parse(analyticsFetch.mock.calls[0][1].body);
     expect(requestBody.dimensions).toEqual(["business_module"]);
     expect(requestBody.time.field).toBe("creation_time");
+    expect(verifyActorCapabilityHeader(analyticsFetch.mock.calls[0][1].headers, {
+      secret: AGENT_CAPABILITY_SECRET,
+      now: AGENT_CAPABILITY_NOW,
+    })).toMatchObject({
+      actorId: "alice",
+      scopeHash: "scope-alice-dtsv",
+      scopes: { teamIds: ["DTSV_China"], projectIds: ["IDCEVO"] },
+    });
+    expect(analyticsFetch.mock.calls[0][1].headers).toHaveProperty(ACTOR_CAPABILITY_HEADER);
     expect(result.toolMessage).toEqual({
       role: "tool",
       tool_call_id: "call-aggregate",
@@ -1059,11 +1174,12 @@ describe("main agent analytics tools", () => {
       {
         analyticsFetch,
         analyticsApiBase: "http://127.0.0.1:3003",
+        ...scopedAgentDependencies(),
       },
     );
 
     expect(analyticsFetch).toHaveBeenCalledWith(
-      "http://127.0.0.1:3003/api/analytics/defects/aggregate",
+      "http://127.0.0.1:3003/api/agent/analytics/defects/aggregate",
       expect.objectContaining({ method: "POST" }),
     );
     const requestBody = JSON.parse(analyticsFetch.mock.calls[0][1].body);
@@ -1078,6 +1194,71 @@ describe("main agent analytics tools", () => {
     expect(result.toolMessage.content).toContain('"tool":"query_analytics"');
     expect(result.contextText).toContain("Tool: query_analytics");
     expect(result.contextText).toContain("all_defects: defect_count 2");
+  });
+
+  it("preserves a sanitized schema failure for bounded catalog recovery", async () => {
+    const analyticsFetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      json: async () => ({ code: "AGENT_ANALYTICS_SCHEMA_INVALID", safeMessage: "agent analytics request rejected" }),
+    });
+
+    const result = await executeMainAgentToolCall(
+      {
+        id: "call-schema-failure",
+        type: "function",
+        function: {
+          name: "query_analytics",
+          arguments: JSON.stringify({
+            dataset: "defects",
+            intent: "aggregate",
+            metrics: ["defect_count"],
+            dimensions: [],
+            filters: { years: ["2026"] },
+            time: { field: "creation_time", current: ["2026-01-01", "2026-12-31"], timezone: "Asia/Shanghai" },
+          }),
+        },
+      },
+      {
+        analyticsFetch,
+        analyticsApiBase: "http://127.0.0.1:3003",
+        ...scopedAgentDependencies(),
+      },
+    );
+
+    expect(JSON.parse(result.toolMessage.content)).toEqual(expect.objectContaining({
+      ok: false,
+      failure: expect.objectContaining({ code: "AGENT_ANALYTICS_SCHEMA_INVALID", statusCode: 400 }),
+    }));
+    expect(result.contextText).not.toContain("UNSUPPORTED_DEFECT_FILTER");
+  });
+
+  it("preserves the same safe schema code from a 422-shaped agent envelope", async () => {
+    const analyticsFetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 422,
+      json: async () => ({ code: "AGENT_ANALYTICS_SCHEMA_INVALID", safeMessage: "agent analytics request rejected" }),
+    });
+
+    const result = await executeMainAgentToolCall(
+      {
+        id: "call-schema-failure-422",
+        type: "function",
+        function: {
+          name: "query_analytics",
+          arguments: JSON.stringify({ dataset: "defects", intent: "aggregate", metrics: ["defect_count"], dimensions: [], filters: {} }),
+        },
+      },
+      {
+        analyticsFetch,
+        analyticsApiBase: "http://127.0.0.1:3003",
+        ...scopedAgentDependencies(),
+      },
+    );
+
+    expect(JSON.parse(result.toolMessage.content)).toEqual(expect.objectContaining({
+      failure: expect.objectContaining({ code: "AGENT_ANALYTICS_SCHEMA_INVALID", statusCode: 422 }),
+    }));
   });
 
   it("diagnoses empty analytics results by relaxing defect filters", async () => {
@@ -1120,10 +1301,16 @@ describe("main agent analytics tools", () => {
       {
         analyticsFetch,
         analyticsApiBase: "http://127.0.0.1:3003",
+        ...scopedAgentDependencies(),
       },
     );
 
     expect(analyticsFetch).toHaveBeenCalledTimes(3);
+    expect(analyticsFetch.mock.calls.map(([url]) => url)).toEqual([
+      "http://127.0.0.1:3003/api/agent/analytics/defects/aggregate",
+      "http://127.0.0.1:3003/api/agent/analytics/defects/aggregate",
+      "http://127.0.0.1:3003/api/agent/analytics/defects/aggregate",
+    ]);
     const probeBodies = analyticsFetch.mock.calls.map(([, init]) => JSON.parse(init.body));
     expect(probeBodies[0].filters).toEqual({ years: ["2026"], problem_finder_teams: ["DTSV_China"], detected_by: ["Size Li"] });
     expect(probeBodies[1].filters).toEqual({ years: ["2026"], detected_by: ["Size Li"] });
@@ -1183,9 +1370,15 @@ describe("main agent analytics tools", () => {
       {
         analyticsFetch,
         analyticsApiBase: "http://127.0.0.1:3003",
+        ...scopedAgentDependencies(),
       },
     );
 
+    expect(analyticsFetch.mock.calls.map(([url]) => url)).toEqual([
+      "http://127.0.0.1:3003/api/agent/analytics/defects/aggregate",
+      "http://127.0.0.1:3003/api/agent/analytics/defects/aggregate",
+      "http://127.0.0.1:3003/api/agent/analytics/defects/aggregate",
+    ]);
     const probeBodies = analyticsFetch.mock.calls.map(([, init]) => JSON.parse(init.body));
     expect(probeBodies[0].filters).toEqual({ years: ["2026"], detected_by: ["Xu Miao"] });
     expect(probeBodies[1].filters).toEqual({ years: ["2026"], detected_by: ["Miao Xu"] });
@@ -1243,6 +1436,7 @@ describe("main agent analytics tools", () => {
       {
         analyticsFetch,
         analyticsApiBase: "http://127.0.0.1:3003",
+        ...scopedAgentDependencies(),
       },
     );
 
@@ -1283,11 +1477,12 @@ describe("main agent analytics tools", () => {
       {
         analyticsFetch,
         analyticsApiBase: "http://127.0.0.1:3003",
+        ...scopedAgentDependencies(),
       },
     );
 
     expect(analyticsFetch).toHaveBeenCalledWith(
-      "http://127.0.0.1:3003/api/analytics/defects/records",
+      "http://127.0.0.1:3003/api/agent/analytics/defects/records",
       expect.objectContaining({ method: "POST" }),
     );
     expect(JSON.parse(analyticsFetch.mock.calls[0][1].body)).toEqual({ drilldown_ref: "ref-1", limit: 5 });

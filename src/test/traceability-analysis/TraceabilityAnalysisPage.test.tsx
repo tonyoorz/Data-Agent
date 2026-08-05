@@ -303,6 +303,31 @@ describe("TraceabilityAnalysis page", () => {
     });
   });
 
+  it("retains approved ontology relationship IDs on rendered graph edges", async () => {
+    const payload = createTraceabilityPayload();
+    payload.filter_options.releases = [];
+    payload.graph = {
+      layers: ["testcase", "manual_run"],
+      nodes: [
+        { id: "testcase:TC-1", type: "testcase", label: "Wake trace test", secondary_label: "TC-1", status: "", count: 1 },
+        { id: "manual_run:MR-1", type: "manual_run", label: "Wake trace test", secondary_label: "MR-1", status: "Passed", count: 1 },
+      ],
+      edges: [{
+        id: "testcase:TC-1->manual_run:MR-1",
+        from: "testcase:TC-1",
+        to: "manual_run:MR-1",
+        count: 1,
+        relationship_id: "testing.test_run.executes.test_case",
+      }],
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(createJsonResponse(payload)));
+
+    renderTraceabilityAnalysis();
+
+    const edge = await screen.findByTestId("traceability-graph-edge-testcase:TC-1->manual_run:MR-1");
+    expect(edge).toHaveAttribute("data-relationship-id", "testing.test_run.executes.test_case");
+  });
+
   it("restores the selected release and CW filter after a page refresh", async () => {
     window.localStorage.setItem(
       "vizion.traceability.filters",

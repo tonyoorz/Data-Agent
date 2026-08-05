@@ -26,10 +26,11 @@ from backend.analytics.traceability_models import build_traceability_analysis_pa
 
 
 class SemanticQueryError(ValueError):
-    def __init__(self, code: str, *, status_code: int = 400) -> None:
+    def __init__(self, code: str, *, status_code: int = 400, rule_codes: list[str] | None = None) -> None:
         super().__init__(code)
         self.code = code
         self.status_code = status_code
+        self.rule_codes = list(rule_codes or [])
 
 
 DEFECT_METRICS = frozenset({"defect.count", "defect.created_count", "team.defect_discovery_count"})
@@ -156,6 +157,11 @@ ACTOR_SCOPE_LIST_FIELDS = (
 )
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
 COMPARISON_PERIOD_FIELD = "__semantic_comparison_period"
+TRACE_LINEAGE_RELATIONSHIPS = (
+    ("requirements.aida_node", "testing.test_case", "testing.test_case.validates.aida_node"),
+    ("testing.test_case", "testing.test_run", "testing.test_run.executes.test_case"),
+    ("testing.test_run", "quality.defect", "quality.defect.detected_in.test_run"),
+)
 
 
 def _stable_hash(value: object) -> str:
@@ -214,7 +220,104 @@ def _catalog_constraint(catalog: OntologyCatalog, constraint_id: str) -> dict[st
         raise SemanticQueryError(str(exc)) from exc
 
 
-def _source_freshness_warnings(revision: dict[str, Any], catalog: OntologyCatalog) -> list[str]:
+def _enforce_business_rule_denials(query: dict[str, Any], catalog: OntologyCatalog) -> None:
+    metric_ids = set(query["metricIds"])
+    denied_rule_codes: list[str] = []
+    for rule in catalog.list_business_rules(kind="deny", approved_only=True):
+        applies_to = rule.get("appliesTo") or {}
+        rule_metric_ids = set(applies_to.get("metricIds") or [])
+        rule_intents = set(applies_to.get("intents") or [])
+        if (not rule_metric_ids or metric_ids & rule_metric_ids) and (not rule_intents or query["intent"] in rule_intents):
+            denied_rule_codes.append(str((rule.get("effect") or {}).get("denialCode") or f"BUSINESS_RULE_DENY:{rule['id']}"))
+    if denied_rule_codes:
+        raise SemanticQueryError("SEMANTIC_BUSINESS_RULE_DENIED", status_code=403, rule_codes=denied_rule_codes)
+
+
+def _time_fields_referenced_by(query: dict[str, Any]) -> set[str]:
+    return {
+        *(
+            str(scope.get("fieldId") or "")
+            for scope in query["timeScopes"]
+        ),
+        *(str(dimension_id) for dimension_id in query["dimensionIds"] if str(dimension_id).startswith("time.")),
+        *(
+            str(filter_item.get("dimensionId") or "")
+            for filter_item in query["filters"]
+            if str(filter_item.get("dimensionId") or "").startswith("time.")
+        ),
+        *(
+            str(sort_item.get("fieldId") or "")
+            for sort_item in query["sort"]
+            if str(sort_item.get("fieldId") or "").startswith("time.")
+        ),
+    } - {""}
+
+
+def _enforce_business_rule_requirements(query: dict[str, Any], catalog: OntologyCatalog) -> list[str]:
+    metric_ids = set(query["metricIds"])
+    referenced_time_fields = _time_fields_referenced_by(query)
+    matched_rule_codes: list[str] = []
+    unmet_rule_codes: list[str] = []
+    for rule in catalog.list_business_rules(kind="require", approved_only=True):
+        applies_to = rule.get("appliesTo") or {}
+        rule_metric_ids = set(applies_to.get("metricIds") or [])
+        rule_intents = set(applies_to.get("intents") or [])
+        required_time_field = str((rule.get("effect") or {}).get("requiredTimeField") or "")
+        if not (
+            (not rule_metric_ids or metric_ids & rule_metric_ids)
+            and (not rule_intents or query["intent"] in rule_intents)
+        ):
+            continue
+        rule_code = f"BUSINESS_RULE_REQUIRE:{rule['id']}"
+        matched_rule_codes.append(rule_code)
+        if any(field_id != required_time_field for field_id in referenced_time_fields):
+            unmet_rule_codes.append(rule_code)
+    if unmet_rule_codes:
+        raise SemanticQueryError(
+            "SEMANTIC_BUSINESS_RULE_REQUIREMENT_UNMET",
+            status_code=400,
+            rule_codes=unmet_rule_codes,
+        )
+    return matched_rule_codes
+
+
+def _apply_business_rule_derivations(query: dict[str, Any], catalog: OntologyCatalog) -> tuple[dict[str, Any], list[str]]:
+    metric_ids = set(query["metricIds"])
+    filters = list(query["filters"])
+    applied_rule_codes: list[str] = []
+    for rule in catalog.list_business_rules(kind="derive", approved_only=True):
+        applies_to = rule.get("appliesTo") or {}
+        rule_metric_ids = set(applies_to.get("metricIds") or [])
+        rule_intents = set(applies_to.get("intents") or [])
+        if not ((not rule_metric_ids or metric_ids & rule_metric_ids) and (not rule_intents or query["intent"] in rule_intents)):
+            continue
+        derived_filter = dict((rule.get("effect") or {}).get("derivedFilter") or {})
+        candidate = {
+            "dimensionId": str(derived_filter.get("dimensionId") or ""),
+            "operator": str(derived_filter.get("operator") or ""),
+            "values": list(derived_filter.get("values") or []),
+            "source": "policy",
+        }
+        if not candidate["dimensionId"] or candidate["operator"] not in {"in", "eq"} or not candidate["values"]:
+            raise SemanticQueryError("SEMANTIC_BUSINESS_RULE_DERIVATION_INVALID", status_code=503)
+        if not any(
+            filter_item.get("source") == "policy"
+            and filter_item.get("dimensionId") == candidate["dimensionId"]
+            and filter_item.get("operator") == candidate["operator"]
+            and filter_item.get("values") == candidate["values"]
+            for filter_item in filters
+        ):
+            filters.append(candidate)
+        applied_rule_codes.append(f"BUSINESS_RULE_DERIVE:{rule['id']}")
+    return ({**query, "filters": filters}, applied_rule_codes)
+
+
+def _source_freshness_warnings(
+    revision: dict[str, Any],
+    catalog: OntologyCatalog,
+    *,
+    now: datetime | None = None,
+) -> list[str]:
     source = next((item for item in catalog.bundle["sources"] if item["id"] == revision.get("sourceId")), None)
     maximum_age = source.get("freshnessSloMinutes") if source else None
     watermark = str(revision.get("ingestionWatermark") or "").strip()
@@ -226,7 +329,10 @@ def _source_freshness_warnings(revision: dict[str, Any], catalog: OntologyCatalo
         return [f"SOURCE_WATERMARK_INVALID:{revision.get('sourceId', 'unknown')}"]
     if instant.tzinfo is None:
         instant = instant.replace(tzinfo=timezone.utc)
-    if datetime.now(timezone.utc) - instant.astimezone(timezone.utc) > timedelta(minutes=maximum_age):
+    current_time = now or datetime.now(timezone.utc)
+    if current_time.tzinfo is None:
+        current_time = current_time.replace(tzinfo=timezone.utc)
+    if current_time.astimezone(timezone.utc) - instant.astimezone(timezone.utc) > timedelta(minutes=maximum_age):
         return [f"SOURCE_STALE:{revision.get('sourceId', 'unknown')}"]
     return []
 
@@ -282,7 +388,7 @@ def _validate_comparison(comparison: Any) -> None:
         raise SemanticQueryError("SEMANTIC_COMPARISON_GROUPS_REQUIRED")
 
 
-def _validate_request(payload: dict[str, Any], catalog: OntologyCatalog) -> tuple[dict[str, Any], dict[str, Any]]:
+def _validate_request(payload: dict[str, Any], catalog: OntologyCatalog) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
     if not isinstance(payload, dict):
         raise SemanticQueryError("SEMANTIC_REQUEST_OBJECT_REQUIRED")
     _assert_exact_keys(
@@ -405,7 +511,13 @@ def _validate_request(payload: dict[str, Any], catalog: OntologyCatalog) -> tupl
         raise SemanticQueryError("SEMANTIC_OPERATION_DENIED", status_code=403)
 
     _validate_actor_scope(query, actor_scope, catalog)
-    return query, actor_scope
+    _enforce_business_rule_denials(query, catalog)
+    requirement_codes = _enforce_business_rule_requirements(query, catalog)
+    effective_query, derivation_codes = _apply_business_rule_derivations(query, catalog)
+    _validate_actor_scope(effective_query, actor_scope, catalog)
+    if effective_query["intent"] == "trace":
+        _trace_lineage_path(effective_query, catalog)
+    return effective_query, actor_scope, [*requirement_codes, *derivation_codes]
 
 
 def _object_aliases(entity_id: str) -> set[str]:
@@ -780,6 +892,68 @@ def _execute_traceability(query: dict[str, Any], provider: Callable[[Any], dict[
     return data, summary, revision, []
 
 
+def _trace_lineage_path(query: dict[str, Any], catalog: OntologyCatalog) -> list[dict[str, Any]]:
+    entity_ids = set(query["entityIds"])
+    relationships_by_id = {str(relationship.get("id") or ""): relationship for relationship in catalog.bundle.get("relationships", [])}
+    path: list[dict[str, Any]] = []
+    for source_entity, target_entity, relationship_id in TRACE_LINEAGE_RELATIONSHIPS:
+        if source_entity not in entity_ids or target_entity not in entity_ids:
+            continue
+        relationship = relationships_by_id.get(relationship_id)
+        connects_entities = relationship and (
+            (relationship.get("sourceEntity") == source_entity and relationship.get("targetEntity") == target_entity)
+            or (
+                relationship.get("reversible") is True
+                and relationship.get("sourceEntity") == target_entity
+                and relationship.get("targetEntity") == source_entity
+            )
+        )
+        if not connects_entities or relationship.get("governance", {}).get("status") != "approved":
+            raise SemanticQueryError(f"SEMANTIC_UNSUPPORTED_JOIN:{source_entity}:{target_entity}", status_code=422)
+        path.append(relationship)
+    unbounded = next(
+        (
+            relationship
+            for relationship in path
+            if relationship.get("cardinality") == "many_to_many" and not relationship.get("explosionPolicy")
+        ),
+        None,
+    )
+    if unbounded is not None:
+        raise SemanticQueryError(f"SEMANTIC_UNBOUNDED_CARDINALITY:{unbounded['id']}", status_code=422)
+    return path
+
+
+def _trace_lineage_payload(
+    query: dict[str, Any],
+    catalog: OntologyCatalog,
+    data: list[dict[str, Any]],
+    revision: dict[str, Any],
+) -> dict[str, Any]:
+    path = _trace_lineage_path(query, catalog)
+    relationship_ids = [str(relationship["id"]) for relationship in path]
+    return {
+        "path": [
+            {
+                "id": str(relationship["id"]),
+                "predicate": str(relationship["predicate"]),
+                "sourceEntity": str(relationship["sourceEntity"]),
+                "targetEntity": str(relationship["targetEntity"]),
+                "cardinality": str(relationship["cardinality"]),
+                "joinPath": list(relationship["allowedJoinPaths"][0]),
+                **({"explosionPolicy": str(relationship["explosionPolicy"])} if relationship.get("explosionPolicy") else {}),
+            }
+            for relationship in path
+        ],
+        "sourceRevision": revision,
+        "evidence": {
+            "rowCount": len(data),
+            "rowIndexes": list(range(len(data))),
+            "relationshipIds": relationship_ids,
+        },
+    }
+
+
 def _redact_sensitive_dimensions(
     data: list[dict[str, Any]],
     query: dict[str, Any],
@@ -824,8 +998,9 @@ def execute_semantic_query(
     testcase_provider: Callable[[], list[dict[str, Any]]] = list_testcases,
     trace_provider: Callable[[Any], dict[str, Any]] = _trace_provider,
     analysis_store: SemanticAnalysisStore | None = None,
+    now: Callable[[], datetime] | None = None,
 ) -> dict[str, Any]:
-    query, actor_scope = _validate_request(payload, catalog)
+    query, actor_scope, business_rule_codes = _validate_request(payload, catalog)
     metric_ids = set(query["metricIds"])
     if query["intent"] == "trace":
         data, summary, revision, warnings = _execute_traceability(query, trace_provider)
@@ -839,7 +1014,7 @@ def execute_semantic_query(
         raise SemanticQueryError("SEMANTIC_METRIC_SET_NOT_EXECUTABLE")
 
     data, redaction_warnings, redaction_status = _redact_sensitive_dimensions(data, query, actor_scope, catalog)
-    warnings = [*warnings, *_source_freshness_warnings(revision, catalog), *redaction_warnings]
+    warnings = [*warnings, *_source_freshness_warnings(revision, catalog, now=now() if now else None), *redaction_warnings]
 
     row_count = int(summary.get("rowCount", len(data)) or 0)
     has_missing_warning = any("MISSING" in warning or "UNAVAILABLE" in warning for warning in warnings)
@@ -865,6 +1040,7 @@ def execute_semantic_query(
             "warnings": warnings,
             "redactionStatus": redaction_status,
         },
+        "businessRules": {"applied": business_rule_codes},
     }
     if analysis_store is not None and query["intent"] != "trace":
         evidence = {
@@ -885,6 +1061,8 @@ def execute_semantic_query(
         evidence = {**evidence, "analysisRef": analysis_ref}
         result["analysisRef"] = analysis_ref
         result["evidence"] = evidence
+    if query["intent"] == "trace":
+        result["lineage"] = _trace_lineage_payload(query, catalog, data, revision)
     return result
 
 
@@ -907,7 +1085,7 @@ def _validate_record_request(
     payload: dict[str, Any],
     catalog: OntologyCatalog,
     analysis_store: SemanticAnalysisStore | None,
-) -> tuple[dict[str, Any], dict[str, Any], list[str], int, int, str | None, dict[str, Any] | None]:
+) -> tuple[dict[str, Any], dict[str, Any], list[str], int, int, str | None, dict[str, Any] | None, list[str]]:
     if not isinstance(payload, dict):
         raise SemanticQueryError("SEMANTIC_RECORD_REQUEST_OBJECT_REQUIRED")
     _assert_exact_keys(
@@ -983,7 +1161,7 @@ def _validate_record_request(
         "comparison": None,
         "sort": [],
     }
-    validated_query, validated_scope = _validate_request(
+    validated_query, validated_scope, business_rule_codes = _validate_request(
         {
             "schemaVersion": "1.0",
             "queryId": payload["queryId"],
@@ -1007,7 +1185,7 @@ def _validate_record_request(
         raise SemanticQueryError("SEMANTIC_RECORD_PAGE_INVALID")
     if not isinstance(page_size, int) or page_size < 1 or page_size > maximum:
         raise SemanticQueryError("SEMANTIC_RECORD_PAGE_SIZE_INVALID")
-    return validated_query, validated_scope, fields, page, page_size, analysis_ref, stored
+    return validated_query, validated_scope, fields, page, page_size, analysis_ref, stored, business_rule_codes
 
 
 def _record_revision(
@@ -1116,8 +1294,9 @@ def execute_semantic_records(
     defect_provider: Callable[[dict[str, Any]], dict[str, Any]] = _defect_provider,
     run_provider: Callable[[], list[dict[str, Any]]] = list_runs,
     testcase_provider: Callable[[], list[dict[str, Any]]] = list_testcases,
+    now: Callable[[], datetime] | None = None,
 ) -> dict[str, Any]:
-    query, actor_scope, fields, page, page_size, analysis_ref, stored = _validate_record_request(
+    query, actor_scope, fields, page, page_size, analysis_ref, stored, business_rule_codes = _validate_record_request(
         payload,
         catalog,
         analysis_store,
@@ -1155,7 +1334,7 @@ def execute_semantic_records(
         actor_scope=actor_scope,
         catalog=catalog,
     )
-    warnings = [*warnings, *_source_freshness_warnings(revision, catalog), *redaction_warnings]
+    warnings = [*warnings, *_source_freshness_warnings(revision, catalog, now=now() if now else None), *redaction_warnings]
     evidence_seed = {
         "kind": "semantic_record_set",
         "sourceRevisionId": str(revision.get("revisionId") or ""),
@@ -1197,5 +1376,6 @@ def execute_semantic_records(
             "warnings": warnings,
             "redactionStatus": redaction_status,
         },
+        "businessRules": {"applied": business_rule_codes},
         "evidence": evidence,
     }

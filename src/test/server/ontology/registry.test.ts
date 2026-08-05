@@ -48,13 +48,13 @@ describe("Ontology registry", () => {
     expect(registry.matchTerms("ECU模块统计").map((term) => term.id)).toContain("dimension.ecu");
   });
 
-  it("lists approved planner warnings from the compiled business-rule catalog", () => {
+  it("lists approved enforced business rules from the compiled catalog", () => {
     const registry = createOntologyRegistry();
 
-    expect(registry.listBusinessRules({ status: "approved", kind: "plan_warning" })).toEqual(expect.arrayContaining([
+    expect(registry.listBusinessRules({ status: "approved", kind: "require" })).toEqual(expect.arrayContaining([
       expect.objectContaining({
         id: "business.defect_created_count.creation_time",
-        effect: expect.objectContaining({ warningCode: "BUSINESS_RULE:business.defect_created_count.creation_time" }),
+        effect: expect.objectContaining({ requiredTimeField: "time.defect_creation_date" }),
       }),
     ]));
   });

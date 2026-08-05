@@ -278,3 +278,15 @@ def sessions_to_hard_negatives():
 ## 十、一句话总结
 
 **把每次搜索变成一个带完整上下文的 session，三层反馈（隐式/显式/延迟）挂在 session 上，session 本身就是训练样本。** 这样反馈采集从"等用户点 👍"变成"每次搜索都在产数据"，推理上下文完整保留可供蒸馏，冷启动和训练数据稀缺问题一并解决。
+
+---
+
+## 十一、隐私、保留与审计边界
+
+Search session 和 feedback event 都可能包含 query、ticket 标题、候选 snippet、user ID 或人工理由。这些属于训练/分析原始数据，不应混入 Agent Operations runtime summary。
+
+- 训练反馈库按最小权限访问，导出训练集前去除 user ID、cookie、token、完整 Octane URL 和不必要的个人字段。
+- runtime audit 与 feedback session 分开保留；runtime summary 只保留 opaque run reference、意图、脱敏状态、恢复/citation 聚合和允许的工具名。
+- 推荐把原始 feedback/session 数据保留期、导出审批人和删除流程写入部署侧数据治理策略；仓库不自动删除生产反馈数据。
+- 反馈 API 不能接受或持久化 OIDC bearer、actor capability、模型 access code、cookie 或浏览器 session token。
+- 用于模型训练/蒸馏的导出必须在非生产副本完成，并保留导出版本、样本筛选规则和审批记录。

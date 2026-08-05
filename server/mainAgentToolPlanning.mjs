@@ -1,6 +1,7 @@
 import { extractLatestUserQuery } from "./aiContext.mjs";
 import { executeMainAgentToolCall, MAIN_AGENT_TOOLS } from "./mainAgentTools.mjs";
 import { buildToolEvidence } from "./mainAgentEvidence.mjs";
+import { executeToolWithRecovery } from "./mainAgentToolRecovery.mjs";
 import { selectMainAgentToolset as selectToolsetWithTools } from "./mainAgentIntentRouter.mjs";
 import { buildBlockedToolResult, validateToolCallAllowed } from "./mainAgentPolicyGate.mjs";
 
@@ -18,6 +19,7 @@ Use Action Ontology capability states for Octane write/update/delete intents. Ne
 Use search_octane_fields when the user asks which Octane/API/database field backs a business concept, asks about editable/filterable/sortable fields, or explores CRUD/action schema. Retrieve only top-k field candidates.
 Do not load the full Octane field catalog into the prompt; use search_octane_fields as local schema retrieval, then validate facts through governed ontology or analytics tools.
 Use search_analytics_filter_values before query_analytics when the user supplies a fuzzy or partial detected_by person name, ECU/module, business_module, or team value. Use returned exact values as filters; if none match, ask one focused clarification.
+If a tool result reports TOOL_SCHEMA_OR_VALUE_MISMATCH, use governed field or filter-value retrieval and make at most one corrected typed retry. Never generate SQL, loosen authorization scope, or retry a denied request.
 Use resolve_business_terms when Chinese/English business wording needs normalization before choosing filters or metrics.
 Routing priority: use governed Ontology semantic tools first when the question fits approved ontology metrics, dimensions, filters, time windows, top-N ranking, records, or lineage.
 Use query_semantic_metrics first for aggregate, trend, compare, rank, count, and top-N questions over ontology-governed metrics and dimensions.
@@ -163,7 +165,29 @@ export async function executeMainAgentPlannedToolCall({
     };
   }
 
-  const result = await executeToolCall(toolCall, toolDependencies);
+  const recovered = await executeToolWithRecovery({
+    toolCall,
+    executeToolCall,
+    toolDependencies,
+  });
+  const result = recovered.result;
+  if (recovered.recovery.action !== "none") {
+    toolEvents.push({
+      type: "tool-recovery",
+      toolCallId: toolCall?.id || "",
+      toolName,
+      recovery: recovered.recovery,
+    });
+  }
+  if (recovered.recovery.action === "deny") {
+    toolEvents.push({
+      type: "tool-blocked",
+      toolCallId: toolCall?.id || "",
+      toolName,
+      intent: selectedToolset?.intent,
+      reason: recovered.recovery.reason,
+    });
+  }
   toolEvents.push({
     type: "tool-output-available",
     toolCallId: toolCall?.id || "",
@@ -174,7 +198,18 @@ export async function executeMainAgentPlannedToolCall({
     result,
     toolEvents,
     evidence: buildToolEvidence({ toolCall, result, intent: selectedToolset?.intent }),
-    stoppedReason: result.requiresUserInput ? "clarification_requested" : "",
-    blocked: false,
+    recovery: recovered.recovery,
+    stoppedReason: result.requiresUserInput
+      ? "clarification_requested"
+      : recovered.recovery.action === "deny"
+        ? "tool_access_denied"
+        : recovered.recovery.action === "retry" && recovered.recovery.outcome === "exhausted"
+          ? "tool_recovery_exhausted"
+          : recovered.recovery.action === "catalog"
+            ? "tool_recovery_catalog"
+          : recovered.recovery.action === "stop"
+            ? "tool_recovery_stopped"
+          : "",
+    blocked: recovered.recovery.action === "deny",
   };
 }

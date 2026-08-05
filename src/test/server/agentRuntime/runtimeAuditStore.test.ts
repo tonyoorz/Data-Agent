@@ -30,6 +30,14 @@ describe("file agent runtime store", () => {
       input: { query: { intent: "rank" } },
       outputSummary: "# Main agent semantic tool result",
     });
+    await store.appendRunSummary({
+      schemaVersion: "1.0",
+      runId: "run-1",
+      threadId: "thread/one",
+      actorScopeHash: "scope-1",
+      intent: "metric_query",
+      outcome: "completed",
+    });
 
     const checkpoint = JSON.parse(await readFile(path.join(rootDir, "threads", "thread_one.json"), "utf8"));
     expect(checkpoint).toEqual(
@@ -60,6 +68,17 @@ describe("file agent runtime store", () => {
         toolCallId: "call-1",
         toolName: "query_semantic_metrics",
         actorScope: { actorId: "u1", scopeHash: "scope-1" },
+      }),
+    );
+
+    const runSummary = (await readFile(path.join(rootDir, "run-summaries.jsonl"), "utf8")).trim().split("\n");
+    expect(JSON.parse(runSummary[0])).toEqual(
+      expect.objectContaining({
+        runId: "run-1",
+        actorScopeHash: "scope-1",
+        intent: "metric_query",
+        outcome: "completed",
+        recordedAt: "2026-07-24T08:00:00.000Z",
       }),
     );
   });

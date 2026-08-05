@@ -33,6 +33,7 @@ import {
 } from "../chat/companyModels";
 import type { DuplicateSearchResult } from "../chat/duplicateSearchTypes";
 import { Switch } from "@/components/ui/switch";
+import { supabase } from "@/integrations/supabase/client";
 
 type Role = "user" | "assistant";
 type ChatMode = "chat" | "duplicate-search";
@@ -594,11 +595,17 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
 
     try {
       const url = "/api/ai/chat";
+      const sessionResult = await supabase.auth.getSession().catch(() => null);
+      const accessToken = sessionResult?.error ? "" : sessionResult?.data?.session?.access_token;
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (typeof accessToken === "string" && accessToken.trim()) {
+        headers.Authorization = `Bearer ${accessToken}`;
+      }
       const resp = await fetch(url, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers,
         body: JSON.stringify({
           threadId: active.id,
           messages: buildGatewayMessages(history),

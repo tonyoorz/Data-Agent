@@ -7,6 +7,7 @@ import duplicateBridgeRuntime from "./duplicateBridgeRuntime.cjs";
 import { streamLangGraphChatResponse } from "./agentRuntime/langGraphChatHandler.mjs";
 import { createLangGraphChatRuntime, resolveAgentRuntimeMode } from "./agentRuntime/langGraphChatRuntime.mjs";
 import { createFileAgentRuntimeStore } from "./agentRuntime/runtimeAuditStore.mjs";
+import { resolveAgentOperationsResponse } from "./agentOperations.mjs";
 import { resolveAiAnalyticsContext } from "./aiAnalyticsContext.mjs";
 import { resolveMainAgentToolContext } from "./mainAgentToolLoop.mjs";
 import { shouldPlanMainAgentTools } from "./mainAgentToolPlanning.mjs";
@@ -14,7 +15,7 @@ import { createDuplicateWarmupManager } from "./duplicateWarmup.mjs";
 import { extractLatestUserQuery, resolveAiDefectContext } from "./aiContext.mjs";
 import { streamCompanyChatCompletion, writeSseEvent } from "./companyChat.mjs";
 import { resolveRequestUrl } from "./httpRequestUrl.mjs";
-import { withInternalActorScope } from "./internalActorScope.mjs";
+import { resolveInternalAuxiliaryActor, runAuthenticatedChatRequest, toSafeAgentAuthResponse } from "./agentAuth.mjs";
 import { attachDuplicateSummary } from "./duplicateResultEnrichment.mjs";
 import { loadLocalEnv } from "./loadLocalEnv.mjs";
 import {
@@ -36,8 +37,9 @@ const duplicateWarmupManager = createDuplicateWarmupManager({
   runDuplicateBridge,
   logger: console,
 });
+const agentRuntimeStore = createFileAgentRuntimeStore();
 const langGraphChatRuntime = createLangGraphChatRuntime({
-  runtimeStore: createFileAgentRuntimeStore(),
+  runtimeStore: agentRuntimeStore,
 });
 
 function nowMs() {
@@ -71,8 +73,32 @@ function shouldResolveGatewayAnalyticsContext({ runtimeMode, useAnalyticsContext
   return String(runtimeMode || "").trim().toLowerCase() !== "langgraph";
 }
 
-async function handleAiChatRequest(rawBody, response) {
-  const body = withInternalActorScope(rawBody, process.env);
+export async function handleAiChatRequest(request, response) {
+  return runAuthenticatedChatRequest(request, {
+    env: process.env,
+    readBody: () => readJsonBody(request),
+    runChat: (body) => handleAuthenticatedAiChatRequest(body, response),
+    sendAuthResponse: (authResponse) => sendJson(response, authResponse.statusCode, authResponse.payload),
+    sendBadRequestResponse: (badRequestResponse) => sendJson(
+      response,
+      badRequestResponse.statusCode,
+      badRequestResponse.payload,
+    ),
+  });
+}
+
+async function requireInternalAuxiliaryActor(request, response) {
+  try {
+    await resolveInternalAuxiliaryActor(request, { env: process.env });
+    return true;
+  } catch (error) {
+    const safe = toSafeAgentAuthResponse(error);
+    sendJson(response, safe?.statusCode || 503, safe?.payload || { success: false, error: "AUXILIARY_ROUTE_UNAVAILABLE" });
+    return false;
+  }
+}
+
+async function handleAuthenticatedAiChatRequest(body, response) {
   const startedAt = nowMs();
   const requestId = buildRequestId("ai-chat");
   const queryText = extractLatestUserQuery(body?.messages);
@@ -95,6 +121,18 @@ async function handleAiChatRequest(rawBody, response) {
         toolDependencies: {
           runDuplicateBridge,
           ensureDuplicateWarmup: () => duplicateWarmupManager.ensureWarm({ reason: "langgraph-agent-tool" }),
+        },
+        onCompleted: async (completed) => {
+          await agentRuntimeStore.appendRunEvent({
+            runId: completed.runtimeResult?.runId || "",
+            threadId: completed.runtimeResult?.threadId || "",
+            actorScope: completed.runtimeResult?.actorScope || {},
+            type: "agent-stream-completed",
+            ...(Number.isFinite(Number(completed.streamMetrics?.streamTotalMs)) ? { latencyMs: Number(completed.streamMetrics.streamTotalMs) } : {}),
+            citationValidation: completed.answerValidation
+              ? completed.answerValidation.valid ? "pass" : "blocked"
+              : "not_required",
+          });
         },
       });
       streamMetrics = graphResult.streamMetrics;
@@ -305,6 +343,30 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    if (request.method === "GET" && url.pathname === "/api/agent-operations/summary") {
+      const result = await resolveAgentOperationsResponse({
+        request,
+        operation: "summary",
+        env: process.env,
+        rootDir: agentRuntimeStore.rootDir,
+      });
+      sendJson(response, result.statusCode, result.payload);
+      return;
+    }
+
+    const operationRunMatch = request.method === "GET" && /^\/api\/agent-operations\/runs\/([^/]+)$/.exec(url.pathname);
+    if (operationRunMatch) {
+      const result = await resolveAgentOperationsResponse({
+        request,
+        operation: "run",
+        runId: decodeURIComponent(operationRunMatch[1]),
+        env: process.env,
+        rootDir: agentRuntimeStore.rootDir,
+      });
+      sendJson(response, result.statusCode, result.payload);
+      return;
+    }
+
     if (request.method === "GET" && url.pathname === "/api/qgate-reports/latest-dashboard") {
       sendJson(response, 200, findLatestQGateDashboardReport(defaultQGateReportsRoot));
       return;
@@ -329,6 +391,7 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (request.method === "POST" && url.pathname === "/api/ai/context") {
+      if (!await requireInternalAuxiliaryActor(request, response)) return;
       const startedAt = nowMs();
       const requestId = buildRequestId("ai-context");
       const body = await readJsonBody(request);
@@ -355,11 +418,13 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (request.method === "GET" && url.pathname === "/api/duplicate-search/warmup-status") {
+      if (!await requireInternalAuxiliaryActor(request, response)) return;
       sendJson(response, 200, duplicateWarmupManager.getStatus());
       return;
     }
 
     if (request.method === "POST" && url.pathname === "/api/duplicate-search/warmup") {
+      if (!await requireInternalAuxiliaryActor(request, response)) return;
       const body = await readJsonBody(request);
       const status = await duplicateWarmupManager.ensureWarm({
         reason: typeof body?.reason === "string" && body.reason.trim() ? body.reason.trim() : "manual",
@@ -369,8 +434,7 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (request.method === "POST" && url.pathname === "/api/ai/chat") {
-      const body = await readJsonBody(request);
-      await handleAiChatRequest(body, response);
+      await handleAiChatRequest(request, response);
       return;
     }
 
@@ -382,12 +446,12 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (request.method === "POST" && url.pathname === "/api/chat") {
-      const body = await readJsonBody(request);
-      await handleAiChatRequest(body, response);
+      await handleAiChatRequest(request, response);
       return;
     }
 
     if (request.method === "POST" && url.pathname === "/api/duplicate-search") {
+      if (!await requireInternalAuxiliaryActor(request, response)) return;
       const body = await readJsonBody(request);
       const query = typeof body?.query === "string" ? body.query.trim() : "";
       const selectedModel = typeof body?.model === "string" ? body.model.trim() : "";
@@ -423,6 +487,7 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (request.method === "POST" && url.pathname === "/api/duplicate-feedback") {
+      if (!await requireInternalAuxiliaryActor(request, response)) return;
       const body = await readJsonBody(request);
       const queryText = typeof body?.queryText === "string" ? body.queryText.trim() : "";
       const ticketId = typeof body?.ticketId === "string" ? body.ticketId.trim() : "";

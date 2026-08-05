@@ -1,6 +1,16 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const getSessionMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@/integrations/supabase/client", () => ({
+  supabase: {
+    auth: {
+      getSession: getSessionMock,
+    },
+  },
+}));
+
 import AIChat from "@/components/dashboard/pages/AIChat";
 
 class MockMediaRecorder {
@@ -31,6 +41,8 @@ describe("AIChat duplicate search integration", () => {
   beforeEach(() => {
     window.localStorage.clear();
     vi.restoreAllMocks();
+    getSessionMock.mockReset();
+    getSessionMock.mockResolvedValue({ data: { session: null }, error: null });
     MockMediaRecorder.instances = [];
 
     Object.defineProperty(globalThis, "MediaRecorder", {
@@ -401,6 +413,76 @@ describe("AIChat duplicate search integration", () => {
     expect(await screen.findByText("已完成")).toBeInTheDocument();
     expect(screen.queryByText("2686999")).not.toBeInTheDocument();
     expect(screen.queryByText("导航黄屏 related defect")).not.toBeInTheDocument();
+  });
+
+  it("forwards the current Supabase access token only in the standard AI chat authorization header", async () => {
+    getSessionMock.mockResolvedValue({
+      data: { session: { access_token: "session-token" } },
+      error: null,
+    });
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      body: null,
+      json: async () => ({ error: "Unauthorized" }),
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<AIChat moduleKey="ai-chat" moduleLabel="AI Chat" />);
+
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "请总结当前缺陷风险" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/ai/chat",
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+
+    const requestOptions = fetchMock.mock.calls.find(([url]) => url === "/api/ai/chat")?.[1];
+    expect(getSessionMock).toHaveBeenCalledTimes(1);
+    expect(requestOptions?.headers).toEqual({
+      "Content-Type": "application/json",
+      Authorization: "Bearer session-token",
+    });
+    expect(String(requestOptions?.body)).not.toContain("session-token");
+  });
+
+  it.each([
+    ["no session is available", () => getSessionMock.mockResolvedValue({ data: { session: null }, error: null })],
+    ["the session access token is blank", () => getSessionMock.mockResolvedValue({ data: { session: { access_token: "" } }, error: null })],
+    ["the session lookup reports an error", () => getSessionMock.mockResolvedValue({ data: { session: null }, error: new Error("session lookup failed") })],
+    ["the session lookup throws", () => getSessionMock.mockRejectedValue(new Error("session lookup failed"))],
+  ])("omits the authorization header when %s", async (_description, configureSession) => {
+    configureSession();
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      body: null,
+      json: async () => ({ error: "Unauthorized" }),
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<AIChat moduleKey="ai-chat" moduleLabel="AI Chat" />);
+
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "请总结当前缺陷风险" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/ai/chat",
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+
+    const requestOptions = fetchMock.mock.calls.find(([url]) => url === "/api/ai/chat")?.[1];
+    expect(getSessionMock).toHaveBeenCalledTimes(1);
+    expect(requestOptions?.headers).toEqual({ "Content-Type": "application/json" });
   });
 
   it("shows model token usage and estimated cost below assistant messages", async () => {

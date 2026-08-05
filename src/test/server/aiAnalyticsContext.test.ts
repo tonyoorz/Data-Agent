@@ -65,6 +65,7 @@ describe("resolveAiAnalyticsContext", () => {
     expect(resolved.contextText).toContain(`Analysis plan: ${resolved.analysisPlan.analysisPlanId}`);
     expect(resolved.contextText).toContain(`Ontology version: ${resolved.analysisPlan.ontologyVersion}`);
     expect(resolved.contextText).toContain(`Source plan fingerprint: ${resolved.analysisPlan.sourcePlanFingerprint}`);
+    expect(resolved.contextText).toContain("BUSINESS_RULE_REQUIRE:business.defect_created_count.creation_time");
     expect(resolved.shadowObservation).toMatchObject({
       status: "completed",
       tools: ["query_semantic_metrics"],
@@ -78,6 +79,7 @@ describe("resolveAiAnalyticsContext", () => {
         visualization: "bar",
         maxRows: 5,
         guardrails: expect.arrayContaining(["READ_ONLY_SOURCE_PLAN", "NO_ARBITRARY_CODE", "NO_ARBITRARY_SQL"]),
+        ruleEffects: [expect.objectContaining({ code: "BUSINESS_RULE_REQUIRE:business.defect_created_count.creation_time" })],
       }),
     });
   });

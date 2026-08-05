@@ -1,15 +1,18 @@
 import { requestCompanyChatCompletion } from "./companyChat.mjs";
-import { buildToolEvidence } from "./mainAgentEvidence.mjs";
 import { executeMainAgentToolCall } from "./mainAgentTools.mjs";
-import { buildBlockedToolResult, isToolAllowed, validateToolCallAllowed } from "./mainAgentToolRegistry.mjs";
+import { isToolAllowed } from "./mainAgentToolRegistry.mjs";
+import {
+  buildCatalogBackedAnalyticsRetry,
+  completeCatalogBackedAnalyticsRetry,
+} from "./mainAgentToolRecovery.mjs";
 import {
   buildEmptyDiagnosisToolCall,
   buildSelectedToolsetContext,
   buildToolPlanningContext,
+  executeMainAgentPlannedToolCall,
   hasEmptyAnalyticsResult,
   hasPlannedDiagnosis,
   mergeToolContext,
-  parseToolInput,
   selectMainAgentToolset,
 } from "./mainAgentToolPlanning.mjs";
 
@@ -18,55 +21,6 @@ function standardEvent(base, event) {
     runId: base.runId || "",
     threadId: base.threadId || "",
     ...event,
-  };
-}
-
-async function executePlannedToolCall({
-  toolCall,
-  selectedToolset,
-  executeToolCall = executeMainAgentToolCall,
-  toolDependencies = {},
-} = {}) {
-  const toolName = toolCall?.function?.name || "unknown_tool";
-  const toolEvents = [{
-    type: "tool-input-available",
-    toolCallId: toolCall?.id || "",
-    toolName,
-    input: parseToolInput(toolCall),
-  }];
-
-  const gate = validateToolCallAllowed(toolCall, selectedToolset);
-  if (!gate.allowed) {
-    const blockedResult = buildBlockedToolResult(toolCall, selectedToolset, gate.reason);
-    toolEvents.push({
-      type: "tool-blocked",
-      toolCallId: toolCall?.id || "",
-      toolName,
-      intent: selectedToolset?.intent,
-      reason: gate.reason,
-    });
-    return {
-      result: blockedResult,
-      toolEvents,
-      evidence: null,
-      stoppedReason: "tool_not_allowed",
-      blocked: true,
-    };
-  }
-
-  const result = await executeToolCall(toolCall, toolDependencies);
-  toolEvents.push({
-    type: "tool-output-available",
-    toolCallId: toolCall?.id || "",
-    toolName,
-    outputSummary: result.contextText,
-  });
-  return {
-    result,
-    toolEvents,
-    evidence: buildToolEvidence({ toolCall, result, intent: selectedToolset?.intent }),
-    stoppedReason: result.requiresUserInput ? "clarification_requested" : "",
-    blocked: false,
   };
 }
 
@@ -100,7 +54,7 @@ export async function runMainAgentToolTurn({
     toolNames: selectedToolset.toolNames || [],
   }));
 
-  async function executeAndRecordToolCall(toolCall) {
+  async function executeAndRecordToolCall(toolCall, { catalogRecovery = null } = {}) {
     const toolName = toolCall?.function?.name || "unknown_tool";
     events.push(standardEvent(eventBase, {
       type: "agent.tool.started",
@@ -108,7 +62,7 @@ export async function runMainAgentToolTurn({
       toolName,
       intent: selectedToolset.intent,
     }));
-    const executed = await executePlannedToolCall({
+    const executed = await executeMainAgentPlannedToolCall({
       toolCall,
       selectedToolset,
       executeToolCall,
@@ -122,6 +76,19 @@ export async function runMainAgentToolTurn({
     }
     if (executed.stoppedReason) {
       stoppedReason = executed.stoppedReason;
+    }
+    if (catalogRecovery) {
+      const recovery = completeCatalogBackedAnalyticsRetry({
+        recovery: catalogRecovery,
+        result: executed.result,
+        stoppedReason: executed.stoppedReason,
+      });
+      uiToolEvents.push({
+        type: "tool-recovery",
+        toolCallId: toolCall?.id || "",
+        toolName,
+        recovery,
+      });
     }
     events.push(standardEvent(eventBase, {
       type: executed.blocked ? "agent.tool.blocked" : "agent.tool.completed",
@@ -155,24 +122,22 @@ export async function runMainAgentToolTurn({
       break;
     }
 
-    allToolCalls.push(...stepToolCalls);
-    toolConversationMessages.push({
-      role: "assistant",
-      content: "",
-      tool_calls: stepToolCalls,
-    });
+    stoppedReason = "";
     for (const toolCall of stepToolCalls) {
+      allToolCalls.push(toolCall);
+      toolConversationMessages.push({
+        role: "assistant",
+        content: "",
+        tool_calls: [toolCall],
+      });
       events.push(standardEvent(eventBase, {
         type: "agent.tool.planned",
         toolCallId: toolCall?.id || "",
         toolName: toolCall?.function?.name || "unknown_tool",
         intent: selectedToolset.intent,
       }));
-    }
-
-    for (const toolCall of stepToolCalls) {
       const { result } = await executeAndRecordToolCall(toolCall);
-      if (stoppedReason === "tool_not_allowed" || stoppedReason === "clarification_requested") {
+      if (stoppedReason) {
         break;
       }
 
@@ -191,14 +156,39 @@ export async function runMainAgentToolTurn({
           intent: selectedToolset.intent,
           reason: "empty_analytics_result",
         }));
-        await executeAndRecordToolCall(diagnosisToolCall);
-        if (stoppedReason === "tool_not_allowed" || stoppedReason === "clarification_requested") {
+        const diagnosis = await executeAndRecordToolCall(diagnosisToolCall);
+        if (stoppedReason) {
+          break;
+        }
+        const correction = buildCatalogBackedAnalyticsRetry({
+          originalToolCall: toolCall,
+          diagnosisToolCall,
+          diagnosisResult: diagnosis.result,
+        });
+        if (correction && isToolAllowed(correction.toolCall.function.name, selectedToolset)) {
+          allToolCalls.push(correction.toolCall);
+          toolConversationMessages.push({
+            role: "assistant",
+            content: "",
+            tool_calls: [correction.toolCall],
+          });
+          events.push(standardEvent(eventBase, {
+            type: "agent.tool.planned",
+            toolCallId: correction.toolCall.id,
+            toolName: correction.toolCall.function.name,
+            intent: selectedToolset.intent,
+            reason: "catalog_backed_alias_retry",
+          }));
+          await executeAndRecordToolCall(correction.toolCall, { catalogRecovery: correction.recovery });
+          if (!stoppedReason) {
+            stoppedReason = "catalog_retry_completed";
+          }
           break;
         }
       }
     }
 
-    if (stoppedReason === "clarification_requested" || stoppedReason === "tool_not_allowed") {
+    if (stoppedReason) {
       break;
     }
 

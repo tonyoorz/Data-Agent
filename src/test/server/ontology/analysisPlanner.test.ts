@@ -12,6 +12,48 @@ const resolver = createSemanticResolver({ registry, now: () => anchorAt });
 const queryPlanner = createQueryPlanner({ registry });
 const analysisPlanner = createGovernedAnalysisPlanner();
 
+function registryWithDenyRule() {
+  const denyRule = {
+    id: "business.test.no_created_count",
+    version: "1.0.0",
+    kind: "deny",
+    appliesTo: { metricIds: ["defect.created_count"], intents: ["rank"] },
+    effect: {
+      denialCode: "BUSINESS_RULE_DENY:business.test.no_created_count",
+      message: "Created defect ranking is blocked for this policy test.",
+    },
+    governance: { status: "approved", owner: "Agent Security" },
+  };
+  return {
+    ...registry,
+    listBusinessRules({ status, kind } = {}) {
+      const rules = [...registry.listBusinessRules({ status }), denyRule];
+      return kind ? rules.filter((rule) => rule.kind === kind) : rules;
+    },
+  };
+}
+
+function registryWithDerivedProjectRule() {
+  const deriveRule = {
+    id: "business.test.project_scope",
+    version: "1.0.0",
+    kind: "derive",
+    appliesTo: { metricIds: ["defect.created_count"], intents: ["rank"] },
+    effect: {
+      derivedFilter: { dimensionId: "product.project", operator: "in", values: ["SP25"] },
+      message: "This policy test is scoped to SP25.",
+    },
+    governance: { status: "approved", owner: "Quality Analytics" },
+  };
+  return {
+    ...registry,
+    listBusinessRules({ status, kind } = {}) {
+      const rules = [...registry.listBusinessRules({ status }), deriveRule];
+      return kind ? rules.filter((rule) => rule.kind === kind) : rules;
+    },
+  };
+}
+
 describe("Governed analysis planner", () => {
   it("creates a bounded line plan for a governed trend query", () => {
     const frame = resolver.resolve({ query: "OS9 最近三个月新增缺陷趋势", actor });
@@ -30,6 +72,11 @@ describe("Governed analysis planner", () => {
       "NO_ARBITRARY_CODE",
       "NO_ARBITRARY_SQL",
     ]));
+    expect(analysisPlan.ruleEffects).toContainEqual({
+      ruleId: "business.defect_created_count.creation_time",
+      kind: "require",
+      code: "BUSINESS_RULE_REQUIRE:business.defect_created_count.creation_time",
+    });
   });
 
   it("blocks analysis until an ambiguous metric is clarified", () => {
@@ -41,6 +88,49 @@ describe("Governed analysis planner", () => {
       operation: "none",
       visualization: "none",
       maxRows: 0,
+    });
+  });
+
+  it("projects a denied business rule plan into a denied analysis plan", () => {
+    const frame = resolver.resolve({ query: "最近一周 DTSV 新增缺陷按 ECU Top 5", actor });
+    const queryPlan = createQueryPlanner({ registry: registryWithDenyRule() })
+      .createPlan({ frame, actor, query: "最近一周 DTSV 新增缺陷按 ECU Top 5" });
+
+    expect(analysisPlanner.createPlan({ frame, queryPlan })).toMatchObject({
+      status: "denied",
+      operation: "none",
+      visualization: "none",
+      ruleCodes: ["BUSINESS_RULE_DENY:business.test.no_created_count"],
+    });
+  });
+
+  it("blocks analysis when a required business event-time semantic is unmet", () => {
+    const frame = resolver.resolve({ query: "最近一周 DTSV 新增缺陷按 ECU Top 5", actor });
+    const wrongTimeFrame = {
+      ...frame,
+      timeScopes: frame.timeScopes.map((scope) => ({ ...scope, fieldId: "time.defect_last_modified" })),
+    };
+    const queryPlan = queryPlanner.createPlan({ frame: wrongTimeFrame, actor, query: "最近一周 DTSV 新增缺陷按 ECU Top 5" });
+
+    expect(analysisPlanner.createPlan({ frame: wrongTimeFrame, queryPlan })).toMatchObject({
+      status: "needs_clarification",
+      operation: "none",
+      visualization: "none",
+      ruleCodes: ["BUSINESS_RULE_REQUIRE:business.defect_created_count.creation_time"],
+    });
+  });
+
+  it("accepts the canonical query derived from an approved business rule", () => {
+    const derivedRegistry = registryWithDerivedProjectRule();
+    const frame = resolver.resolve({ query: "最近一周 DTSV 新增缺陷按 ECU Top 5", actor });
+    const queryPlan = createQueryPlanner({ registry: derivedRegistry })
+      .createPlan({ frame, actor, query: "最近一周 DTSV 新增缺陷按 ECU Top 5" });
+    const derivedAnalysisPlanner = createGovernedAnalysisPlanner({ registry: derivedRegistry });
+
+    expect(derivedAnalysisPlanner.createPlan({ frame, queryPlan })).toMatchObject({
+      status: "ready",
+      operation: "ranked_comparison",
+      visualization: "bar",
     });
   });
 

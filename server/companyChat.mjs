@@ -22,6 +22,7 @@ Before the final answer, show only grounded, visible analysis steps using these 
 - If no tool result or relevant context is supplied, do not claim that you searched or queried data.
 - If data is missing, emit one <step> noting the gap, then ask one sharp clarifying question.
 - Treat "# Main agent tool result" blocks and tool messages as factual data, but preserve their scope and caveats.
+- Do not make causal claims unless the supplied evidence explicitly supports causality; describe observed associations and limitations instead.
 
 # Style
 - Direct, structured, grounded. No "Certainly!", no "As an AI".
@@ -387,6 +388,11 @@ function writeAnswerValidationIfNeeded(response, state) {
     registry: state.answerValidation.registry,
   });
   writeSseEvent(response, { type: "answer-validation", ...validation });
+  try {
+    state.onAnswerValidation?.(validation);
+  } catch {
+    // Validation observers must not interrupt answer streaming.
+  }
 }
 
 function writeSanitizedSseFrame(response, frame, state) {
@@ -508,6 +514,7 @@ export async function streamCompanyChatCompletion({
   imageOcrRunner,
   documentTextRunner,
   answerValidation,
+  onAnswerValidation,
 }) {
   const startedAt = nowMs();
   const config = resolveChatModelConfig(model || "", process.env);
@@ -574,6 +581,7 @@ export async function streamCompanyChatCompletion({
       visibleContentParts: [],
       answerValidation,
       answerValidationEmitted: false,
+      onAnswerValidation,
     };
     let sseBuffer = "";
 

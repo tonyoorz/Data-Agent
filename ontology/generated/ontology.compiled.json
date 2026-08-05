@@ -283,14 +283,14 @@
       },
       "effect": {
         "message": "Created/submitted/opened defect questions use octane_defects.creation_time semantics.",
-        "warningCode": "BUSINESS_RULE:business.defect_created_count.creation_time"
+        "requiredTimeField": "time.defect_creation_date"
       },
       "governance": {
         "owner": "Quality Analytics",
         "status": "approved"
       },
       "id": "business.defect_created_count.creation_time",
-      "kind": "plan_warning",
+      "kind": "require",
       "version": "1.0.0"
     }
   ],

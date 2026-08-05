@@ -51,5 +51,11 @@ export function createFileAgentRuntimeStore({ rootDir = process.env.VIZION_AGENT
         recordedAt: timestamp(now),
       });
     },
+    async appendRunSummary(summary) {
+      await appendJsonLine(path.join(rootDir, "run-summaries.jsonl"), {
+        ...summary,
+        recordedAt: timestamp(now),
+      });
+    },
   };
 }

@@ -36,6 +36,7 @@ const resources = {
       qgateKpiReport: "QGate KPI Report",
       qgateWeeklyReport: "Weekly Report",
       aiChat: "AI Chat",
+      agentOperations: "Agent Operations",
       beta: "Beta",
     },
     pages: {
@@ -91,6 +92,10 @@ const resources = {
         title: "AI Chat",
         subtitle: "与 DTSV 智能体对话，获取分析洞察",
       },
+      agentOperations: {
+        title: "Agent Operations",
+        subtitle: "已脱敏的智能体运行、恢复与证据状态",
+      },
     },
   },
   "en-US": {
@@ -122,6 +127,7 @@ const resources = {
       qgateKpiReport: "QGate KPI Report",
       qgateWeeklyReport: "Weekly Report",
       aiChat: "AI Chat",
+      agentOperations: "Agent Operations",
       beta: "Beta",
     },
     pages: {
@@ -176,6 +182,10 @@ const resources = {
       aiChat: {
         title: "AI Chat",
         subtitle: "Chat with the DTSV agent for analytical insights",
+      },
+      agentOperations: {
+        title: "Agent Operations",
+        subtitle: "Sanitized agent runtime, recovery, and evidence status",
       },
     },
   },

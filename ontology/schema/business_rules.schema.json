@@ -19,7 +19,7 @@
         "properties": {
           "id": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]+$" },
           "version": { "type": "string", "minLength": 1 },
-          "kind": { "enum": ["plan_warning"] },
+          "kind": { "enum": ["plan_warning", "deny", "require", "derive"] },
           "appliesTo": {
             "type": "object",
             "additionalProperties": false,
@@ -30,15 +30,48 @@
           },
           "effect": {
             "type": "object",
-            "required": ["warningCode"],
             "additionalProperties": false,
             "properties": {
               "warningCode": { "type": "string", "minLength": 1 },
+              "denialCode": { "type": "string", "pattern": "^BUSINESS_RULE_DENY:[a-z][a-z0-9_.-]+$" },
+              "requiredTimeField": { "type": "string", "pattern": "^time\\.[a-z][a-z0-9_.-]+$" },
+              "derivedFilter": {
+                "type": "object",
+                "required": ["dimensionId", "operator", "values"],
+                "additionalProperties": false,
+                "properties": {
+                  "dimensionId": { "type": "string", "minLength": 1 },
+                  "operator": { "enum": ["in", "eq"] },
+                  "values": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": { "anyOf": [{ "type": "string" }, { "type": "number" }, { "type": "boolean" }] }
+                  }
+                }
+              },
               "message": { "type": "string" }
             }
           },
           "governance": { "$ref": "common.schema.json#/$defs/governance" }
-        }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "kind": { "const": "plan_warning" } }, "required": ["kind"] },
+            "then": { "properties": { "effect": { "type": "object", "properties": { "warningCode": { "type": "string" } }, "required": ["warningCode"] } } }
+          },
+          {
+            "if": { "properties": { "kind": { "const": "deny" } }, "required": ["kind"] },
+            "then": { "properties": { "effect": { "type": "object", "properties": { "denialCode": { "type": "string" } }, "required": ["denialCode"] } } }
+          },
+          {
+            "if": { "properties": { "kind": { "const": "require" } }, "required": ["kind"] },
+            "then": { "properties": { "effect": { "type": "object", "properties": { "requiredTimeField": { "type": "string" } }, "required": ["requiredTimeField"] } } }
+          },
+          {
+            "if": { "properties": { "kind": { "const": "derive" } }, "required": ["kind"] },
+            "then": { "properties": { "effect": { "type": "object", "properties": { "derivedFilter": { "type": "object" } }, "required": ["derivedFilter"] } } }
+          }
+        ]
       }
     }
   }

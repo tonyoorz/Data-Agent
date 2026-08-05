@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import hmac
 import json
 from datetime import date
 from typing import Any, Iterable
@@ -13,6 +14,7 @@ SCHEMA_VERSION = "1.0"
 DEFAULT_TIMEZONE = "Asia/Shanghai"
 MAX_AGGREGATE_LIMIT = 100
 MAX_RECORD_LIMIT = 100
+AGENT_DRILLDOWN_REF_VERSION = "agent-v1"
 
 SUPPORTED_METRICS = frozenset(
     {
@@ -266,6 +268,55 @@ def _decode_ref(drilldown_ref: str) -> dict[str, Any]:
     return payload
 
 
+class AgentDrilldownScopeError(read_models.FullPictureDashboardRequestError):
+    pass
+
+
+def _agent_drilldown_context(kwargs: dict[str, Any]) -> tuple[str, str] | None:
+    actor_scope_hash = kwargs.get("agent_actor_scope_hash")
+    drilldown_secret = kwargs.get("agent_drilldown_secret")
+    if actor_scope_hash is None and drilldown_secret is None:
+        return None
+    if not isinstance(actor_scope_hash, str) or not actor_scope_hash:
+        raise read_models.FullPictureDashboardRequestError("Invalid agent drilldown context")
+    if not isinstance(drilldown_secret, str) or not drilldown_secret:
+        raise read_models.FullPictureDashboardRequestError("Invalid agent drilldown context")
+    return actor_scope_hash, drilldown_secret
+
+
+def _encode_agent_drilldown_ref(payload: dict[str, Any], *, actor_scope_hash: str, secret: str) -> str:
+    payload_part = _encode_ref({**payload, "actor_scope_hash": actor_scope_hash})
+    signing_input = f"{AGENT_DRILLDOWN_REF_VERSION}.{payload_part}"
+    signature = hmac.new(secret.encode("utf-8"), signing_input.encode("ascii"), hashlib.sha256).digest()
+    signature_part = base64.urlsafe_b64encode(signature).decode("ascii").rstrip("=")
+    return f"{signing_input}.{signature_part}"
+
+
+def _decode_agent_drilldown_ref(drilldown_ref: str, *, actor_scope_hash: str, secret: str) -> dict[str, Any]:
+    parts = drilldown_ref.split(".")
+    if len(parts) != 3 or parts[0] != AGENT_DRILLDOWN_REF_VERSION:
+        raise read_models.FullPictureDashboardRequestError("Invalid agent drilldown_ref")
+    _, payload_part, signature_part = parts
+    if not signature_part or any(character not in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_" for character in signature_part):
+        raise read_models.FullPictureDashboardRequestError("Invalid agent drilldown_ref")
+    try:
+        padded_signature = signature_part + "=" * (-len(signature_part) % 4)
+        received_signature = base64.urlsafe_b64decode(padded_signature.encode("ascii"))
+    except (ValueError, UnicodeEncodeError):
+        raise read_models.FullPictureDashboardRequestError("Invalid agent drilldown_ref") from None
+    expected_signature = hmac.new(
+        secret.encode("utf-8"),
+        f"{AGENT_DRILLDOWN_REF_VERSION}.{payload_part}".encode("ascii"),
+        hashlib.sha256,
+    ).digest()
+    if len(received_signature) != len(expected_signature) or not hmac.compare_digest(received_signature, expected_signature):
+        raise read_models.FullPictureDashboardRequestError("Invalid agent drilldown_ref")
+    payload = _decode_ref(payload_part)
+    if payload.get("actor_scope_hash") != actor_scope_hash:
+        raise AgentDrilldownScopeError("Agent drilldown scope denied")
+    return payload
+
+
 def _applied_query(
     *,
     metrics: list[str],
@@ -391,6 +442,7 @@ def build_defect_aggregate_payload(**kwargs: Any) -> dict[str, Any]:
     order_by = _normalize_order_by(kwargs.get("order_by"))
     limit = _normalize_limit(kwargs.get("limit"), default=12, maximum=MAX_AGGREGATE_LIMIT)
     min_baseline_count = _normalize_limit(kwargs.get("min_baseline_count"), default=0, maximum=100000) if kwargs.get("min_baseline_count") not in {None, ""} else 0
+    agent_drilldown_context = _agent_drilldown_context(kwargs)
     snapshot_version = _current_snapshot_version()
     if not snapshot_version:
         raise read_models.FullPictureDashboardDataError("analytics dashboard snapshot is not initialized")
@@ -424,15 +476,22 @@ def build_defect_aggregate_payload(**kwargs: Any) -> dict[str, Any]:
             previous_count=len(previous_rows),
             derived_metrics=derived_metrics,
         )
-        row["drilldown_ref"] = _encode_ref(
-            {
-                "schema_version": SCHEMA_VERSION,
-                "snapshot_version": snapshot_version,
-                "query_fingerprint": query_fingerprint,
-                "applied_query": applied_query,
-                "dimension": dimension,
-                "dimension_value": value,
-            }
+        drilldown_payload = {
+            "schema_version": SCHEMA_VERSION,
+            "snapshot_version": snapshot_version,
+            "query_fingerprint": query_fingerprint,
+            "applied_query": applied_query,
+            "dimension": dimension,
+            "dimension_value": value,
+        }
+        row["drilldown_ref"] = (
+            _encode_agent_drilldown_ref(
+                drilldown_payload,
+                actor_scope_hash=agent_drilldown_context[0],
+                secret=agent_drilldown_context[1],
+            )
+            if agent_drilldown_context
+            else _encode_ref(drilldown_payload)
         )
         result_rows.append(row)
     result_rows = _sort_rows(result_rows, order_by, dimensions)
@@ -452,7 +511,17 @@ def build_defect_aggregate_payload(**kwargs: Any) -> dict[str, Any]:
 
 
 def build_defect_records_payload(**kwargs: Any) -> dict[str, Any]:
-    drilldown = _decode_ref(_normalize_string(kwargs.get("drilldown_ref")))
+    agent_drilldown_context = _agent_drilldown_context(kwargs)
+    drilldown_ref = _normalize_string(kwargs.get("drilldown_ref"))
+    drilldown = (
+        _decode_agent_drilldown_ref(
+            drilldown_ref,
+            actor_scope_hash=agent_drilldown_context[0],
+            secret=agent_drilldown_context[1],
+        )
+        if agent_drilldown_context
+        else _decode_ref(drilldown_ref)
+    )
     applied_query = drilldown.get("applied_query") if isinstance(drilldown.get("applied_query"), dict) else {}
     snapshot_version = _normalize_string(drilldown.get("snapshot_version"))
     if not snapshot_version:

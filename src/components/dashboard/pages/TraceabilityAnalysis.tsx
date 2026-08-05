@@ -93,6 +93,7 @@ type TraceabilityGraphEdge = {
   from: string;
   to: string;
   count: number;
+  relationship_id?: string;
 };
 
 type TraceabilityGraphPayload = {
@@ -728,13 +729,16 @@ function TraceabilityGraph({
                   <path
                     key={edge.id}
                     data-testid={`traceability-graph-edge-${edge.id}`}
+                    data-relationship-id={edge.relationship_id || undefined}
                     d={path}
                     fill="none"
                     stroke="hsl(215, 70%, 48%)"
                     strokeLinecap="round"
                     strokeOpacity={0.36}
                     strokeWidth={Math.min(6, Math.max(1.5, edge.count + 1))}
-                  />
+                  >
+                    {edge.relationship_id ? <title>{`Approved relationship: ${edge.relationship_id}`}</title> : null}
+                  </path>
                 );
               })}
             </svg>

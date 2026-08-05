@@ -1,10 +1,15 @@
 import os
 from pathlib import Path
 import sqlite3
+import time
 
 import pytest
 from fastapi.testclient import TestClient
 
+from backend.analytics.agent_actor_capability import (
+    ACTOR_CAPABILITY_HEADER,
+    create_actor_capability,
+)
 from backend.analytics.api import app
 from backend.analytics.dashboard_snapshot import (
     activate_snapshot_version,
@@ -1244,6 +1249,161 @@ def test_defect_query_api_posts_aggregate_and_records(tmp_path, monkeypatch):
     assert records_payload["total_rows"] == 2
     assert records_payload["returned_rows"] == 1
     assert records_payload["truncated"] is True
+
+
+def test_agent_defect_query_routes_enforce_scope_and_actor_bound_drilldown(tmp_path, monkeypatch):
+    db_path = tmp_path / "qgate_data.db"
+    hot_db_path = _default_hot_db_path(tmp_path)
+    _seed_qgate_source_db(db_path, defect_count=2)
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "UPDATE octane_defects SET problem_finder_team = ?, project = ? WHERE defect_id = ?",
+            ("DTSV_China", "IDCEVO", "D-001"),
+        )
+        conn.execute(
+            "UPDATE octane_defects SET problem_finder_team = ?, project = ? WHERE defect_id = ?",
+            ("Other Team", "OTHER", "D-002"),
+        )
+        conn.commit()
+    _refresh_full_picture_hot_outcomes(db_path, hot_db_path)
+    _record_active_snapshot(hot_db_path, snapshot_version="snapshot-agent-defect-api", source_db_path=db_path)
+    _configure_full_picture_env(
+        monkeypatch,
+        defect_db_path=db_path,
+        hot_db_path=hot_db_path,
+    )
+    secret = "agent-defect-api-test-secret"
+    monkeypatch.setenv("VIZION_AGENT_ACTOR_CAPABILITY_SECRET", secret)
+    now = int(time.time())
+
+    def headers_for(
+        actor_id: str,
+        scope_hash: str,
+        scopes: dict[str, list[str]] | None = None,
+    ) -> dict[str, str]:
+        token = create_actor_capability(
+            {
+                "actorId": actor_id,
+                "scopeHash": scope_hash,
+                "scopes": scopes or {
+                    "allowedObjectTypes": ["quality.defect"],
+                    "teamIds": ["DTSV_China"],
+                    "projectIds": ["IDCEVO"],
+                },
+            },
+            secret=secret,
+            now=now,
+            nonce=f"agent-defect-api-{actor_id}",
+        )
+        return {ACTOR_CAPABILITY_HEADER: token}
+
+    aggregate_request = {
+        "metrics": ["defect_count"],
+        "dimensions": [],
+        "filters": {},
+        "time": {"field": "creation_time", "current": ["2026-05-01", "2026-05-31"], "timezone": "Asia/Shanghai"},
+        "limit": 10,
+    }
+    client = TestClient(app)
+
+    assert client.post("/api/agent/analytics/defects/aggregate", json=aggregate_request).status_code == 401
+
+    aggregate_response = client.post(
+        "/api/agent/analytics/defects/aggregate",
+        json=aggregate_request,
+        headers=headers_for("alice", "scope-alice"),
+    )
+
+    assert aggregate_response.status_code == 200
+    aggregate_payload = aggregate_response.json()
+    assert aggregate_payload["rows"][0]["defect_count"] == 1
+    assert aggregate_payload["applied_query"]["filters"] == {
+        "problem_finder_teams": ["DTSV_China"],
+        "projects": ["IDCEVO"],
+    }
+    drilldown_ref = aggregate_payload["rows"][0]["drilldown_ref"]
+
+    denied_filter_response = client.post(
+        "/api/agent/analytics/defects/aggregate",
+        json={**aggregate_request, "filters": {"problem_finder_teams": ["Other Team"]}},
+        headers=headers_for("alice", "scope-alice"),
+    )
+    assert denied_filter_response.status_code == 403
+
+    invalid_filter_response = client.post(
+        "/api/agent/analytics/defects/aggregate",
+        json={**aggregate_request, "filters": {"unknown_filter": ["not-allowed"]}},
+        headers=headers_for("alice", "scope-alice"),
+    )
+    assert invalid_filter_response.status_code == 400
+    assert invalid_filter_response.json() == {
+        "code": "AGENT_ANALYTICS_SCHEMA_INVALID",
+        "safeMessage": "agent analytics request rejected",
+        "retryable": False,
+    }
+
+    wrong_object_response = client.post(
+        "/api/agent/analytics/defects/aggregate",
+        json=aggregate_request,
+        headers=headers_for(
+            "testcase-reader",
+            "scope-testcase",
+            {
+                "allowedObjectTypes": ["testing.test_case"],
+                "teamIds": ["DTSV_China"],
+                "projectIds": ["IDCEVO"],
+            },
+        ),
+    )
+    assert wrong_object_response.status_code == 403
+
+    missing_row_scope_response = client.post(
+        "/api/agent/analytics/defects/aggregate",
+        json=aggregate_request,
+        headers=headers_for(
+            "unscoped-reader",
+            "scope-unscoped",
+            {"allowedObjectTypes": ["quality.defect"]},
+        ),
+    )
+    assert missing_row_scope_response.status_code == 403
+
+    records_response = client.post(
+        "/api/agent/analytics/defects/records",
+        json={"drilldown_ref": drilldown_ref, "limit": 10},
+        headers=headers_for("alice", "scope-alice"),
+    )
+    assert records_response.status_code == 200
+    assert [row["ticket_id"] for row in records_response.json()["rows"]] == ["D-001"]
+
+    other_actor_response = client.post(
+        "/api/agent/analytics/defects/records",
+        json={"drilldown_ref": drilldown_ref, "limit": 10},
+        headers=headers_for("bob", "scope-bob"),
+    )
+    assert other_actor_response.status_code == 403
+
+    tampered_ref = f"{drilldown_ref[:-1]}{'A' if drilldown_ref[-1] != 'A' else 'B'}"
+    tampered_ref_response = client.post(
+        "/api/agent/analytics/defects/records",
+        json={"drilldown_ref": tampered_ref, "limit": 10},
+        headers=headers_for("alice", "scope-alice"),
+    )
+    assert tampered_ref_response.status_code == 400
+
+    reserved_argument_response = client.post(
+        "/api/agent/analytics/defects/aggregate",
+        json={**aggregate_request, "agent_actor_scope_hash": "attempted-override"},
+        headers=headers_for("alice", "scope-alice"),
+    )
+    assert reserved_argument_response.status_code == 400
+
+    reserved_records_argument_response = client.post(
+        "/api/agent/analytics/defects/records",
+        json={"drilldown_ref": drilldown_ref, "agent_drilldown_secret": "attempted-override"},
+        headers=headers_for("alice", "scope-alice"),
+    )
+    assert reserved_records_argument_response.status_code == 400
 
 
 def test_analytics_fallback_query_runs_allowlisted_defect_grouping(tmp_path, monkeypatch):

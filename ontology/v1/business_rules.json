@@ -5,10 +5,10 @@
     {
       "id": "business.defect_created_count.creation_time",
       "version": "1.0.0",
-      "kind": "plan_warning",
+      "kind": "require",
       "appliesTo": { "metricIds": ["defect.created_count"] },
       "effect": {
-        "warningCode": "BUSINESS_RULE:business.defect_created_count.creation_time",
+        "requiredTimeField": "time.defect_creation_date",
         "message": "Created/submitted/opened defect questions use octane_defects.creation_time semantics."
       },
       "governance": { "status": "approved", "owner": "Quality Analytics" }

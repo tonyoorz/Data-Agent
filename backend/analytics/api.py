@@ -6,6 +6,12 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Query, Request
 from fastapi.responses import JSONResponse
 
+from backend.analytics.agent_actor_capability import (
+    ActorCapabilityError,
+    enforce_defect_query_scope,
+    get_agent_actor_capability_secret,
+    verify_actor_capability_header,
+)
 from backend.analytics.config import get_analytics_db_path, get_full_picture_hot_db_path
 from backend.analytics.dashboard_snapshot import read_active_snapshot_state
 from backend.analytics.read_models import (
@@ -27,6 +33,7 @@ from backend.analytics.read_models import (
     list_testcases,
 )
 from backend.analytics.fallback_query import build_analytics_fallback_query_payload
+from backend.analytics.defect_query_models import AgentDrilldownScopeError
 from backend.analytics.octane_field_catalog import load_local_octane_field_catalog, search_octane_fields
 from backend.analytics.ontology import OntologyLoadError, load_ontology
 from backend.analytics.ontology_context import build_ontology_catalog_payload, build_test_case_context_payload
@@ -189,6 +196,75 @@ async def analytics_defects_records(request: Request) -> JSONResponse:
     return JSONResponse(status_code=200, content=payload)
 
 
+def _agent_capability_error_response(error: ActorCapabilityError) -> JSONResponse:
+    return JSONResponse(
+        status_code=error.status_code,
+        content={"code": error.code, "safeMessage": "agent capability rejected", "retryable": False},
+    )
+
+
+def _agent_analytics_schema_error_response() -> JSONResponse:
+    return JSONResponse(
+        status_code=400,
+        content={
+            "code": "AGENT_ANALYTICS_SCHEMA_INVALID",
+            "safeMessage": "agent analytics request rejected",
+            "retryable": False,
+        },
+    )
+
+
+@app.post("/api/agent/analytics/defects/aggregate")
+async def agent_analytics_defects_aggregate(request: Request) -> JSONResponse:
+    try:
+        actor = verify_actor_capability_header(request.headers)
+        raw_payload = await request.json()
+        payload = build_defect_aggregate_payload(
+            **enforce_defect_query_scope(raw_payload, actor),
+            agent_actor_scope_hash=actor["scopeHash"],
+            agent_drilldown_secret=get_agent_actor_capability_secret(),
+        )
+    except ActorCapabilityError as exc:
+        return _agent_capability_error_response(exc)
+    except FullPictureDashboardDataError:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "analytics database not initialized"},
+        )
+    except (FullPictureDashboardRequestError, ValueError):
+        return _agent_analytics_schema_error_response()
+    return JSONResponse(status_code=200, content=payload)
+
+
+@app.post("/api/agent/analytics/defects/records")
+async def agent_analytics_defects_records(request: Request) -> JSONResponse:
+    try:
+        actor = verify_actor_capability_header(request.headers)
+        raw_payload = await request.json()
+        if not isinstance(raw_payload, dict) or {"agent_actor_scope_hash", "agent_drilldown_secret"} & set(raw_payload):
+            raise ValueError("agent records payload must be an object")
+        payload = build_defect_records_payload(
+            **raw_payload,
+            agent_actor_scope_hash=actor["scopeHash"],
+            agent_drilldown_secret=get_agent_actor_capability_secret(),
+        )
+    except ActorCapabilityError as exc:
+        return _agent_capability_error_response(exc)
+    except AgentDrilldownScopeError:
+        return JSONResponse(
+            status_code=403,
+            content={"code": "AGENT_DRILLDOWN_SCOPE_DENIED", "safeMessage": "agent drilldown denied", "retryable": False},
+        )
+    except FullPictureDashboardDataError:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "analytics database not initialized"},
+        )
+    except (FullPictureDashboardRequestError, ValueError):
+        return _agent_analytics_schema_error_response()
+    return JSONResponse(status_code=200, content=payload)
+
+
 @app.post("/api/analytics/fallback/query")
 async def analytics_fallback_query(request: Request) -> JSONResponse:
     try:
@@ -231,7 +307,12 @@ async def semantic_query(request: Request) -> JSONResponse:
     except SemanticQueryError as exc:
         return JSONResponse(
             status_code=exc.status_code,
-            content={"code": exc.code, "safeMessage": "semantic query rejected", "retryable": False},
+            content={
+                "code": exc.code,
+                "safeMessage": "semantic query rejected",
+                "retryable": False,
+                **({"ruleCodes": exc.rule_codes} if exc.rule_codes else {}),
+            },
         )
     except OntologyLoadError as exc:
         return JSONResponse(
@@ -253,7 +334,12 @@ async def semantic_records(request: Request) -> JSONResponse:
     except SemanticQueryError as exc:
         return JSONResponse(
             status_code=exc.status_code,
-            content={"code": exc.code, "safeMessage": "semantic records query rejected", "retryable": False},
+            content={
+                "code": exc.code,
+                "safeMessage": "semantic records query rejected",
+                "retryable": False,
+                **({"ruleCodes": exc.rule_codes} if exc.rule_codes else {}),
+            },
         )
     except OntologyLoadError as exc:
         return JSONResponse(

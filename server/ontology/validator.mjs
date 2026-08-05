@@ -159,6 +159,30 @@ export function validateOntologyBundle(bundle) {
     if (governanceStatus(rule) === "approved" && rule.kind === "plan_warning" && !rule.effect?.warningCode) {
       fail("ONTOLOGY_BUSINESS_RULE_WARNING_REQUIRED", rule.id);
     }
+    if (governanceStatus(rule) === "approved" && rule.kind === "deny"
+      && rule.effect?.denialCode !== `BUSINESS_RULE_DENY:${rule.id}`) {
+      fail("ONTOLOGY_BUSINESS_RULE_DENIAL_CODE_INVALID", rule.id);
+    }
+    if (governanceStatus(rule) === "approved" && rule.kind === "require") {
+      const requiredTimeField = String(rule.effect?.requiredTimeField || "");
+      const dimension = dimensionById.get(requiredTimeField);
+      if (!dimension || dimension.type !== "datetime") fail("ONTOLOGY_BUSINESS_RULE_TIME_FIELD_INVALID", rule.id);
+      for (const metricId of rule.appliesTo?.metricIds || []) {
+        if (!metricById.get(metricId)?.allowedDimensions.includes(requiredTimeField)) {
+          fail("ONTOLOGY_BUSINESS_RULE_TIME_FIELD_NOT_ALLOWED", `${rule.id}:${metricId}`);
+        }
+      }
+    }
+    if (governanceStatus(rule) === "approved" && rule.kind === "derive") {
+      const derivedFilter = rule.effect?.derivedFilter;
+      const dimension = dimensionById.get(derivedFilter?.dimensionId);
+      if (!dimension) fail("ONTOLOGY_BUSINESS_RULE_DERIVED_FILTER_INVALID", rule.id);
+      for (const metricId of rule.appliesTo?.metricIds || []) {
+        if (!metricById.get(metricId)?.allowedDimensions.includes(derivedFilter.dimensionId)) {
+          fail("ONTOLOGY_BUSINESS_RULE_DERIVED_FILTER_NOT_ALLOWED", `${rule.id}:${metricId}`);
+        }
+      }
+    }
   }
 
   for (const constraint of constraints) {

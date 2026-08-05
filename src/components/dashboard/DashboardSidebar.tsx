@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   BarChart3,
+  Activity,
   Bug,
   CalendarDays,
   ChevronLeft,
@@ -38,6 +39,7 @@ const navItems = [
   { id: "qgate-kpi-report", labelKey: "qgateKpiReport", icon: BarChart3 },
   { id: "qgate-weekly-report", labelKey: "qgateWeeklyReport", icon: CalendarDays },
   { id: "ai-chat", labelKey: "aiChat", icon: Sparkles, badgeKey: "beta" },
+  { id: "agent-operations", labelKey: "agentOperations", icon: Activity },
 ];
 
 interface DashboardSidebarProps {

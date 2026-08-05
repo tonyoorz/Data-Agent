@@ -11,6 +11,48 @@ const registry = createOntologyRegistry();
 const resolver = createSemanticResolver({ registry, now: () => anchorAt });
 const planner = createQueryPlanner({ registry });
 
+function registryWithDenyRule() {
+  const denyRule = {
+    id: "business.test.no_created_count",
+    version: "1.0.0",
+    kind: "deny",
+    appliesTo: { metricIds: ["defect.created_count"], intents: ["rank"] },
+    effect: {
+      denialCode: "BUSINESS_RULE_DENY:business.test.no_created_count",
+      message: "Created defect ranking is blocked for this policy test.",
+    },
+    governance: { status: "approved", owner: "Agent Security" },
+  };
+  return {
+    ...registry,
+    listBusinessRules({ status, kind } = {}) {
+      const rules = [...registry.listBusinessRules({ status }), denyRule];
+      return kind ? rules.filter((rule) => rule.kind === kind) : rules;
+    },
+  };
+}
+
+function registryWithDerivedProjectRule() {
+  const deriveRule = {
+    id: "business.test.project_scope",
+    version: "1.0.0",
+    kind: "derive",
+    appliesTo: { metricIds: ["defect.created_count"], intents: ["rank"] },
+    effect: {
+      derivedFilter: { dimensionId: "product.project", operator: "in", values: ["SP25"] },
+      message: "This policy test is scoped to SP25.",
+    },
+    governance: { status: "approved", owner: "Quality Analytics" },
+  };
+  return {
+    ...registry,
+    listBusinessRules({ status, kind } = {}) {
+      const rules = [...registry.listBusinessRules({ status }), deriveRule];
+      return kind ? rules.filter((rule) => rule.kind === kind) : rules;
+    },
+  };
+}
+
 describe("Ontology query planner", () => {
   it("deterministically compiles an approved metric frame to one semantic tool step", () => {
     const frame = resolver.resolve({ query: "最近一周 DTSV 新增缺陷按 ECU Top 5", actor });
@@ -26,8 +68,54 @@ describe("Ontology query planner", () => {
       dimensionIds: expect.arrayContaining(["product.ecu"]),
       riskLevel: "R0",
     });
-    expect(first.warnings).toContain("BUSINESS_RULE:business.defect_created_count.creation_time");
+    expect(first.warnings).not.toContain("BUSINESS_RULE:business.defect_created_count.creation_time");
     expect(first.warnings).toContain("CONSTRAINT:planner.forbid_arbitrary_sql");
+    expect(first.ruleEffects).toContainEqual({
+      ruleId: "business.defect_created_count.creation_time",
+      kind: "require",
+      code: "BUSINESS_RULE_REQUIRE:business.defect_created_count.creation_time",
+    });
+  });
+
+  it("denies matching approved business rules before creating semantic tool steps", () => {
+    const frame = resolver.resolve({ query: "最近一周 DTSV 新增缺陷按 ECU Top 5", actor });
+    const deniedPlan = createQueryPlanner({ registry: registryWithDenyRule() })
+      .createPlan({ frame, actor, query: "最近一周 DTSV 新增缺陷按 ECU Top 5" });
+
+    expect(deniedPlan).toMatchObject({
+      status: "denied",
+      steps: [],
+      violations: ["BUSINESS_RULE_DENY:business.test.no_created_count"],
+    });
+  });
+
+  it("requires created-defect queries to keep their creation-time semantics", () => {
+    const frame = resolver.resolve({ query: "最近一周 DTSV 新增缺陷按 ECU Top 5", actor });
+    const wrongTimeFrame = {
+      ...frame,
+      timeScopes: frame.timeScopes.map((scope) => ({ ...scope, fieldId: "time.defect_last_modified" })),
+    };
+    const plan = planner.createPlan({ frame: wrongTimeFrame, actor, query: "最近一周 DTSV 新增缺陷按 ECU Top 5" });
+
+    expect(plan).toMatchObject({
+      status: "needs_clarification",
+      steps: [],
+      violations: ["BUSINESS_RULE_REQUIRE:business.defect_created_count.creation_time"],
+    });
+  });
+
+  it("derives approved policy filters into the canonical semantic query", () => {
+    const frame = resolver.resolve({ query: "最近一周 DTSV 新增缺陷按 ECU Top 5", actor });
+    const plan = createQueryPlanner({ registry: registryWithDerivedProjectRule() })
+      .createPlan({ frame, actor, query: "最近一周 DTSV 新增缺陷按 ECU Top 5" });
+
+    expect(plan.warnings).toContain("BUSINESS_RULE_DERIVE:business.test.project_scope");
+    expect(plan.steps[0].canonicalArgs.query.filters).toContainEqual({
+      dimensionId: "product.project",
+      operator: "in",
+      values: ["SP25"],
+      source: "policy",
+    });
   });
 
   it("does not plan a draft metric before clarification", () => {
@@ -71,10 +159,42 @@ describe("Ontology query planner", () => {
     const similarityFrame = resolver.resolve({ query: "蓝牙断连缺陷查重", actor });
     const tracePlan = planner.createPlan({ frame: traceFrame, actor, query: "追溯 Requirement 到 Defect" });
     expect(tracePlan.steps[0].toolName).toBe("query_traceability");
-    expect(tracePlan.warnings).toContain("RELATIONSHIP_PATH:quality.defect.affects.aida_node");
+    expect(tracePlan.warnings).toContain("RELATIONSHIP_PATH:testing.test_case.validates.aida_node>testing.test_run.executes.test_case>quality.defect.detected_in.test_run");
     const similarityPlan = planner.createPlan({ frame: similarityFrame, actor, query: "蓝牙断连缺陷查重" });
     expect(similarityPlan.steps[0].toolName).toBe("search_duplicates");
     expect(similarityPlan.warnings).toContain("CONSTRAINT:similarity.not_population_statistic");
+  });
+
+  it("rejects a trace plan when an approved relationship segment is unavailable", () => {
+    const frame = resolver.resolve({ query: "追溯 Requirement 到 Defect", actor });
+    const registryWithoutRunLink = {
+      ...registry,
+      getRelationship(relationshipId: string) {
+        if (relationshipId === "testing.test_run.executes.test_case") throw new Error("relationship unavailable");
+        return registry.getRelationship(relationshipId);
+      },
+    };
+
+    expect(() => createQueryPlanner({ registry: registryWithoutRunLink })
+      .createPlan({ frame, actor, query: "追溯 Requirement 到 Defect" }))
+      .toThrow("SEMANTIC_UNSUPPORTED_JOIN:testing.test_case:testing.test_run");
+  });
+
+  it("rejects a trace plan with an unbounded many-to-many relationship", () => {
+    const frame = resolver.resolve({ query: "追溯 Requirement 到 Defect", actor });
+    const registryWithUnboundedPath = {
+      ...registry,
+      getRelationship(relationshipId: string) {
+        const relationship = registry.getRelationship(relationshipId);
+        return relationship.id === "testing.test_case.validates.aida_node"
+          ? { ...relationship, explosionPolicy: undefined }
+          : relationship;
+      },
+    };
+
+    expect(() => createQueryPlanner({ registry: registryWithUnboundedPath })
+      .createPlan({ frame, actor, query: "追溯 Requirement 到 Defect" }))
+      .toThrow("SEMANTIC_UNBOUNDED_CARDINALITY:testing.test_case.validates.aida_node");
   });
 
   it("binds a similarity plan to the resolver-originated search payload", () => {

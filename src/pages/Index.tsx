@@ -15,6 +15,7 @@ import MainDashboard from "@/components/dashboard/pages/MainDashboard";
 import TopIssueAnalysis from "@/components/dashboard/pages/TopIssueAnalysis";
 import QGateKpiReport from "@/components/dashboard/pages/QGateKpiReport";
 import QGateWeeklyReport from "@/components/dashboard/pages/QGateWeeklyReport";
+import AgentOperations from "@/components/dashboard/pages/AgentOperations";
 import { formatSyncTimestamp } from "@/lib/formatSyncTimestamp";
 
 import "@/i18n";
@@ -36,6 +37,7 @@ const pageTitleKeys: Record<string, { titleKey: string; subtitleKey: string }> =
   "qgate-kpi-report": { titleKey: "qgateKpiReport.title", subtitleKey: "qgateKpiReport.subtitle" },
   "qgate-weekly-report": { titleKey: "qgateWeeklyReport.title", subtitleKey: "qgateWeeklyReport.subtitle" },
   "ai-chat": { titleKey: "aiChat.title", subtitleKey: "aiChat.subtitle" },
+  "agent-operations": { titleKey: "agentOperations.title", subtitleKey: "agentOperations.subtitle" },
 };
 
 const Index = () => {
@@ -74,6 +76,8 @@ const Index = () => {
         return <QGateWeeklyReport />;
       case "ai-chat":
         return <AIChat moduleKey={activeNav} moduleLabel={pageTitle} />;
+      case "agent-operations":
+        return <AgentOperations />;
       default:
         return <MainDashboard onSyncDateChange={setMainDashboardSyncDate} />;
     }

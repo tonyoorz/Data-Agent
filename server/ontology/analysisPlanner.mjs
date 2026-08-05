@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import Ajv2020 from "ajv/dist/2020.js";
 import { canonicalJson, fingerprintSourceQuery, normalizeSourceQuery } from "./fingerprint.mjs";
 import { compileSemanticQuery } from "./queryCompiler.mjs";
-import { createQueryPlanId, defaultRecordFieldsForEntity, fingerprintQueryPlanSteps, validatePlan } from "./queryPlanner.mjs";
+import { createQueryPlanId, defaultRecordFieldsForEntity, deriveBusinessRuleFrame, fingerprintQueryPlanSteps, validatePlan } from "./queryPlanner.mjs";
 import { validateSemanticFrame } from "./semanticFrame.mjs";
 
 const analysisPlanIdSchema = { type: "string", pattern: "^analysis-[a-f0-9]{16}$" };
@@ -14,9 +14,25 @@ const GOVERNED_ANALYSIS_GUARDRAILS = Object.freeze([
   "NO_ARBITRARY_SQL",
   "NO_CAUSAL_CLAIMS",
   "CLARIFICATION_REQUIRED",
+  "BUSINESS_RULE_DENIED",
   "SIMILARITY_NOT_POPULATION_STATISTIC",
 ]);
 const guardrailArray = { type: "array", minItems: 1, uniqueItems: true, items: { enum: GOVERNED_ANALYSIS_GUARDRAILS } };
+const businessRuleCodeArray = { type: "array", minItems: 1, uniqueItems: true, items: { type: "string", pattern: "^BUSINESS_RULE_(?:DENY|REQUIRE):" } };
+const businessRuleEffectArray = {
+  type: "array",
+  uniqueItems: true,
+  items: {
+    type: "object",
+    required: ["ruleId", "kind", "code"],
+    additionalProperties: false,
+    properties: {
+      ruleId: { type: "string", minLength: 1 },
+      kind: { enum: ["deny", "require", "derive"] },
+      code: { type: "string", minLength: 1 },
+    },
+  },
+};
 
 export const governedAnalysisPlanSchema = Object.freeze({
   type: "object",
@@ -29,12 +45,18 @@ export const governedAnalysisPlanSchema = Object.freeze({
     sourcePlanFingerprint: { type: "string", pattern: "^[a-f0-9]{64}$" },
     ontologyVersion: ontologyVersionSchema,
     schemaFingerprint: { type: "string", pattern: "^[a-f0-9]{64}$" },
-    status: { enum: ["ready", "needs_clarification"] },
+    status: { enum: ["ready", "needs_clarification", "denied"] },
     operation: { enum: ["none", "kpi_summary", "time_series", "period_comparison", "group_comparison", "ranked_comparison", "record_table", "traceability_table", "similarity_review"] },
     visualization: { enum: ["none", "kpi", "line", "bar", "grouped_bar", "table"] },
     maxRows: { type: "integer", minimum: 0, maximum: 100 },
     guardrails: guardrailArray,
+    ruleCodes: businessRuleCodeArray,
+    ruleEffects: businessRuleEffectArray,
   },
+  allOf: [{
+    if: { properties: { status: { const: "denied" } }, required: ["status"] },
+    then: { properties: { ruleCodes: businessRuleCodeArray }, required: ["ruleCodes"] },
+  }],
 });
 
 const ajv = new Ajv2020({ allErrors: true, strict: true });
@@ -102,17 +124,26 @@ function matchingCanonicalArgs(frame, step, operation, metricIds) {
   return canonicalJson(step.canonicalArgs) === canonicalJson({ query });
 }
 
-function validateSourcePlanSemantics(frame, queryPlan) {
-  const expectedStatus = frame.ambiguities.length ? "needs_clarification" : "valid";
-  const expectedViolations = frame.ambiguities.map((item) => item.code);
+function validateSourcePlanSemantics(frame, queryPlan, registry) {
+  const businessRuleDenials = queryPlan.violations.filter((code) => String(code).startsWith("BUSINESS_RULE_DENY:"));
+  const businessRuleRequirements = queryPlan.violations.filter((code) => String(code).startsWith("BUSINESS_RULE_REQUIRE:"));
+  const expectedStatus = businessRuleDenials.length
+    ? "denied"
+    : businessRuleRequirements.length || frame.ambiguities.length
+      ? "needs_clarification"
+      : "valid";
+  const expectedViolations = expectedStatus === "denied"
+    ? businessRuleDenials
+    : [...frame.ambiguities.map((item) => item.code), ...businessRuleRequirements];
   if (queryPlan.status !== expectedStatus) throw new Error("ANALYSIS_PLAN_SOURCE_STATUS_INVALID");
   if (queryPlan.version !== 1 || canonicalJson(queryPlan.violations) !== canonicalJson(expectedViolations)) throw new Error("ANALYSIS_PLAN_SOURCE_VIOLATIONS_INVALID");
-  if (expectedStatus === "needs_clarification") {
+  if (expectedStatus !== "valid") {
     if (queryPlan.steps.length) throw new Error("ANALYSIS_PLAN_SOURCE_STEPS_INVALID");
     return;
   }
+  const executionFrame = registry ? deriveBusinessRuleFrame({ registry, frame }).frame : frame;
   const profile = sourceStepProfile(frame);
-  const metricSlices = expectedMetricSlices(frame, profile.operation);
+  const metricSlices = expectedMetricSlices(executionFrame, profile.operation);
   if (queryPlan.steps.length !== metricSlices.length) throw new Error("ANALYSIS_PLAN_SOURCE_STEPS_INVALID");
   for (const [index, step] of queryPlan.steps.entries()) {
     const metricIds = metricSlices[index];
@@ -124,14 +155,14 @@ function validateSourcePlanSemantics(frame, queryPlan) {
       }
     }
     if (step.stepId !== `s${index + 1}` || step.operation !== profile.operation || step.toolName !== profile.toolName || step.riskLevel !== "R0"
-      || canonicalJson(step.metricIds) !== canonicalJson(metricIds) || canonicalJson(step.dimensionIds) !== canonicalJson(frame.dimensionIds)
-      || canonicalJson(step.dependsOn) !== canonicalJson(dependsOn) || !matchingCanonicalArgs(frame, step, profile.operation, metricIds)) {
+      || canonicalJson(step.metricIds) !== canonicalJson(metricIds) || canonicalJson(step.dimensionIds) !== canonicalJson(executionFrame.dimensionIds)
+      || canonicalJson(step.dependsOn) !== canonicalJson(dependsOn) || !matchingCanonicalArgs(executionFrame, step, profile.operation, metricIds)) {
       throw new Error("ANALYSIS_PLAN_SOURCE_STEPS_INVALID");
     }
   }
 }
 
-function validateInputs(frame, queryPlan) {
+function validateInputs(frame, queryPlan, registry) {
   if (!frame || !queryPlan) throw new Error("ANALYSIS_PLAN_INPUT_REQUIRED");
   const validatedFrame = validateSemanticFrame(frame);
   const validatedQueryPlan = validatePlan(queryPlan);
@@ -140,7 +171,7 @@ function validateInputs(frame, queryPlan) {
   if (validatedQueryPlan.planId !== createQueryPlanId({ frame: validatedFrame, actorScopeHash: validatedQueryPlan.actorScopeHash, sourceQueryFingerprint: validatedQueryPlan.sourceQueryFingerprint, executionFingerprint: validatedQueryPlan.executionFingerprint })) {
     throw new Error("ANALYSIS_PLAN_SOURCE_BINDING_INVALID");
   }
-  validateSourcePlanSemantics(validatedFrame, validatedQueryPlan);
+  validateSourcePlanSemantics(validatedFrame, validatedQueryPlan, registry);
   if (validatedQueryPlan.executionFingerprint !== fingerprintQueryPlanSteps(validatedQueryPlan.steps)) throw new Error("ANALYSIS_PLAN_SOURCE_EXECUTION_FINGERPRINT_INVALID");
   return { frame: validatedFrame, queryPlan: validatedQueryPlan };
 }
@@ -150,10 +181,10 @@ export function validateGovernedAnalysisPlan(plan) {
   return plan;
 }
 
-export function createGovernedAnalysisPlanner() {
+export function createGovernedAnalysisPlanner({ registry } = {}) {
   return Object.freeze({
     createPlan({ frame, queryPlan }) {
-      const inputs = validateInputs(frame, queryPlan);
+      const inputs = validateInputs(frame, queryPlan, registry);
       frame = inputs.frame;
       queryPlan = inputs.queryPlan;
       const sourceFingerprint = sourcePlanFingerprint(queryPlan);
@@ -164,9 +195,30 @@ export function createGovernedAnalysisPlanner() {
         sourcePlanFingerprint: sourceFingerprint,
         ontologyVersion: frame.ontologyVersion,
         schemaFingerprint: frame.schemaFingerprint,
+        ruleEffects: [...queryPlan.ruleEffects],
       };
+      if (queryPlan.status === "denied") {
+        return validateGovernedAnalysisPlan({
+          ...base,
+          status: "denied",
+          operation: "none",
+          visualization: "none",
+          maxRows: 0,
+          guardrails: [...BASE_GUARDRAILS, "BUSINESS_RULE_DENIED"],
+          ruleCodes: [...queryPlan.violations],
+        });
+      }
       if (queryPlan.status !== "valid") {
-        return validateGovernedAnalysisPlan({ ...base, status: "needs_clarification", operation: "none", visualization: "none", maxRows: 0, guardrails: [...BASE_GUARDRAILS, "CLARIFICATION_REQUIRED"] });
+        const ruleCodes = queryPlan.violations.filter((code) => String(code).startsWith("BUSINESS_RULE_REQUIRE:"));
+        return validateGovernedAnalysisPlan({
+          ...base,
+          status: "needs_clarification",
+          operation: "none",
+          visualization: "none",
+          maxRows: 0,
+          guardrails: [...BASE_GUARDRAILS, "CLARIFICATION_REQUIRED"],
+          ...(ruleCodes.length ? { ruleCodes } : {}),
+        });
       }
       const profile = profileFor(frame);
       const guardrails = [...BASE_GUARDRAILS, ...(frame.intent === "similarity" ? ["SIMILARITY_NOT_POPULATION_STATISTIC"] : [])];

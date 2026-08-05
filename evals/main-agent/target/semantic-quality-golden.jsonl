@@ -1,0 +1,5 @@
+{"schemaVersion":"1.0","caseId":"quality-001-ambiguous-metric","surface":"resolver","query":"缺陷密度","expected":{"status":"needs_clarification","violation":"DEFECT_DENSITY_DENOMINATOR_REQUIRED"}}
+{"schemaVersion":"1.0","caseId":"quality-002-unsupported-trace-join","surface":"planner","fixture":"missing-run-testcase-link","query":"追溯 Requirement 到 Defect","expected":{"error":"SEMANTIC_UNSUPPORTED_JOIN:testing.test_case:testing.test_run"}}
+{"schemaVersion":"1.0","caseId":"quality-003-unbounded-trace-cardinality","surface":"planner","fixture":"unbounded-testcase-requirement-link","query":"追溯 Requirement 到 Defect","expected":{"error":"SEMANTIC_UNBOUNDED_CARDINALITY:testing.test_case.validates.aida_node"}}
+{"schemaVersion":"1.0","caseId":"quality-004-unsupported-causal-claim","surface":"answer","text":"ECU A 导致缺陷数上升 <cite source=\"call-1\">evidence</cite>","expected":{"violation":"ANSWER_CAUSAL_CLAIM_UNSUPPORTED"}}
+{"schemaVersion":"1.0","caseId":"quality-005-stale-snapshot","surface":"semantic-api","expected":{"warning":"SOURCE_STALE:analytics.full_picture_defects","completeness":"partial"}}
