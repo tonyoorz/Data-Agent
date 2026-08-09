@@ -12,17 +12,20 @@
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["id", "version", "kind", "enforcement", "parameters", "governance"],
-        "additionalProperties": false,
+        "required": ["id", "version", "kind", "governance"],
         "properties": {
           "id": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]+$" },
           "version": { "type": "string", "minLength": 1 },
-          "kind": { "enum": ["query_limit", "approved_metric_only", "forbid_arbitrary_sql", "claim_evidence_binding", "similarity_not_statistic"] },
-          "enforcement": { "enum": ["compile", "plan", "execute", "claim"] },
+          "kind": { "type": "string" },
+          "description": { "type": "string" },
+          "condition": { "type": "string" },
+          "action": { "type": "string" },
+          "enforcement": { "type": "string" },
           "metricIds": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
           "dimensionIds": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
           "relationshipIds": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
-          "parameters": { "type": "object", "additionalProperties": { "anyOf": [{ "type": "string" }, { "type": "number" }, { "type": "boolean" }] } },
+          "parameters": { "type": "object" },
+          "sourceDocuments": { "type": "array", "items": { "type": "string" } },
           "governance": { "$ref": "common.schema.json#/$defs/governance" }
         }
       }

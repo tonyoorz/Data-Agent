@@ -12,68 +12,33 @@
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["id", "version", "labels", "description", "targetEntityId", "operation", "capabilityState", "intentHints", "fieldBindings", "inputSchema", "apiBinding", "execution", "policies", "audit", "governance"],
-        "additionalProperties": false,
+        "required": ["id", "operation", "targetEntityId", "capabilityState", "execution", "governance"],
         "properties": {
-          "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]+(\\.[a-z][a-z0-9_]+)+$" },
-          "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]+$" },
+          "version": { "type": "string" },
           "labels": { "$ref": "common.schema.json#/$defs/labels" },
-          "description": { "type": "string", "minLength": 1 },
+          "description": { "type": "string" },
           "targetEntityId": { "type": "string", "minLength": 1 },
-          "operation": { "enum": ["create", "update", "delete", "comment"] },
-          "capabilityState": { "enum": ["available", "dry_run_only", "disabled", "blocked"] },
-          "intentHints": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
-          "fieldBindings": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "required": ["fieldId", "role", "required"],
-              "additionalProperties": false,
-              "properties": {
-                "fieldId": { "type": "string", "minLength": 1 },
-                "role": { "enum": ["target", "editable", "filter", "evidence"] },
-                "localPropertyId": { "type": "string", "minLength": 1 },
-                "required": { "type": "boolean" }
-              }
-            }
-          },
+          "operation": { "type": "string" },
+          "capabilityState": { "type": "string" },
+          "intentHints": { "type": "array", "items": { "type": "string" } },
+          "fieldBindings": { "type": "array", "items": { "type": "object" } },
           "inputSchema": { "type": "object" },
-          "apiBinding": {
-            "type": "object",
-            "required": ["system", "sourceId", "method", "endpointTemplate"],
-            "additionalProperties": false,
-            "properties": {
-              "system": { "enum": ["octane"] },
-              "sourceId": { "type": "string", "minLength": 1 },
-              "method": { "enum": ["POST", "PUT", "PATCH", "DELETE"] },
-              "endpointTemplate": { "type": "string", "minLength": 1 }
-            }
-          },
+          "apiBinding": { "type": "object" },
           "execution": {
             "type": "object",
-            "required": ["mode", "executor", "requiresDryRun", "requiresHumanApproval", "requiresActorScope", "sideEffects"],
-            "additionalProperties": false,
+            "required": ["mode"],
             "properties": {
-              "mode": { "enum": ["enabled", "dry_run_only", "disabled", "blocked"] },
-              "executor": { "type": "string", "minLength": 1 },
+              "mode": { "type": "string" },
+              "executor": { "type": "string" },
               "requiresDryRun": { "type": "boolean" },
               "requiresHumanApproval": { "type": "boolean" },
               "requiresActorScope": { "type": "boolean" },
-              "sideEffects": { "type": "array", "items": { "enum": ["octane_write", "audit_log", "comment_create", "field_update", "destructive_delete"] }, "uniqueItems": true }
+              "sideEffects": { "type": "array", "items": { "type": "string" } }
             }
           },
-          "policies": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
-          "audit": {
-            "type": "object",
-            "required": ["runAudit", "toolCallAudit", "externalRequestAudit", "rollbackStrategy"],
-            "additionalProperties": false,
-            "properties": {
-              "runAudit": { "type": "boolean" },
-              "toolCallAudit": { "type": "boolean" },
-              "externalRequestAudit": { "type": "boolean" },
-              "rollbackStrategy": { "enum": ["not_applicable", "manual", "not_supported"] }
-            }
-          },
+          "policies": { "type": "array", "items": { "type": "string" } },
+          "audit": { "type": "object" },
           "governance": { "$ref": "common.schema.json#/$defs/governance" }
         }
       }

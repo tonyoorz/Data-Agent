@@ -13,12 +13,11 @@
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["id", "phrases", "kind", "resolution", "governance"],
-        "additionalProperties": false,
+        "required": ["id", "phrases", "kind", "governance"],
         "properties": {
           "id": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]+$" },
           "phrases": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
-          "kind": { "enum": ["synonym", "alias", "enum_value", "value_pattern", "derived_business_rule", "ambiguity_trigger", "relative_time"] },
+          "kind": { "enum": ["synonym", "alias", "enum_value", "value_pattern", "derived_business_rule", "ambiguity_trigger", "relative_time", "concept"] },
           "resolution": {
             "type": "object",
             "additionalProperties": false,
@@ -36,6 +35,24 @@
               "ambiguityCode": { "type": "string" }
             },
             "minProperties": 1
+          },
+          "definition": { "type": "string" },
+          "synonyms": { "type": "array", "items": { "type": "string" } },
+          "broader": { "type": ["string", "null"] },
+          "narrower": { "type": "array", "items": { "type": "string" } },
+          "related": { "type": "array", "items": { "type": "string" } },
+          "state_transitions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["from", "to", "condition"],
+              "additionalProperties": false,
+              "properties": {
+                "from": { "type": "string" },
+                "to": { "type": "string" },
+                "condition": { "type": "string" }
+              }
+            }
           },
           "governance": { "$ref": "common.schema.json#/$defs/governance" }
         }
