@@ -572,9 +572,11 @@ def _fetch_grouped_rows(
             f'TRIM(COALESCE(CAST("{column}" AS TEXT), ""))'
             for column in select_columns
         )
+        if len(select_columns) != len(normalized_columns):
+            raise ValueError("select_columns and normalized_columns length mismatch")
         select_sql = ",\n            ".join(
             f"{expression} AS {column}"
-            for column, expression in zip(select_columns, normalized_columns, strict=True)
+            for column, expression in zip(select_columns, normalized_columns)
         )
         group_by_sql = ", ".join(normalized_columns)
         order_by_sql = ", ".join(f'{column} COLLATE NOCASE' for column in order_columns)

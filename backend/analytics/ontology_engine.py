@@ -2,12 +2,15 @@
 OntologyEngine — one-stop ontology reasoning engine.
 
 Wires all ontology modules together into a single entry point:
-- TermResolver: natural language → ontology concepts
+- TermResolver: natural language → ontology concepts (string matching)
+- EmbeddingResolver: semantic phrase matching (BGE embeddings)
 - PromptBuilder: ontology → system prompt context
+- GraphRAG: query-specific ontology context retrieval
 - Graph: entity relationship traversal
 - Guardrail: pre-execution validation
 - DriftDetector: schema integrity monitoring
 - Discovery: automated gap detection
+- AutoUpdate: closed-loop discovery → proposal → review pipeline
 """
 from __future__ import annotations
 
@@ -57,6 +60,9 @@ class OntologyEngine:
         # Lazy-loaded modules (only when needed)
         self._drift = None
         self._discovery = None
+        self._embedding_resolver = None
+        self._rag = None
+        self._auto_update = None
 
     @property
     def catalog(self) -> OntologyCatalog | None:
@@ -82,15 +88,49 @@ class OntologyEngine:
 
     def resolve_metric(self, text: str) -> str | None:
         """Convenience: extract best metric_id from text."""
+        # Try embedding resolver first if available
+        if self.embedding_resolver.is_embedding_active:
+            mid = self.embedding_resolver.resolve_metric(text)
+            if mid:
+                return mid
         return self._resolver.resolve_metric(text)
 
     def resolve_dimension(self, text: str) -> str | None:
         """Convenience: extract best dimension_id from text."""
+        if self.embedding_resolver.is_embedding_active:
+            dim = self.embedding_resolver.resolve_dimension(text)
+            if dim:
+                return dim
         return self._resolver.resolve_dimension(text)
 
     def resolve_entity(self, text: str) -> str | None:
         """Convenience: extract best entity_id from text."""
+        if self.embedding_resolver.is_embedding_active:
+            eid = self.embedding_resolver.resolve_entity(text)
+            if eid:
+                return eid
         return self._resolver.resolve_entity(text)
+
+    # === Embedding-based Resolution (lazy) ===
+
+    @property
+    def embedding_resolver(self):
+        """Embedding-based ontology term resolver (lazy-loaded)."""
+        if self._embedding_resolver is None:
+            try:
+                from backend.analytics.ontology_embedding_resolver import OntologyEmbeddingResolver
+                self._embedding_resolver = OntologyEmbeddingResolver(self._catalog)
+            except Exception:
+                # Fallback: create a stub that always returns empty
+                self._embedding_resolver = _NullEmbeddingResolver()
+        return self._embedding_resolver
+
+    def resolve_terms_hybrid(self, text: str, top_k: int = 10):
+        """Hybrid resolve: string matching + embedding similarity.
+
+        Returns a merged list of TermMatch and EmbeddingTermMatch objects.
+        """
+        return self.embedding_resolver.resolve_hybrid(text, top_k=top_k)
 
     # === Prompt Generation ===
 
@@ -109,6 +149,37 @@ class OntologyEngine:
     def build_prompt(self, *, max_chars: int = 4000) -> str:
         """Build system prompt context with custom size limit."""
         return self._prompt.build_system_context(max_chars=max_chars)
+
+    def build_rag_prompt(self, query: str, *, max_chars: int = 3000) -> str:
+        """Build query-specific ontology context using GraphRAG.
+
+        Instead of injecting the full ontology, retrieves only the
+        relevant subsets based on entities/metrics in the query.
+
+        Falls back to full build_prompt() if RAG is unavailable.
+        """
+        rag = self.rag
+        if not rag.is_available:
+            return self.build_prompt(max_chars=max_chars)
+        result = rag.retrieve(query, max_chars=max_chars)
+        return result.assembled_context
+
+    # === GraphRAG (lazy) ===
+
+    @property
+    def rag(self):
+        """Graph-enhanced ontology context retriever (lazy-loaded)."""
+        if self._rag is None:
+            try:
+                from backend.analytics.ontology_rag import OntologyRAG
+                self._rag = OntologyRAG(
+                    catalog=self._catalog,
+                    graph=self._graph,
+                    term_resolver=self._resolver,
+                )
+            except Exception:
+                self._rag = _NullRAG()
+        return self._rag
 
     def list_guardrail_rules(self) -> list[str]:
         """Human-readable list of active business rules."""
@@ -214,10 +285,47 @@ class OntologyEngine:
             self._discovery = OntologyDiscovery(self._catalog)
         return self._discovery.analyze_query_logs(logs)
 
+    # === Auto-Update (lazy) ===
+
+    @property
+    def auto_update(self):
+        """Automated ontology discovery and proposal pipeline (lazy-loaded)."""
+        if self._auto_update is None:
+            try:
+                from backend.analytics.ontology_auto_update import OntologyAutoUpdate
+                self._auto_update = OntologyAutoUpdate(
+                    catalog=self._catalog,
+                    db_path=self._db_path,
+                )
+            except Exception:
+                self._auto_update = _NullAutoUpdate()
+        return self._auto_update
+
+    def run_auto_analysis(self, query_logs: list[dict] | None = None):
+        """Run automated ontology gap analysis.
+
+        Returns a structured report with schema drift, vocab gaps,
+        relationship candidates, and draft proposals.
+        """
+        if query_logs:
+            from backend.analytics.ontology_auto_update import OntologyAutoUpdate
+            self._auto_update = OntologyAutoUpdate(
+                catalog=self._catalog,
+                db_path=self._db_path,
+                query_logs=query_logs,
+            )
+        return self.auto_update.generate_report()
+
     # === Summary ===
 
     def summary(self) -> dict[str, Any]:
         """One-glance status summary of the ontology engine."""
+        emb_active = False
+        try:
+            emb_active = self.embedding_resolver.is_embedding_active
+        except Exception:
+            pass
+
         return {
             "available": self.is_available,
             "entities": self.entity_count,
@@ -227,4 +335,51 @@ class OntologyEngine:
             "vocab_terms": self._resolver.term_count,
             "guardrail_rules": len(self.list_guardrail_rules()),
             "prompt_context_chars": len(self.system_prompt_context),
+            "embedding_active": emb_active,
+            "embedding_phrases": self.embedding_resolver.phrase_count if emb_active else 0,
+            "rag_available": self.rag.is_available,
         }
+
+
+# ─── Null/stub implementations for graceful degradation ────────────────────
+
+
+class _NullEmbeddingResolver:
+    """Stub that reports embedding resolver as inactive."""
+
+    is_embedding_active = False
+    phrase_count = 0
+
+    def resolve(self, *args, **kwargs):
+        return []
+
+    def resolve_hybrid(self, text, top_k=10):
+        from backend.analytics.ontology_term_resolver import OntologyTermResolver
+        resolver = OntologyTermResolver(None)
+        return resolver.resolve(text)
+
+    def resolve_metric(self, *args, **kwargs):
+        return None
+
+    def resolve_dimension(self, *args, **kwargs):
+        return None
+
+    def resolve_entity(self, *args, **kwargs):
+        return None
+
+
+class _NullRAG:
+    """Stub that reports RAG as unavailable."""
+
+    is_available = False
+
+    def retrieve(self, *args, **kwargs):
+        from backend.analytics.ontology_rag import RetrievalResult
+        return RetrievalResult(query=args[0] if args else "")
+
+
+class _NullAutoUpdate:
+    """Stub that reports auto-update as unavailable."""
+
+    def generate_report(self, *args, **kwargs):
+        return {"error": "auto_update_unavailable"}
