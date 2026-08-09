@@ -66,6 +66,466 @@
         "status": "approved",
         "owner": "Quality Analytics"
       }
+    },
+    {
+      "id": "rule.ddp_target",
+      "version": "1.0.0",
+      "kind": "business_rule",
+      "description": "DDP目标：缺陷检测率≥99%",
+      "condition": "R1/(R1+R2)*100 >= 99",
+      "action": "alert_if_below",
+      "enforcement": "plan",
+      "parameters": {
+        "targetValue": 99,
+        "unit": "percent"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      },
+      "sourceDocuments": [
+        "CN_TestStrategy"
+      ]
+    },
+    {
+      "id": "rule.cwa_target",
+      "version": "1.0.0",
+      "kind": "business_rule",
+      "description": "CWA目标：缺陷拒收率≤10%",
+      "condition": "count(defect_id WHERE child AND phase='09')/count(defect_id WHERE child)*100 <= 10",
+      "action": "alert_if_exceeded",
+      "enforcement": "plan",
+      "parameters": {
+        "targetValue": 10,
+        "unit": "percent"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      },
+      "sourceDocuments": [
+        "CN_TestStrategy"
+      ]
+    },
+    {
+      "id": "rule.regression_coverage_target",
+      "version": "1.0.0",
+      "kind": "business_rule",
+      "description": "回归测试覆盖率=100%",
+      "condition": "count(test WHERE rg5 AND run_count>0)/count(test WHERE rg5)*100 = 100",
+      "action": "alert_if_below",
+      "enforcement": "plan",
+      "parameters": {
+        "targetValue": 100,
+        "unit": "percent"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "DE-611"
+      },
+      "sourceDocuments": [
+        "CN_TestStrategy"
+      ]
+    },
+    {
+      "id": "rule.config_coverage_models_target",
+      "version": "1.0.0",
+      "kind": "business_rule",
+      "description": "车型配置覆盖率=100%",
+      "condition": "count(model WHERE tested)/count(model)*100 = 100",
+      "action": "alert_if_below",
+      "enforcement": "plan",
+      "parameters": {
+        "targetValue": 100,
+        "unit": "percent"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Project Planning"
+      },
+      "sourceDocuments": [
+        "CN_TestStrategy"
+      ]
+    },
+    {
+      "id": "rule.config_coverage_variants_target",
+      "version": "1.0.0",
+      "kind": "business_rule",
+      "description": "硬件变体覆盖率=100%",
+      "condition": "count(variant WHERE tested)/count(variant)*100 = 100",
+      "action": "alert_if_below",
+      "enforcement": "plan",
+      "parameters": {
+        "targetValue": 100,
+        "unit": "percent"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Platform Resource Planning"
+      },
+      "sourceDocuments": [
+        "CN_TestStrategy"
+      ]
+    },
+    {
+      "id": "rule.function_coverage_target",
+      "version": "1.0.0",
+      "kind": "business_rule",
+      "description": "功能(AIDA)覆盖率=100%",
+      "condition": "count(aida WHERE has_req)/count(aida)*100 = 100",
+      "action": "alert_if_below",
+      "enforcement": "plan",
+      "parameters": {
+        "targetValue": 100,
+        "unit": "percent"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Process Management"
+      },
+      "sourceDocuments": [
+        "CN_TestStrategy"
+      ]
+    },
+    {
+      "id": "rule.defect_id_not_null",
+      "version": "1.0.0",
+      "kind": "data_quality",
+      "description": "defect_id必须非空",
+      "condition": "defect_id IS NOT NULL AND defect_id != ''",
+      "action": "reject_record",
+      "enforcement": "runtime",
+      "governance": {
+        "status": "approved",
+        "owner": "Data Engineering"
+      },
+      "sourceDocuments": [
+        "read_models.py"
+      ]
+    },
+    {
+      "id": "rule.phase_valid_enum",
+      "version": "1.0.0",
+      "kind": "data_quality",
+      "description": "phase必须是10个有效枚举值之一",
+      "condition": "phase IN ('00-Draft','01-New','02-In Pre-Analysis','03-In Analysis','04-In Progress','05-In Verification','06-Concluded','07-Reopen','08-Resolved','09-Concluded without action')",
+      "action": "flag_invalid",
+      "enforcement": "runtime",
+      "parameters": {
+        "validValues": [
+          "00-Draft",
+          "01-New",
+          "02-In Pre-Analysis",
+          "03-In Analysis",
+          "04-In Progress",
+          "05-In Verification",
+          "06-Concluded",
+          "07-Reopen",
+          "08-Resolved",
+          "09-Concluded without action"
+        ]
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Data Engineering"
+      },
+      "sourceDocuments": [
+        "read_models.py"
+      ]
+    },
+    {
+      "id": "rule.creation_time_not_future",
+      "version": "1.0.0",
+      "kind": "data_quality",
+      "description": "creation_time不能是未来时间",
+      "condition": "creation_time <= CURRENT_TIMESTAMP",
+      "action": "flag_invalid",
+      "enforcement": "runtime",
+      "governance": {
+        "status": "approved",
+        "owner": "Data Engineering"
+      }
+    },
+    {
+      "id": "rule.test_status_valid",
+      "version": "1.0.0",
+      "kind": "data_quality",
+      "description": "测试状态必须是有效枚举",
+      "condition": "status IN ('passed','failed','requires_attention','planned','not_run','blocked')",
+      "action": "flag_invalid",
+      "enforcement": "runtime",
+      "parameters": {
+        "validValues": [
+          "passed",
+          "failed",
+          "requires_attention",
+          "planned",
+          "not_run",
+          "blocked"
+        ]
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Data Engineering"
+      }
+    },
+    {
+      "id": "rule.qgate_trigger_condition",
+      "version": "1.0.0",
+      "kind": "business_rule",
+      "description": "Q-Gate触发：Phase=02-In Pre-Analysis 且无Blocking Reason时自动触发",
+      "condition": "phase = '02-In Pre-Analysis' AND (blocking_reason IS NULL OR blocking_reason = '')",
+      "action": "trigger_qgate_evaluation",
+      "enforcement": "plan",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      },
+      "sourceDocuments": [
+        "Defectmanagement"
+      ]
+    },
+    {
+      "id": "rule.blocked_definition",
+      "version": "1.0.0",
+      "kind": "business_rule",
+      "description": "Blocked缺陷定义：Phase=01-New且有Blocking Reason",
+      "condition": "phase = '01-New' AND blocking_reason IS NOT NULL AND blocking_reason != ''",
+      "action": "classify_as_blocked",
+      "enforcement": "plan",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      },
+      "sourceDocuments": [
+        "Defectmanagement"
+      ]
+    },
+    {
+      "id": "rule.top_issue_phase_range",
+      "version": "1.0.0",
+      "kind": "business_rule",
+      "description": "Top Issue阶段定义：I-420到I-470",
+      "condition": "involved_i_step BETWEEN 'I-420' AND 'I-470'",
+      "action": "evaluate_top_issue",
+      "enforcement": "plan",
+      "parameters": {
+        "startIStep": "I-420",
+        "endIStep": "I-470"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      },
+      "sourceDocuments": [
+        "Defectmanagement",
+        "CN_Introduction"
+      ]
+    },
+    {
+      "id": "rule.showstopper_phase_range",
+      "version": "1.0.0",
+      "kind": "business_rule",
+      "description": "Showstopper阶段定义：I-480到I-490",
+      "condition": "involved_i_step BETWEEN 'I-480' AND 'I-490'",
+      "action": "evaluate_showstopper",
+      "enforcement": "plan",
+      "parameters": {
+        "startIStep": "I-480",
+        "endIStep": "I-490"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      },
+      "sourceDocuments": [
+        "Defectmanagement",
+        "CN_Introduction"
+      ]
+    },
+    {
+      "id": "rule.resolved_forward",
+      "version": "1.0.0",
+      "kind": "business_rule",
+      "description": "正向解决：缺陷从Phase 08-Resolved流转到06-Concluded",
+      "condition": "phase='06-Concluded' AND EXISTS history WHERE field='phase' AND old='08-Resolved' AND new='06-Concluded'",
+      "action": "classify_resolved_forward",
+      "enforcement": "plan",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      },
+      "sourceDocuments": [
+        "read_models.py"
+      ]
+    },
+    {
+      "id": "rule.rejected_directly",
+      "version": "1.0.0",
+      "kind": "business_rule",
+      "description": "直接拒绝：缺陷从Phase 01-New直接流转到09-Concluded without action",
+      "condition": "phase='09-Concluded without action' AND EXISTS history WHERE field='phase' AND old='01-New' AND new='09-Concluded without action'",
+      "action": "classify_rejected_directly",
+      "enforcement": "plan",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      },
+      "sourceDocuments": [
+        "read_models.py"
+      ]
+    },
+    {
+      "id": "rule.china_scope_detection",
+      "version": "1.0.0",
+      "kind": "business_rule",
+      "description": "China Scope判定：solution_cluster匹配China值OR defect_category匹配China类别",
+      "condition": "solution_cluster IN ('solution cluster:china product','ipa cn','speech cn','navigation cn','ent_and_con cn','navigation twn','etc jp') OR defect_category IN ('ent/connected_music_china','application navigation china hk','cn dkr','cn backend_service','cn etc','cn nav','cn speech','cn media','cn llm','cn store','cn wechat','cn launcher')",
+      "action": "classify_china_scope",
+      "enforcement": "plan",
+      "governance": {
+        "status": "approved",
+        "owner": "DTSV China"
+      },
+      "sourceDocuments": [
+        "read_models.py"
+      ]
+    },
+    {
+      "id": "rule.owner_not_finder",
+      "version": "1.0.0",
+      "kind": "business_rule",
+      "description": "Owner字段语义保护：Owner永远不等于Problem Finder",
+      "condition": "owner != detected_by AND owner != problem_finder_team",
+      "action": "validate_owner_assignment",
+      "enforcement": "plan",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      },
+      "sourceDocuments": [
+        "Defectmanagement"
+      ]
+    },
+    {
+      "id": "rule.mobile_app_qgate_condition",
+      "version": "1.0.0",
+      "kind": "business_rule",
+      "description": "Mobile App Q-Gate条件：ECU=APP_Mobile_2_0 AND FiF=Itinerary AND Category=Mobile App Client",
+      "condition": "assigned_ecu='APP_Mobile_2_0' AND top_aida='Itinerary (Mobile App)' AND defect_category='Mobile App Client'",
+      "action": "route_to_mobile_app_qgate",
+      "enforcement": "plan",
+      "governance": {
+        "status": "approved",
+        "owner": "DIPS_TSP_MobileApps"
+      },
+      "sourceDocuments": [
+        "Defectmanagement"
+      ]
+    },
+    {
+      "id": "rule.phase_group_classification",
+      "version": "1.0.0",
+      "kind": "business_rule",
+      "description": "Phase分组：02/07=Q-Gate, 00/01/06/08/09=Integration, 03/04/05=CoC",
+      "condition": "CASE WHEN phase_code IN ('02','07') THEN 'Q-Gate' WHEN phase_code IN ('00','01','06','08','09') THEN 'Integration' WHEN phase_code IN ('03','04','05') THEN 'CoC' ELSE 'Other' END",
+      "action": "classify_phase_group",
+      "enforcement": "plan",
+      "parameters": {
+        "qgate": [
+          "02",
+          "07"
+        ],
+        "integration": [
+          "00",
+          "01",
+          "06",
+          "08",
+          "09"
+        ],
+        "coc": [
+          "03",
+          "04",
+          "05"
+        ]
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      },
+      "sourceDocuments": [
+        "read_models.py"
+      ]
+    },
+    {
+      "id": "rule.pass_rate_threshold",
+      "version": "1.0.0",
+      "kind": "metric_guardrail",
+      "description": "通过率应≥80%",
+      "condition": "passed_run_count / run_count * 100 >= 80",
+      "action": "alert_if_below",
+      "enforcement": "plan",
+      "parameters": {
+        "targetValue": 80,
+        "unit": "percent",
+        "metricId": "testing.pass_rate"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "rule.fail_rate_alert",
+      "version": "1.0.0",
+      "kind": "metric_guardrail",
+      "description": "失败率>20%触发告警",
+      "condition": "failed_run_count / run_count * 100 > 20",
+      "action": "alert_if_exceeded",
+      "enforcement": "plan",
+      "parameters": {
+        "targetValue": 20,
+        "unit": "percent",
+        "metricId": "testing.fail_rate"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "rule.traceability_rate_minimum",
+      "version": "1.0.0",
+      "kind": "metric_guardrail",
+      "description": "追溯率应≥90%",
+      "condition": "count(test WHERE has_traceability)/count(test)*100 >= 90",
+      "action": "alert_if_below",
+      "enforcement": "plan",
+      "parameters": {
+        "targetValue": 90,
+        "unit": "percent",
+        "metricId": "testing.traceability_rate"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "rule.long_runner_threshold",
+      "version": "1.0.0",
+      "kind": "metric_guardrail",
+      "description": "长期未解决缺陷>30天触发关注",
+      "condition": "age_days > 30 AND phase NOT IN ('06-Concluded','09-Concluded without action')",
+      "action": "flag_for_attention",
+      "enforcement": "plan",
+      "parameters": {
+        "thresholdDays": 30
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
     }
   ]
 }
