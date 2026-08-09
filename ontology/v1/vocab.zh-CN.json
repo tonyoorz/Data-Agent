@@ -923,7 +923,20 @@
       "governance": {
         "status": "approved",
         "owner": "Quality Analytics"
-      }
+      },
+      "broader": "concept.defect",
+      "related": [
+        "concept.showstopper",
+        "concept.maturity_grade",
+        "concept.mgip"
+      ],
+      "state_transitions": [
+        {
+          "from": "Top Issue",
+          "to": "Showstopper",
+          "condition": "I-Step从I-470推进到I-480"
+        }
+      ]
     },
     {
       "id": "concept.showstopper",
@@ -941,7 +954,24 @@
       "governance": {
         "status": "approved",
         "owner": "Quality Analytics"
-      }
+      },
+      "broader": "concept.defect",
+      "related": [
+        "concept.top_issue",
+        "concept.maturity_grade"
+      ],
+      "state_transitions": [
+        {
+          "from": "Showstopper Candidate",
+          "to": "Confirmed Showstopper",
+          "condition": "评审确认"
+        },
+        {
+          "from": "Confirmed Showstopper",
+          "to": "Resolved",
+          "condition": "修复并验证"
+        }
+      ]
     },
     {
       "id": "concept.qgate",
@@ -959,7 +989,24 @@
       "governance": {
         "status": "approved",
         "owner": "Quality Analytics"
-      }
+      },
+      "related": [
+        "concept.blocked",
+        "concept.top_issue",
+        "concept.tqr"
+      ],
+      "state_transitions": [
+        {
+          "from": "Triggered",
+          "to": "Passed",
+          "condition": "功能成熟度达标"
+        },
+        {
+          "from": "Triggered",
+          "to": "Blocked",
+          "condition": "发现阻塞功能"
+        }
+      ]
     },
     {
       "id": "concept.maturity_grade",
@@ -979,7 +1026,43 @@
       "governance": {
         "status": "approved",
         "owner": "Quality Analytics"
-      }
+      },
+      "synonyms": [
+        "concept.rg5",
+        "concept.rg6",
+        "concept.rg4"
+      ],
+      "narrower": [
+        "concept.top_issue",
+        "concept.showstopper"
+      ],
+      "related": [
+        "concept.beat",
+        "concept.mgip",
+        "concept.i_step"
+      ],
+      "state_transitions": [
+        {
+          "from": "RG4",
+          "to": "RG5-Green",
+          "condition": "功能达到可测试状态"
+        },
+        {
+          "from": "RG5-Green",
+          "to": "RG6",
+          "condition": "Showstopper-free, 可上线"
+        },
+        {
+          "from": "RG5-Yellow",
+          "to": "RG5-Green",
+          "condition": "PMG ticket解决"
+        },
+        {
+          "from": "RG5-Red",
+          "to": "RG5-Green",
+          "condition": "功能完整度补齐"
+        }
+      ]
     },
     {
       "id": "concept.cwa",
@@ -995,7 +1078,11 @@
       },
       "resolution": {
         "entityId": "quality.defect"
-      }
+      },
+      "broader": "concept.defect",
+      "related": [
+        "concept.tqr"
+      ]
     },
     {
       "id": "concept.blocked",
@@ -1012,7 +1099,19 @@
       },
       "resolution": {
         "entityId": "quality.defect"
-      }
+      },
+      "broader": "concept.defect",
+      "related": [
+        "concept.qgate",
+        "concept.tqr"
+      ],
+      "state_transitions": [
+        {
+          "from": "Blocked",
+          "to": "In Analysis",
+          "condition": "Blocking Reason解决, 推进到Phase 02→03"
+        }
+      ]
     },
     {
       "id": "concept.tqr",
@@ -1029,7 +1128,12 @@
       "governance": {
         "status": "approved",
         "owner": "Quality Analytics"
-      }
+      },
+      "related": [
+        "concept.blocked",
+        "concept.cwa",
+        "concept.qgate"
+      ]
     },
     {
       "id": "concept.matrix",
@@ -1046,7 +1150,12 @@
       },
       "resolution": {
         "entityId": "quality.defect"
-      }
+      },
+      "broader": "concept.defect",
+      "related": [
+        "concept.top_issue",
+        "concept.showstopper"
+      ]
     },
     {
       "id": "concept.dtsv",
@@ -1062,7 +1171,16 @@
       },
       "resolution": {
         "entityId": "quality.defect"
-      }
+      },
+      "narrower": [
+        "concept.iuk",
+        "concept.dips",
+        "concept.tsp"
+      ],
+      "related": [
+        "concept.beat",
+        "concept.set"
+      ]
     },
     {
       "id": "concept.beat",
@@ -1092,7 +1210,11 @@
       },
       "resolution": {
         "entityId": "quality.defect"
-      }
+      },
+      "related": [
+        "concept.maturity_grade",
+        "concept.mgip"
+      ]
     },
     {
       "id": "concept.iuk",
@@ -1108,7 +1230,12 @@
       },
       "resolution": {
         "entityId": "quality.defect"
-      }
+      },
+      "broader": "concept.dtsv",
+      "related": [
+        "concept.dips",
+        "concept.tsp"
+      ]
     },
     {
       "id": "concept.dips",
@@ -1124,7 +1251,12 @@
       },
       "resolution": {
         "entityId": "quality.defect"
-      }
+      },
+      "broader": "concept.dtsv",
+      "related": [
+        "concept.iuk",
+        "concept.tsp"
+      ]
     },
     {
       "id": "concept.i_step",
@@ -1145,7 +1277,39 @@
       "governance": {
         "status": "approved",
         "owner": "Project Management"
-      }
+      },
+      "related": [
+        "concept.maturity_grade",
+        "concept.sop",
+        "concept.beat"
+      ],
+      "state_transitions": [
+        {
+          "from": "I-420",
+          "to": "I-450",
+          "condition": "集成推进"
+        },
+        {
+          "from": "I-450",
+          "to": "I-470",
+          "condition": "Top Issue阶段结束"
+        },
+        {
+          "from": "I-470",
+          "to": "I-480",
+          "condition": "进入Showstopper阶段"
+        },
+        {
+          "from": "I-480",
+          "to": "I-490",
+          "condition": "Showstopper评审"
+        },
+        {
+          "from": "I-490",
+          "to": "I-500",
+          "condition": "发布"
+        }
+      ]
     },
     {
       "id": "concept.sop",
@@ -1161,7 +1325,18 @@
       },
       "resolution": {
         "entityId": "quality.defect"
-      }
+      },
+      "related": [
+        "concept.i_step",
+        "concept.maturity_grade"
+      ],
+      "state_transitions": [
+        {
+          "from": "Pre-SOP",
+          "to": "SOP",
+          "condition": "量产开始, E/E集成验证结束"
+        }
+      ]
     },
     {
       "id": "concept.set",
@@ -1193,7 +1368,10 @@
       },
       "resolution": {
         "entityId": "quality.defect"
-      }
+      },
+      "related": [
+        "concept.i_step"
+      ]
     },
     {
       "id": "concept.ksp",
@@ -1271,7 +1449,10 @@
       },
       "resolution": {
         "entityId": "quality.defect"
-      }
+      },
+      "related": [
+        "concept.dtsv"
+      ]
     },
     {
       "id": "concept.tsp",
@@ -1302,7 +1483,13 @@
       "governance": {
         "status": "approved",
         "owner": "Quality Analytics"
-      }
+      },
+      "synonyms": [
+        "metric.defect_detection_ratio"
+      ],
+      "related": [
+        "concept.cwa"
+      ]
     },
     {
       "id": "concept.regression_coverage",
@@ -1334,6 +1521,162 @@
       },
       "resolution": {
         "entityId": "quality.defect"
+      }
+    },
+    {
+      "id": "concept.defect_taxonomy",
+      "phrases": [
+        "defect taxonomy",
+        "缺陷分类体系",
+        "缺陷分类法"
+      ],
+      "kind": "concept",
+      "definition": "缺陷分类体系——涵盖Top Issue、Showstopper、Blocked、CWA等缺陷子类型",
+      "broader": null,
+      "narrower": [
+        "concept.top_issue",
+        "concept.showstopper",
+        "concept.blocked",
+        "concept.cwa"
+      ],
+      "related": [
+        "concept.matrix"
+      ],
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "concept.test_lifecycle",
+      "phrases": [
+        "test lifecycle",
+        "测试生命周期",
+        "测试流程"
+      ],
+      "kind": "concept",
+      "definition": "测试执行生命周期：planned → executing → passed/failed → requires_attention",
+      "broader": null,
+      "narrower": [],
+      "related": [
+        "concept.dtsv",
+        "concept.set",
+        "concept.beat"
+      ],
+      "state_transitions": [
+        {
+          "from": "planned",
+          "to": "executing",
+          "condition": "测试开始执行"
+        },
+        {
+          "from": "executing",
+          "to": "passed",
+          "condition": "所有步骤通过"
+        },
+        {
+          "from": "executing",
+          "to": "failed",
+          "condition": "存在失败步骤"
+        },
+        {
+          "from": "executing",
+          "to": "requires_attention",
+          "condition": "需要人工确认"
+        }
+      ],
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "concept.release_cycle",
+      "phrases": [
+        "release cycle",
+        "发布周期",
+        "SWIP release"
+      ],
+      "kind": "concept",
+      "definition": "SWIP Release周期：I-Step → Release → SET → Flash → Test → Report",
+      "broader": null,
+      "narrower": [],
+      "related": [
+        "concept.i_step",
+        "concept.set",
+        "concept.flash",
+        "concept.sop"
+      ],
+      "state_transitions": [
+        {
+          "from": "Planning",
+          "to": "Development",
+          "condition": "I-Step启动"
+        },
+        {
+          "from": "Development",
+          "to": "Integration",
+          "condition": "代码冻结"
+        },
+        {
+          "from": "Integration",
+          "to": "Testing",
+          "condition": "Flash完成"
+        },
+        {
+          "from": "Testing",
+          "to": "Report",
+          "condition": "测试执行完成"
+        }
+      ],
+      "governance": {
+        "status": "approved",
+        "owner": "Project Management"
+      }
+    },
+    {
+      "id": "concept.quality_gate_process",
+      "phrases": [
+        "quality gate process",
+        "Q-Gate流程",
+        "质量门流程"
+      ],
+      "kind": "concept",
+      "definition": "Q-Gate完整流程：缺陷提交→Phase 02→Q-Gate评估→通过/阻塞→后续处理",
+      "broader": null,
+      "narrower": [
+        "concept.qgate",
+        "concept.blocked"
+      ],
+      "related": [
+        "concept.top_issue",
+        "concept.tqr"
+      ],
+      "state_transitions": [
+        {
+          "from": "Defect Submitted",
+          "to": "Phase 02",
+          "condition": "无Blocking Reason"
+        },
+        {
+          "from": "Phase 02",
+          "to": "Q-Gate Evaluation",
+          "condition": "自动触发"
+        },
+        {
+          "from": "Q-Gate Evaluation",
+          "to": "Passed",
+          "condition": "不阻止成熟度"
+        },
+        {
+          "from": "Q-Gate Evaluation",
+          "to": "Blocked",
+          "condition": "阻止功能成熟度"
+        }
+      ],
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
       }
     }
   ]
