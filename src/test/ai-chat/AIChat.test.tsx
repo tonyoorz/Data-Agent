@@ -2,16 +2,21 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const getSessionMock = vi.hoisted(() => vi.fn());
+const onAuthStateChangeMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@/integrations/supabase/client", () => ({
   supabase: {
     auth: {
       getSession: getSessionMock,
+      onAuthStateChange: onAuthStateChangeMock,
     },
   },
 }));
 
 import AIChat from "@/components/dashboard/pages/AIChat";
+import { actorScopedChatStorageKey } from "@/components/dashboard/chat/chatStorage";
+
+let authStateChangeCallback: ((event: string, session: unknown) => void) | null = null;
 
 class MockMediaRecorder {
   public static instances: MockMediaRecorder[] = [];
@@ -43,6 +48,12 @@ describe("AIChat duplicate search integration", () => {
     vi.restoreAllMocks();
     getSessionMock.mockReset();
     getSessionMock.mockResolvedValue({ data: { session: null }, error: null });
+    authStateChangeCallback = null;
+    onAuthStateChangeMock.mockReset();
+    onAuthStateChangeMock.mockImplementation((callback) => {
+      authStateChangeCallback = callback;
+      return { data: { subscription: { unsubscribe: vi.fn() } } };
+    });
     MockMediaRecorder.instances = [];
 
     Object.defineProperty(globalThis, "MediaRecorder", {
@@ -91,6 +102,53 @@ describe("AIChat duplicate search integration", () => {
         value: originalCrypto,
       });
     }
+  });
+
+  it("partitions persisted conversations by an opaque authenticated-actor namespace", async () => {
+    const actorA = { user: { id: "user-a@example.test" }, access_token: "token-a" };
+    const actorB = { user: { id: "user-b@example.test" }, access_token: "token-b" };
+    const actorAKey = await actorScopedChatStorageKey(actorA);
+    const actorBKey = await actorScopedChatStorageKey(actorB);
+    expect(actorAKey).toMatch(/^dtsv\.chat\.v3\.[a-f0-9]{64}$/);
+    expect(actorBKey).toMatch(/^dtsv\.chat\.v3\.[a-f0-9]{64}$/);
+    expect(actorAKey).not.toContain("user-a");
+    expect(actorBKey).not.toContain("user-b");
+    expect(actorAKey).not.toBe(actorBKey);
+
+    window.localStorage.setItem("dtsv.chat.v2", JSON.stringify([{
+      id: "legacy",
+      title: "Legacy cross-user secret",
+      messages: [],
+      updatedAt: 1,
+    }]));
+    window.localStorage.setItem(actorAKey!, JSON.stringify([{
+      id: "actor-a-thread",
+      title: "Actor A private chat",
+      messages: [{ id: "a-message", role: "assistant", content: "Actor A secret" }],
+      updatedAt: 2,
+    }]));
+    window.localStorage.setItem(actorBKey!, JSON.stringify([{
+      id: "actor-b-thread",
+      title: "Actor B private chat",
+      messages: [{ id: "b-message", role: "assistant", content: "Actor B secret" }],
+      updatedAt: 3,
+    }]));
+    getSessionMock.mockResolvedValue({ data: { session: actorA }, error: null });
+
+    render(<AIChat moduleKey="ai-chat" moduleLabel="AI Chat" />);
+    expect(await screen.findByText("Actor A secret")).toBeInTheDocument();
+    expect(screen.queryByText("Actor B secret")).not.toBeInTheDocument();
+    expect(screen.queryByText("Legacy cross-user secret")).not.toBeInTheDocument();
+    expect(window.localStorage.getItem("dtsv.chat.v2")).toBeNull();
+
+    act(() => {
+      authStateChangeCallback?.("SIGNED_IN", actorB);
+    });
+
+    expect(screen.queryByText("Actor A secret")).not.toBeInTheDocument();
+    expect(screen.queryByText("Actor B secret")).not.toBeInTheDocument();
+    expect(await screen.findByText("Actor B secret")).toBeInTheDocument();
+    expect(screen.queryByText("Actor A secret")).not.toBeInTheDocument();
   });
 
   it("shows duplicate search mode controls and defaults to deepseek v4 flash", () => {
@@ -443,7 +501,7 @@ describe("AIChat duplicate search integration", () => {
     });
 
     const requestOptions = fetchMock.mock.calls.find(([url]) => url === "/api/ai/chat")?.[1];
-    expect(getSessionMock).toHaveBeenCalledTimes(1);
+    expect(getSessionMock).toHaveBeenCalledTimes(2);
     expect(requestOptions?.headers).toEqual({
       "Content-Type": "application/json",
       Authorization: "Bearer session-token",
@@ -481,7 +539,7 @@ describe("AIChat duplicate search integration", () => {
     });
 
     const requestOptions = fetchMock.mock.calls.find(([url]) => url === "/api/ai/chat")?.[1];
-    expect(getSessionMock).toHaveBeenCalledTimes(1);
+    expect(getSessionMock).toHaveBeenCalledTimes(2);
     expect(requestOptions?.headers).toEqual({ "Content-Type": "application/json" });
   });
 

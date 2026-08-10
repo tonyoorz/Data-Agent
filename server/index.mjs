@@ -10,7 +10,11 @@ import { createFileAgentRuntimeStore } from "./agentRuntime/runtimeAuditStore.mj
 import { resolveAgentOperationsResponse } from "./agentOperations.mjs";
 import { createDuplicateWarmupManager } from "./duplicateWarmup.mjs";
 import { extractLatestUserQuery, resolveAiDefectContext } from "./aiContext.mjs";
-import { writeSseEvent } from "./companyChat.mjs";
+import {
+  controlledChatErrorDiagnostic,
+  toSafeCompanyChatError,
+  writeSseEvent,
+} from "./companyChat.mjs";
 import { resolveRequestUrl } from "./httpRequestUrl.mjs";
 import {
   resolveInternalAuxiliaryActor,
@@ -171,7 +175,8 @@ async function handleAuthenticatedAiChatRequest(body, response) {
       totalMs: roundMs(nowMs() - startedAt),
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown server error";
+    const safeError = toSafeCompanyChatError(error);
+    const diagnostic = controlledChatErrorDiagnostic(error);
     logMetric("ai_chat_request_failed", {
       requestId,
       runtime: runtimeMode,
@@ -183,15 +188,16 @@ async function handleAuthenticatedAiChatRequest(body, response) {
       aiContextTimings: runtimeResult?.metrics?.aiContextTimings || null,
       streamMetrics,
       totalMs: roundMs(nowMs() - startedAt),
-      error: message,
+      errorCode: safeError.payload.error,
+      diagnostic,
     });
     if (response.headersSent) {
-      writeSseEvent(response, { type: "error", message });
+      writeSseEvent(response, { type: "error", message: safeError.payload.error });
       response.write("data: [DONE]\n\n");
       response.end();
       return;
     }
-    throw error;
+    sendJson(response, safeError.statusCode, safeError.payload);
   }
 }
 
@@ -453,8 +459,8 @@ const server = http.createServer(async (request, response) => {
       sendJson(response, safeBodyResponse.statusCode, safeBodyResponse.payload);
       return;
     }
-    const message = error instanceof Error ? error.message : "Unknown server error";
-    sendJson(response, 500, { success: false, error: message });
+    console.error(`[vizion-local-api] ${controlledChatErrorDiagnostic(error)}`);
+    sendJson(response, 500, { success: false, error: "LOCAL_API_REQUEST_FAILED" });
   }
 });
 

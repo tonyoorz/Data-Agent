@@ -124,9 +124,9 @@ async function fetchWithResilience(url, init, { env = process.env } = {}) {
     try {
       const response = await fetch(url, { ...init, ...(controller ? { signal: controller.signal } : {}) });
       if (response.ok || !isRetryableStatus(response.status) || attempt >= maxAttempts) return response;
-      const text = await response.text().catch(() => "");
-      lastError = new Error(`Chat request failed (${response.status}): ${text || response.statusText}`);
-      lastError.status = response.status;
+      // Upstream bodies are untrusted and may contain credentials or private data.
+      // Retry decisions and diagnostics need only the protocol status metadata.
+      lastError = upstreamFailure(response);
       lastError.retryable = true;
     } catch (error) {
       lastError = error;
@@ -145,6 +145,67 @@ const DEFAULT_ANSWER_RELEASE_MAX_BYTES = 256 * 1024;
 const DEFAULT_ANSWER_RELEASE_TIMEOUT_MS = 30_000;
 const ANSWER_RELEASE_CHUNK_CHARACTERS = 120;
 const TOOL_FALLBACK_MAX_LINES = 12;
+const CONTROLLED_CHAT_DIAGNOSTIC_MAX_BYTES = 2048;
+
+const SAFE_CHAT_ERROR_STATUS = Object.freeze({
+  CHAT_MODEL_CONFIGURATION_UNAVAILABLE: 503,
+  CHAT_UPSTREAM_REQUEST_FAILED: 502,
+  CHAT_UPSTREAM_EMPTY_RESPONSE: 502,
+  AGENT_CHAT_REQUEST_FAILED: 500,
+});
+
+class CompanyChatBoundaryError extends Error {
+  constructor(code, diagnostic = "") {
+    super(code);
+    this.name = "CompanyChatBoundaryError";
+    this.code = code;
+    this.statusCode = SAFE_CHAT_ERROR_STATUS[code] || 500;
+    this.diagnostic = controlledDiagnosticText(diagnostic || code);
+  }
+}
+
+function truncateUtf8(value, maximumBytes) {
+  const bytes = Buffer.from(String(value || ""), "utf8");
+  if (bytes.length <= maximumBytes) return bytes.toString("utf8");
+  return bytes.subarray(0, maximumBytes).toString("utf8").replace(/\uFFFD$/u, "");
+}
+
+function controlledDiagnosticText(value) {
+  const redacted = String(value || "")
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/giu, "Bearer [REDACTED]")
+    .replace(/\b(authorization|api[_-]?key|access[_-]?code|token|secret|password)\b\s*[:=]\s*([^\s,;]+)/giu, "$1=[REDACTED]")
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
+  return truncateUtf8(redacted, CONTROLLED_CHAT_DIAGNOSTIC_MAX_BYTES);
+}
+
+export function controlledChatErrorDiagnostic(error) {
+  if (error instanceof CompanyChatBoundaryError) {
+    return error.diagnostic;
+  }
+  const errorName = typeof error?.name === "string" ? error.name : "UnknownError";
+  return controlledDiagnosticText(`error_code=AGENT_CHAT_REQUEST_FAILED error_name=${errorName}`);
+}
+
+export function toSafeCompanyChatError(error) {
+  const code = Object.hasOwn(SAFE_CHAT_ERROR_STATUS, error?.code)
+    ? String(error.code)
+    : "AGENT_CHAT_REQUEST_FAILED";
+  return {
+    statusCode: SAFE_CHAT_ERROR_STATUS[code],
+    payload: { success: false, error: code },
+  };
+}
+
+function upstreamFailure(response) {
+  const status = Number(response?.status || 0) || 502;
+  const statusText = String(response?.statusText || "");
+  return new CompanyChatBoundaryError(
+    "CHAT_UPSTREAM_REQUEST_FAILED",
+    `error_code=CHAT_UPSTREAM_REQUEST_FAILED upstream_status=${status} upstream_status_text=${statusText}`,
+  );
+}
 
 const PSEUDO_TOOL_START_MARKERS = [
   { marker: "<｜DSML｜tool_calls", kind: "tool_calls" },
@@ -545,6 +606,15 @@ function writeSanitizedSseFrame(response, frame, state) {
   return false;
 }
 
+function findSseFrameBoundary(buffer) {
+  const candidates = [
+    { index: String(buffer || "").indexOf("\n\n"), length: 2 },
+    { index: String(buffer || "").indexOf("\r\n\r\n"), length: 4 },
+  ].filter((candidate) => candidate.index >= 0)
+    .sort((left, right) => left.index - right.index || right.length - left.length);
+  return candidates[0] || null;
+}
+
 export async function requestCompanyChatCompletion({
   messages,
   model,
@@ -556,8 +626,9 @@ export async function requestCompanyChatCompletion({
 }) {
   const config = resolveChatModelConfig(model || "", process.env);
   if (!config.credential) {
-    throw new Error(
-      "Company model credentials are not configured. Set DUPSEARCH_CHAT_ACCESS_CODE or DUPSEARCH_CHAT_API_KEY.",
+    throw new CompanyChatBoundaryError(
+      "CHAT_MODEL_CONFIGURATION_UNAVAILABLE",
+      "Company model credentials are not configured.",
     );
   }
 
@@ -580,8 +651,7 @@ export async function requestCompanyChatCompletion({
   });
 
   if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new Error(`Chat request failed (${response.status}): ${text || response.statusText}`);
+    throw upstreamFailure(response);
   }
 
   const payload = await response.json();
@@ -589,7 +659,7 @@ export async function requestCompanyChatCompletion({
   const content = normalizeAssistantContent(message.content);
   const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
   if (!content && toolCalls.length === 0) {
-    throw new Error("Chat model returned empty content");
+    throw new CompanyChatBoundaryError("CHAT_UPSTREAM_EMPTY_RESPONSE", "Chat model returned empty content");
   }
 
   return {
@@ -614,8 +684,9 @@ export async function streamCompanyChatCompletion({
   const startedAt = nowMs();
   const config = resolveChatModelConfig(model || "", process.env);
   if (!config.credential) {
-    throw new Error(
-      "Company model credentials are not configured. Set DUPSEARCH_CHAT_ACCESS_CODE or DUPSEARCH_CHAT_API_KEY.",
+    throw new CompanyChatBoundaryError(
+      "CHAT_MODEL_CONFIGURATION_UNAVAILABLE",
+      "Company model credentials are not configured.",
     );
   }
 
@@ -646,12 +717,14 @@ export async function streamCompanyChatCompletion({
     upstreamConnectMs = roundMs(nowMs() - startedAt);
 
     if (!upstreamResponse.ok) {
-      const text = await upstreamResponse.text().catch(() => "");
-      throw new Error(`Chat request failed (${upstreamResponse.status}): ${text || upstreamResponse.statusText}`);
+      throw upstreamFailure(upstreamResponse);
     }
 
     if (!upstreamResponse.body) {
-      throw new Error("Chat model did not return a stream body");
+      throw new CompanyChatBoundaryError(
+        "CHAT_UPSTREAM_EMPTY_RESPONSE",
+        "error_code=CHAT_UPSTREAM_EMPTY_RESPONSE missing_stream_body=true",
+      );
     }
 
     ensureSseHeaders(response);
@@ -735,10 +808,10 @@ export async function streamCompanyChatCompletion({
           stopReading = true;
           continue;
         }
-        let frameBoundary = sseBuffer.indexOf("\n\n");
-        while (frameBoundary >= 0) {
-          const frame = sseBuffer.slice(0, frameBoundary);
-          sseBuffer = sseBuffer.slice(frameBoundary + 2);
+        let frameBoundary = findSseFrameBoundary(sseBuffer);
+        while (frameBoundary) {
+          const frame = sseBuffer.slice(0, frameBoundary.index);
+          sseBuffer = sseBuffer.slice(frameBoundary.index + frameBoundary.length);
           if (writeSanitizedSseFrame(response, frame, sanitizerState)) {
             stopReading = true;
             break;
@@ -747,7 +820,7 @@ export async function streamCompanyChatCompletion({
             stopReading = true;
             break;
           }
-          frameBoundary = sseBuffer.indexOf("\n\n");
+          frameBoundary = findSseFrameBoundary(sseBuffer);
         }
       }
     }
@@ -774,7 +847,7 @@ export async function streamCompanyChatCompletion({
 
     response.end();
   } catch (error) {
-    streamError = error instanceof Error ? error.message : String(error);
+    streamError = controlledChatErrorDiagnostic(error);
     throw error;
   } finally {
     onMetrics?.({

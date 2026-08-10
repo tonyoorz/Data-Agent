@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { requestCompanyChatCompletion, streamCompanyChatCompletion } from "../../../server/companyChat.mjs";
+import {
+  controlledChatErrorDiagnostic,
+  requestCompanyChatCompletion,
+  streamCompanyChatCompletion,
+  toSafeCompanyChatError,
+} from "../../../server/companyChat.mjs";
 import { createOntologyRegistry } from "../../../server/ontology/registry.mjs";
 
 describe("streamCompanyChatCompletion", () => {
@@ -82,6 +87,77 @@ describe("streamCompanyChatCompletion", () => {
         firstChunkMs: expect.any(Number),
         streamTotalMs: expect.any(Number),
       }),
+    );
+  });
+
+  it("parses CRLF-delimited upstream SSE frames without corrupting the answer", async () => {
+    const encoder = new TextEncoder();
+    const response = { writeHead: vi.fn(), write: vi.fn(), end: vi.fn() };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode(
+            'data: {"choices":[{"delta":{"content":"CRLF_OK"}}]}\r\n\r\n' +
+            'data: [DONE]\r\n\r\n',
+          ));
+          controller.close();
+        },
+      }),
+    }));
+
+    await streamCompanyChatCompletion({
+      messages: [{ role: "user", content: "hello" }],
+      model: "deepseek-v4-flash",
+      response,
+    });
+
+    const streamedText = response.write.mock.calls.map(([chunk]) => String(chunk)).join("");
+    expect(streamedText).toContain("CRLF_OK");
+    expect(streamedText.match(/data: \[DONE\]/g)).toHaveLength(1);
+    expect(response.end).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not read or log an upstream response body while mapping a stable client code", async () => {
+    const secretBody = `authorization: Bearer top-secret-token api_key=private-key ${"x".repeat(5000)}`;
+    const readBody = vi.fn(async () => secretBody);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: false,
+      status: 502,
+      statusText: "Bad Gateway",
+      text: readBody,
+    }));
+
+    let observedError: unknown;
+    try {
+      await requestCompanyChatCompletion({
+        messages: [{ role: "user", content: "hello" }],
+        model: "deepseek-v4-flash",
+      });
+    } catch (error) {
+      observedError = error;
+    }
+
+    expect(toSafeCompanyChatError(observedError)).toEqual({
+      statusCode: 502,
+      payload: { success: false, error: "CHAT_UPSTREAM_REQUEST_FAILED" },
+    });
+    expect(String((observedError as Error)?.message)).toBe("CHAT_UPSTREAM_REQUEST_FAILED");
+    const diagnostic = controlledChatErrorDiagnostic(observedError);
+    expect(readBody).not.toHaveBeenCalled();
+    expect(diagnostic).toBe(
+      "error_code=CHAT_UPSTREAM_REQUEST_FAILED upstream_status=502 upstream_status_text=Bad Gateway",
+    );
+    expect(diagnostic).not.toContain("top-secret-token");
+    expect(diagnostic).not.toContain("private-key");
+    expect(Buffer.byteLength(diagnostic, "utf8")).toBeLessThanOrEqual(2048);
+  });
+
+  it("does not include arbitrary unknown error messages in controlled diagnostics", () => {
+    const error = new Error("Bearer secret-from-an-untrusted-error");
+    expect(controlledChatErrorDiagnostic(error)).toBe(
+      "error_code=AGENT_CHAT_REQUEST_FAILED error_name=Error",
     );
   });
 
