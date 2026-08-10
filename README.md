@@ -107,6 +107,8 @@ The dev command starts three local services:
 | Local Node API | `http://127.0.0.1:3004` | AI chat, duplicate search, transcription |
 | Analytics API | `http://127.0.0.1:3003` | full-picture and analytics endpoints |
 
+The Node API binds to `127.0.0.1` and accepts only `localhost`/`127.0.0.1` Host and Origin values on the configured `VIZION_API_PORT` and `VIZION_WEB_PORT`. API POST bodies must use `application/json` and are capped at 16 MiB by default; set `VIZION_API_JSON_BODY_LIMIT_BYTES` to a positive byte count when a controlled local transcription workflow needs a different finite limit. Remote access requires an authenticated gateway rather than exposing the local listener directly.
+
 ### 5. Verify Services
 
 ```powershell
@@ -226,7 +228,7 @@ $env:VIZION_OIDC_AUDIENCE = "vizion-lab"
 $env:VIZION_OIDC_JWKS_URI = "https://issuer.example.com/.well-known/jwks.json"
 ```
 
-`VIZION_OIDC_ISSUER` and `VIZION_OIDC_JWKS_URI` must use HTTPS. The browser sends its current Supabase/OIDC session token only in the `Authorization: Bearer` header for AI Chat; identity and scopes in the JSON request body are ignored.
+`VIZION_OIDC_ISSUER` and `VIZION_OIDC_JWKS_URI` must use HTTPS. The browser sends its current Supabase/OIDC session token only in the `Authorization: Bearer` header for AI Chat and transcription; identity and scopes in either JSON request body are ignored.
 
 Map verified subjects/groups to complete server-owned grants with `VIZION_AGENT_OIDC_SCOPE_POLICY_JSON`. A grant must include non-empty `allowedObjectTypes`; a user matching multiple different grants is denied rather than receiving a field-wise union.
 

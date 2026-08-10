@@ -15,9 +15,23 @@ import { createDuplicateWarmupManager } from "./duplicateWarmup.mjs";
 import { extractLatestUserQuery, resolveAiDefectContext } from "./aiContext.mjs";
 import { streamCompanyChatCompletion, writeSseEvent } from "./companyChat.mjs";
 import { resolveRequestUrl } from "./httpRequestUrl.mjs";
-import { resolveInternalAuxiliaryActor, runAuthenticatedChatRequest, toSafeAgentAuthResponse } from "./agentAuth.mjs";
+import {
+  resolveInternalAuxiliaryActor,
+  runAuthenticatedAgentRequest,
+  runAuthenticatedChatRequest,
+  toSafeAgentAuthResponse,
+} from "./agentAuth.mjs";
 import { attachDuplicateSummary } from "./duplicateResultEnrichment.mjs";
 import { loadLocalEnv } from "./loadLocalEnv.mjs";
+import {
+  buildLocalCorsHeaders,
+  isJsonApiRequest,
+  isTrustedLocalApiRequest,
+  listenLocalApiServer,
+  readBoundedJsonBody,
+  resolveJsonBodyLimit,
+  toSafeLocalApiBodyResponse,
+} from "./localApiBinding.mjs";
 import {
   defaultQGateReportsRoot,
   findLatestQGateDashboardReport,
@@ -32,6 +46,8 @@ const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "..");
 loadLocalEnv();
 const port = Number(process.env.VIZION_API_PORT || 3004);
+const webPort = Number(process.env.VIZION_WEB_PORT || 8080);
+const jsonBodyLimitBytes = resolveJsonBodyLimit(process.env);
 const staticDir = fs.existsSync(path.join(repoRoot, "dist")) ? path.join(repoRoot, "dist") : "";
 const duplicateWarmupManager = createDuplicateWarmupManager({
   runDuplicateBridge,
@@ -76,8 +92,26 @@ function shouldResolveGatewayAnalyticsContext({ runtimeMode, useAnalyticsContext
 export async function handleAiChatRequest(request, response) {
   return runAuthenticatedChatRequest(request, {
     env: process.env,
-    readBody: () => readJsonBody(request),
+    readBody: () => readBoundedJsonBody(request, { maxBytes: jsonBodyLimitBytes }),
     runChat: (body) => handleAuthenticatedAiChatRequest(body, response),
+    sendAuthResponse: (authResponse) => sendJson(response, authResponse.statusCode, authResponse.payload),
+    sendBadRequestResponse: (badRequestResponse) => sendJson(
+      response,
+      badRequestResponse.statusCode,
+      badRequestResponse.payload,
+    ),
+  });
+}
+
+export async function handleAiTranscribeRequest(request, response) {
+  return runAuthenticatedAgentRequest(request, {
+    env: process.env,
+    readBody: () => readBoundedJsonBody(request, { maxBytes: jsonBodyLimitBytes }),
+    runRequest: async (body) => {
+      const result = await handleTranscribeRequest(body);
+      sendJson(response, 200, result);
+    },
+    invalidBodyError: "INVALID_TRANSCRIBE_REQUEST_BODY",
     sendAuthResponse: (authResponse) => sendJson(response, authResponse.statusCode, authResponse.payload),
     sendBadRequestResponse: (badRequestResponse) => sendJson(
       response,
@@ -268,16 +302,6 @@ function sendJson(response, statusCode, payload) {
   response.end(JSON.stringify(payload));
 }
 
-async function readJsonBody(request) {
-  const chunks = [];
-  for await (const chunk of request) {
-    chunks.push(chunk);
-  }
-
-  const raw = Buffer.concat(chunks).toString("utf8").trim();
-  return raw ? JSON.parse(raw) : {};
-}
-
 async function proxyAnalyticsJson(pathname, searchParams, response) {
   const analyticsUrl = new URL(pathname, "http://127.0.0.1:3003");
   searchParams.forEach((value, key) => analyticsUrl.searchParams.append(key, value));
@@ -325,15 +349,20 @@ function serveStaticAsset(request, response, url) {
 }
 
 const server = http.createServer(async (request, response) => {
+  if (!isTrustedLocalApiRequest(request, { apiPort: port, webPort })) {
+    sendJson(response, 403, { success: false, error: "LOCAL_API_ORIGIN_REQUIRED" });
+    return;
+  }
   const url = resolveRequestUrl(request.url, request.headers.host);
 
   if (request.method === "OPTIONS") {
-    response.writeHead(204, {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Headers": "content-type, authorization",
-      "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-    });
+    response.writeHead(204, buildLocalCorsHeaders(request, { apiPort: port, webPort }));
     response.end();
+    return;
+  }
+
+  if (!isJsonApiRequest(request, url.pathname)) {
+    sendJson(response, 415, { success: false, error: "JSON_CONTENT_TYPE_REQUIRED" });
     return;
   }
 
@@ -394,7 +423,7 @@ const server = http.createServer(async (request, response) => {
       if (!await requireInternalAuxiliaryActor(request, response)) return;
       const startedAt = nowMs();
       const requestId = buildRequestId("ai-context");
-      const body = await readJsonBody(request);
+      const body = await readBoundedJsonBody(request, { maxBytes: jsonBodyLimitBytes });
       const aiContext = await resolveAiDefectContext({
         runDuplicateBridge,
         ensureDuplicateWarmup: () => duplicateWarmupManager.ensureWarm({ reason: "ai-context-endpoint" }),
@@ -425,7 +454,7 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === "POST" && url.pathname === "/api/duplicate-search/warmup") {
       if (!await requireInternalAuxiliaryActor(request, response)) return;
-      const body = await readJsonBody(request);
+      const body = await readBoundedJsonBody(request, { maxBytes: jsonBodyLimitBytes });
       const status = await duplicateWarmupManager.ensureWarm({
         reason: typeof body?.reason === "string" && body.reason.trim() ? body.reason.trim() : "manual",
       });
@@ -439,9 +468,7 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (request.method === "POST" && url.pathname === "/api/ai/transcribe") {
-      const body = await readJsonBody(request);
-      const result = await handleTranscribeRequest(body);
-      sendJson(response, 200, result);
+      await handleAiTranscribeRequest(request, response);
       return;
     }
 
@@ -452,7 +479,7 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === "POST" && url.pathname === "/api/duplicate-search") {
       if (!await requireInternalAuxiliaryActor(request, response)) return;
-      const body = await readJsonBody(request);
+      const body = await readBoundedJsonBody(request, { maxBytes: jsonBodyLimitBytes });
       const query = typeof body?.query === "string" ? body.query.trim() : "";
       const selectedModel = typeof body?.model === "string" ? body.model.trim() : "";
       const topKRaw = Number(body?.top_k ?? 8);
@@ -488,7 +515,7 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === "POST" && url.pathname === "/api/duplicate-feedback") {
       if (!await requireInternalAuxiliaryActor(request, response)) return;
-      const body = await readJsonBody(request);
+      const body = await readBoundedJsonBody(request, { maxBytes: jsonBodyLimitBytes });
       const queryText = typeof body?.queryText === "string" ? body.queryText.trim() : "";
       const ticketId = typeof body?.ticketId === "string" ? body.ticketId.trim() : "";
       const signal = typeof body?.signal === "string" ? body.signal.trim().toLowerCase() : "";
@@ -521,12 +548,17 @@ const server = http.createServer(async (request, response) => {
 
     sendJson(response, 404, { success: false, error: `Not found: ${url.pathname}` });
   } catch (error) {
+    const safeBodyResponse = toSafeLocalApiBodyResponse(error);
+    if (safeBodyResponse) {
+      sendJson(response, safeBodyResponse.statusCode, safeBodyResponse.payload);
+      return;
+    }
     const message = error instanceof Error ? error.message : "Unknown server error";
     sendJson(response, 500, { success: false, error: message });
   }
 });
 
-server.listen(port, () => {
+listenLocalApiServer(server, port, () => {
   console.log(`Vizion local API listening on http://127.0.0.1:${port}`);
   duplicateWarmupManager.triggerBackgroundWarmup({ reason: "startup" });
 });

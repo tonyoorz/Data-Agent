@@ -808,6 +808,10 @@ describe("AIChat duplicate search integration", () => {
   });
 
   it("transcribes recorded audio and fills the input without auto-sending", async () => {
+    getSessionMock.mockResolvedValue({
+      data: { session: { access_token: "voice-session-token" } },
+      error: null,
+    });
     const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
       if (String(input) === "/api/ai/transcribe") {
         return Promise.resolve({
@@ -840,6 +844,10 @@ describe("AIChat duplicate search integration", () => {
         "/api/ai/transcribe",
         expect.objectContaining({
           method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer voice-session-token",
+          },
         }),
       );
     });

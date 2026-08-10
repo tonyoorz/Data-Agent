@@ -35,6 +35,18 @@ import type { DuplicateSearchResult } from "../chat/duplicateSearchTypes";
 import { Switch } from "@/components/ui/switch";
 import { supabase } from "@/integrations/supabase/client";
 
+async function authenticatedJsonHeaders() {
+  const sessionResult = await supabase.auth.getSession().catch(() => null);
+  const accessToken = sessionResult?.error ? "" : sessionResult?.data?.session?.access_token;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (typeof accessToken === "string" && accessToken.trim()) {
+    headers.Authorization = `Bearer ${accessToken.trim()}`;
+  }
+  return headers;
+}
+
 type Role = "user" | "assistant";
 type ChatMode = "chat" | "duplicate-search";
 interface Attachment {
@@ -367,9 +379,7 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
   const transcribeAudioBlob = async (blob: Blob) => {
     const response = await fetch("/api/ai/transcribe", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: await authenticatedJsonHeaders(),
       body: JSON.stringify({
         audio: await blobToBase64(blob),
         mime: blob.type || "audio/webm",
@@ -595,14 +605,7 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
 
     try {
       const url = "/api/ai/chat";
-      const sessionResult = await supabase.auth.getSession().catch(() => null);
-      const accessToken = sessionResult?.error ? "" : sessionResult?.data?.session?.access_token;
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-      };
-      if (typeof accessToken === "string" && accessToken.trim()) {
-        headers.Authorization = `Bearer ${accessToken}`;
-      }
+      const headers = await authenticatedJsonHeaders();
       const resp = await fetch(url, {
         method: "POST",
         headers,
