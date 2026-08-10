@@ -71,3 +71,5 @@ vite.config.ts.timestamp-*
 database/hot/*.db-shm
 database/hot/*.db-wal
 database/**/*.db-shm
+*.db
+data/*.db

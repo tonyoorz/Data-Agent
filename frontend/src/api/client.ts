@@ -1,11 +1,36 @@
 /** Data-Agent API client */
 
 import type { QueryResponse, MemoryStats, HistoryRecord } from '../types';
+import { getAccessToken, refreshToken } from './auth';
 
 const BASE = '/api/agent';
 
+/** Attach auth header and handle token refresh on 401 */
+async function authedFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  const token = getAccessToken();
+  const headers: Record<string, string> = {
+    ...options.headers as Record<string, string>,
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  let res = await fetch(url, { ...options, headers });
+
+  // Auto-refresh on 401
+  if (res.status === 401) {
+    const refreshed = await refreshToken();
+    if (refreshed) {
+      headers['Authorization'] = `Bearer ${refreshed.access_token}`;
+      res = await fetch(url, { ...options, headers });
+    }
+  }
+
+  return res;
+}
+
 export async function query(question: string, useMemory = true): Promise<QueryResponse> {
-  const res = await fetch(`${BASE}/query`, {
+  const res = await authedFetch(`${BASE}/query`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ question, use_memory: useMemory }),
@@ -20,7 +45,7 @@ export async function sendFeedback(
   note = '',
   correction = '',
 ): Promise<{ success: boolean; feedback_id: string }> {
-  const res = await fetch(`${BASE}/feedback`, {
+  const res = await authedFetch(`${BASE}/feedback`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -35,13 +60,13 @@ export async function sendFeedback(
 }
 
 export async function getStats(): Promise<MemoryStats> {
-  const res = await fetch(`${BASE}/stats`);
+  const res = await authedFetch(`${BASE}/stats`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
 
 export async function getHistory(limit = 20): Promise<{ records: HistoryRecord[]; count: number }> {
-  const res = await fetch(`${BASE}/history?limit=${limit}`);
+  const res = await authedFetch(`${BASE}/history?limit=${limit}`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
@@ -51,7 +76,7 @@ export async function getHistory(limit = 20): Promise<{ records: HistoryRecord[]
  */
 export async function* streamQuery(question: string): AsyncGenerator<{ event: string; data: unknown }> {
   const url = `${BASE}/stream?question=${encodeURIComponent(question)}`;
-  const res = await fetch(url);
+  const res = await authedFetch(url);
 
   if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
 

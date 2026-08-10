@@ -3,13 +3,17 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   Card, Input, Button, Space, Typography, Avatar, Spin, Empty, Divider, Tooltip,
+  Dropdown, Tag,
 } from 'antd';
 import {
   SendOutlined, RobotOutlined, UserOutlined, DatabaseOutlined,
   ClockCircleOutlined, ReloadOutlined, HistoryOutlined,
+  SettingOutlined, LogoutOutlined, TeamOutlined,
 } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 import type { ChatMessage } from '../types';
 import { query, getHistory } from '../api/client';
+import { useAuth } from '../components/AuthContext';
 import AgentStepDisplay from '../components/AgentStepDisplay';
 import StoryCard from '../components/StoryCard';
 import FeedbackButtons from '../components/FeedbackButtons';
@@ -28,6 +32,8 @@ const SUGGESTIONS = [
 ];
 
 const AIChatPage: React.FC = () => {
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -76,7 +82,38 @@ const AIChatPage: React.FC = () => {
   };
 
   return (
-    <div style={{ height: 'calc(100vh - 120px)', display: 'flex', gap: 16 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+      {/* Top Bar with User Info */}
+      <div style={{
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        padding: '0 20px', height: 48, background: '#fff',
+        borderBottom: '1px solid #f0f0f0', flexShrink: 0,
+      }}>
+        <Space>
+          <RobotOutlined style={{ fontSize: 18, color: '#1677ff' }} />
+          <Text strong>Data-Agent</Text>
+          <Text type="secondary" style={{ fontSize: 12 }}>智能数据分析平台</Text>
+        </Space>
+        <Dropdown menu={{
+          items: [
+            { key: 'settings', label: '设置', icon: <SettingOutlined /> },
+            { type: 'divider' as const },
+            { key: 'logout', label: '退出登录', icon: <LogoutOutlined />, danger: true },
+          ],
+          onClick: ({ key }) => {
+            if (key === 'settings') navigate('/settings');
+            else if (key === 'logout') { logout(); navigate('/login'); }
+          },
+        }}>
+          <Space style={{ cursor: 'pointer' }}>
+            <Avatar size="small" src={user?.avatar_url} icon={<UserOutlined />} />
+            <Text style={{ fontSize: 13 }}>{user?.username || 'User'}</Text>
+          </Space>
+        </Dropdown>
+      </div>
+
+      {/* Main Content */}
+      <div style={{ flex: 1, display: 'flex', gap: 16, padding: 16, overflow: 'hidden' }}>
       {/* Main Chat Area */}
       <Card
         style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}
@@ -198,6 +235,7 @@ const AIChatPage: React.FC = () => {
 
         {activeTab === 'history' && <HistoryPanel />}
       </Card>
+      </div>
     </div>
   );
 };
