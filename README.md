@@ -297,19 +297,31 @@ Each recovery audit stores the original and revised query fingerprints, source t
 
 Semantic quality checks reject unsupported trace joins and unbounded many-to-many paths before source reads. Source freshness warnings, including `SOURCE_STALE`, appear in semantic tool context. The answer stream is instructed not to turn observational analytics into causality; cited unsupported causal claims emit `ANSWER_CAUSAL_CLAIM_UNSUPPORTED` in the answer-validation event.
 
-### Qualification Baseline
+### Auditable Agent Qualification
 
-The following non-production qualification was recorded on 2026-08-04 after two consecutive clean runs:
+Generate a qualification artifact from the current checkout:
 
-| Check | Run 1 | Run 2 |
-| --- | ---: | ---: |
-| Agent scorecard | 6 files / 13 tests passed | 6 files / 13 tests passed |
-| Golden fixture cases | 134 defined cases | 134 defined cases |
-| P0 integrated Node suite | 18 files / 200 tests passed | 18 files / 200 tests passed |
-| Python capability/scope suite | 99 passed | 99 passed |
-| Production build | passed | passed |
+```powershell
+npm run agent:qualification
+```
 
-The 134 fixture cases comprise 12 routing, 113 semantic, 3 execution, and 6 policy scenarios. The synthetic non-production operations snapshot used for the qualification reported 2 completed runs, 1 correctly denied run, P50 `200 ms`, P95 `300 ms`, 2 citation passes, 1 citation block, and 1 bounded recovery. Those latency values validate aggregation only; they are not a production latency SLO.
+The mandatory gates actually execute the deterministic Agent fixture suite and `ontology:check`. Add the complete Node test suite and production build when qualifying a release:
+
+```powershell
+npm run agent:qualification -- --full --build
+```
+
+The command writes `artifacts/agent-qualification/latest.json` atomically and exits non-zero when any selected command fails, the checkout is dirty before or after the run, or repository state changes while the gates are running. The artifact records the Git commit and dirty state, Node version, Ontology fingerprint, runtime-ready/planned metric counts, every target JSONL fixture's case count and SHA-256, and each executed command's duration and exit code. It never records environment-variable values or credentials.
+
+Verify the payload hash and compare the artifact with the current commit, Ontology fingerprint, runtime capability report, and fixture files:
+
+```powershell
+npm run agent:qualification:verify
+```
+
+Use `--output <path>` with either command for a CI artifact location. A generated path inside the checkout must be Git-ignored so the artifact cannot make its own checkout dirty; an output path outside the checkout is also accepted. Verification rejects modified payloads, a different or dirty checkout, Ontology fingerprint drift, runtime capability drift, fixture drift, failed/missing gates, or an artifact whose evidence classification was changed. The payload SHA-256 is an integrity checksum, not a cryptographic signature or independent provenance attestation.
+
+`evidenceClass` is always `deterministic_fixture` and `productionSnapshot` is always `false`. A pass means only that the checked-in deterministic fixtures and selected repository gates passed; it is not a production-data result, model accuracy measurement, latency SLO, or proof of business effectiveness. Python is not invoked implicitly. Run an explicitly selected virtual-environment interpreter separately when a release policy also requires Python tests.
 
 Repeat the full qualification twice after any OIDC policy, actor-capability, agent route, tool recovery, Ontology, or model-streaming change.
 
@@ -346,7 +358,15 @@ npm test
 .\.venv\Scripts\python.exe -m pytest backend\tests -q
 ```
 
-Agent qualification scorecard:
+Auditable Agent qualification artifact:
+
+```powershell
+npm run agent:qualification
+npm run agent:qualification -- --full --build
+npm run agent:qualification:verify
+```
+
+Run only the deterministic fixture suite without generating an artifact:
 
 ```powershell
 npm run test:agent-evals

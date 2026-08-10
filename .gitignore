@@ -43,5 +43,6 @@ database/**/*.sqlite
 database/**/*.duckdb
 database/cold/parquet/**
 docs/qgate-reports/generated_runs/
+artifacts/agent-qualification/
 !database/**/.gitkeep
 .worktrees/
