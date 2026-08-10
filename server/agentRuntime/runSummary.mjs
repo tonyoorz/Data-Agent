@@ -14,6 +14,7 @@ const SAFE_KEYS = new Set([
   "failureCode",
   "sourceRevisionIds",
   "citationValidation",
+  "terminalStatus",
   "latencyMs",
   "recordedAt",
   "type",
@@ -135,6 +136,8 @@ function publicTimelineItem(rawItem) {
     type,
     ...(Number.isFinite(Number(rawItem?.latencyMs)) ? { latencyMs: Number(rawItem.latencyMs) } : {}),
     ...(rawItem?.citationValidation ? { citationValidation: String(rawItem.citationValidation) } : {}),
+    ...(rawItem?.terminalStatus ? { terminalStatus: String(rawItem.terminalStatus) } : {}),
+    ...(rawItem?.failureCode ? { failureCode: String(rawItem.failureCode) } : {}),
     ...(rawItem?.stoppedReason ? { stoppedReason: String(rawItem.stoppedReason) } : {}),
     ...(rawItem?.recovery ? { recovery: publicRecovery(rawItem.recovery) } : {}),
   };
@@ -193,12 +196,16 @@ export function summarizeRuns({ summaries = [], events = [] } = {}) {
     const stream = streamByRun.get(String(rawSummary?.runId || ""));
     const citation = String(stream?.citationValidation || rawSummary?.citationValidation || "pending");
     const latencyMs = Number(stream?.latencyMs);
+    const outcome = String(stream?.terminalStatus || "") === "failed"
+      ? "failed"
+      : String(rawSummary?.outcome || "completed");
+    const failureCode = String(stream?.failureCode || rawSummary?.failureCode || "");
     const run = publicRun(rawSummary, stream);
-    increment(byOutcome, String(rawSummary?.outcome || "completed"));
+    increment(byOutcome, outcome);
     increment(byEvidenceStatus, String(rawSummary?.evidenceStatus || "not_required"));
     increment(citationValidation, citation);
     for (const outcome of rawSummary?.recoveryOutcomes || []) increment(recoveryOutcomes, String(outcome));
-    increment(failures, String(rawSummary?.failureCode || ""));
+    increment(failures, failureCode);
     if (Number.isFinite(latencyMs) && latencyMs >= 0) latencies.push(latencyMs);
     return run;
   });
@@ -261,15 +268,19 @@ function opaqueRunRef(runId) {
 
 function publicRun(rawSummary, stream) {
   const latencyMs = Number(stream?.latencyMs);
+  const outcome = String(stream?.terminalStatus || "") === "failed"
+    ? "failed"
+    : String(rawSummary?.outcome || "completed");
+  const failureCode = String(stream?.failureCode || rawSummary?.failureCode || "");
   return {
     runRef: opaqueRunRef(rawSummary?.runId),
     intent: String(rawSummary?.intent || "general"),
-    outcome: String(rawSummary?.outcome || "completed"),
+    outcome,
     evidenceStatus: String(rawSummary?.evidenceStatus || "not_required"),
     citationValidation: String(stream?.citationValidation || rawSummary?.citationValidation || "pending"),
     toolNames: unique(rawSummary?.toolNames).filter((name) => SAFE_TOOL_NAMES.has(name)),
     ...(Number.isFinite(latencyMs) && latencyMs >= 0 ? { latencyMs } : {}),
-    ...(rawSummary?.failureCode ? { failureCode: String(rawSummary.failureCode) } : {}),
+    ...(failureCode ? { failureCode } : {}),
     ...(Array.isArray(rawSummary?.businessRuleCodes) ? { businessRuleCodes: unique(rawSummary.businessRuleCodes) } : {}),
   };
 }

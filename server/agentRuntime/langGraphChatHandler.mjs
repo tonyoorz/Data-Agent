@@ -4,8 +4,10 @@ import {
   writeSseEvent,
   writeSseResponse,
 } from "../companyChat.mjs";
-import { evaluateSemanticEvidence } from "../mainAgentEvidence.mjs";
+import { evaluateClaimEvidence } from "../mainAgentEvidence.mjs";
 import { createOntologyRegistry } from "../ontology/registry.mjs";
+
+const FINAL_STREAM_FAILURE_CODE = "FINAL_STREAM_FAILED";
 
 function declaredEvidenceGate(runtimeResult) {
   return runtimeResult?.mainAgentToolContext?.evidenceGate || runtimeResult?.metrics?.evidenceGate || null;
@@ -14,9 +16,13 @@ function declaredEvidenceGate(runtimeResult) {
 function resolveReleaseGate(runtimeResult) {
   const declaredGate = declaredEvidenceGate(runtimeResult);
   const evidence = runtimeResult?.mainAgentToolContext?.evidence;
+  const executedToolCalls = Array.isArray(runtimeResult?.mainAgentToolContext?.toolCalls)
+    ? runtimeResult.mainAgentToolContext.toolCalls
+    : [];
   if (!declaredGate || declaredGate.status === "not_required") {
-    const derivedGate = evaluateSemanticEvidence(evidence, {
+    const derivedGate = evaluateClaimEvidence(evidence, {
       expectedActorScopeHash: runtimeResult?.actorScope?.scopeHash,
+      executedToolCalls,
     });
     if (derivedGate.status === "not_required") {
       return declaredGate;
@@ -42,10 +48,11 @@ function resolveReleaseGate(runtimeResult) {
       warnings: [],
     };
   }
-  const gate = evaluateSemanticEvidence(evidence, {
+  const gate = evaluateClaimEvidence(evidence, {
     expectedActorScopeHash: runtimeResult?.actorScope?.scopeHash,
     expectedSourceRevisionIds: declaredGate.sourceRevisionIds,
     requireReleaseBinding: true,
+    executedToolCalls,
   });
   if (gate.status === "pass") {
     return gate;
@@ -67,6 +74,7 @@ function createAnswerValidation(runtimeResult, releaseGate) {
   try {
     return {
       evidence,
+      executedToolCalls: runtimeResult?.mainAgentToolContext?.toolCalls || [],
       registry: createOntologyRegistry(),
       ...(releaseGate?.status === "pass" ? {
         releaseRequired: true,
@@ -77,6 +85,7 @@ function createAnswerValidation(runtimeResult, releaseGate) {
   } catch {
     return {
       evidence,
+      executedToolCalls: runtimeResult?.mainAgentToolContext?.toolCalls || [],
       ...(releaseGate?.status === "pass" ? {
         releaseRequired: true,
         expectedActorScopeHash: runtimeResult?.actorScope?.scopeHash || "",
@@ -99,6 +108,17 @@ export async function streamLangGraphChatResponse({
 } = {}) {
   let streamMetrics = null;
   let answerValidationResult = null;
+  let completionObserved = false;
+  const complete = async (result) => {
+    if (completionObserved) return result;
+    completionObserved = true;
+    try {
+      await onCompleted?.(result);
+    } catch {
+      // Completion observers are best effort and cannot affect an ended response.
+    }
+    return result;
+  };
   const runtimeResult = await runtime.invoke(
     { body, toolDependencies },
     {
@@ -113,12 +133,7 @@ export async function streamLangGraphChatResponse({
     answerValidationResult = writeGovernedEvidenceBlockResponse(response, releaseGate.violations);
     streamMetrics = { evidenceReleaseBlocked: true, finalModelInvoked: false };
     const result = { runtimeResult, streamMetrics, answerValidation: answerValidationResult };
-    try {
-      await onCompleted?.(result);
-    } catch {
-      // Completion observers are best effort and cannot affect an ended response.
-    }
-    return result;
+    return complete(result);
   }
 
   if (releaseGate?.status === "pass"
@@ -127,47 +142,74 @@ export async function streamLangGraphChatResponse({
     answerValidationResult = writeGovernedEvidenceBlockResponse(response, ["ANSWER_DIRECT_RESPONSE_CLAIM_BYPASS_BLOCKED"]);
     streamMetrics = { evidenceReleaseBlocked: true, finalModelInvoked: false };
     const result = { runtimeResult, streamMetrics, answerValidation: answerValidationResult };
-    try {
-      await onCompleted?.(result);
-    } catch {
-      // Completion observers are best effort and cannot affect an ended response.
-    }
-    return result;
+    return complete(result);
   }
 
   if (typeof runtimeResult?.directResponse?.content === "string" && runtimeResult.directResponse.content.trim()) {
     writeSseResponse(response, runtimeResult.directResponse.content);
     const result = { runtimeResult, streamMetrics: { directResponse: true }, answerValidation: null };
-    try {
-      await onCompleted?.(result);
-    } catch {
-      // Completion observers are best effort and cannot affect an ended response.
-    }
-    return result;
+    return complete(result);
   }
 
-  await streamCompletion({
-    messages: runtimeResult.finalMessages,
-    model: body?.model,
-    context: runtimeResult.context,
-    response,
-    prefaceEvents: runtimeResult.prefaceEvents,
-    imageOcrRunner,
-    documentTextRunner,
-    answerValidation: createAnswerValidation(runtimeResult, releaseGate),
-    onAnswerValidation: (validation) => {
-      answerValidationResult = validation;
-    },
-    onMetrics: (metrics) => {
-      streamMetrics = metrics;
-    },
-  });
+  try {
+    await streamCompletion({
+      messages: runtimeResult.finalMessages,
+      model: body?.model,
+      context: runtimeResult.context,
+      response,
+      prefaceEvents: runtimeResult.prefaceEvents,
+      imageOcrRunner,
+      documentTextRunner,
+      answerValidation: createAnswerValidation(runtimeResult, releaseGate),
+      onAnswerValidation: (validation) => {
+        answerValidationResult = validation;
+      },
+      onMetrics: (metrics) => {
+        streamMetrics = metrics;
+      },
+    });
+  } catch {
+    const { error: _providerError, ...safeMetrics } = streamMetrics && typeof streamMetrics === "object" ? streamMetrics : {};
+    streamMetrics = {
+      ...safeMetrics,
+      terminalStatus: "failed",
+      failureCode: FINAL_STREAM_FAILURE_CODE,
+    };
+    answerValidationResult = { valid: false, violations: [FINAL_STREAM_FAILURE_CODE] };
+    const failureResult = {
+      runtimeResult,
+      streamMetrics,
+      answerValidation: answerValidationResult,
+      terminal: { status: "failed", code: FINAL_STREAM_FAILURE_CODE },
+    };
+    try {
+      if (!response?.writableEnded) {
+        try {
+          writeEvent(response, {
+            type: "agent-terminal",
+            status: "failed",
+            code: FINAL_STREAM_FAILURE_CODE,
+          });
+        } catch {
+          // A disconnected client cannot prevent terminal audit completion.
+        }
+        try {
+          response.write("data: [DONE]\n\n");
+        } catch {
+          // Best effort only after the provider has already failed.
+        }
+        try {
+          response.end();
+        } catch {
+          // Best effort only after the provider has already failed.
+        }
+      }
+    } finally {
+      await complete(failureResult);
+    }
+    return failureResult;
+  }
 
   const result = { runtimeResult, streamMetrics, answerValidation: answerValidationResult };
-  try {
-    await onCompleted?.(result);
-  } catch {
-    // Completion observers are best effort and cannot affect an ended response.
-  }
-  return result;
+  return complete(result);
 }

@@ -7,6 +7,7 @@ import duplicateBridgeRuntime from "./duplicateBridgeRuntime.cjs";
 import { streamLangGraphChatResponse } from "./agentRuntime/langGraphChatHandler.mjs";
 import { createLangGraphChatRuntime, resolveAgentRuntimeMode } from "./agentRuntime/langGraphChatRuntime.mjs";
 import { createFileAgentRuntimeStore } from "./agentRuntime/runtimeAuditStore.mjs";
+import { buildAgentStreamAuditEvent } from "./agentRuntime/streamAudit.mjs";
 import { resolveAgentOperationsResponse } from "./agentOperations.mjs";
 import { createDuplicateWarmupManager } from "./duplicateWarmup.mjs";
 import { extractLatestUserQuery, resolveAiDefectContext } from "./aiContext.mjs";
@@ -144,26 +145,17 @@ async function handleAuthenticatedAiChatRequest(body, response) {
         ensureDuplicateWarmup: () => duplicateWarmupManager.ensureWarm({ reason: "langgraph-agent-tool" }),
       },
       onCompleted: async (completed) => {
-        await agentRuntimeStore.appendRunEvent({
-          runId: completed.runtimeResult?.runId || "",
-          threadId: completed.runtimeResult?.threadId || "",
-          actorScope: completed.runtimeResult?.actorScope || {},
-          type: "agent-stream-completed",
-          ...(Number.isFinite(Number(completed.streamMetrics?.streamTotalMs)) ? { latencyMs: Number(completed.streamMetrics.streamTotalMs) } : {}),
-          citationValidation: completed.answerValidation
-            ? completed.answerValidation.valid ? "pass" : "blocked"
-            : "not_required",
-          ...(completed.answerValidation?.violations?.length
-            ? { answerValidationViolations: completed.answerValidation.violations.map(String) }
-            : {}),
-        });
+        await agentRuntimeStore.appendRunEvent(buildAgentStreamAuditEvent(completed));
       },
     });
     runtimeResult = graphResult.runtimeResult;
     streamMetrics = graphResult.streamMetrics;
 
-    logMetric("ai_chat_request", {
+    const outcome = graphResult.terminal?.status
+      || (graphResult.answerValidation?.valid === false ? "blocked" : "completed");
+    logMetric(outcome === "failed" ? "ai_chat_request_failed" : "ai_chat_request", {
       requestId,
+      outcome,
       runtime: runtimeMode,
       model: String(body?.model || ""),
       query: summarizeQuery(runtimeResult?.queryText || queryText),

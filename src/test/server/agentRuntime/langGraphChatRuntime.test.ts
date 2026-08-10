@@ -392,7 +392,24 @@ describe("LangGraph chat runtime", () => {
         role: "tool",
         tool_call_id: `${context.queryPlan.planId}-s1`,
         name: "query_semantic_metrics",
-        content: JSON.stringify({ ok: true, tool: "query_semantic_metrics", result: { summary: { metrics: { "defect.count": 12 } } } }),
+        content: JSON.stringify({
+          ok: true,
+          tool: "query_semantic_metrics",
+          result: {
+            ontologyVersion: "v1",
+            schemaFingerprint: "a".repeat(64),
+            analysisRef: "analysis-ready-plan",
+            sourceRevision: { revisionId: "snapshot-ready-plan", status: "pinned" },
+            scope: { actorScopeHash: "scope-a" },
+            summary: { metrics: { "defect.count": 12 } },
+            quality: { completeness: "complete", warnings: [] },
+            evidence: {
+              kind: "semantic_metric_result",
+              analysisRef: "analysis-ready-plan",
+              sourceRevisionId: "snapshot-ready-plan",
+            },
+          },
+        }),
       },
     });
     const runtime = createLangGraphChatRuntime({
@@ -421,6 +438,7 @@ describe("LangGraph chat runtime", () => {
     }), expect.objectContaining({ actor: { actorId: "alice", scopeHash: "scope-a" } }));
     expect(result.mainAgentToolContext.toolCalls).toHaveLength(1);
     expect(result.metrics.mainAgentToolCallCount).toBe(1);
+    expect(result.metrics.evidenceGate).toMatchObject({ status: "pass", violations: [] });
   });
 
   it("executes one ready scope-bound semantic record plan before model tool planning", async () => {
@@ -717,6 +735,67 @@ describe("LangGraph chat runtime", () => {
     });
 
     expect(resolveDefectContext).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when a resolved analytics fact has no governed release contract", async () => {
+    const runtime = createLangGraphChatRuntime({
+      resolveAnalyticsContext: vi.fn().mockResolvedValue({
+        contextText: "# Resolved analytics query\nResult: 12 defects",
+        skipDefectContext: true,
+        claimRelease: { status: "unreleased", contextId: "resolved_analytics_query" },
+      }),
+      resolveDefectContext: vi.fn(),
+      shouldPlanTools: vi.fn().mockReturnValue(false),
+      now: () => new Date("2026-08-10T08:00:00.000Z"),
+    });
+
+    const result = await runtime.invoke({
+      body: {
+        threadId: "thread-unreleased-resolved-analytics",
+        useAnalyticsContext: true,
+        messages: [{ role: "user", content: "DTSV 六月新建了多少缺陷？" }],
+      },
+    });
+
+    expect(result.mainAgentToolContext).toBeNull();
+    expect(result.metrics.evidenceGate).toMatchObject({
+      status: "blocked",
+      violations: ["CLAIM_CONTEXT_RELEASE_CONTRACT_MISSING:resolved_analytics_query"],
+    });
+  });
+
+  it("fails closed when duplicate-search facts have no governed release contract", async () => {
+    const runtime = createLangGraphChatRuntime({
+      resolveAnalyticsContext: vi.fn(),
+      resolveDefectContext: vi.fn().mockResolvedValue({
+        contextText: "# Defect context from qgate\n候选缺陷数: 1\nD-42 score=0.99",
+        duplicateSearchResult: {
+          candidates: [{ defect_id: "D-42", score: 0.99 }],
+          modelPhase: "rerank",
+          feedbackCount: 8,
+          dataset_size: 100,
+        },
+        timings: { totalMs: 12 },
+      }),
+      shouldPlanTools: vi.fn().mockReturnValue(false),
+      now: () => new Date("2026-08-10T08:00:00.000Z"),
+    });
+
+    const result = await runtime.invoke({
+      body: {
+        threadId: "thread-unreleased-duplicate-context",
+        useAnalyticsContext: false,
+        useDefectContext: true,
+        messages: [{ role: "user", content: "camera black screen" }],
+      },
+      toolDependencies: { runDuplicateBridge: vi.fn() },
+    });
+
+    expect(result.mainAgentToolContext).toBeNull();
+    expect(result.metrics.evidenceGate).toMatchObject({
+      status: "blocked",
+      violations: ["CLAIM_CONTEXT_RELEASE_CONTRACT_MISSING:duplicate_search_context"],
+    });
   });
 
   it("returns a deterministic direct response for out-of-scope requests", async () => {

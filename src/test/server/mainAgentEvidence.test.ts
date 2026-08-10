@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildSemanticContinuationContext,
+  evaluateClaimEvidence,
   evaluateSemanticEvidence,
   formatSemanticEvidenceGate,
 } from "../../../server/mainAgentEvidence.mjs";
@@ -126,6 +127,117 @@ describe("main agent semantic evidence", () => {
 
     expect(gate.status).toBe("blocked");
     expect(gate.violations).toContain("SEMANTIC_BACKEND_EVIDENCE_KIND_INVALID");
+  });
+
+  it("fails closed for legacy or unknown fact-producing tools without a release contract", () => {
+    const legacy = evaluateClaimEvidence([{
+      tool: "query_defect_aggregate",
+      toolCallId: "legacy-1",
+      ok: true,
+      summary: { defectCount: 12 },
+    }]);
+    const unknown = evaluateClaimEvidence([{
+      tool: "future_fact_tool",
+      toolCallId: "future-1",
+      ok: true,
+      summary: { value: 99 },
+    }]);
+
+    expect(legacy).toMatchObject({
+      status: "blocked",
+      violations: ["CLAIM_TOOL_RELEASE_CONTRACT_MISSING:query_defect_aggregate"],
+    });
+    expect(unknown).toMatchObject({
+      status: "blocked",
+      violations: ["CLAIM_TOOL_RELEASE_CONTRACT_MISSING:future_fact_tool"],
+    });
+  });
+
+  it("keeps a pure clarification outside the factual release gate", () => {
+    expect(evaluateClaimEvidence([{
+      tool: "ask_clarification",
+      toolCallId: "clarify-1",
+      ok: true,
+    }])).toEqual({
+      status: "not_required",
+      violations: [],
+      analysisRefs: [],
+      sourceRevisionIds: [],
+      warnings: [],
+    });
+  });
+
+  it("keeps metadata helpers outside the data-claim gate while a semantic result passes", () => {
+    const metadataTools = ["get_data_catalog", "get_ontology_catalog", "search_octane_fields", "resolve_business_terms"];
+    const metadataEvidence = metadataTools.map((tool, index) => ({
+      tool,
+      toolCallId: `metadata-${index + 1}`,
+      ok: true,
+    }));
+    const executedToolCalls = [
+      ...metadataTools.map((name, index) => ({ id: `metadata-${index + 1}`, function: { name } })),
+      { id: "semantic-1", function: { name: "query_semantic_metrics" } },
+    ];
+
+    expect(evaluateClaimEvidence([...metadataEvidence, validEvidence], { executedToolCalls })).toMatchObject({
+      status: "pass",
+      violations: [],
+    });
+  });
+
+  it("requires every evidence envelope to bind to an executed tool call", () => {
+    expect(evaluateClaimEvidence([validEvidence], { executedToolCalls: [] })).toMatchObject({
+      status: "blocked",
+      violations: ["CLAIM_EVIDENCE_TOOL_CALL_UNKNOWN:semantic-1/query_semantic_metrics"],
+    });
+  });
+
+  it("requires one distinct evidence envelope for each executed factual tool call", () => {
+    const duplicateCalls = [
+      { id: "semantic-1", function: { name: "query_semantic_metrics" } },
+      { id: "semantic-1", function: { name: "query_semantic_metrics" } },
+    ];
+
+    expect(evaluateClaimEvidence([validEvidence], { executedToolCalls: duplicateCalls })).toMatchObject({
+      status: "blocked",
+      violations: expect.arrayContaining([
+        "CLAIM_TOOL_CALL_ID_DUPLICATE:semantic-1",
+        "CLAIM_TOOL_EVIDENCE_MISSING:semantic-1/query_semantic_metrics",
+      ]),
+    });
+  });
+
+  it("requires non-empty globally unique IDs before matching tool and evidence pairs", () => {
+    const duplicateCallId = evaluateClaimEvidence([validEvidence], {
+      executedToolCalls: [
+        { id: "semantic-1", function: { name: "query_semantic_metrics" } },
+        { id: "semantic-1", function: { name: "query_traceability" } },
+      ],
+    });
+    expect(duplicateCallId).toMatchObject({ status: "blocked" });
+    expect(duplicateCallId.violations).toContain("CLAIM_TOOL_CALL_ID_DUPLICATE:semantic-1");
+
+    const duplicateEvidenceId = evaluateClaimEvidence([
+      validEvidence,
+      { ...validEvidence, tool: "query_traceability" },
+    ]);
+    expect(duplicateEvidenceId.violations).toContain("CLAIM_EVIDENCE_TOOL_CALL_ID_DUPLICATE:semantic-1");
+
+    const missingIds = evaluateClaimEvidence([{ ...validEvidence, toolCallId: "" }], {
+      executedToolCalls: [{ id: "", function: { name: "query_semantic_metrics" } }],
+    });
+    expect(missingIds.violations).toEqual(expect.arrayContaining([
+      "CLAIM_TOOL_CALL_ID_MISSING:query_semantic_metrics",
+      "CLAIM_EVIDENCE_TOOL_CALL_ID_MISSING:query_semantic_metrics",
+    ]));
+
+    const mismatchedTool = evaluateClaimEvidence([validEvidence], {
+      executedToolCalls: [{ id: "semantic-1", function: { name: "query_traceability" } }],
+    });
+    expect(mismatchedTool.violations).toEqual(expect.arrayContaining([
+      "CLAIM_TOOL_EVIDENCE_MISSING:semantic-1/query_traceability",
+      "CLAIM_EVIDENCE_TOOL_CALL_UNKNOWN:semantic-1/query_semantic_metrics",
+    ]));
   });
 
   it("exposes only a continuation from the same actor scope", () => {

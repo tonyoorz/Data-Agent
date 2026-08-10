@@ -11,7 +11,12 @@ describe("server agent runtime entry", () => {
     expect(source).not.toContain("resolveMainAgentToolContext");
     expect(source).not.toContain("shouldResolveGatewayAnalyticsContext");
     expect(source).not.toContain("streamCompanyChatCompletion");
-    expect(source).toContain("answerValidationViolations");
+    expect(source).toContain("buildAgentStreamAuditEvent");
+
+    const auditSource = readFileSync(new URL("../../../../server/agentRuntime/streamAudit.mjs", import.meta.url), "utf8");
+    expect(auditSource).toContain("answerValidationViolations");
+    expect(auditSource).toContain("terminalStatus");
+    expect(auditSource).toContain("failureCode");
   });
 
   it("maps chat failures to stable client codes instead of raw exception messages", () => {

@@ -32,6 +32,17 @@ export function buildToolEvidence({ toolCall, result, intent }) {
 }
 
 const CLAIM_BEARING_SEMANTIC_TOOLS = new Set(["query_semantic_metrics", "query_semantic_records", "query_traceability"]);
+const NON_CLAIM_BEARING_TOOLS = new Set([
+  "ask_clarification",
+  "get_data_catalog",
+  "get_ontology_catalog",
+  "search_octane_fields",
+  "resolve_business_terms",
+]);
+
+function emptyEvidenceGate() {
+  return { status: "not_required", violations: [], analysisRefs: [], sourceRevisionIds: [], warnings: [] };
+}
 
 export function evaluateSemanticEvidence(items, {
   expectedActorScopeHash = "",
@@ -40,7 +51,7 @@ export function evaluateSemanticEvidence(items, {
 } = {}) {
   const semanticItems = (Array.isArray(items) ? items : []).filter((item) => CLAIM_BEARING_SEMANTIC_TOOLS.has(item?.tool));
   if (!semanticItems.length) {
-    return { status: "not_required", violations: [], analysisRefs: [], sourceRevisionIds: [], warnings: [] };
+    return emptyEvidenceGate();
   }
   const violations = [];
   const analysisRefs = [];
@@ -112,6 +123,83 @@ export function evaluateSemanticEvidence(items, {
     analysisRefs: [...new Set(analysisRefs)],
     sourceRevisionIds: [...new Set(sourceRevisionIds)],
     warnings: [...new Set(warnings)],
+  };
+}
+
+export function evaluateClaimEvidence(items, options = {}) {
+  const executedToolCalls = Array.isArray(options.executedToolCalls) ? options.executedToolCalls : null;
+  const allItems = Array.isArray(items) ? items : [];
+  const allToolCalls = executedToolCalls || [];
+  const claimItems = allItems.filter((item) => {
+    const tool = String(item?.tool || "").trim();
+    return !NON_CLAIM_BEARING_TOOLS.has(tool);
+  });
+  if (!allItems.length && !allToolCalls.length) {
+    return emptyEvidenceGate();
+  }
+
+  const semanticItems = claimItems.filter((item) => CLAIM_BEARING_SEMANTIC_TOOLS.has(item?.tool));
+  const unsupportedItems = claimItems.filter((item) => !CLAIM_BEARING_SEMANTIC_TOOLS.has(item?.tool));
+  const semanticGate = semanticItems.length ? evaluateSemanticEvidence(semanticItems, options) : emptyEvidenceGate();
+  const evidenceKeys = new Map();
+  const evidenceIdCounts = new Map();
+  const evidenceIdViolations = [];
+  for (const item of allItems) {
+    const id = String(item?.toolCallId || "").trim();
+    const tool = String(item?.tool || "unknown_tool").trim() || "unknown_tool";
+    if (!id) {
+      evidenceIdViolations.push(`CLAIM_EVIDENCE_TOOL_CALL_ID_MISSING:${tool}`);
+      continue;
+    }
+    const key = `${id}\u0000${tool}`;
+    evidenceKeys.set(key, Number(evidenceKeys.get(key) || 0) + 1);
+    evidenceIdCounts.set(id, Number(evidenceIdCounts.get(id) || 0) + 1);
+  }
+  const toolCallCounts = new Map();
+  const toolCallIdCounts = new Map();
+  const toolCallIdViolations = [];
+  for (const toolCall of allToolCalls) {
+    const id = String(toolCall?.id || "").trim();
+    const tool = String(toolCall?.function?.name || "unknown_tool").trim() || "unknown_tool";
+    if (!id) {
+      toolCallIdViolations.push(`CLAIM_TOOL_CALL_ID_MISSING:${tool}`);
+      continue;
+    }
+    const key = `${id}\u0000${tool}`;
+    toolCallCounts.set(key, Number(toolCallCounts.get(key) || 0) + 1);
+    toolCallIdCounts.set(id, Number(toolCallIdCounts.get(id) || 0) + 1);
+  }
+  const violations = [
+    ...semanticGate.violations,
+    ...toolCallIdViolations,
+    ...evidenceIdViolations,
+    ...[...toolCallIdCounts.entries()].flatMap(([id, count]) => count > 1 ? [`CLAIM_TOOL_CALL_ID_DUPLICATE:${id}`] : []),
+    ...[...evidenceIdCounts.entries()].flatMap(([id, count]) => count > 1 ? [`CLAIM_EVIDENCE_TOOL_CALL_ID_DUPLICATE:${id}`] : []),
+    ...unsupportedItems.map((item) => `CLAIM_TOOL_RELEASE_CONTRACT_MISSING:${String(item?.tool || "unknown_tool").trim() || "unknown_tool"}`),
+    ...(executedToolCalls ? [...toolCallCounts.entries()].flatMap(([key, count]) => {
+      if (Number(evidenceKeys.get(key) || 0) >= count) return [];
+      const [rawId, tool] = key.split("\u0000");
+      return [`CLAIM_TOOL_EVIDENCE_MISSING:${rawId || "missing"}/${tool}`];
+    }) : []),
+    ...allItems.flatMap((item) => {
+      const id = String(item?.toolCallId || "").trim();
+      const tool = String(item?.tool || "unknown_tool").trim() || "unknown_tool";
+      if (!id) return [];
+      const count = evidenceKeys.get(`${id}\u0000${tool}`) || 0;
+      return [
+        ...(count > 1 ? [`CLAIM_TOOL_EVIDENCE_DUPLICATE:${id}/${tool}`] : []),
+        ...(executedToolCalls && !toolCallCounts.has(`${id}\u0000${tool}`)
+          ? [`CLAIM_EVIDENCE_TOOL_CALL_UNKNOWN:${id}/${tool}`]
+          : []),
+      ];
+    }),
+  ];
+  return {
+    status: violations.length ? "blocked" : semanticGate.status,
+    violations: [...new Set(violations)],
+    analysisRefs: semanticGate.analysisRefs,
+    sourceRevisionIds: semanticGate.sourceRevisionIds,
+    warnings: semanticGate.warnings,
   };
 }
 

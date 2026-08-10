@@ -42,6 +42,7 @@ describe("resolveAiAnalyticsContext", () => {
     expect(resolved.contextText).toContain("Result: 12 defects");
     expect(resolved.contextText).toContain("Do not invent modules such as ai-chat, user-auth, payment, or data-pipeline");
     expect(resolved.skipDefectContext).toBe(true);
+    expect(resolved.claimRelease).toEqual({ status: "unreleased", contextId: "resolved_analytics_query" });
   });
 
   it("stays silent for empty questions", async () => {
@@ -87,6 +88,25 @@ describe("resolveAiAnalyticsContext", () => {
         ruleEffects: [expect.objectContaining({ code: "BUSINESS_RULE_REQUIRE:business.defect_created_count.creation_time" })],
       }),
     });
+  });
+
+  it("does not execute the legacy metric fetch when a governed plan is runtime-ready", async () => {
+    const analyticsFetch = vi.fn();
+    const resolved = await resolveAiAnalyticsContext({
+      messages: [{ role: "user", content: "DTSV 6月份提了多少bug" }],
+      analyticsFetch,
+      now: new Date("2026-07-15T04:00:00.000Z"),
+      actor: { actorId: "alice", scopeHash: "scope-a", scopes: { workspaceIds: ["DTSV"], teamIds: ["DTSV"] } },
+      ontologyRegistry: createOntologyRegistry(),
+      requestSemanticCandidate: vi.fn().mockResolvedValue(null),
+    });
+
+    expect(resolved.queryPlan).toMatchObject({ status: "valid" });
+    expect(resolved.analysisPlan).toMatchObject({ status: "ready" });
+    expect(analyticsFetch).not.toHaveBeenCalled();
+    expect(resolved.contextText).not.toContain("# Resolved analytics query");
+    expect(resolved.skipDefectContext).toBe(false);
+    expect(resolved.claimRelease).toBeUndefined();
   });
 
   it("passes an LLM semantic candidate into the ontology resolver", async () => {

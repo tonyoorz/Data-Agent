@@ -3,7 +3,7 @@ import { compactChatMessages } from "./chatMessageBudget.mjs";
 import { expandMessagesWithDocumentText } from "./documentText.mjs";
 import { expandImageMessagesWithOcr } from "./imageOcr.mjs";
 import { validateAnswerTextCitations } from "./answerValidator.mjs";
-import { evaluateSemanticEvidence } from "./mainAgentEvidence.mjs";
+import { evaluateClaimEvidence } from "./mainAgentEvidence.mjs";
 
 const SYSTEM_PROMPT = `You are DTSV Intelligence — a senior data analyst embedded in a quality engineering dashboard.
 
@@ -476,10 +476,11 @@ function computeAnswerValidation(state) {
     if (!registryConstraintAvailable) {
       violations.push("ANSWER_VALIDATION_REGISTRY_UNAVAILABLE");
     }
-    const evidenceGate = evaluateSemanticEvidence(state.answerValidation?.evidence, {
+    const evidenceGate = evaluateClaimEvidence(state.answerValidation?.evidence, {
       expectedActorScopeHash: state.answerValidation?.expectedActorScopeHash,
       expectedSourceRevisionIds: state.answerValidation?.expectedSourceRevisionIds,
       requireReleaseBinding: true,
+      executedToolCalls: state.answerValidation?.executedToolCalls,
     });
     if (evidenceGate.status === "not_required") {
       violations.push("SEMANTIC_CLAIM_EVIDENCE_MISSING");

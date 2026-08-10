@@ -130,6 +130,31 @@ describe("agent run summary", () => {
     expect(text).toContain("aaaaaaaaaaaaaaaaaaaaaaaa");
   });
 
+  it("promotes a typed stream terminal failure into the operational outcome", () => {
+    const summary = summarizeRuns({
+      summaries: [{
+        runId: "run-stream-failed",
+        outcome: "completed",
+        evidenceStatus: "not_required",
+        toolNames: [],
+      }],
+      events: [{
+        runId: "run-stream-failed",
+        type: "agent-stream-completed",
+        terminalStatus: "failed",
+        failureCode: "FINAL_STREAM_FAILED",
+        citationValidation: "blocked",
+      }],
+    });
+
+    expect(summary).toMatchObject({
+      byOutcome: { failed: 1 },
+      citationValidation: { blocked: 1 },
+      topFailureCodes: [{ code: "FINAL_STREAM_FAILED", count: 1 }],
+      runs: [{ outcome: "failed", failureCode: "FINAL_STREAM_FAILED" }],
+    });
+  });
+
   it("does not expose caller-controlled run IDs, thread IDs, or unapproved tool names", () => {
     const summary = summarizeRuns({
       summaries: [{

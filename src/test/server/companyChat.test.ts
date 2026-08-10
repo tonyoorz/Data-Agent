@@ -787,7 +787,7 @@ describe("streamCompanyChatCompletion", () => {
     expect(streamedText.indexOf('"type":"answer-validation"')).toBeLessThan(streamedText.indexOf("data: [DONE]"));
     expect(onAnswerValidation).toHaveBeenCalledWith(expect.objectContaining({
       valid: false,
-      violations: ["ANSWER_CITATION_REQUIRED"],
+      violations: expect.arrayContaining(["ANSWER_CITATION_REQUIRED", "ANSWER_CLAIM_CITATION_REQUIRED:1"]),
     }));
   });
 
@@ -853,7 +853,7 @@ describe("streamCompanyChatCompletion", () => {
     expect(streamedText).toContain("ANSWER_CAUSAL_CLAIM_UNSUPPORTED");
     expect(onAnswerValidation).toHaveBeenCalledWith(expect.objectContaining({
       valid: false,
-      violations: ["ANSWER_CAUSAL_CLAIM_UNSUPPORTED"],
+      violations: expect.arrayContaining(["ANSWER_CAUSAL_CLAIM_UNSUPPORTED", "ANSWER_CLAIM_CITATION_REQUIRED:1"]),
     }));
   });
 

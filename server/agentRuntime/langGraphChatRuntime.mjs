@@ -10,7 +10,7 @@ import { requestCompanyChatCompletion } from "../companyChat.mjs";
 import { classifyDirectMainAgentIntent } from "../mainAgentDirectIntent.mjs";
 import {
   buildSemanticContinuationContext,
-  evaluateSemanticEvidence,
+  evaluateClaimEvidence,
   formatSemanticEvidenceGate,
 } from "../mainAgentEvidence.mjs";
 import { buildRuntimeRunSummary } from "./runSummary.mjs";
@@ -581,6 +581,29 @@ function buildSelectedToolsetContext(selectedToolset) {
   return `# Selected toolset\nIntent: ${selectedToolset?.intent || "general"}. Tools: ${toolNames}.`;
 }
 
+function emptyClaimReleaseGate() {
+  return { status: "not_required", violations: [], analysisRefs: [], sourceRevisionIds: [], warnings: [] };
+}
+
+function mergeContextReleaseGate(baseGate, state) {
+  const contextViolations = [
+    ...(state.analyticsContext?.claimRelease?.status === "unreleased"
+      && state.analyticsContext?.claimRelease?.contextId === "resolved_analytics_query"
+      ? ["CLAIM_CONTEXT_RELEASE_CONTRACT_MISSING:resolved_analytics_query"]
+      : []),
+    ...(state.defectContext?.duplicateSearchResult
+      ? ["CLAIM_CONTEXT_RELEASE_CONTRACT_MISSING:duplicate_search_context"]
+      : []),
+  ];
+  const normalizedBase = baseGate || emptyClaimReleaseGate();
+  if (!contextViolations.length) return normalizedBase;
+  return {
+    ...normalizedBase,
+    status: "blocked",
+    violations: [...new Set([...(normalizedBase.violations || []), ...contextViolations])],
+  };
+}
+
 function buildMainAgentToolContextFromState(state) {
   const toolCalls = (state.toolCalls || []).slice(Number(state.turnToolCallStart || 0));
   const toolMessages = (state.toolMessages || []).slice(Number(state.turnToolMessageStart || 0));
@@ -596,7 +619,10 @@ function buildMainAgentToolContextFromState(state) {
         sourceRevisionIds: [],
         warnings: [],
       }
-    : evaluateSemanticEvidence(evidence, { expectedActorScopeHash: state.actorScope?.scopeHash || "" });
+    : evaluateClaimEvidence(evidence, {
+        expectedActorScopeHash: state.actorScope?.scopeHash || "",
+        executedToolCalls: toolCalls,
+      });
   return {
     contextText: toolResultTexts.filter(Boolean).join("\n\n"),
     toolCalls,
@@ -949,7 +975,11 @@ export function createLangGraphChatRuntime({
 
   async function finalize(state, config) {
     const body = state.body || {};
-    const mainAgentToolContext = state.toolRouting?.shouldUseTools ? buildMainAgentToolContextFromState(state) : null;
+    const rawMainAgentToolContext = state.toolRouting?.shouldUseTools ? buildMainAgentToolContextFromState(state) : null;
+    const evidenceGate = mergeContextReleaseGate(rawMainAgentToolContext?.evidenceGate, state);
+    const mainAgentToolContext = rawMainAgentToolContext
+      ? { ...rawMainAgentToolContext, evidenceGate }
+      : null;
     const citationContractContext = buildCitationContractContext({ evidence: mainAgentToolContext?.evidence, registry: ontologyRegistry });
     const context = mergeContext(
       state.baseContext,
@@ -982,7 +1012,7 @@ export function createLangGraphChatRuntime({
       aiContextEnabled: body?.useDefectContext === true,
       analyticsContextEnabled: body?.useAnalyticsContext === true,
       mainAgentToolCallCount: mainAgentToolContext?.toolCalls?.length || 0,
-      evidenceGate: mainAgentToolContext?.evidenceGate || { status: "not_required", violations: [], analysisRefs: [], sourceRevisionIds: [], warnings: [] },
+      evidenceGate,
       toolRouting: state.directResponse
         ? { ...compactToolRouting(state.toolRouting), intent: state.directResponse.intent }
         : compactToolRouting(state.toolRouting),
