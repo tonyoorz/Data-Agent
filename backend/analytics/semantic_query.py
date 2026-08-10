@@ -22,6 +22,7 @@ from backend.analytics.semantic_analysis_store import (
     AnalysisRefScopeDenied,
     SemanticAnalysisStore,
 )
+from backend.analytics.semantic_runtime import RUNTIME_ADAPTERS
 from backend.analytics.traceability_models import build_traceability_analysis_payload
 
 
@@ -33,29 +34,7 @@ class SemanticQueryError(ValueError):
         self.rule_codes = list(rule_codes or [])
 
 
-DEFECT_METRICS = frozenset({"defect.count", "defect.created_count", "defect.severe_count", "team.defect_discovery_count"})
-TEST_RUN_METRICS = frozenset({"testing.run_count", "testing.passed_run_count", "testing.failed_run_count", "team.execution_count"})
-TESTCASE_METRICS = frozenset({"testing.testcase_count"})
-
-DEFECT_DIMENSION_FIELDS = {
-    "time.defect_creation_date": "creation_time",
-    "org.problem_finder_team": "problem_finder_team",
-    "product.project": "project",
-    "product.service_pack": "service_pack",
-    "product.pu": "pu",
-    "product.i_step": "i_step",
-    "product.os": "os",
-    "product.platform": "platform",
-    "product.ecu": "assigned_ecu",
-    "vehicle.model_series": "model_series",
-    "requirements.aida": "aida",
-    "quality.phase": "phase",
-    "quality.severity": "problem_severity",
-    "quality.business_impact": "problem_severity",
-    "quality.reporting_class": "classification",
-    "quality.status": "status",
-    "quality.china_scope": "china_scope",
-}
+DEFECT_DIMENSION_FIELDS = RUNTIME_ADAPTERS["python.semantic.defects"]["dimension_fields"]
 
 DEFECT_FILTER_PARAMS = {
     "org.problem_finder_team": "problem_finder_teams",
@@ -67,22 +46,8 @@ DEFECT_FILTER_PARAMS = {
     "quality.china_scope": "china_scopes",
 }
 
-TEST_RUN_DIMENSION_FIELDS = {
-    "time.test_finished_date": "finished",
-    "org.tester": "tester",
-    "org.team": "team",
-    "product.project": "project",
-    "product.pu": "pu",
-    "requirements.aida": "aida",
-    "testing.run_status": "status",
-    "time.test_week": "test_week",
-}
-
-TESTCASE_DIMENSION_FIELDS = {
-    "product.project": "project",
-    "product.pu": "pu",
-    "requirements.aida": "aida",
-}
+TEST_RUN_DIMENSION_FIELDS = RUNTIME_ADAPTERS["python.semantic.test_runs"]["dimension_fields"]
+TESTCASE_DIMENSION_FIELDS = RUNTIME_ADAPTERS["python.semantic.testcases"]["dimension_fields"]
 
 RECORD_FIELD_MAPS = {
     "quality.defect": {
@@ -196,11 +161,23 @@ def _require_string_list(value: Any, label: str) -> list[str]:
     return value
 
 
-def _catalog_metric(catalog: OntologyCatalog, metric_id: str, *, approved_only: bool = False) -> dict[str, Any]:
+def _catalog_metric(
+    catalog: OntologyCatalog,
+    metric_id: str,
+    *,
+    approved_only: bool = False,
+    runtime_ready_only: bool = False,
+) -> dict[str, Any]:
     try:
-        return catalog.get_metric(metric_id, approved_only=approved_only)
+        return catalog.get_metric(
+            metric_id,
+            approved_only=approved_only,
+            runtime_ready_only=runtime_ready_only,
+        )
     except OntologyLoadError as exc:
-        raise SemanticQueryError(str(exc)) from exc
+        code = str(exc)
+        status_code = 422 if "RUNTIME" in code else 400
+        raise SemanticQueryError(code.replace("ONTOLOGY_METRIC_NOT_RUNTIME_READY", "SEMANTIC_METRIC_NOT_RUNTIME_READY"), status_code=status_code) from exc
 
 
 def _catalog_dimension(catalog: OntologyCatalog, dimension_id: str) -> dict[str, Any]:
@@ -439,7 +416,10 @@ def _validate_request(payload: dict[str, Any], catalog: OntologyCatalog) -> tupl
     if unknown_entities:
         raise SemanticQueryError(f"SEMANTIC_ENTITY_NOT_FOUND:{sorted(unknown_entities)[0]}")
     approved_only = _catalog_constraint(catalog, "planner.approved_metric_only")["parameters"].get("enabled", True) is not False
-    metrics = [_catalog_metric(catalog, metric_id, approved_only=approved_only) for metric_id in metric_ids]
+    metrics = [
+        _catalog_metric(catalog, metric_id, approved_only=approved_only, runtime_ready_only=True)
+        for metric_id in metric_ids
+    ]
     for metric in metrics:
         if metric["entityId"] not in entity_ids:
             raise SemanticQueryError(f"SEMANTIC_METRIC_ENTITY_REQUIRED:{metric['id']}:{metric['entityId']}")
@@ -699,13 +679,23 @@ def _aggregate_rows(
     sort_items: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], dict[str, int], list[str]]:
     warnings: list[str] = []
-    missing_dimensions = [
-        dimension_id
-        for dimension_id in dimension_ids
-        if not any(str(row.get(field_map.get(dimension_id, "")) or "").strip() for row in rows)
-    ]
-    if missing_dimensions and rows:
-        warnings.append(f"DIMENSION_VALUES_MISSING:{','.join(missing_dimensions)}")
+    unavailable_dimensions: list[str] = []
+    partially_missing_dimensions: list[str] = []
+    if rows:
+        for dimension_id in dimension_ids:
+            source_field = field_map.get(dimension_id, "")
+            populated = sum(1 for row in rows if str(row.get(source_field) or "").strip())
+            if populated == 0:
+                unavailable_dimensions.append(dimension_id)
+            elif populated < len(rows):
+                partially_missing_dimensions.append(dimension_id)
+    if unavailable_dimensions:
+        raise SemanticQueryError(
+            f"SEMANTIC_SOURCE_FIELD_UNAVAILABLE:{unavailable_dimensions[0]}",
+            status_code=422,
+        )
+    if partially_missing_dimensions:
+        warnings.append(f"DIMENSION_VALUES_PARTIALLY_MISSING:{','.join(partially_missing_dimensions)}")
     distinct_rows = {str(row.get(identifier) or ""): row for row in rows if str(row.get(identifier) or "")}
     metric_values: dict[str, int] = {}
     for metric_id in metric_ids:
@@ -1007,13 +997,17 @@ def execute_semantic_query(
 ) -> dict[str, Any]:
     query, actor_scope, business_rule_codes = _validate_request(payload, catalog)
     metric_ids = set(query["metricIds"])
+    runtime_adapter_ids = {
+        str(_catalog_metric(catalog, metric_id, approved_only=True, runtime_ready_only=True)["runtime"]["adapterId"])
+        for metric_id in metric_ids
+    }
     if query["intent"] == "trace":
         data, summary, revision, warnings = _execute_traceability(query, trace_provider)
-    elif metric_ids and metric_ids.issubset(DEFECT_METRICS):
+    elif runtime_adapter_ids == {"python.semantic.defects"}:
         data, summary, revision, warnings = _execute_defects(query, defect_provider)
-    elif metric_ids and metric_ids.issubset(TEST_RUN_METRICS):
+    elif runtime_adapter_ids == {"python.semantic.test_runs"}:
         data, summary, revision, warnings = _execute_test_runs(query, run_provider)
-    elif metric_ids and metric_ids.issubset(TESTCASE_METRICS):
+    elif runtime_adapter_ids == {"python.semantic.testcases"}:
         data, summary, revision, warnings = _execute_testcases(query, testcase_provider)
     else:
         raise SemanticQueryError("SEMANTIC_METRIC_SET_NOT_EXECUTABLE")

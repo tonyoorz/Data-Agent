@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { fingerprintOntology } from "./fingerprint.mjs";
 import { validateOntologyBundle } from "./validator.mjs";
+import { validateMetricRuntimePublication } from "./runtimePublication.mjs";
 
 const defaultRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -66,9 +67,13 @@ export function createOntologyRegistry({
     bundle: Object.freeze(bundle),
     getEntity(id) { return requireItem(entities, id, "ENTITY"); },
     getDimension(id) { return requireItem(dimensions, id, "DIMENSION"); },
-    getMetric(id, { approvedOnly = false } = {}) {
+    getMetric(id, { approvedOnly = false, runtimeReadyOnly = false } = {}) {
       const metric = requireItem(metrics, id, "METRIC");
       if (approvedOnly && metric.governance.status !== "approved") fail("ONTOLOGY_METRIC_NOT_APPROVED", id);
+      if (runtimeReadyOnly) {
+        const publication = validateMetricRuntimePublication(metric);
+        if (!publication.ready) fail("ONTOLOGY_METRIC_NOT_RUNTIME_READY", id);
+      }
       return metric;
     },
     getRelationship(id) { return requireItem(relationships, id, "RELATIONSHIP"); },

@@ -109,7 +109,7 @@ export const semanticFrameSchema = Object.freeze({
         additionalProperties: false,
         properties: {
           code: nonEmptyString,
-          kind: { enum: ["metric_definition", "dimension", "time", "scope", "intent"] },
+          kind: { enum: ["metric_definition", "runtime_publication", "dimension", "time", "scope", "intent"] },
           message: nonEmptyString,
           metricId: nonEmptyString,
           dimensionId: nonEmptyString,

@@ -3,6 +3,7 @@ import Ajv2020 from "ajv/dist/2020.js";
 import { canonicalJson, fingerprintSourceQuery, normalizeSourceQuery } from "./fingerprint.mjs";
 import { compileSemanticQuery } from "./queryCompiler.mjs";
 import { assertOntologyScopeAccess } from "./scopePolicy.mjs";
+import { semanticMetricNotRuntimeReadyCode, validateMetricRuntimePublication } from "./runtimePublication.mjs";
 
 const string = { type: "string", minLength: 1 };
 const queryPlanSchema = {
@@ -259,6 +260,12 @@ export function createQueryPlanner({ registry } = {}) {
       const businessRuleDenials = ruleEffects.filter((effect) => effect.kind === "deny").map((effect) => effect.code);
       const businessRuleRequirements = unique(matchingBusinessRuleRequirements(registry, frame));
       const { frame: executionFrame, derivationCodes } = deriveBusinessRuleFrame({ registry, frame });
+      const runtimePublicationViolations = unique(executionFrame.metricIds.flatMap((metricId) => {
+        const metric = registry.getMetric(metricId);
+        if (metric.governance.status !== "approved") return [];
+        const publication = validateMetricRuntimePublication(metric);
+        return publication.ready ? [] : [semanticMetricNotRuntimeReadyCode(metric.id)];
+      }));
       const warnings = unique([
         ...frame.assumptions,
         ...matchingBusinessRuleWarnings(registry, frame),
@@ -290,6 +297,7 @@ export function createQueryPlanner({ registry } = {}) {
       const clarificationViolations = unique([
         ...frame.ambiguities.map((item) => item.code),
         ...businessRuleRequirements,
+        ...runtimePublicationViolations,
       ]);
       if (clarificationViolations.length) {
         return completePlan({
@@ -303,7 +311,10 @@ export function createQueryPlanner({ registry } = {}) {
       }
       const metricConstraint = registry.getConstraint("planner.approved_metric_only");
       for (const metricId of executionFrame.metricIds) {
-        const metric = registry.getMetric(metricId, { approvedOnly: metricConstraint.parameters.enabled !== false });
+        const metric = registry.getMetric(metricId, {
+          approvedOnly: metricConstraint.parameters.enabled !== false,
+          runtimeReadyOnly: true,
+        });
         const allowedDimensions = new Set(metric.allowedDimensions || []);
         const requestedDimensions = unique([
           ...executionFrame.dimensionIds,

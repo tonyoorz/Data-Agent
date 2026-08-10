@@ -2,6 +2,7 @@ import { validateSemanticFrame } from "./semanticFrame.mjs";
 import { composeSourceQuery, fingerprintSourceQuery } from "./fingerprint.mjs";
 import { resolveTimeScopes } from "./timeResolver.mjs";
 import { mandatoryScopeFilters } from "./scopePolicy.mjs";
+import { semanticMetricNotRuntimeReadyCode } from "./runtimePublication.mjs";
 
 function unique(values) {
   return [...new Set(values.filter(Boolean))];
@@ -348,6 +349,15 @@ export function createSemanticResolver({ registry, now = () => new Date().toISOS
         if (metric.governance.status !== "approved") {
           const ambiguity = ambiguityForMetric(metric);
           ambiguitiesByCode.set(ambiguity.code, ambiguity);
+        } else if (metric.runtime?.status !== "ready") {
+          const code = semanticMetricNotRuntimeReadyCode(metric.id);
+          ambiguitiesByCode.set(code, {
+            code,
+            kind: "runtime_publication",
+            message: `“${metric.labels["zh-CN"]}”已完成业务治理，但尚未发布到语义运行时。请选择已发布指标或稍后重试。`,
+            metricId: metric.id,
+            options: ["改用已发布指标", "取消本次查询"],
+          });
         }
       }
       if (intent === "trace" && clarificationSelection !== "查看当前授权范围的追溯概览" && /(?:这个|该|this)\s*(?:AIDA|Requirement|需求)/iu.test(text) && !filters.some((item) => item.source !== "policy" && item.dimensionId === "requirements.aida")) {

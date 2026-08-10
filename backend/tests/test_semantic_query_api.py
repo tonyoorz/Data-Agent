@@ -175,6 +175,65 @@ def test_metric_result_issues_durable_analysis_ref_and_evidence(catalog, tmp_pat
     assert stored["source_revision"]["revisionId"] == "snap-analysis-1"
 
 
+def test_approved_but_unpublished_metric_fails_before_provider_execution(catalog) -> None:
+    payload = _payload(catalog, metric_id="kpi.defect_detection_ratio")
+
+    with pytest.raises(SemanticQueryError, match="SEMANTIC_METRIC_NOT_RUNTIME_READY:kpi.defect_detection_ratio") as exc_info:
+        execute_semantic_query(
+            payload,
+            catalog=catalog,
+            defect_provider=lambda _filters: pytest.fail("planned metrics must not reach a provider"),
+        )
+
+    assert exc_info.value.status_code == 422
+
+
+def test_grouping_dimension_with_no_source_values_fails_closed(catalog) -> None:
+    payload = _payload(catalog)
+    payload["query"]["dimensionIds"] = ["product.ecu"]
+
+    with pytest.raises(SemanticQueryError, match="SEMANTIC_SOURCE_FIELD_UNAVAILABLE:product.ecu") as exc_info:
+        execute_semantic_query(
+            payload,
+            catalog=catalog,
+            defect_provider=lambda _filters: {
+                "snapshot_version": "missing-ecu-1",
+                "generated_from": {},
+                "ticket_rows": [
+                    {"ticket_id": "D-1", "problem_finder_team": "DTSV_China"},
+                    {"ticket_id": "D-2", "problem_finder_team": "DTSV_China", "assigned_ecu": None},
+                ],
+            },
+        )
+
+    assert exc_info.value.status_code == 422
+
+
+def test_grouping_dimension_with_partial_source_values_is_disclosed(catalog) -> None:
+    payload = _payload(catalog)
+    payload["query"]["dimensionIds"] = ["product.ecu"]
+
+    result = execute_semantic_query(
+        payload,
+        catalog=catalog,
+        defect_provider=lambda _filters: {
+            "snapshot_version": "partial-ecu-1",
+            "generated_from": {},
+            "ticket_rows": [
+                {"ticket_id": "D-1", "problem_finder_team": "DTSV_China", "assigned_ecu": "HU"},
+                {"ticket_id": "D-2", "problem_finder_team": "DTSV_China"},
+            ],
+        },
+    )
+
+    assert result["data"] == [
+        {"product.ecu": "(missing)", "defect.count": 1},
+        {"product.ecu": "HU", "defect.count": 1},
+    ]
+    assert result["quality"]["completeness"] == "partial"
+    assert result["quality"]["warnings"] == ["DIMENSION_VALUES_PARTIALLY_MISSING:product.ecu"]
+
+
 def test_records_continuation_returns_allowlisted_raw_rows_from_same_revision(catalog, tmp_path: Path) -> None:
     store = SemanticAnalysisStore(tmp_path / "analysis.db")
     metric_payload = _payload(catalog)
