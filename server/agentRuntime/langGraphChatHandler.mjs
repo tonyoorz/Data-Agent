@@ -9,6 +9,16 @@ import { createOntologyRegistry } from "../ontology/registry.mjs";
 
 const FINAL_STREAM_FAILURE_CODE = "FINAL_STREAM_FAILED";
 
+function blockedAnswerValidation(violations = []) {
+  const normalized = [...new Set((Array.isArray(violations) ? violations : [])
+    .map((value) => String(value || "").trim())
+    .filter(Boolean))];
+  return {
+    valid: false,
+    violations: normalized.length ? normalized : ["SEMANTIC_EVIDENCE_GATE_BLOCKED"],
+  };
+}
+
 function declaredEvidenceGate(runtimeResult) {
   return runtimeResult?.mainAgentToolContext?.evidenceGate || runtimeResult?.metrics?.evidenceGate || null;
 }
@@ -123,32 +133,58 @@ export async function streamLangGraphChatResponse({
     { body, toolDependencies },
     {
       onEvent: (event) => {
-        writeEvent(response, { type: "agent-runtime-event", event });
+        try {
+          writeEvent(response, { type: "agent-runtime-event", event });
+        } catch {
+          // A disconnected client must not abort governed execution or its terminal audit.
+        }
       },
     },
   );
 
   const releaseGate = resolveReleaseGate(runtimeResult);
   if (releaseGate?.status === "blocked") {
-    answerValidationResult = writeGovernedEvidenceBlockResponse(response, releaseGate.violations);
+    answerValidationResult = blockedAnswerValidation(releaseGate.violations);
     streamMetrics = { evidenceReleaseBlocked: true, finalModelInvoked: false };
     const result = { runtimeResult, streamMetrics, answerValidation: answerValidationResult };
-    return complete(result);
+    try {
+      answerValidationResult = writeGovernedEvidenceBlockResponse(response, releaseGate.violations);
+      result.answerValidation = answerValidationResult;
+    } catch {
+      // The release decision is still auditable when the client has disconnected.
+    } finally {
+      await complete(result);
+    }
+    return result;
   }
 
   if (releaseGate?.status === "pass"
     && typeof runtimeResult?.directResponse?.content === "string"
     && runtimeResult.directResponse.content.trim()) {
-    answerValidationResult = writeGovernedEvidenceBlockResponse(response, ["ANSWER_DIRECT_RESPONSE_CLAIM_BYPASS_BLOCKED"]);
+    answerValidationResult = blockedAnswerValidation(["ANSWER_DIRECT_RESPONSE_CLAIM_BYPASS_BLOCKED"]);
     streamMetrics = { evidenceReleaseBlocked: true, finalModelInvoked: false };
     const result = { runtimeResult, streamMetrics, answerValidation: answerValidationResult };
-    return complete(result);
+    try {
+      answerValidationResult = writeGovernedEvidenceBlockResponse(response, answerValidationResult.violations);
+      result.answerValidation = answerValidationResult;
+    } catch {
+      // The release decision is still auditable when the client has disconnected.
+    } finally {
+      await complete(result);
+    }
+    return result;
   }
 
   if (typeof runtimeResult?.directResponse?.content === "string" && runtimeResult.directResponse.content.trim()) {
-    writeSseResponse(response, runtimeResult.directResponse.content);
     const result = { runtimeResult, streamMetrics: { directResponse: true }, answerValidation: null };
-    return complete(result);
+    try {
+      writeSseResponse(response, runtimeResult.directResponse.content);
+    } catch {
+      // A client write failure cannot suppress completion observation.
+    } finally {
+      await complete(result);
+    }
+    return result;
   }
 
   try {

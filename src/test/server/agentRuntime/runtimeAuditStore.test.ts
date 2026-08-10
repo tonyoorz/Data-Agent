@@ -10,6 +10,7 @@ describe("file agent runtime store", () => {
   it("persists thread checkpoints, run audit events, and tool-call audit records", async () => {
     const rootDir = await mkdtemp(path.join(tmpdir(), "vizion-agent-runtime-"));
     const clientThreadId = "client-thread-alice@example.test";
+    const clientRunId = "run-alice@example.test-sensitive-defect-title";
     await chmod(rootDir, 0o755);
     const store = createFileAgentRuntimeStore({
       rootDir,
@@ -19,7 +20,7 @@ describe("file agent runtime store", () => {
     await store.writeThreadCheckpoint({
       persistenceKey: `actor-thread-${"1".repeat(64)}`,
       threadId: clientThreadId,
-      runId: "run-1",
+      runId: clientRunId,
       actorScope: { actorId: "u1", scopeHash: "scope-1", scopes: { projectIds: ["App"] } },
       checkpoint: {
         node: "finalize",
@@ -39,9 +40,14 @@ describe("file agent runtime store", () => {
       actorScope: { actorId: "u2", scopeHash: "scope-2", scopes: { projectIds: ["App"] } },
       checkpoint: { node: "finalize", metrics: { mainAgentToolCallCount: 0 } },
     });
-    await store.appendRunEvent({ runId: "run-1", threadId: clientThreadId, type: "agent-runtime-ready" });
+    await store.appendRunEvent({
+      runId: clientRunId,
+      threadId: clientThreadId,
+      actorScope: { actorId: "u1", scopeHash: "scope-1" },
+      type: "agent-runtime-ready",
+    });
     await store.appendToolAudit({
-      runId: "run-1",
+      runId: clientRunId,
       threadId: clientThreadId,
       actorScope: { actorId: "u1", scopeHash: "scope-1" },
       toolCallId: "call-1",
@@ -49,10 +55,23 @@ describe("file agent runtime store", () => {
       input: { query: { intent: "rank" } },
       outputSummary: "# Main agent semantic tool result",
       privateStack: "Error: bearer-token-secret\n at private.js:1:1",
+      recovery: {
+        action: "catalog",
+        outcome: "recovered",
+        reason: "governed_query_plan",
+        queryFingerprint: "query-fingerprint",
+        originalQueryFingerprint: "original-fingerprint",
+        revisedQueryFingerprint: "revised-fingerprint",
+        sourcePlanId: "plan-123",
+        sourceToolCallId: "call-0",
+        attempts: 1,
+        maxAttempts: 1,
+        retryable: false,
+      },
     });
     await store.appendRunSummary({
       schemaVersion: "1.0",
-      runId: "run-1",
+      runId: clientRunId,
       threadId: clientThreadId,
       actorScopeHash: "scope-1",
       intent: "metric_query",
@@ -65,7 +84,7 @@ describe("file agent runtime store", () => {
     expect(checkpoint).toEqual(
       expect.objectContaining({
         threadRef: expect.stringMatching(/^thread-[a-f0-9]{64}$/),
-        runId: "run-1",
+        runId: expect.stringMatching(/^run-[a-f0-9]{64}$/),
         actorScopeHash: "scope-1",
         checkpoint: {
           node: "finalize",
@@ -82,7 +101,7 @@ describe("file agent runtime store", () => {
     );
     expect(otherActorCheckpoint).toEqual(expect.objectContaining({
       threadRef: expect.stringMatching(/^thread-[a-f0-9]{64}$/),
-      runId: "run-2",
+      runId: expect.stringMatching(/^run-[a-f0-9]{64}$/),
       actorScopeHash: "scope-2",
     }));
     expect(otherActorCheckpoint.threadRef).not.toBe(checkpoint.threadRef);
@@ -90,7 +109,7 @@ describe("file agent runtime store", () => {
     const runEvents = (await readFile(path.join(rootDir, "run-events.jsonl"), "utf8")).trim().split("\n");
     expect(JSON.parse(runEvents[0])).toEqual(
       expect.objectContaining({
-        runId: "run-1",
+        runId: checkpoint.runId,
         threadRef: expect.stringMatching(/^thread-[a-f0-9]{64}$/),
         type: "agent-runtime-ready",
         recordedAt: "2026-07-24T08:00:00.000Z",
@@ -100,11 +119,24 @@ describe("file agent runtime store", () => {
     const toolAudit = (await readFile(path.join(rootDir, "tool-calls.jsonl"), "utf8")).trim().split("\n");
     expect(JSON.parse(toolAudit[0])).toEqual(
       expect.objectContaining({
-        runId: "run-1",
+        runId: checkpoint.runId,
         threadRef: expect.stringMatching(/^thread-[a-f0-9]{64}$/),
         toolCallId: "call-1",
         toolName: "query_semantic_metrics",
         actorScopeHash: "scope-1",
+        recovery: {
+          action: "catalog",
+          outcome: "recovered",
+          reason: "governed_query_plan",
+          queryFingerprint: "query-fingerprint",
+          originalQueryFingerprint: "original-fingerprint",
+          revisedQueryFingerprint: "revised-fingerprint",
+          sourcePlanId: "plan-123",
+          sourceToolCallId: "call-0",
+          attempts: 1,
+          maxAttempts: 1,
+          retryable: false,
+        },
       }),
     );
     expect(JSON.parse(toolAudit[0])).not.toHaveProperty("input");
@@ -114,7 +146,7 @@ describe("file agent runtime store", () => {
     const runSummary = (await readFile(path.join(rootDir, "run-summaries.jsonl"), "utf8")).trim().split("\n");
     expect(JSON.parse(runSummary[0])).toEqual(
       expect.objectContaining({
-        runId: "run-1",
+        runId: checkpoint.runId,
         threadRef: expect.stringMatching(/^thread-[a-f0-9]{64}$/),
         actorScopeHash: "scope-1",
         intent: "metric_query",
@@ -134,6 +166,7 @@ describe("file agent runtime store", () => {
     expect(persistedText).not.toContain('"actorId"');
     expect(persistedText).not.toContain('"projectIds"');
     expect(persistedText).not.toContain(clientThreadId);
+    expect(persistedText).not.toContain(clientRunId);
     expect(persistedText).not.toContain('"threadId"');
 
     expect((await stat(rootDir)).mode & 0o777).toBe(0o700);

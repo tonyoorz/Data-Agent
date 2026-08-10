@@ -12,7 +12,7 @@ function evidenceByToolCallId(evidence) {
     .map((item) => [String(item.toolCallId), item]));
 }
 
-const CAUSAL_CLAIM_PATTERN = /(?:导致|造成|引发|根因\s*(?:是|为)|直接原因\s*(?:是|为)|\b(?:causes?|caused|led to|resulted in|due to|root cause\s+(?:is|was))\b)/iu;
+const CAUSAL_CLAIM_PATTERN = /(?:导致|造成|引发|归因于|源于|由于|促使|使得|因为.{0,40}所以|根因\s*(?:是|为)|直接原因\s*(?:是|为)|\b(?:causes?|caused|led to|resulted in|due to|attribut(?:e|ed)\s+to|stems?\s+from|because of|root cause\s+(?:is|was))\b)/iu;
 const CAUSAL_LIMITATION_PATTERN = /(?:不能|无法|不).{0,20}(?:证明|表明).{0,20}(?:因果|导致|造成|引发|根因)|(?:不代表|并非).{0,12}(?:因果|导致|造成|根因)|\b(?:does not|doesn't|cannot|can't|not)\b.{0,24}\b(?:prove|establish|demonstrate)\b.{0,24}\b(?:causal|causation|cause)\b|\b(?:not causal|no causal evidence)\b/iu;
 const CITATION_SOURCE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
 const CITATION_TOKEN_PATTERN = /<cite\s+source=(["'])([A-Za-z0-9][A-Za-z0-9._:-]{0,127})\1\s*>([\s\S]*?)<\/cite\s*>/giu;
@@ -20,7 +20,7 @@ const CITATION_LIKE_PATTERN = /<\/?cit(?:e|ation)\b/iu;
 const CLAIM_CLAUSE_SEPARATOR = /[。！？!?；;，,：:、•●▪◦\n]/u;
 const CAUSAL_SENTENCE_SEPARATOR = /[。！？!?；;\n]/u;
 const FACTUAL_DATA_SUBJECT_PATTERN = /(?:缺陷|问题单|测试(?:用例|执行|运行)?|覆盖率|通过率|执行率|数量|总数|趋势|排名|占比|均值|中位数|项目|团队|模块|ECU|AIDA|defects?|issues?|tests?|runs?|coverage|pass\s*rate|execution\s*rate|count|total|trend|rank|average|median)/iu;
-const FACTUAL_DATA_PREDICATE_PATTERN = /(?:是|为|有|共|达到|上升|下降|增长|减少|增加|最高|最低|排名|占比|分别|相比|同比|环比|存在|发现|通过|失败|完成|超过|高于|低于|is|are|was|were|has|have|total(?:s|ed)?|increased?|decreased?|grew|fell|ranked?|passed?|failed?|found|shows?|indicates?|equals?|exceeds?|contains?|includes?|accounts?\s+for)/iu;
+const FACTUAL_DATA_PREDICATE_PATTERN = /(?:是|为|有|共|达到|上升|下降|增长|减少|增加|最高|最低|最多|最少|主要集中|集中(?:于|在)|领先|落后|居首|垫底|排名|占比|分别|相比|同比|环比|存在|发现|通过|失败|完成|超过|高于|低于|is|are|was|were|has|have|total(?:s|ed)?|increased?|decreased?|grew|fell|ranked?|passed?|failed?|found|shows?|indicates?|equals?|exceeds?|contains?|includes?|accounts?\s+for|highest|lowest|most|least|concentrated|leading|trailing|top|bottom)/iu;
 
 function splitPreservingDecimalPoints(text, separatorPattern) {
   const source = String(text || "");

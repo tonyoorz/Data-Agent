@@ -411,6 +411,58 @@ describe("LangGraph chat handler", () => {
     expect(onCompleted).toHaveBeenCalledTimes(1);
   });
 
+  it("persists a blocked terminal decision even when the client disconnects before the safe response", async () => {
+    const response = {
+      writeHead: vi.fn(),
+      write: vi.fn(() => { throw new Error("socket closed"); }),
+      end: vi.fn(),
+      flushHeaders: vi.fn(),
+    };
+    const runtime = {
+      invoke: vi.fn(async (_input, config) => {
+        config?.onEvent?.({ type: "tool-routing-completed" });
+        return {
+          runId: "run-blocked-disconnect",
+          threadId: "thread-blocked-disconnect",
+          actorScope: { scopeHash: "scope-a" },
+          finalMessages: [{ role: "user", content: "缺陷总数" }],
+          context: "",
+          prefaceEvents: [],
+          mainAgentToolContext: {
+            toolCalls: [{ id: "legacy-1", function: { name: "query_defect_aggregate" } }],
+            evidence: [{ toolCallId: "legacy-1", tool: "query_defect_aggregate", ok: true }],
+            evidenceGate: {
+              status: "blocked",
+              violations: ["CLAIM_TOOL_RELEASE_CONTRACT_MISSING:query_defect_aggregate"],
+            },
+          },
+          metrics: { mainAgentToolCallCount: 1 },
+        };
+      }),
+    };
+    const onCompleted = vi.fn();
+    const streamCompletion = vi.fn();
+
+    const result = await streamLangGraphChatResponse({
+      response,
+      runtime,
+      streamCompletion,
+      onCompleted,
+      writeEvent: vi.fn(() => { throw new Error("socket closed"); }),
+    });
+
+    expect(streamCompletion).not.toHaveBeenCalled();
+    expect(result.answerValidation).toEqual({
+      valid: false,
+      violations: ["CLAIM_TOOL_RELEASE_CONTRACT_MISSING:query_defect_aggregate"],
+    });
+    expect(onCompleted).toHaveBeenCalledTimes(1);
+    expect(onCompleted).toHaveBeenCalledWith(expect.objectContaining({
+      runtimeResult: expect.objectContaining({ runId: "run-blocked-disconnect" }),
+      answerValidation: expect.objectContaining({ valid: false }),
+    }));
+  });
+
   it("blocks an executed factual tool when its evidence envelope is missing", async () => {
     const response = { writeHead: vi.fn(), write: vi.fn(), end: vi.fn(), flushHeaders: vi.fn() };
     const runtime = {
@@ -495,7 +547,7 @@ describe("LangGraph chat handler", () => {
     const auditLines = (await readFile(path.join(auditRoot, "run-events.jsonl"), "utf8")).trim().split("\n");
     expect(auditLines).toHaveLength(1);
     expect(JSON.parse(auditLines[0])).toMatchObject({
-      runId: "run-provider-throw",
+      runId: expect.stringMatching(/^run-[a-f0-9]{64}$/),
       type: "agent-stream-completed",
       terminalStatus: "failed",
       failureCode: "FINAL_STREAM_FAILED",
@@ -503,6 +555,7 @@ describe("LangGraph chat handler", () => {
     });
     expect(auditLines[0]).not.toContain("SECRET_PROVIDER_DETAIL");
     expect(auditLines[0]).not.toContain("api-key");
+    expect(auditLines[0]).not.toContain("run-provider-throw");
   });
 
   it("still completes the failed audit when writing the safe terminal also throws", async () => {

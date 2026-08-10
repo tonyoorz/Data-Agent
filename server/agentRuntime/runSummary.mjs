@@ -63,6 +63,7 @@ const SAFE_TIMELINE_TYPES = new Set([
   "agent-runtime-failed",
   "agent-stream-completed",
 ]);
+const TERMINAL_OUTCOMES = new Set(["completed", "blocked", "failed"]);
 
 function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -91,6 +92,17 @@ function outcomeFromStoppedReason(stoppedReason) {
   if (/denied|not_allowed/i.test(String(stoppedReason || ""))) return "denied";
   if (/recovery_(?:exhausted|stopped|catalog)/i.test(String(stoppedReason || ""))) return "failed";
   return "completed";
+}
+
+function operationalOutcome(rawSummary, stream) {
+  const terminalStatus = String(stream?.terminalStatus || "");
+  const runtimeOutcome = String(rawSummary?.outcome || "completed");
+  if (!TERMINAL_OUTCOMES.has(terminalStatus)) return runtimeOutcome;
+  // A successfully delivered policy denial is still a denied run. Blocked and
+  // failed terminal states, however, must override any pre-stream "completed" summary.
+  return terminalStatus === "completed" && runtimeOutcome !== "completed"
+    ? runtimeOutcome
+    : terminalStatus;
 }
 
 export function redactAuditPayload(value) {
@@ -196,9 +208,7 @@ export function summarizeRuns({ summaries = [], events = [] } = {}) {
     const stream = streamByRun.get(String(rawSummary?.runId || ""));
     const citation = String(stream?.citationValidation || rawSummary?.citationValidation || "pending");
     const latencyMs = Number(stream?.latencyMs);
-    const outcome = String(stream?.terminalStatus || "") === "failed"
-      ? "failed"
-      : String(rawSummary?.outcome || "completed");
+    const outcome = operationalOutcome(rawSummary, stream);
     const failureCode = String(stream?.failureCode || rawSummary?.failureCode || "");
     const run = publicRun(rawSummary, stream);
     increment(byOutcome, outcome);
@@ -268,9 +278,7 @@ function opaqueRunRef(runId) {
 
 function publicRun(rawSummary, stream) {
   const latencyMs = Number(stream?.latencyMs);
-  const outcome = String(stream?.terminalStatus || "") === "failed"
-    ? "failed"
-    : String(rawSummary?.outcome || "completed");
+  const outcome = operationalOutcome(rawSummary, stream);
   const failureCode = String(stream?.failureCode || rawSummary?.failureCode || "");
   return {
     runRef: opaqueRunRef(rawSummary?.runId),

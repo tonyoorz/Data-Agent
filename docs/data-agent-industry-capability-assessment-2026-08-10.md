@@ -45,6 +45,7 @@ Data-Agent 的正确目标也不是把每一列都打勾，而是成为一个面
 - 每个 metric 必须声明 `runtime.status`；只有带 adapter ID/version 且和执行字段一致的指标才可标记 `ready`。
 - Node Resolver/Planner 与 Python provider 前置门禁分别拒绝 `planned` 指标。
 - 所有请求的 dimension、filter、time、comparison 和 sort 字段按每个指标的 allowlist 校验，不使用多指标并集放行。
+- 任何一端声称 plan 已 `ready/valid` 时，运行时会重建并比对完整 semantic frame、query plan 与 analysis plan；scope、source、fingerprint、schema、依赖或 canonical args 任一不一致都会阻断，不回退模型重规划。
 - 非空数据源中目标维度完全未物化时返回 422；部分缺失会保留 `(missing)` 分组并给出明确 warning，使数据质量缺口可见而不伪装成完整排名。
 - `ontology:check` 精确校验 [runtime-capabilities.json](../ontology/generated/runtime-capabilities.json) 与 Ontology fingerprint，报告漂移会失败。
 
@@ -53,11 +54,13 @@ Data-Agent 的正确目标也不是把每一列都打勾，而是成为一个面
 - 浏览器提供的 `actor` / `actorScope` 不被信任；Node 从已认证 principal 生成短期签名 capability。
 - Python semantic query/records 先验证 capability，再由服务端覆盖构造 actor scope；缺失、篡改、过期和 body 扩权均拒绝。
 - 工具被完整分类为 5 metadata、8 scoped data、9 internal-only；OIDC 对 internal-only 和未来未分类工具默认拒绝。
-- 客户端 thread ID 不直接作为 checkpoint key；LangGraph checkpoint 与文件快照使用 actor、scope 和 thread 共同派生的不透明哈希键，原始 ID 只保留为审计元数据，避免跨用户状态碰撞。
+- 客户端 thread ID 不直接作为 checkpoint key；LangGraph checkpoint 与文件快照使用 actor、scope 和 thread 共同派生的不透明哈希键，持久化审计只保留 scope-bound `threadRef`，原始 ID 不落盘。
+- 浏览器聊天历史使用已认证 actor 的 opaque namespace；切换账号立即切换会话视图，旧的 origin 级共享 key 被删除，匿名会话不持久化。
 
 ### 3. 数据事实先验证后发布
 
-- claim-bearing semantic/trace 回答先在有界缓冲区生成，校验 citation、因果限制、actor scope、analysis ref 和 source revision 后才释放 SSE。
+- 主 Agent 内所有数据事实路径都先经过 release gate；semantic/records/trace 使用 scope、analysis ref 和 source revision 契约，旧数据工具或隐式 analytics/duplicate context 没有完整契约时在最终模型前失败关闭。
+- 受治理回答在有界缓冲区生成；服务端逐个 uncited segment 校验 citation，拒绝未知/重复 tool-call ID、引用外事实和无证据因果，再决定是否释放 SSE。
 - evidence gate 阻断时不调用最终模型；成文校验失败时丢弃全部模型原文，只发布稳定的受限答复和 machine-readable violation。
 - 移除“流完以后自动补 citation”的伪修复；buffer 超限、timeout、registry 不可用全部 fail-closed。
 - 无数据事实的 greeting/clarification 保持实时流式体验。
@@ -66,6 +69,8 @@ Data-Agent 的正确目标也不是把每一列都打勾，而是成为一个面
 
 - Node API 只绑定 `127.0.0.1`，严格校验 Host/Origin/port，CORS 不再使用 `*`。
 - API POST 只接受 JSON，流式读取有明确上限并返回 413；transcribe 与 chat 使用同一认证链。
+- 上游错误 body 不读取、不回显；客户端只收到稳定错误码。runtime 目录/文件强制 `0700/0600`，审计采用显式字段 allowlist 和 scope-bound opaque run/thread reference，不持久化 query text、客户端 run/thread ID、完整 actor scope、工具 input/output 或 stack；进程 metric 只记 query length。
+- provider、客户端断连和 evidence block 都会形成唯一 machine-readable terminal audit；客户端写失败不能取消审计完成。
 - qualification 命令实际运行 fixtures 与 Ontology gate，可选完整 Node suite/build；dirty checkout、失败 gate、commit/Ontology/fixture 漂移均不能通过 verify。
 - 工件固定声明 `evidenceClass=deterministic_fixture`、`productionSnapshot=false`，避免把确定性 fixture 误报为模型准确率或生产效果。
 

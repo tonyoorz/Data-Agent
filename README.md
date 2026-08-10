@@ -232,6 +232,8 @@ $env:VIZION_OIDC_JWKS_URI = "https://issuer.example.com/.well-known/jwks.json"
 
 `VIZION_OIDC_ISSUER` and `VIZION_OIDC_JWKS_URI` must use HTTPS. The browser sends its current Supabase/OIDC session token only in the `Authorization: Bearer` header for AI Chat and transcription; identity and scopes in either JSON request body are ignored.
 
+AI Chat persistence is also actor-scoped. Authenticated conversations use an opaque actor-derived browser-storage namespace, switching actors immediately switches the visible conversation set, and the old origin-wide `dtsv.chat.v2` key is removed rather than migrated across accounts. Anonymous conversations are not persisted.
+
 Map verified subjects/groups to complete server-owned grants with `VIZION_AGENT_OIDC_SCOPE_POLICY_JSON`. A grant must include non-empty `allowedObjectTypes`; a user matching multiple different grants is denied rather than receiving a field-wise union.
 
 ```json
@@ -265,7 +267,7 @@ Rotate the capability secret with a coordinated maintenance window:
 
 The current verifier accepts one secret at a time, so rolling one service before the other intentionally causes agent-only queries to fail closed. Keep FastAPI port `3003` bound to loopback or a private network; do not expose it directly to browsers. Place the Node API behind the authenticated reverse-proxy boundary for shared deployments.
 
-Duplicate search and the legacy allowlisted fallback query do not yet have row-scope enforcement. They are available only in `internal` mode; scoped OIDC actors receive a safe denial from the associated tools and `/api/ai/context` or `/api/duplicate-search*` routes. Do not re-enable them for OIDC users until their backend retrieval path enforces the same actor scope contract.
+Duplicate search and the legacy allowlisted fallback query do not yet have row-scope enforcement. They are available only in `internal` mode; scoped OIDC actors receive a safe denial from the associated tools and `/api/ai/context` or `/api/duplicate-search*` routes. The main Agent also refuses to release data claims from any legacy tool or implicit analytics/duplicate context without a complete evidence contract, including in internal mode. The dedicated duplicate-search UI remains separate. Do not re-enable these paths for OIDC users until their backend retrieval path enforces the same actor scope and evidence contract.
 
 ### Runtime Ontology Governance
 
@@ -295,7 +297,7 @@ Agent recovery never generates SQL, code, or a broader scope. A failed read is r
 
 Each recovery audit stores the original and revised query fingerprints, source tool call, applicable source plan, reason, and outcome. Filter relaxation, ambiguous catalog matches, policy denials, sensitivity denials, and multiple matching plan steps are never retried automatically.
 
-Semantic quality checks reject unsupported trace joins and unbounded many-to-many paths before source reads. Source freshness warnings, including `SOURCE_STALE`, appear in semantic tool context. The answer stream is instructed not to turn observational analytics into causality; cited unsupported causal claims emit `ANSWER_CAUSAL_CLAIM_UNSUPPORTED` in the answer-validation event.
+Semantic quality checks reject unsupported trace joins and unbounded many-to-many paths before source reads. Source freshness warnings, including `SOURCE_STALE`, appear in semantic tool context. Claim-bearing answers are buffered until every factual segment is citation-bound to a unique executed tool/evidence pair; citation markup does not bypass the causal check. Invalid answer text is discarded before release and emits machine-readable violations such as `ANSWER_CAUSAL_CLAIM_UNSUPPORTED`.
 
 ### Auditable Agent Qualification
 
@@ -327,14 +329,14 @@ Repeat the full qualification twice after any OIDC policy, actor-capability, age
 
 ### Operations Audit and Retention
 
-LangGraph writes append-only runtime artifacts below `logs/agent-runtime/` by default:
+LangGraph writes append-only runtime artifacts below `logs/agent-runtime/` by default. The root/subdirectories are forced to mode `0700` and files to `0600` on supported hosts:
 
 - `run-summaries.jsonl`: normalized summary records
 - `run-events.jsonl`: lifecycle and stream-completion events
 - `tool-calls.jsonl`: tool audit records
 - `threads/`: checkpoints
 
-The Agent Operations page requires the server-resolved `agent.operations.read` row policy. Its API returns opaque run references and sanitized timeline fields only. Raw audit files still require filesystem access control because they are operational logs. Configure external retention and backup jobs; a recommended starting policy is 30 days for raw events/tool audits, 90 days for summaries, and no backup of thread checkpoints unless an approved incident process requires it.
+The file store uses an explicit allowlist: it derives scope-bound opaque run/thread references and retains only scope hashes, plan/fingerprint identifiers, tool/recovery outcomes, evidence status, terminal status and stable failure codes. It drops raw query text, client-provided run/thread IDs, actor identity/grants, tool input/output and stacks; process metrics retain query length only, never a query preview. The Agent Operations page still requires the server-resolved `agent.operations.read` row policy, and external storage must enforce equivalent access control and encryption. Configure retention and backup jobs; a recommended starting policy is 30 days for events/tool audits, 90 days for summaries, and no backup of thread checkpoints unless an approved incident process requires it.
 
 ### Emergency Rollback
 

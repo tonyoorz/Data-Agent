@@ -27,4 +27,12 @@ describe("server agent runtime entry", () => {
     expect(source).toContain("sendJson(response, safeError.statusCode, safeError.payload)");
     expect(source).not.toContain('error instanceof Error ? error.message : "Unknown server error"');
   });
+
+  it("does not copy user query text into process metrics", () => {
+    const source = readFileSync(new URL("../../../../server/index.mjs", import.meta.url), "utf8");
+
+    expect(source).toContain("query: summarizeQuery(");
+    expect(source).not.toContain("preview: normalized");
+    expect(source).not.toContain("normalized.slice(0, 80)");
+  });
 });

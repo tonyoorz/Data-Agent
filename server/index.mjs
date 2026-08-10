@@ -76,7 +76,6 @@ function summarizeQuery(queryText) {
   const normalized = String(queryText || "").replace(/\s+/g, " ").trim();
   return {
     length: normalized.length,
-    preview: normalized.slice(0, 80),
   };
 }
 

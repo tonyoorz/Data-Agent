@@ -7,6 +7,7 @@ const ACTOR_SCOPED_THREAD_KEY_RE = /^actor-thread-[a-f0-9]{64}$/;
 const DIRECTORY_MODE = 0o700;
 const FILE_MODE = 0o600;
 const THREAD_REFERENCE_DOMAIN = "vizion-agent-runtime-thread-reference-v1";
+const RUN_REFERENCE_DOMAIN = "vizion-agent-runtime-run-reference-v1";
 
 function timestamp(now) {
   return now().toISOString();
@@ -43,6 +44,19 @@ function opaqueThreadReference(threadId, scopeHash) {
     .update(normalizedThreadId)
     .digest("hex");
   return `thread-${digest}`;
+}
+
+function opaqueRunReference(runId, scopeHash) {
+  const normalizedRunId = String(runId || "").trim();
+  if (!normalizedRunId) return "";
+  const digest = createHash("sha256")
+    .update(RUN_REFERENCE_DOMAIN)
+    .update("\0")
+    .update(String(scopeHash || ""))
+    .update("\0")
+    .update(normalizedRunId)
+    .digest("hex");
+  return `run-${digest}`;
 }
 
 function minimalEvidenceGate(value) {
@@ -113,12 +127,20 @@ function minimalCheckpoint(checkpoint) {
 function minimalRecovery(value) {
   if (!value || typeof value !== "object") return undefined;
   const attempts = finiteNumber(value.attempts);
+  const maxAttempts = finiteNumber(value.maxAttempts);
   return Object.fromEntries(Object.entries({
     action: text(value.action, 64),
     outcome: text(value.outcome, 64),
     reason: text(value.reason, 128),
     queryFingerprint: text(value.queryFingerprint),
+    originalQueryFingerprint: text(value.originalQueryFingerprint),
+    revisedQueryFingerprint: text(value.revisedQueryFingerprint),
+    sourcePlanId: text(value.sourcePlanId),
+    sourceToolCallId: text(value.sourceToolCallId),
+    diagnosisToolCallId: text(value.diagnosisToolCallId),
     attempts,
+    maxAttempts,
+    retryable: typeof value.retryable === "boolean" ? value.retryable : undefined,
   }).filter(([, item]) => item !== undefined && item !== ""));
 }
 
@@ -127,11 +149,12 @@ function minimalRunEvent(event) {
   const failureCode = text(event?.failureCode || event?.error?.code || event?.error?.name, 128);
   const scopeHash = actorScopeHash(event);
   return Object.fromEntries(Object.entries({
-    runId: text(event?.runId),
+    runId: opaqueRunReference(event?.runId, scopeHash),
     threadRef: opaqueThreadReference(event?.threadId, scopeHash),
     actorScopeHash: scopeHash,
     type: text(event?.type || "agent-event", 128),
     latencyMs,
+    terminalStatus: text(event?.terminalStatus, 32),
     citationValidation: text(event?.citationValidation, 32),
     answerValidationViolations: stringList(event?.answerValidationViolations),
     stoppedReason: text(event?.stoppedReason, 128),
@@ -142,7 +165,7 @@ function minimalRunEvent(event) {
 function minimalToolAudit(record) {
   const scopeHash = actorScopeHash(record);
   return Object.fromEntries(Object.entries({
-    runId: text(record?.runId),
+    runId: opaqueRunReference(record?.runId, scopeHash),
     threadRef: opaqueThreadReference(record?.threadId, scopeHash),
     actorScopeHash: scopeHash,
     toolCallId: text(record?.toolCallId),
@@ -156,7 +179,7 @@ function minimalRunSummary(summary) {
   const scopeHash = actorScopeHash(summary);
   return Object.fromEntries(Object.entries({
     schemaVersion: text(summary?.schemaVersion || "1.0", 32),
-    runId: text(summary?.runId),
+    runId: opaqueRunReference(summary?.runId, scopeHash),
     threadRef: opaqueThreadReference(summary?.threadId, scopeHash),
     actorScopeHash: scopeHash,
     intent: text(summary?.intent || "general", 128),
@@ -218,7 +241,7 @@ export function createFileAgentRuntimeStore({ rootDir = process.env.VIZION_AGENT
       const scopeHash = actorScopeHash({ actorScope });
       await writeJson(path.join(resolvedRootDir, "threads", `${persistenceKey}.json`), {
         threadRef: opaqueThreadReference(threadId, scopeHash),
-        runId: text(runId),
+        runId: opaqueRunReference(runId, scopeHash),
         actorScopeHash: scopeHash,
         checkpoint: minimalCheckpoint(checkpoint),
         updatedAt: timestamp(now),

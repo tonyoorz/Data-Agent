@@ -79,6 +79,19 @@ describe("answer validator", () => {
       evidence,
       registry,
     })).toEqual({ valid: true, violations: [] });
+
+    for (const unsupported of [
+      '<cite source="call-1">缺陷总数是 12</cite>。AIDA_X 缺陷最多。',
+      '<cite source="call-1">缺陷总数是 12</cite>。问题主要集中在 AIDA_X。',
+      '<cite source="call-1">Defects total 12</cite>. AIDA_X has the most defects.',
+    ]) {
+      expect(validateAnswerTextCitations({ text: unsupported, evidence, registry })).toEqual(
+        expect.objectContaining({
+          valid: false,
+          violations: expect.arrayContaining([expect.stringMatching(/^ANSWER_CLAIM_CITATION_REQUIRED:/)]),
+        }),
+      );
+    }
   });
 
   it("rejects malformed, unknown, and duplicate citation tokens deterministically", () => {
@@ -148,5 +161,19 @@ describe("answer validator", () => {
       evidence,
       registry,
     })).toEqual({ valid: true, violations: [] });
+
+    for (const unsupported of [
+      '<cite source="call-1">缺陷增加归因于 AIDA_X</cite>',
+      '<cite source="call-1">缺陷问题源于 AIDA_X</cite>',
+      '<cite source="call-1">由于 AIDA_X 变更，缺陷数上升</cite>',
+      '<cite source="call-1">The defect increase stems from AIDA_X</cite>',
+    ]) {
+      expect(validateAnswerTextCitations({ text: unsupported, evidence, registry })).toEqual(
+        expect.objectContaining({
+          valid: false,
+          violations: expect.arrayContaining(["ANSWER_CAUSAL_CLAIM_UNSUPPORTED"]),
+        }),
+      );
+    }
   });
 });

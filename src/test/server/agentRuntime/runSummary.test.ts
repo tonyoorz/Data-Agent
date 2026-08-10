@@ -45,7 +45,13 @@ describe("agent run summary", () => {
       ],
       events: [
         { runId: "run-1", type: "agent-stream-completed", latencyMs: 100, citationValidation: "pass" },
-        { runId: "run-2", type: "agent-stream-completed", latencyMs: 200, citationValidation: "blocked" },
+        {
+          runId: "run-2",
+          type: "agent-stream-completed",
+          terminalStatus: "completed",
+          latencyMs: 200,
+          citationValidation: "blocked",
+        },
         { runId: "run-3", type: "agent-stream-completed", latencyMs: 300, citationValidation: "pass" },
       ],
     });
@@ -152,6 +158,30 @@ describe("agent run summary", () => {
       citationValidation: { blocked: 1 },
       topFailureCodes: [{ code: "FINAL_STREAM_FAILED", count: 1 }],
       runs: [{ outcome: "failed", failureCode: "FINAL_STREAM_FAILED" }],
+    });
+  });
+
+  it("reports an evidence-blocked terminal decision as blocked rather than completed", () => {
+    const summary = summarizeRuns({
+      summaries: [{
+        runId: "run-evidence-blocked",
+        outcome: "completed",
+        evidenceStatus: "blocked",
+        toolNames: ["query_semantic_metrics"],
+      }],
+      events: [{
+        runId: "run-evidence-blocked",
+        type: "agent-stream-completed",
+        terminalStatus: "blocked",
+        citationValidation: "blocked",
+      }],
+    });
+
+    expect(summary).toMatchObject({
+      byOutcome: { blocked: 1 },
+      byEvidenceStatus: { blocked: 1 },
+      citationValidation: { blocked: 1 },
+      runs: [{ outcome: "blocked", citationValidation: "blocked" }],
     });
   });
 
