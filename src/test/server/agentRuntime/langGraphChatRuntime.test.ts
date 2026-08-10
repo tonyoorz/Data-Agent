@@ -1,11 +1,36 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  buildActorScopedThreadPersistenceKey,
   createLangGraphChatRuntime,
   resolveAgentRuntimeMode,
 } from "../../../../server/agentRuntime/langGraphChatRuntime.mjs";
 
 describe("LangGraph chat runtime", () => {
+  it("derives a stable internal thread key from both client thread and actor scope", () => {
+    const first = buildActorScopedThreadPersistenceKey("shared-thread", {
+      actorId: "alice",
+      scopeHash: "scope-a",
+      scopes: { teamIds: ["DTSV"], projectIds: ["P2", "P1"] },
+    });
+    const reordered = buildActorScopedThreadPersistenceKey("shared-thread", {
+      actorId: "alice",
+      scopeHash: "scope-a",
+      scopes: { projectIds: ["P1", "P2"], teamIds: ["DTSV"] },
+    });
+    const otherActor = buildActorScopedThreadPersistenceKey("shared-thread", {
+      actorId: "bob",
+      scopeHash: "scope-b",
+      scopes: { teamIds: ["DTSV"], projectIds: ["P1", "P2"] },
+    });
+
+    expect(first).toBe(reordered);
+    expect(first).not.toBe(otherActor);
+    expect(first).toMatch(/^actor-thread-[a-f0-9]{64}$/);
+    expect(first).not.toContain("shared-thread");
+    expect(first).not.toContain("alice");
+  });
+
   it("uses LangGraph as the default runtime mode", () => {
     expect(resolveAgentRuntimeMode({})).toBe("langgraph");
     expect(resolveAgentRuntimeMode({ VIZION_AGENT_RUNTIME: "" })).toBe("langgraph");
@@ -1131,5 +1156,70 @@ describe("LangGraph chat runtime", () => {
     expect(requestToolCompletion.mock.calls[2][0].context).toContain("analysis_ref: analysis-1");
     expect(requestToolCompletion.mock.calls[2][0].context).toContain("source_revision: snap-1");
     expect(second.metrics.mainAgentToolCallCount).toBe(0);
+  });
+
+  it("isolates checkpoint state and analysis refs for different actors sharing one client thread id", async () => {
+    const firstCall = { id: "metric-a", type: "function", function: { name: "query_semantic_metrics", arguments: "{}" } };
+    const secondCall = { id: "metric-b", type: "function", function: { name: "query_semantic_metrics", arguments: "{}" } };
+    const requestToolCompletion = vi
+      .fn()
+      .mockResolvedValueOnce({ content: "", toolCalls: [firstCall] })
+      .mockResolvedValueOnce({ content: "Done.", toolCalls: [] })
+      .mockResolvedValueOnce({ content: "", toolCalls: [secondCall] })
+      .mockResolvedValueOnce({ content: "Done.", toolCalls: [] });
+    const executeToolCall = vi.fn().mockImplementation(async (toolCall, dependencies) => {
+      const scopeHash = dependencies.actor.scopeHash;
+      const suffix = scopeHash === "scope-a" ? "alice" : "bob";
+      return {
+        contextText: `# Semantic result ${suffix}`,
+        toolMessage: {
+          role: "tool",
+          tool_call_id: toolCall.id,
+          name: toolCall.function.name,
+          content: JSON.stringify({
+            ok: true,
+            tool: toolCall.function.name,
+            result: {
+              ontologyVersion: "v1",
+              schemaFingerprint: "f".repeat(64),
+              analysisRef: `analysis-${suffix}`,
+              sourceRevision: { revisionId: `snapshot-${suffix}`, status: "pinned" },
+              scope: { actorScopeHash: scopeHash, filters: [] },
+              quality: { completeness: "complete", warnings: [] },
+              evidence: {
+                kind: "semantic_metric_result",
+                analysisRef: `analysis-${suffix}`,
+                sourceRevisionId: `snapshot-${suffix}`,
+              },
+            },
+          }),
+        },
+      };
+    });
+    const runtime = createLangGraphChatRuntime({
+      resolveAnalyticsContext: vi.fn().mockResolvedValue({ contextText: "# Analytics", skipDefectContext: false }),
+      resolveDefectContext: vi.fn(),
+      shouldPlanTools: vi.fn().mockReturnValue(true),
+      requestToolCompletion,
+      executeToolCall,
+      maxToolSteps: 2,
+      now: () => new Date("2026-08-10T08:00:00.000Z"),
+    });
+    const alice = { actorId: "alice", scopeHash: "scope-a", scopes: { allowedObjectTypes: ["quality.defect"] } };
+    const bob = { actorId: "bob", scopeHash: "scope-b", scopes: { allowedObjectTypes: ["quality.defect"] } };
+
+    const first = await runtime.invoke({
+      body: { threadId: "shared-client-thread", useAnalyticsContext: true, actor: alice, messages: [{ role: "user", content: "按 ECU 排名" }] },
+    });
+    const second = await runtime.invoke({
+      body: { threadId: "shared-client-thread", useAnalyticsContext: true, actor: bob, messages: [{ role: "user", content: "按 ECU 排名" }] },
+    });
+
+    expect(first.threadId).toBe("shared-client-thread");
+    expect(second.threadId).toBe("shared-client-thread");
+    expect(executeToolCall).toHaveBeenCalledTimes(2);
+    expect(second.context).toContain("analysis-bob");
+    expect(second.context).not.toContain("analysis-alice");
+    expect(second.metrics.evidenceGate).toMatchObject({ analysisRefs: ["analysis-bob"] });
   });
 });

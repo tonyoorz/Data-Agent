@@ -1,10 +1,13 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from "vitest";
 
+import { verifyActorCapabilityHeader } from "../../../server/agentActorCapability.mjs";
 import { buildToolEvidence, evaluateSemanticEvidence } from "../../../server/mainAgentEvidence.mjs";
 import { executeMainAgentToolCall } from "../../../server/mainAgentTools.mjs";
 
 const fingerprint = "f".repeat(64);
+const capabilitySecret = "semantic-e2e-capability-secret";
+const capabilityNow = 1_700_000_000;
 const actor = {
   actorId: "alice",
   scopeHash: "scope-a",
@@ -27,8 +30,13 @@ const aggregateQuery = {
 
 describe("semantic analysis closure", () => {
   it("closes aggregate to same-snapshot records with a passing evidence gate", async () => {
-    const analyticsFetch = vi.fn(async (url: string, init: { body?: string }) => {
+    const analyticsFetch = vi.fn(async (url: string, init: { body?: string; headers?: Record<string, string> }) => {
       const body = JSON.parse(String(init.body || "{}"));
+      expect(body).not.toHaveProperty("actorScope");
+      expect(verifyActorCapabilityHeader(init.headers || {}, {
+        secret: capabilitySecret,
+        now: capabilityNow,
+      })).toMatchObject({ actorId: "alice", scopeHash: "scope-a" });
       if (url.endsWith("/api/semantic/query")) {
         expect(body.query).toEqual(aggregateQuery);
         return {
@@ -92,6 +100,9 @@ describe("semantic analysis closure", () => {
       analyticsFetch,
       analyticsApiBase: "http://127.0.0.1:3003",
       actor,
+      actorCapabilitySecret: capabilitySecret,
+      actorCapabilityNow: capabilityNow,
+      actorCapabilityNonce: "semantic-e2e-capability-nonce",
     });
     const recordsToolCall = {
       id: "records-e2e-1",
@@ -114,6 +125,9 @@ describe("semantic analysis closure", () => {
       analyticsFetch,
       analyticsApiBase: "http://127.0.0.1:3003",
       actor,
+      actorCapabilitySecret: capabilitySecret,
+      actorCapabilityNow: capabilityNow,
+      actorCapabilityNonce: "semantic-e2e-capability-nonce",
     });
     const evidence = [
       buildToolEvidence({ toolCall: metricToolCall, result: metricResult, intent: "metric_query" }),

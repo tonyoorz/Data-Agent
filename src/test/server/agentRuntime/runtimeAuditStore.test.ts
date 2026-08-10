@@ -15,10 +15,18 @@ describe("file agent runtime store", () => {
     });
 
     await store.writeThreadCheckpoint({
+      persistenceKey: `actor-thread-${"1".repeat(64)}`,
       threadId: "thread/one",
       runId: "run-1",
       actorScope: { actorId: "u1", scopeHash: "scope-1", scopes: { projectIds: ["App"] } },
       checkpoint: { node: "finalize", metrics: { mainAgentToolCallCount: 1 } },
+    });
+    await store.writeThreadCheckpoint({
+      persistenceKey: `actor-thread-${"2".repeat(64)}`,
+      threadId: "thread/one",
+      runId: "run-2",
+      actorScope: { actorId: "u2", scopeHash: "scope-2", scopes: { projectIds: ["App"] } },
+      checkpoint: { node: "finalize", metrics: { mainAgentToolCallCount: 0 } },
     });
     await store.appendRunEvent({ runId: "run-1", threadId: "thread/one", type: "agent-runtime-ready" });
     await store.appendToolAudit({
@@ -39,7 +47,9 @@ describe("file agent runtime store", () => {
       outcome: "completed",
     });
 
-    const checkpoint = JSON.parse(await readFile(path.join(rootDir, "threads", "thread_one.json"), "utf8"));
+    const checkpoint = JSON.parse(
+      await readFile(path.join(rootDir, "threads", `actor-thread-${"1".repeat(64)}.json`), "utf8"),
+    );
     expect(checkpoint).toEqual(
       expect.objectContaining({
         threadId: "thread/one",
@@ -49,6 +59,14 @@ describe("file agent runtime store", () => {
         updatedAt: "2026-07-24T08:00:00.000Z",
       }),
     );
+    const otherActorCheckpoint = JSON.parse(
+      await readFile(path.join(rootDir, "threads", `actor-thread-${"2".repeat(64)}.json`), "utf8"),
+    );
+    expect(otherActorCheckpoint).toEqual(expect.objectContaining({
+      threadId: "thread/one",
+      runId: "run-2",
+      actorScope: expect.objectContaining({ actorId: "u2", scopeHash: "scope-2" }),
+    }));
 
     const runEvents = (await readFile(path.join(rootDir, "run-events.jsonl"), "utf8")).trim().split("\n");
     expect(JSON.parse(runEvents[0])).toEqual(

@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { Annotation, END, MemorySaver, START, StateGraph } from "@langchain/langgraph";
 
 import { isOidcScopedActor } from "../agentAuth.mjs";
@@ -40,6 +42,7 @@ const ChatState = Annotation.Root({
   toolDependencies: Annotation({ reducer: overwrite, default: () => ({}) }),
   runId: Annotation({ reducer: overwrite, default: () => "" }),
   threadId: Annotation({ reducer: overwrite, default: () => "" }),
+  threadPersistenceKey: Annotation({ reducer: overwrite, default: () => "" }),
   actorScope: Annotation({ reducer: overwrite, default: () => ({}) }),
   queryText: Annotation({ reducer: overwrite, default: () => "" }),
   model: Annotation({ reducer: overwrite, default: () => "" }),
@@ -185,6 +188,38 @@ function canonicalJson(value) {
     return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(",")}}`;
   }
   return JSON.stringify(value);
+}
+
+const ACTOR_SCOPE_PERSISTENCE_KEYS = Object.freeze([
+  "workspaceIds",
+  "projectIds",
+  "teamIds",
+  "allowedObjectTypes",
+  "allowedPropertyIds",
+  "rowPolicyIds",
+  "sensitiveFieldPolicyIds",
+]);
+
+function normalizedPersistenceActorScope(actorScope) {
+  const rawScopes = isRecord(actorScope?.scopes) ? actorScope.scopes : {};
+  return {
+    actorId: String(actorScope?.actorId || ""),
+    scopeHash: String(actorScope?.scopeHash || ""),
+    scopes: Object.fromEntries(ACTOR_SCOPE_PERSISTENCE_KEYS.map((key) => [
+      key,
+      Array.from(new Set(stringList(rawScopes[key]))).sort(),
+    ])),
+  };
+}
+
+export function buildActorScopedThreadPersistenceKey(threadId, actorScope) {
+  const digest = createHash("sha256")
+    .update(canonicalJson({
+      actorScope: normalizedPersistenceActorScope(actorScope),
+      clientThreadId: String(threadId || ""),
+    }))
+    .digest("hex");
+  return `actor-thread-${digest}`;
 }
 
 function toolCallSignature(toolCall) {
@@ -427,6 +462,7 @@ async function persistRuntimeState(runtimeStore, state) {
     }));
   }
   await runtimeStore.writeThreadCheckpoint({
+    persistenceKey: state.threadPersistenceKey,
     runId,
     threadId,
     actorScope,
@@ -539,7 +575,10 @@ export function createLangGraphChatRuntime({
     const body = state.body && typeof state.body === "object" ? state.body : {};
     const runId = isNonEmptyString(state.runId) ? String(state.runId).trim() : normalizeRunId(body, now);
     const threadId = isNonEmptyString(state.threadId) ? String(state.threadId).trim() : normalizeThreadId(body, now);
-    const actorScope = normalizeActorScope(body);
+    const actorScope = hasActorScope(state.actorScope) ? state.actorScope : normalizeActorScope(body);
+    const threadPersistenceKey = isNonEmptyString(state.threadPersistenceKey)
+      ? String(state.threadPersistenceKey).trim()
+      : buildActorScopedThreadPersistenceKey(threadId, actorScope);
     const queryText = extractLatestUserQuery(body?.messages);
     const event = emit(config, {
       type: "agent-runtime-started",
@@ -552,6 +591,7 @@ export function createLangGraphChatRuntime({
       body,
       runId,
       threadId,
+      threadPersistenceKey,
       actorScope,
       queryText,
       model: String(body?.model || ""),
@@ -913,14 +953,16 @@ export function createLangGraphChatRuntime({
     async invoke({ body = {}, toolDependencies = {} } = {}, { onEvent } = {}) {
       const runId = normalizeRunId(body, now);
       const threadId = normalizeThreadId(body, now);
+      const actorScope = normalizeActorScope(body);
+      const threadPersistenceKey = buildActorScopedThreadPersistenceKey(threadId, actorScope);
       let state;
       try {
         state = await graph.invoke(
-          { body, runId, threadId, toolDependencies },
+          { body, runId, threadId, threadPersistenceKey, actorScope, toolDependencies },
           {
             signal: createRunnableSignal(),
             configurable: {
-              thread_id: threadId,
+              thread_id: threadPersistenceKey,
               onEvent,
             },
           },
@@ -929,7 +971,7 @@ export function createLangGraphChatRuntime({
         await persistRuntimeFailure(runtimeStore, {
           runId,
           threadId,
-          actorScope: normalizeActorScope(body),
+          actorScope,
           queryText: extractLatestUserQuery(body?.messages),
           error,
         });

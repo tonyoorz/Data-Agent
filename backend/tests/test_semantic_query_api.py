@@ -9,6 +9,8 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+import backend.analytics.api as analytics_api
+from backend.analytics.agent_actor_capability import ACTOR_CAPABILITY_HEADER, create_actor_capability
 from backend.analytics.api import app
 from backend.analytics.ontology import OntologyCatalog, load_ontology, ontology_fingerprint
 from backend.analytics.semantic_analysis_store import SemanticAnalysisStore
@@ -16,6 +18,7 @@ from backend.analytics.semantic_query import SemanticQueryError, execute_semanti
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+API_CAPABILITY_SECRET = "semantic-api-capability-secret"
 
 
 @pytest.fixture(scope="module")
@@ -58,6 +61,28 @@ def _payload(catalog, *, metric_id: str = "defect.count", entity_id: str = "qual
     }
 
 
+def _capability_actor(catalog) -> dict[str, Any]:
+    actor_scope = _payload(catalog)["actorScope"]
+    return {
+        "actorId": actor_scope["actorId"],
+        "scopeHash": actor_scope["scopeHash"],
+        "scopes": {
+            key: values
+            for key, values in actor_scope.items()
+            if key not in {"actorId", "scopeHash"} and values
+        },
+    }
+
+
+def _capability_headers(catalog, *, token: str | None = None) -> dict[str, str]:
+    capability = token or create_actor_capability(
+        _capability_actor(catalog),
+        secret=API_CAPABILITY_SECRET,
+        nonce="semantic-api-capability-nonce",
+    )
+    return {ACTOR_CAPABILITY_HEADER: capability}
+
+
 def _catalog_with_deny_rule(catalog: OntologyCatalog, *, metric_id: str, intents: list[str]) -> OntologyCatalog:
     bundle = deepcopy(catalog.bundle)
     rule_id = "business.test.no_metric_execution"
@@ -92,10 +117,11 @@ def _catalog_with_derived_project_rule(catalog: OntologyCatalog, *, intents: lis
     return OntologyCatalog(version=catalog.version, fingerprint=ontology_fingerprint(bundle), bundle=bundle)
 
 
-def test_semantic_query_api_reads_json_body_and_returns_safe_error() -> None:
+def test_semantic_query_api_reads_json_body_and_returns_safe_error(catalog, monkeypatch) -> None:
+    monkeypatch.setenv("VIZION_AGENT_ACTOR_CAPABILITY_SECRET", API_CAPABILITY_SECRET)
     client = TestClient(app)
 
-    response = client.post("/api/semantic/query", json={})
+    response = client.post("/api/semantic/query", json={}, headers=_capability_headers(catalog))
 
     assert response.status_code == 400
     payload = response.json()
@@ -104,16 +130,94 @@ def test_semantic_query_api_reads_json_body_and_returns_safe_error() -> None:
     assert payload["retryable"] is False
 
 
-def test_semantic_records_api_reads_json_body_and_returns_safe_error() -> None:
+def test_semantic_records_api_reads_json_body_and_returns_safe_error(catalog, monkeypatch) -> None:
+    monkeypatch.setenv("VIZION_AGENT_ACTOR_CAPABILITY_SECRET", API_CAPABILITY_SECRET)
     client = TestClient(app)
 
-    response = client.post("/api/semantic/records", json={})
+    response = client.post("/api/semantic/records", json={}, headers=_capability_headers(catalog))
 
     assert response.status_code == 400
     payload = response.json()
     assert str(payload["code"]).startswith("SEMANTIC_RECORD_REQUEST_MISSING:")
     assert payload["safeMessage"] == "semantic records query rejected"
     assert payload["retryable"] is False
+
+
+@pytest.mark.parametrize("path", ["/api/semantic/query", "/api/semantic/records"])
+@pytest.mark.parametrize("capability_kind", ["missing", "tampered", "expired"])
+def test_semantic_apis_reject_missing_tampered_and_expired_capabilities(
+    path: str,
+    capability_kind: str,
+    catalog,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("VIZION_AGENT_ACTOR_CAPABILITY_SECRET", API_CAPABILITY_SECRET)
+    headers: dict[str, str] = {}
+    expected_code = "ACTOR_CAPABILITY_INVALID"
+    expected_status = 403
+    if capability_kind == "missing":
+        expected_code = "ACTOR_CAPABILITY_MISSING"
+        expected_status = 401
+    if capability_kind == "tampered":
+        token = _capability_headers(catalog)[ACTOR_CAPABILITY_HEADER]
+        altered = f"{token[:-1]}{'B' if token.endswith('A') else 'A'}"
+        headers = {ACTOR_CAPABILITY_HEADER: altered}
+    elif capability_kind == "expired":
+        expired = create_actor_capability(
+            _capability_actor(catalog),
+            secret=API_CAPABILITY_SECRET,
+            now=1_700_000_000,
+            ttl_seconds=1,
+            nonce="expired-semantic-capability",
+        )
+        headers = {ACTOR_CAPABILITY_HEADER: expired}
+        expected_code = "ACTOR_CAPABILITY_EXPIRED"
+
+    response = TestClient(app).post(path, json=_payload(catalog), headers=headers)
+
+    assert response.status_code == expected_status
+    assert response.json() == {
+        "code": expected_code,
+        "safeMessage": "agent capability rejected",
+        "retryable": False,
+    }
+
+
+def test_semantic_api_overwrites_untrusted_body_actor_scope_from_verified_capability(catalog, monkeypatch) -> None:
+    monkeypatch.setenv("VIZION_AGENT_ACTOR_CAPABILITY_SECRET", API_CAPABILITY_SECRET)
+    captured: dict[str, Any] = {}
+
+    def fake_execute(payload, **_kwargs):
+        captured.update(payload)
+        return {"ok": True}
+
+    monkeypatch.setattr(analytics_api, "execute_semantic_query", fake_execute)
+    payload = _payload(catalog)
+    payload["actorScope"] = {
+        "actorId": "mallory",
+        "scopeHash": "scope-admin",
+        "workspaceIds": ["*"],
+        "projectIds": ["*"],
+        "teamIds": ["Other Team"],
+        "allowedObjectTypes": ["*"],
+        "allowedPropertyIds": ["*"],
+        "rowPolicyIds": ["admin"],
+        "sensitiveFieldPolicyIds": ["unredacted"],
+    }
+
+    response = TestClient(app).post(
+        "/api/semantic/query",
+        json=payload,
+        headers=_capability_headers(catalog),
+    )
+
+    assert response.status_code == 200
+    expected_scope = _payload(catalog)["actorScope"]
+    expected_scope = {
+        key: sorted(value) if isinstance(value, list) else value
+        for key, value in expected_scope.items()
+    }
+    assert captured["actorScope"] == expected_scope
 
 
 def _records_payload(catalog, *, analysis_ref: str | None, query: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -463,7 +567,8 @@ def test_approved_required_time_rule_blocks_direct_semantic_metric_execution(cat
     assert exc_info.value.status_code == 400
 
 
-def test_semantic_api_returns_safe_business_rule_code_for_required_time_rejection(catalog) -> None:
+def test_semantic_api_returns_safe_business_rule_code_for_required_time_rejection(catalog, monkeypatch) -> None:
+    monkeypatch.setenv("VIZION_AGENT_ACTOR_CAPABILITY_SECRET", API_CAPABILITY_SECRET)
     payload = _payload(catalog, metric_id="defect.created_count")
     payload["query"]["timeScopes"] = [{
         "role": "primary",
@@ -474,7 +579,11 @@ def test_semantic_api_returns_safe_business_rule_code_for_required_time_rejectio
         "anchorAt": "2026-07-15T04:00:00.000Z",
     }]
 
-    response = TestClient(app).post("/api/semantic/query", json=payload)
+    response = TestClient(app).post(
+        "/api/semantic/query",
+        json=payload,
+        headers=_capability_headers(catalog),
+    )
 
     assert response.status_code == 400
     assert response.json() == {

@@ -8,6 +8,7 @@ import {
   executeMainAgentToolCall,
   MAIN_AGENT_TOOLS,
 } from "../../../server/mainAgentTools.mjs";
+import { MAIN_AGENT_TOOL_DATA_BOUNDARIES } from "../../../server/mainAgentToolDataBoundary.mjs";
 
 const AGENT_CAPABILITY_SECRET = "main-agent-tool-capability-secret";
 const AGENT_CAPABILITY_NOW = 1_700_000_000;
@@ -278,8 +279,43 @@ describe("main agent analytics tools", () => {
 
     expect(analyticsFetch).not.toHaveBeenCalled();
     expect(runDuplicateBridge).not.toHaveBeenCalled();
-    expect(JSON.parse(fallback.toolMessage.content)).toMatchObject({ ok: false, failure: { code: "OIDC_UNSCOPED_TOOL_DISABLED" } });
-    expect(JSON.parse(duplicate.toolMessage.content)).toMatchObject({ ok: false, failure: { code: "OIDC_UNSCOPED_TOOL_DISABLED" } });
+    expect(JSON.parse(fallback.toolMessage.content)).toMatchObject({ ok: false, failure: { code: "OIDC_INTERNAL_ONLY_TOOL_DENIED" } });
+    expect(JSON.parse(duplicate.toolMessage.content)).toMatchObject({ ok: false, failure: { code: "OIDC_INTERNAL_ONLY_TOOL_DENIED" } });
+  });
+
+  it("fails closed for every internal-only tool under an OIDC-scoped actor", async () => {
+    const oidcActor = {
+      actorId: "oidc-reader",
+      scopeHash: "oidc-0123456789abcdef",
+      scopes: { allowedObjectTypes: ["quality.defect"], teamIds: ["DTSV_China"] },
+    };
+    const analyticsFetch = vi.fn();
+    const runDuplicateBridge = vi.fn();
+    const internalOnlyTools = Object.entries(MAIN_AGENT_TOOL_DATA_BOUNDARIES)
+      .filter(([, boundary]) => boundary === "internal_only")
+      .map(([name]) => name);
+
+    for (const name of internalOnlyTools) {
+      const result = await executeMainAgentToolCall(
+        { id: `oidc-${name}`, type: "function", function: { name, arguments: "{}" } },
+        { analyticsFetch, runDuplicateBridge, analyticsApiBase: "http://127.0.0.1:3003", actor: oidcActor },
+      );
+      expect(JSON.parse(result.toolMessage.content), name).toMatchObject({
+        ok: false,
+        failure: { code: "OIDC_INTERNAL_ONLY_TOOL_DENIED", dataBoundary: "internal_only" },
+      });
+    }
+    const unclassified = await executeMainAgentToolCall(
+      { id: "oidc-unclassified", type: "function", function: { name: "new_unclassified_tool", arguments: "{}" } },
+      { analyticsFetch, analyticsApiBase: "http://127.0.0.1:3003", actor: oidcActor },
+    );
+    expect(JSON.parse(unclassified.toolMessage.content)).toMatchObject({
+      ok: false,
+      failure: { code: "OIDC_TOOL_DATA_BOUNDARY_UNCLASSIFIED" },
+    });
+
+    expect(analyticsFetch).not.toHaveBeenCalled();
+    expect(runDuplicateBridge).not.toHaveBeenCalled();
   });
 
   it("executes query_semantic_metrics through the semantic API", async () => {
@@ -308,21 +344,24 @@ describe("main agent analytics tools", () => {
       {
         analyticsFetch,
         analyticsApiBase: "http://127.0.0.1:3003",
-        actor: { actorId: "alice", scopeHash: "scope-a", scopes: { workspaceIds: ["DTSV"], teamIds: ["DTSV"] } },
+        ...scopedAgentDependencies(),
       },
     );
 
     expect(analyticsFetch).toHaveBeenCalledWith("http://127.0.0.1:3003/api/semantic/query", expect.objectContaining({ method: "POST" }));
     const [, init] = analyticsFetch.mock.calls[0];
     const body = JSON.parse(init.body);
-    expect(body).toMatchObject({
+    expect(body).toEqual({
       schemaVersion: "1.0",
       queryId: "semantic-1",
       ontologyVersion: "v1",
       schemaFingerprint: "a".repeat(64),
       query: semanticQuery,
-      actorScope: { actorId: "alice", scopeHash: "scope-a", workspaceIds: ["DTSV"], teamIds: ["DTSV"] },
     });
+    expect(verifyActorCapabilityHeader(init.headers, {
+      secret: AGENT_CAPABILITY_SECRET,
+      now: AGENT_CAPABILITY_NOW,
+    })).toMatchObject({ actorId: "alice", scopeHash: "scope-alice-dtsv" });
     expect(result.contextText).toContain("Tool: query_semantic_metrics");
     expect(result.contextText).toContain("defect.count: 2");
     expect(result.contextText).toContain("Completeness: complete");
@@ -374,13 +413,13 @@ describe("main agent analytics tools", () => {
       {
         analyticsFetch,
         analyticsApiBase: "http://127.0.0.1:3003",
-        actor: { actorId: "alice", scopeHash: "scope-a", scopes: { workspaceIds: ["DTSV"], teamIds: ["DTSV"] } },
+        ...scopedAgentDependencies(),
       },
     );
 
     expect(analyticsFetch).toHaveBeenCalledWith("http://127.0.0.1:3003/api/semantic/records", expect.objectContaining({ method: "POST" }));
     const body = JSON.parse(analyticsFetch.mock.calls[0][1].body);
-    expect(body).toMatchObject({
+    expect(body).toEqual({
       schemaVersion: "1.0",
       queryId: "semantic-records-1",
       ontologyVersion: "v1",
@@ -391,8 +430,11 @@ describe("main agent analytics tools", () => {
       fields: ["defect_id", "name", "assigned_ecu", "status"],
       page: 1,
       pageSize: 20,
-      actorScope: { actorId: "alice", scopeHash: "scope-a" },
     });
+    expect(verifyActorCapabilityHeader(analyticsFetch.mock.calls[0][1].headers, {
+      secret: AGENT_CAPABILITY_SECRET,
+      now: AGENT_CAPABILITY_NOW,
+    })).toMatchObject({ actorId: "alice", scopeHash: "scope-alice-dtsv" });
     expect(result.contextText).toContain("Analysis ref: analysis-1");
     expect(result.contextText).toContain("Revision status: pinned");
     expect(result.contextText).toContain('"defect_id":"D-1"');
@@ -436,6 +478,7 @@ describe("main agent analytics tools", () => {
       {
         analyticsFetch,
         analyticsApiBase: "http://127.0.0.1:3003",
+        ...scopedAgentDependencies(),
         actor: { actorId: "alice", scopeHash: "scope-a", scopes: { allowedObjectTypes: ["testing.test_run"] } },
       },
     );

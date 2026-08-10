@@ -87,14 +87,14 @@ describe("Main agent execution golden suite", () => {
         try {
           const requestBody = JSON.parse(String(init.body || "{}"));
           assertSafeRequest(requestBody, item.caseId);
-          if (init.headers && parsedUrl.pathname.startsWith("/api/agent/")) {
+          if (init.headers && (parsedUrl.pathname.startsWith("/api/agent/") || parsedUrl.pathname.startsWith("/api/semantic/"))) {
             expect(verifyActorCapabilityHeader(init.headers as Record<string, string>, {
               secret: EVAL_SECRET,
               now: EVAL_NOW,
             }), item.caseId).toMatchObject({ scopeHash: item.expected.actorScopeHash });
           }
           if (parsedUrl.pathname.startsWith("/api/semantic/")) {
-            expect(requestBody.actorScope?.scopeHash, item.caseId).toBe(item.expected.actorScopeHash);
+            expect(requestBody, item.caseId).not.toHaveProperty("actorScope");
           }
         } catch (error) {
           requestAssertionError = error instanceof Error ? error.message : String(error);

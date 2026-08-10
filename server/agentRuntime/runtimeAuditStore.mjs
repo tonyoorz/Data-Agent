@@ -2,15 +2,10 @@ import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const DEFAULT_ROOT_DIR = path.resolve(process.cwd(), "logs", "agent-runtime");
+const ACTOR_SCOPED_THREAD_KEY_RE = /^actor-thread-[a-f0-9]{64}$/;
 
 function timestamp(now) {
   return now().toISOString();
-}
-
-function safeFileName(value) {
-  return String(value || "unknown")
-    .replace(/[^a-zA-Z0-9._-]+/g, "_")
-    .replace(/^_+|_+$/g, "") || "unknown";
 }
 
 async function ensureParent(filePath) {
@@ -30,8 +25,11 @@ async function appendJsonLine(filePath, payload) {
 export function createFileAgentRuntimeStore({ rootDir = process.env.VIZION_AGENT_RUNTIME_STORE_DIR || DEFAULT_ROOT_DIR, now = () => new Date() } = {}) {
   return {
     rootDir,
-    async writeThreadCheckpoint({ threadId, runId, actorScope, checkpoint }) {
-      await writeJson(path.join(rootDir, "threads", `${safeFileName(threadId)}.json`), {
+    async writeThreadCheckpoint({ persistenceKey, threadId, runId, actorScope, checkpoint }) {
+      if (!ACTOR_SCOPED_THREAD_KEY_RE.test(String(persistenceKey || ""))) {
+        throw new Error("ACTOR_SCOPED_THREAD_KEY_REQUIRED");
+      }
+      await writeJson(path.join(rootDir, "threads", `${persistenceKey}.json`), {
         threadId,
         runId,
         actorScope,
