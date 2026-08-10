@@ -1,0 +1,1683 @@
+{
+  "schemaVersion": "1.0",
+  "ontologyVersion": "v1",
+  "locale": "zh-CN",
+  "terms": [
+    {
+      "id": "team.dtsv",
+      "phrases": [
+        "DTSV",
+        "DTSV China",
+        "DTSV_China"
+      ],
+      "kind": "enum_value",
+      "resolution": {
+        "dimensionId": "org.problem_finder_team",
+        "filterValue": "DTSV_China"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "metric.defect_count",
+      "phrases": [
+        "缺陷数",
+        "缺陷数量",
+        "多少缺陷",
+        "defect count"
+      ],
+      "kind": "synonym",
+      "resolution": {
+        "metricId": "defect.count",
+        "entityId": "quality.defect"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "metric.created_defects",
+      "phrases": [
+        "新增缺陷",
+        "新建缺陷",
+        "提交缺陷",
+        "创建缺陷",
+        "created defects"
+      ],
+      "kind": "synonym",
+      "resolution": {
+        "metricId": "defect.created_count",
+        "entityId": "quality.defect"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "metric.resolved_defects",
+      "phrases": [
+        "解决缺陷",
+        "关闭缺陷",
+        "resolved defects",
+        "closed defects"
+      ],
+      "kind": "ambiguity_trigger",
+      "resolution": {
+        "metricId": "defect.resolved_count",
+        "ambiguityCode": "RESOLVED_OUTCOME_DEFINITION_UNAPPROVED"
+      },
+      "governance": {
+        "status": "draft",
+        "owner": "Quality Governance",
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md"
+      }
+    },
+    {
+      "id": "metric.open_defects",
+      "phrases": [
+        "未解决缺陷",
+        "未关闭缺陷",
+        "open defects"
+      ],
+      "kind": "ambiguity_trigger",
+      "resolution": {
+        "metricId": "defect.open_count",
+        "ambiguityCode": "OPEN_STATUS_DEFINITION_UNAPPROVED"
+      },
+      "governance": {
+        "status": "draft",
+        "owner": "Quality Governance",
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md"
+      }
+    },
+    {
+      "id": "metric.test_runs",
+      "phrases": [
+        "测试执行数",
+        "测试运行数",
+        "manual run count",
+        "run count"
+      ],
+      "kind": "synonym",
+      "resolution": {
+        "metricId": "testing.run_count",
+        "entityId": "testing.test_run"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Testing Analytics"
+      }
+    },
+    {
+      "id": "metric.testcases",
+      "phrases": [
+        "测试用例数",
+        "用例数量",
+        "testcase count"
+      ],
+      "kind": "synonym",
+      "resolution": {
+        "metricId": "testing.testcase_count",
+        "entityId": "testing.test_case"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Testing Analytics"
+      }
+    },
+    {
+      "id": "metric.passed_runs",
+      "phrases": [
+        "通过的测试数",
+        "通过执行数",
+        "passed runs"
+      ],
+      "kind": "synonym",
+      "resolution": {
+        "metricId": "testing.passed_run_count",
+        "entityId": "testing.test_run"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Testing Analytics"
+      }
+    },
+    {
+      "id": "metric.failed_runs",
+      "phrases": [
+        "失败的测试数",
+        "失败执行数",
+        "失败 Run 数量",
+        "失败 Run 数",
+        "失败 Run",
+        "failed runs",
+        "failed run count"
+      ],
+      "kind": "synonym",
+      "resolution": {
+        "metricId": "testing.failed_run_count",
+        "entityId": "testing.test_run"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Testing Analytics"
+      }
+    },
+    {
+      "id": "metric.pass_rate",
+      "phrases": [
+        "通过率",
+        "测试通过率",
+        "pass rate"
+      ],
+      "kind": "ambiguity_trigger",
+      "resolution": {
+        "metricId": "testing.pass_rate",
+        "ambiguityCode": "TEST_RUN_DENOMINATOR_UNAPPROVED"
+      },
+      "governance": {
+        "status": "draft",
+        "owner": "Testing Governance",
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md"
+      }
+    },
+    {
+      "id": "metric.fail_rate",
+      "phrases": [
+        "失败率",
+        "测试失败率",
+        "fail rate"
+      ],
+      "kind": "ambiguity_trigger",
+      "resolution": {
+        "metricId": "testing.fail_rate",
+        "ambiguityCode": "TEST_RUN_DENOMINATOR_UNAPPROVED"
+      },
+      "governance": {
+        "status": "draft",
+        "owner": "Testing Governance",
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md"
+      }
+    },
+    {
+      "id": "metric.coverage_rate",
+      "phrases": [
+        "覆盖率",
+        "需求覆盖率",
+        "coverage rate"
+      ],
+      "kind": "ambiguity_trigger",
+      "resolution": {
+        "metricId": "testing.requirement_coverage_rate",
+        "ambiguityCode": "COVERAGE_POPULATION_UNAPPROVED"
+      },
+      "governance": {
+        "status": "draft",
+        "owner": "Requirements Governance",
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md"
+      }
+    },
+    {
+      "id": "metric.defect_density",
+      "phrases": [
+        "缺陷密度",
+        "defect density"
+      ],
+      "kind": "ambiguity_trigger",
+      "resolution": {
+        "metricId": "quality.defect_density",
+        "ambiguityCode": "DEFECT_DENSITY_DENOMINATOR_REQUIRED"
+      },
+      "governance": {
+        "status": "draft",
+        "owner": "Quality Governance",
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md"
+      }
+    },
+    {
+      "id": "metric.long_runner",
+      "phrases": [
+        "长期未解决",
+        "long runner",
+        "老缺陷"
+      ],
+      "kind": "ambiguity_trigger",
+      "resolution": {
+        "metricId": "defect.long_runner_count",
+        "ambiguityCode": "LONG_RUNNER_THRESHOLD_UNAPPROVED"
+      },
+      "governance": {
+        "status": "draft",
+        "owner": "Quality Governance",
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md"
+      }
+    },
+    {
+      "id": "metric.resolution_speed",
+      "phrases": [
+        "解决得快不快",
+        "解决速度",
+        "解决时长",
+        "resolution speed",
+        "time to resolve"
+      ],
+      "kind": "ambiguity_trigger",
+      "resolution": {
+        "metricId": "defect.age_days",
+        "ambiguityCode": "DEFECT_AGE_RULE_UNAPPROVED"
+      },
+      "governance": {
+        "status": "draft",
+        "owner": "Quality Governance",
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md"
+      }
+    },
+    {
+      "id": "metric.discovery_efficiency",
+      "phrases": [
+        "发现效率",
+        "缺陷发现效率",
+        "discovery efficiency"
+      ],
+      "kind": "ambiguity_trigger",
+      "resolution": {
+        "metricId": "team.discovery_efficiency",
+        "ambiguityCode": "DISCOVERY_EFFICIENCY_FORMULA_UNAPPROVED"
+      },
+      "governance": {
+        "status": "draft",
+        "owner": "Quality Governance",
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md"
+      }
+    },
+    {
+      "id": "dimension.ecu",
+      "phrases": [
+        "ECU",
+        "模块",
+        "module"
+      ],
+      "kind": "alias",
+      "resolution": {
+        "dimensionId": "product.ecu",
+        "entityId": "product.ecu"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Product Analytics"
+      }
+    },
+    {
+      "id": "dimension.pu",
+      "phrases": [
+        "PU",
+        "product unit"
+      ],
+      "kind": "alias",
+      "resolution": {
+        "dimensionId": "product.pu",
+        "entityId": "product.pu"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Product Analytics"
+      }
+    },
+    {
+      "id": "dimension.pu_value",
+      "phrases": [
+        "PU",
+        "product unit"
+      ],
+      "kind": "value_pattern",
+      "resolution": {
+        "dimensionId": "product.pu",
+        "valuePattern": "\\b\\d{2}-\\d{2}\\b",
+        "captureGroup": 0,
+        "normalizer": "uppercase",
+        "maxMatches": 10
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Product Analytics"
+      }
+    },
+    {
+      "id": "dimension.istep",
+      "phrases": [
+        "i-step",
+        "istep",
+        "集成版本"
+      ],
+      "kind": "alias",
+      "resolution": {
+        "dimensionId": "product.i_step",
+        "entityId": "product.i_step"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Product Analytics"
+      }
+    },
+    {
+      "id": "dimension.project",
+      "phrases": [
+        "项目",
+        "project"
+      ],
+      "kind": "alias",
+      "resolution": {
+        "dimensionId": "product.project",
+        "entityId": "product.project"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Product Analytics"
+      }
+    },
+    {
+      "id": "dimension.phase",
+      "phrases": [
+        "Phase",
+        "阶段",
+        "缺陷阶段"
+      ],
+      "kind": "alias",
+      "resolution": {
+        "dimensionId": "quality.phase",
+        "entityId": "quality.defect"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "dimension.severity",
+      "phrases": [
+        "严重度",
+        "严重程度",
+        "severity"
+      ],
+      "kind": "alias",
+      "resolution": {
+        "dimensionId": "quality.severity",
+        "entityId": "quality.defect"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "dimension.tester",
+      "phrases": [
+        "测试人员",
+        "tester",
+        "执行人"
+      ],
+      "kind": "alias",
+      "resolution": {
+        "dimensionId": "org.tester",
+        "entityId": "organization.tester"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Testing Analytics"
+      }
+    },
+    {
+      "id": "dimension.team",
+      "phrases": [
+        "执行团队",
+        "测试团队",
+        "execution team"
+      ],
+      "kind": "alias",
+      "resolution": {
+        "dimensionId": "org.team",
+        "entityId": "testing.test_run"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Testing Analytics"
+      }
+    },
+    {
+      "id": "dimension.aida",
+      "phrases": [
+        "AIDA",
+        "需求节点"
+      ],
+      "kind": "alias",
+      "resolution": {
+        "dimensionId": "requirements.aida",
+        "entityId": "requirements.aida_node"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Requirements Analytics"
+      }
+    },
+    {
+      "id": "dimension.untraced_testcase",
+      "phrases": [
+        "没有 Requirement traceability",
+        "没有需求追溯",
+        "未关联需求",
+        "without requirement traceability",
+        "untraced testcase"
+      ],
+      "kind": "enum_value",
+      "resolution": {
+        "dimensionId": "testing.trace_status",
+        "entityId": "testing.test_case",
+        "filterValue": "Untraced"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Requirements Analytics"
+      }
+    },
+    {
+      "id": "dimension.os7",
+      "phrases": [
+        "OS7"
+      ],
+      "kind": "enum_value",
+      "resolution": {
+        "dimensionId": "product.os",
+        "filterValue": "OS7"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Product Analytics"
+      }
+    },
+    {
+      "id": "dimension.os8",
+      "phrases": [
+        "OS8"
+      ],
+      "kind": "enum_value",
+      "resolution": {
+        "dimensionId": "product.os",
+        "filterValue": "OS8"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Product Analytics"
+      }
+    },
+    {
+      "id": "dimension.os9",
+      "phrases": [
+        "OS9"
+      ],
+      "kind": "enum_value",
+      "resolution": {
+        "dimensionId": "product.os",
+        "filterValue": "OS9"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Product Analytics"
+      }
+    },
+    {
+      "id": "rule.china_scope",
+      "phrases": [
+        "China Scope",
+        "中国范围",
+        "中国相关"
+      ],
+      "kind": "derived_business_rule",
+      "resolution": {
+        "dimensionId": "quality.china_scope",
+        "ruleId": "analytics.full_picture.china_scope.v1"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "time.last_7_days",
+      "phrases": [
+        "最近一周",
+        "近一周",
+        "最近7天",
+        "last 7 days"
+      ],
+      "kind": "relative_time",
+      "resolution": {
+        "timePreset": "last_7_days_inclusive"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Agent Platform"
+      }
+    },
+    {
+      "id": "time.previous_week",
+      "phrases": [
+        "上周",
+        "previous week",
+        "last week"
+      ],
+      "kind": "relative_time",
+      "resolution": {
+        "timePreset": "previous_calendar_week"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Agent Platform"
+      }
+    },
+    {
+      "id": "time.current_month",
+      "phrases": [
+        "本月",
+        "这个月",
+        "current month"
+      ],
+      "kind": "relative_time",
+      "resolution": {
+        "timePreset": "current_calendar_month"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Agent Platform"
+      }
+    },
+    {
+      "id": "time.previous_month",
+      "phrases": [
+        "上月",
+        "上个月",
+        "previous month"
+      ],
+      "kind": "relative_time",
+      "resolution": {
+        "timePreset": "previous_calendar_month"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Agent Platform"
+      }
+    },
+    {
+      "id": "time.current_year",
+      "phrases": [
+        "今年",
+        "本年度",
+        "current year"
+      ],
+      "kind": "relative_time",
+      "resolution": {
+        "timePreset": "current_calendar_year"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Agent Platform"
+      }
+    },
+    {
+      "id": "intent.duplicate_search",
+      "phrases": [
+        "查重",
+        "相似缺陷",
+        "重复缺陷",
+        "duplicate",
+        "similar defect"
+      ],
+      "kind": "synonym",
+      "resolution": {
+        "entityId": "quality.defect",
+        "ruleId": "duplicate.search.v1"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "dim.solution_cluster",
+      "phrases": [
+        "解决方案聚类",
+        "solution cluster",
+        "方案分类"
+      ],
+      "kind": "synonym",
+      "resolution": {
+        "dimensionId": "quality.solution_cluster",
+        "entityId": "quality.defect"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "dim.defect_category",
+      "phrases": [
+        "缺陷类别",
+        "缺陷分类",
+        "defect category",
+        "问题分类"
+      ],
+      "kind": "synonym",
+      "resolution": {
+        "dimensionId": "quality.defect_category",
+        "entityId": "quality.defect"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "dim.reporting_class",
+      "phrases": [
+        "报告类别",
+        "reporting class",
+        "上报类别"
+      ],
+      "kind": "synonym",
+      "resolution": {
+        "dimensionId": "quality.reporting_class",
+        "entityId": "quality.defect"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "dim.user_tags",
+      "phrases": [
+        "用户标签",
+        "标签",
+        "user tags",
+        "标签分类"
+      ],
+      "kind": "synonym",
+      "resolution": {
+        "dimensionId": "quality.user_tags",
+        "entityId": "quality.defect"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "dim.market",
+      "phrases": [
+        "市场",
+        "market",
+        "销售市场"
+      ],
+      "kind": "synonym",
+      "resolution": {
+        "dimensionId": "quality.market",
+        "entityId": "quality.defect"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "dim.blocking_reason",
+      "phrases": [
+        "阻塞原因",
+        "blocking reason",
+        "阻塞",
+        "卡住原因"
+      ],
+      "kind": "synonym",
+      "resolution": {
+        "dimensionId": "quality.blocking_reason",
+        "entityId": "quality.defect"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "dim.detected_in_release",
+      "phrases": [
+        "发现版本",
+        "detected in release",
+        "检出版本"
+      ],
+      "kind": "synonym",
+      "resolution": {
+        "dimensionId": "quality.detected_in_release",
+        "entityId": "quality.defect"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "dim.lead_model",
+      "phrases": [
+        "车型",
+        "lead model",
+        "主车型",
+        "G70",
+        "G68",
+        "U11"
+      ],
+      "kind": "synonym",
+      "resolution": {
+        "dimensionId": "vehicle.lead_model",
+        "entityId": "quality.defect"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Product Analytics"
+      }
+    },
+    {
+      "id": "dim.release",
+      "phrases": [
+        "release",
+        "版本",
+        "发布版本",
+        "软件版本"
+      ],
+      "kind": "synonym",
+      "resolution": {
+        "dimensionId": "product.release",
+        "entityId": "testing.test_run"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Testing Analytics"
+      }
+    },
+    {
+      "id": "dim.testing_domain",
+      "phrases": [
+        "测试域",
+        "domain",
+        "测试领域"
+      ],
+      "kind": "synonym",
+      "resolution": {
+        "dimensionId": "testing.domain",
+        "entityId": "testing.test_run"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Testing Analytics"
+      }
+    },
+    {
+      "id": "dim.test_phase",
+      "phrases": [
+        "测试阶段",
+        "test phase",
+        "测试阶段分类"
+      ],
+      "kind": "synonym",
+      "resolution": {
+        "dimensionId": "testing.test_phase",
+        "entityId": "testing.test_run"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Testing Analytics"
+      }
+    },
+    {
+      "id": "dim.parent_child_type",
+      "phrases": [
+        "父子类型",
+        "parent child",
+        "父子关系类型",
+        "CWA"
+      ],
+      "kind": "synonym",
+      "resolution": {
+        "dimensionId": "quality.parent_child_type",
+        "entityId": "quality.defect"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "entity.defect_history",
+      "phrases": [
+        "缺陷历史",
+        "变更历史",
+        "缺陷变更",
+        "history event"
+      ],
+      "kind": "synonym",
+      "resolution": {
+        "entityId": "quality.defect_history_event"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "entity.defect_outcome",
+      "phrases": [
+        "缺陷结果",
+        "缺陷判定",
+        "outcome",
+        "解决结果"
+      ],
+      "kind": "synonym",
+      "resolution": {
+        "entityId": "quality.defect_outcome"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "entity.traceability_link",
+      "phrases": [
+        "追溯链接",
+        "traceability link",
+        "追溯关系"
+      ],
+      "kind": "synonym",
+      "resolution": {
+        "entityId": "traceability.link"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Requirements Analytics"
+      }
+    },
+    {
+      "id": "concept.top_issue",
+      "phrases": [
+        "Top Issue",
+        "top issue",
+        "顶级问题",
+        "topissue"
+      ],
+      "kind": "synonym",
+      "resolution": {
+        "metricId": "defect.top_issue_count",
+        "entityId": "quality.defect"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      },
+      "broader": "concept.defect",
+      "related": [
+        "concept.showstopper",
+        "concept.maturity_grade",
+        "concept.mgip"
+      ],
+      "state_transitions": [
+        {
+          "from": "Top Issue",
+          "to": "Showstopper",
+          "condition": "I-Step从I-470推进到I-480"
+        }
+      ]
+    },
+    {
+      "id": "concept.showstopper",
+      "phrases": [
+        "Showstopper",
+        "showstopper",
+        "停演",
+        "阻断缺陷"
+      ],
+      "kind": "synonym",
+      "resolution": {
+        "metricId": "defect.showstopper_count",
+        "entityId": "quality.defect"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      },
+      "broader": "concept.defect",
+      "related": [
+        "concept.top_issue",
+        "concept.maturity_grade"
+      ],
+      "state_transitions": [
+        {
+          "from": "Showstopper Candidate",
+          "to": "Confirmed Showstopper",
+          "condition": "评审确认"
+        },
+        {
+          "from": "Confirmed Showstopper",
+          "to": "Resolved",
+          "condition": "修复并验证"
+        }
+      ]
+    },
+    {
+      "id": "concept.qgate",
+      "phrases": [
+        "Q-Gate",
+        "Q Gate",
+        "质量门",
+        "质量关卡",
+        "qgate"
+      ],
+      "kind": "synonym",
+      "resolution": {
+        "dimensionId": "quality.qgate_type"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      },
+      "related": [
+        "concept.blocked",
+        "concept.top_issue",
+        "concept.tqr"
+      ],
+      "state_transitions": [
+        {
+          "from": "Triggered",
+          "to": "Passed",
+          "condition": "功能成熟度达标"
+        },
+        {
+          "from": "Triggered",
+          "to": "Blocked",
+          "condition": "发现阻塞功能"
+        }
+      ]
+    },
+    {
+      "id": "concept.maturity_grade",
+      "phrases": [
+        "RG5",
+        "RG6",
+        "RG4",
+        "Reifegrad",
+        "成熟度",
+        "maturity grade",
+        "RG"
+      ],
+      "kind": "synonym",
+      "resolution": {
+        "dimensionId": "quality.maturity_grade"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      },
+      "synonyms": [
+        "concept.rg5",
+        "concept.rg6",
+        "concept.rg4"
+      ],
+      "narrower": [
+        "concept.top_issue",
+        "concept.showstopper"
+      ],
+      "related": [
+        "concept.beat",
+        "concept.mgip",
+        "concept.i_step"
+      ],
+      "state_transitions": [
+        {
+          "from": "RG4",
+          "to": "RG5-Green",
+          "condition": "功能达到可测试状态"
+        },
+        {
+          "from": "RG5-Green",
+          "to": "RG6",
+          "condition": "Showstopper-free, 可上线"
+        },
+        {
+          "from": "RG5-Yellow",
+          "to": "RG5-Green",
+          "condition": "PMG ticket解决"
+        },
+        {
+          "from": "RG5-Red",
+          "to": "RG5-Green",
+          "condition": "功能完整度补齐"
+        }
+      ]
+    },
+    {
+      "id": "concept.cwa",
+      "phrases": [
+        "CWA",
+        "Child Without Action",
+        "无动作子缺陷"
+      ],
+      "kind": "derived_business_rule",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      },
+      "resolution": {
+        "entityId": "quality.defect"
+      },
+      "broader": "concept.defect",
+      "related": [
+        "concept.tqr"
+      ]
+    },
+    {
+      "id": "concept.blocked",
+      "phrases": [
+        "Blocked",
+        "blocked",
+        "阻塞",
+        "已阻止"
+      ],
+      "kind": "derived_business_rule",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      },
+      "resolution": {
+        "entityId": "quality.defect"
+      },
+      "broader": "concept.defect",
+      "related": [
+        "concept.qgate",
+        "concept.tqr"
+      ],
+      "state_transitions": [
+        {
+          "from": "Blocked",
+          "to": "In Analysis",
+          "condition": "Blocking Reason解决, 推进到Phase 02→03"
+        }
+      ]
+    },
+    {
+      "id": "concept.tqr",
+      "phrases": [
+        "TQR",
+        "Ticket Quality Rating",
+        "工单质量",
+        "工单质量评级"
+      ],
+      "kind": "synonym",
+      "resolution": {
+        "dimensionId": "quality.tqr_enum"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      },
+      "related": [
+        "concept.blocked",
+        "concept.cwa",
+        "concept.qgate"
+      ]
+    },
+    {
+      "id": "concept.matrix",
+      "phrases": [
+        "Matrix",
+        "matrix",
+        "矩阵",
+        "Matrix Rating"
+      ],
+      "kind": "derived_business_rule",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      },
+      "resolution": {
+        "entityId": "quality.defect"
+      },
+      "broader": "concept.defect",
+      "related": [
+        "concept.top_issue",
+        "concept.showstopper"
+      ]
+    },
+    {
+      "id": "concept.dtsv",
+      "phrases": [
+        "DTSV",
+        "Dynamischer Teilsystem-Versuch",
+        "动态子系统验证"
+      ],
+      "kind": "derived_business_rule",
+      "governance": {
+        "status": "approved",
+        "owner": "DTSV Team"
+      },
+      "resolution": {
+        "entityId": "quality.defect"
+      },
+      "narrower": [
+        "concept.iuk",
+        "concept.dips",
+        "concept.tsp"
+      ],
+      "related": [
+        "concept.beat",
+        "concept.set"
+      ]
+    },
+    {
+      "id": "concept.beat",
+      "phrases": [
+        "BEAT",
+        "beat"
+      ],
+      "kind": "derived_business_rule",
+      "governance": {
+        "status": "approved",
+        "owner": "DTSV Team"
+      },
+      "resolution": {
+        "entityId": "quality.defect"
+      }
+    },
+    {
+      "id": "concept.aida",
+      "phrases": [
+        "AIDA",
+        "AIDA Movement"
+      ],
+      "kind": "derived_business_rule",
+      "governance": {
+        "status": "approved",
+        "owner": "Requirements Analytics"
+      },
+      "resolution": {
+        "entityId": "quality.defect"
+      },
+      "related": [
+        "concept.maturity_grade",
+        "concept.mgip"
+      ]
+    },
+    {
+      "id": "concept.iuk",
+      "phrases": [
+        "IuK",
+        "IUK",
+        "iuk"
+      ],
+      "kind": "derived_business_rule",
+      "governance": {
+        "status": "approved",
+        "owner": "DTSV Team"
+      },
+      "resolution": {
+        "entityId": "quality.defect"
+      },
+      "broader": "concept.dtsv",
+      "related": [
+        "concept.dips",
+        "concept.tsp"
+      ]
+    },
+    {
+      "id": "concept.dips",
+      "phrases": [
+        "DiPS",
+        "dips",
+        "DIPS"
+      ],
+      "kind": "derived_business_rule",
+      "governance": {
+        "status": "approved",
+        "owner": "DTSV Team"
+      },
+      "resolution": {
+        "entityId": "quality.defect"
+      },
+      "broader": "concept.dtsv",
+      "related": [
+        "concept.iuk",
+        "concept.tsp"
+      ]
+    },
+    {
+      "id": "concept.i_step",
+      "phrases": [
+        "I-Step",
+        "I-step",
+        "I-420",
+        "I-450",
+        "I-470",
+        "I-480",
+        "I-490",
+        "I-500"
+      ],
+      "kind": "synonym",
+      "resolution": {
+        "dimensionId": "product.i_step"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Project Management"
+      },
+      "related": [
+        "concept.maturity_grade",
+        "concept.sop",
+        "concept.beat"
+      ],
+      "state_transitions": [
+        {
+          "from": "I-420",
+          "to": "I-450",
+          "condition": "集成推进"
+        },
+        {
+          "from": "I-450",
+          "to": "I-470",
+          "condition": "Top Issue阶段结束"
+        },
+        {
+          "from": "I-470",
+          "to": "I-480",
+          "condition": "进入Showstopper阶段"
+        },
+        {
+          "from": "I-480",
+          "to": "I-490",
+          "condition": "Showstopper评审"
+        },
+        {
+          "from": "I-490",
+          "to": "I-500",
+          "condition": "发布"
+        }
+      ]
+    },
+    {
+      "id": "concept.sop",
+      "phrases": [
+        "SOP",
+        "Start of Production",
+        "投产"
+      ],
+      "kind": "derived_business_rule",
+      "governance": {
+        "status": "approved",
+        "owner": "Project Management"
+      },
+      "resolution": {
+        "entityId": "quality.defect"
+      },
+      "related": [
+        "concept.i_step",
+        "concept.maturity_grade"
+      ],
+      "state_transitions": [
+        {
+          "from": "Pre-SOP",
+          "to": "SOP",
+          "condition": "量产开始, E/E集成验证结束"
+        }
+      ]
+    },
+    {
+      "id": "concept.set",
+      "phrases": [
+        "SET",
+        "System Engineering Test"
+      ],
+      "kind": "derived_business_rule",
+      "governance": {
+        "status": "approved",
+        "owner": "Test Management"
+      },
+      "resolution": {
+        "entityId": "quality.defect"
+      }
+    },
+    {
+      "id": "concept.flash",
+      "phrases": [
+        "Flash",
+        "flash",
+        "刷写",
+        "Flashing"
+      ],
+      "kind": "derived_business_rule",
+      "governance": {
+        "status": "approved",
+        "owner": "DTSV Team"
+      },
+      "resolution": {
+        "entityId": "quality.defect"
+      },
+      "related": [
+        "concept.i_step"
+      ]
+    },
+    {
+      "id": "concept.ksp",
+      "phrases": [
+        "KSP",
+        "ksp"
+      ],
+      "kind": "derived_business_rule",
+      "governance": {
+        "status": "approved",
+        "owner": "DTSV Team"
+      },
+      "resolution": {
+        "entityId": "quality.defect"
+      }
+    },
+    {
+      "id": "concept.fips",
+      "phrases": [
+        "FIPS",
+        "fips"
+      ],
+      "kind": "derived_business_rule",
+      "governance": {
+        "status": "approved",
+        "owner": "Fleet Management"
+      },
+      "resolution": {
+        "entityId": "quality.defect"
+      }
+    },
+    {
+      "id": "concept.mgip",
+      "phrases": [
+        "MgIP",
+        "Messen gegen Integrations Planung"
+      ],
+      "kind": "derived_business_rule",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      },
+      "resolution": {
+        "entityId": "quality.defect"
+      }
+    },
+    {
+      "id": "concept.resterampe",
+      "phrases": [
+        "Resterampe",
+        "resterampe",
+        "剩余斜坡"
+      ],
+      "kind": "derived_business_rule",
+      "governance": {
+        "status": "approved",
+        "owner": "TPM Team"
+      },
+      "resolution": {
+        "entityId": "quality.defect"
+      }
+    },
+    {
+      "id": "concept.china_scope",
+      "phrases": [
+        "China scope",
+        "China Scope",
+        "中国范围",
+        "CN scope"
+      ],
+      "kind": "derived_business_rule",
+      "governance": {
+        "status": "approved",
+        "owner": "DTSV China"
+      },
+      "resolution": {
+        "entityId": "quality.defect"
+      },
+      "related": [
+        "concept.dtsv"
+      ]
+    },
+    {
+      "id": "concept.tsp",
+      "phrases": [
+        "TSP",
+        "tsp"
+      ],
+      "kind": "derived_business_rule",
+      "governance": {
+        "status": "approved",
+        "owner": "DTSV Team"
+      },
+      "resolution": {
+        "entityId": "quality.defect"
+      }
+    },
+    {
+      "id": "concept.ddp",
+      "phrases": [
+        "DDP",
+        "Defect Detection Ratio",
+        "缺陷检测率"
+      ],
+      "kind": "synonym",
+      "resolution": {
+        "metricId": "kpi.defect_detection_ratio"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      },
+      "synonyms": [
+        "metric.defect_detection_ratio"
+      ],
+      "related": [
+        "concept.cwa"
+      ]
+    },
+    {
+      "id": "concept.regression_coverage",
+      "phrases": [
+        "回归覆盖率",
+        "回归测试覆盖",
+        "regression coverage"
+      ],
+      "kind": "synonym",
+      "resolution": {
+        "metricId": "kpi.regression_coverage"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "DE-611"
+      }
+    },
+    {
+      "id": "concept.owner_field",
+      "phrases": [
+        "Owner",
+        "owner",
+        "所有者"
+      ],
+      "kind": "derived_business_rule",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      },
+      "resolution": {
+        "entityId": "quality.defect"
+      }
+    },
+    {
+      "id": "concept.defect_taxonomy",
+      "phrases": [
+        "defect taxonomy",
+        "缺陷分类体系",
+        "缺陷分类法"
+      ],
+      "kind": "concept",
+      "definition": "缺陷分类体系——涵盖Top Issue、Showstopper、Blocked、CWA等缺陷子类型",
+      "broader": null,
+      "narrower": [
+        "concept.top_issue",
+        "concept.showstopper",
+        "concept.blocked",
+        "concept.cwa"
+      ],
+      "related": [
+        "concept.matrix"
+      ],
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "concept.test_lifecycle",
+      "phrases": [
+        "test lifecycle",
+        "测试生命周期",
+        "测试流程"
+      ],
+      "kind": "concept",
+      "definition": "测试执行生命周期：planned → executing → passed/failed → requires_attention",
+      "broader": null,
+      "narrower": [],
+      "related": [
+        "concept.dtsv",
+        "concept.set",
+        "concept.beat"
+      ],
+      "state_transitions": [
+        {
+          "from": "planned",
+          "to": "executing",
+          "condition": "测试开始执行"
+        },
+        {
+          "from": "executing",
+          "to": "passed",
+          "condition": "所有步骤通过"
+        },
+        {
+          "from": "executing",
+          "to": "failed",
+          "condition": "存在失败步骤"
+        },
+        {
+          "from": "executing",
+          "to": "requires_attention",
+          "condition": "需要人工确认"
+        }
+      ],
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "concept.release_cycle",
+      "phrases": [
+        "release cycle",
+        "发布周期",
+        "SWIP release"
+      ],
+      "kind": "concept",
+      "definition": "SWIP Release周期：I-Step → Release → SET → Flash → Test → Report",
+      "broader": null,
+      "narrower": [],
+      "related": [
+        "concept.i_step",
+        "concept.set",
+        "concept.flash",
+        "concept.sop"
+      ],
+      "state_transitions": [
+        {
+          "from": "Planning",
+          "to": "Development",
+          "condition": "I-Step启动"
+        },
+        {
+          "from": "Development",
+          "to": "Integration",
+          "condition": "代码冻结"
+        },
+        {
+          "from": "Integration",
+          "to": "Testing",
+          "condition": "Flash完成"
+        },
+        {
+          "from": "Testing",
+          "to": "Report",
+          "condition": "测试执行完成"
+        }
+      ],
+      "governance": {
+        "status": "approved",
+        "owner": "Project Management"
+      }
+    },
+    {
+      "id": "concept.quality_gate_process",
+      "phrases": [
+        "quality gate process",
+        "Q-Gate流程",
+        "质量门流程"
+      ],
+      "kind": "concept",
+      "definition": "Q-Gate完整流程：缺陷提交→Phase 02→Q-Gate评估→通过/阻塞→后续处理",
+      "broader": null,
+      "narrower": [
+        "concept.qgate",
+        "concept.blocked"
+      ],
+      "related": [
+        "concept.top_issue",
+        "concept.tqr"
+      ],
+      "state_transitions": [
+        {
+          "from": "Defect Submitted",
+          "to": "Phase 02",
+          "condition": "无Blocking Reason"
+        },
+        {
+          "from": "Phase 02",
+          "to": "Q-Gate Evaluation",
+          "condition": "自动触发"
+        },
+        {
+          "from": "Q-Gate Evaluation",
+          "to": "Passed",
+          "condition": "不阻止成熟度"
+        },
+        {
+          "from": "Q-Gate Evaluation",
+          "to": "Blocked",
+          "condition": "阻止功能成熟度"
+        }
+      ],
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    }
+  ]
+}

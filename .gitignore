@@ -16,17 +16,36 @@ env/
 node_modules/
 frontend/node_modules/
 
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
 # Data
 *.db
 *.sqlite
 *.sqlite3
 data/*.db
+backend/database/octane_data.db
+backend/database/*.sqlite
+backend/database/ticket_embeddings.db
+backend/cache/
 
 # IDE
-.vscode/
+.vscode/*
+!.vscode/extensions.json
 .idea/
 *.swp
 *.swo
+*.sw?
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
 
 # Env
 .env
@@ -37,3 +56,18 @@ data/*.db
 # OS
 .DS_Store
 Thumbs.db
+
+# Misc
+*.local
+dist-ssr
+.octane-browser-profile/
+.octane-browser-profile-refresh/
+.understand-anything/
+graphify-out/
+cookie.txt
+cookie.txt.candidate
+login_info.txt
+vite.config.ts.timestamp-*
+database/hot/*.db-shm
+database/hot/*.db-wal
+database/**/*.db-shm

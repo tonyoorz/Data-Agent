@@ -1,0 +1,474 @@
+{
+  "schemaVersion": "1.0",
+  "ontologyVersion": "v1",
+  "actions": [
+    {
+      "id": "octane.defect.add_comment",
+      "version": "0.1.0",
+      "labels": {
+        "zh-CN": "添加缺陷评论",
+        "en-US": "Add Defect Comment"
+      },
+      "description": "Draft action for posting a governed comment to an Octane defect. The current system supports dry-run preview and explicit apply through the duplicate-comment workflow, but this ontology action is not approved for autonomous execution.",
+      "targetEntityId": "quality.defect",
+      "operation": "comment",
+      "capabilityState": "dry_run_only",
+      "intentHints": [
+        "add comment",
+        "post comment",
+        "write comment",
+        "添加评论",
+        "写评论",
+        "duplicate analysis comment"
+      ],
+      "fieldBindings": [
+        {
+          "fieldId": "octane_defects.table_column.defect_id",
+          "role": "target",
+          "localPropertyId": "defect_id",
+          "required": true
+        },
+        {
+          "fieldId": "octane_defects.table_column.comments",
+          "role": "editable",
+          "localPropertyId": "comments",
+          "required": true
+        }
+      ],
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "defect_id",
+          "comment_html",
+          "rationale"
+        ],
+        "properties": {
+          "defect_id": {
+            "type": "string"
+          },
+          "comment_html": {
+            "type": "string"
+          },
+          "rationale": {
+            "type": "string"
+          }
+        }
+      },
+      "apiBinding": {
+        "system": "octane",
+        "sourceId": "analytics.full_picture_defects",
+        "method": "POST",
+        "endpointTemplate": "/api/shared_spaces/{sharedSpaceId}/workspaces/{workspaceId}/work_items/{defect_id}/comments"
+      },
+      "execution": {
+        "mode": "dry_run_only",
+        "executor": "backend.analytics_cli.post-duplicate-search-comment",
+        "requiresDryRun": true,
+        "requiresHumanApproval": true,
+        "requiresActorScope": true,
+        "sideEffects": [
+          "comment_create",
+          "octane_write",
+          "audit_log"
+        ]
+      },
+      "policies": [
+        "actor.scope.mandatory"
+      ],
+      "audit": {
+        "runAudit": true,
+        "toolCallAudit": true,
+        "externalRequestAudit": true,
+        "rollbackStrategy": "manual"
+      },
+      "governance": {
+        "status": "draft",
+        "owner": "Agent Platform",
+        "decisionRef": "docs/ontology/octane-field-catalog.md"
+      }
+    },
+    {
+      "id": "octane.defect.delete_work_item",
+      "version": "0.1.0",
+      "labels": {
+        "zh-CN": "删除缺陷单",
+        "en-US": "Delete Defect Work Item"
+      },
+      "description": "Blocked action documenting that destructive Octane defect deletion is outside autonomous agent capability. Keep this explicit so delete intents are routed to policy explanation instead of ad-hoc tool use.",
+      "targetEntityId": "quality.defect",
+      "operation": "delete",
+      "capabilityState": "blocked",
+      "intentHints": [
+        "delete defect",
+        "remove defect",
+        "删除缺陷",
+        "删除问题单"
+      ],
+      "fieldBindings": [
+        {
+          "fieldId": "octane_defects.table_column.defect_id",
+          "role": "target",
+          "localPropertyId": "defect_id",
+          "required": true
+        }
+      ],
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "defect_id",
+          "business_approval_ref"
+        ],
+        "properties": {
+          "defect_id": {
+            "type": "string"
+          },
+          "business_approval_ref": {
+            "type": "string"
+          }
+        }
+      },
+      "apiBinding": {
+        "system": "octane",
+        "sourceId": "analytics.full_picture_defects",
+        "method": "DELETE",
+        "endpointTemplate": "/api/shared_spaces/{sharedSpaceId}/workspaces/{workspaceId}/work_items/{defect_id}"
+      },
+      "execution": {
+        "mode": "blocked",
+        "executor": "none",
+        "requiresDryRun": true,
+        "requiresHumanApproval": true,
+        "requiresActorScope": true,
+        "sideEffects": [
+          "destructive_delete",
+          "octane_write",
+          "audit_log"
+        ]
+      },
+      "policies": [
+        "actor.scope.mandatory"
+      ],
+      "audit": {
+        "runAudit": true,
+        "toolCallAudit": true,
+        "externalRequestAudit": true,
+        "rollbackStrategy": "not_supported"
+      },
+      "governance": {
+        "status": "draft",
+        "owner": "Agent Security",
+        "decisionRef": "docs/ontology/octane-field-catalog.md"
+      }
+    },
+    {
+      "id": "octane.defect.update_triage_fields",
+      "version": "0.1.0",
+      "labels": {
+        "zh-CN": "更新缺陷分诊字段",
+        "en-US": "Update Defect Triage Fields"
+      },
+      "description": "Disabled draft action for future governed updates to selected Octane defect triage fields. It records field candidates and guardrails before any executor is implemented.",
+      "targetEntityId": "quality.defect",
+      "operation": "update",
+      "capabilityState": "disabled",
+      "intentHints": [
+        "update defect",
+        "edit field",
+        "change triage",
+        "更新缺陷",
+        "修改字段",
+        "分诊"
+      ],
+      "fieldBindings": [
+        {
+          "fieldId": "octane_defects.table_column.defect_id",
+          "role": "target",
+          "localPropertyId": "defect_id",
+          "required": true
+        },
+        {
+          "fieldId": "octane_defects.raw_json.problem_finder_team_udf",
+          "role": "editable",
+          "localPropertyId": "problem_finder_team",
+          "required": false
+        },
+        {
+          "fieldId": "octane_defects.raw_json.model_series_udf",
+          "role": "editable",
+          "localPropertyId": "model_series",
+          "required": false
+        },
+        {
+          "fieldId": "octane_defects.raw_json.assigned_ecu_udf",
+          "role": "editable",
+          "localPropertyId": "assigned_ecu",
+          "required": false
+        },
+        {
+          "fieldId": "octane_defects.table_column.severity",
+          "role": "editable",
+          "localPropertyId": "severity",
+          "required": false
+        },
+        {
+          "fieldId": "octane_defects.table_column.phase",
+          "role": "editable",
+          "localPropertyId": "phase",
+          "required": false
+        },
+        {
+          "fieldId": "octane_defects.raw_json.software_version_udf",
+          "role": "editable",
+          "localPropertyId": "software_version",
+          "required": false
+        }
+      ],
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "defect_id",
+          "changes",
+          "rationale"
+        ],
+        "properties": {
+          "defect_id": {
+            "type": "string"
+          },
+          "changes": {
+            "type": "object"
+          },
+          "rationale": {
+            "type": "string"
+          }
+        }
+      },
+      "apiBinding": {
+        "system": "octane",
+        "sourceId": "analytics.full_picture_defects",
+        "method": "PUT",
+        "endpointTemplate": "/api/shared_spaces/{sharedSpaceId}/workspaces/{workspaceId}/work_items/{defect_id}"
+      },
+      "execution": {
+        "mode": "disabled",
+        "executor": "none",
+        "requiresDryRun": true,
+        "requiresHumanApproval": true,
+        "requiresActorScope": true,
+        "sideEffects": [
+          "field_update",
+          "octane_write",
+          "audit_log"
+        ]
+      },
+      "policies": [
+        "actor.scope.mandatory"
+      ],
+      "audit": {
+        "runAudit": true,
+        "toolCallAudit": true,
+        "externalRequestAudit": true,
+        "rollbackStrategy": "manual"
+      },
+      "governance": {
+        "status": "draft",
+        "owner": "Quality Governance",
+        "decisionRef": "docs/ontology/octane-field-catalog.md"
+      }
+    },
+    {
+      "id": "action.query_defects",
+      "operation": "read",
+      "targetEntityId": "quality.defect",
+      "capabilityState": "available",
+      "execution": {
+        "mode": "enabled",
+        "requiresHumanApproval": false,
+        "requiresDryRun": false
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "action.query_trend",
+      "operation": "read",
+      "targetEntityId": "quality.defect",
+      "capabilityState": "available",
+      "execution": {
+        "mode": "enabled",
+        "requiresHumanApproval": false,
+        "requiresDryRun": false
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "action.get_distribution",
+      "operation": "aggregate",
+      "targetEntityId": "quality.defect",
+      "capabilityState": "available",
+      "execution": {
+        "mode": "enabled",
+        "requiresHumanApproval": false,
+        "requiresDryRun": false
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "action.get_ranking",
+      "operation": "aggregate",
+      "targetEntityId": "quality.defect",
+      "capabilityState": "available",
+      "execution": {
+        "mode": "enabled",
+        "requiresHumanApproval": false,
+        "requiresDryRun": false
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "action.search_similar",
+      "operation": "semantic_search",
+      "targetEntityId": "quality.defect",
+      "capabilityState": "available",
+      "execution": {
+        "mode": "enabled",
+        "requiresHumanApproval": false,
+        "requiresDryRun": false
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "action.get_dashboard",
+      "operation": "read",
+      "targetEntityId": "quality.defect",
+      "capabilityState": "available",
+      "execution": {
+        "mode": "enabled",
+        "requiresHumanApproval": false,
+        "requiresDryRun": false
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "action.analyze_data",
+      "operation": "execute",
+      "targetEntityId": "quality.defect",
+      "capabilityState": "available",
+      "execution": {
+        "mode": "enabled",
+        "requiresHumanApproval": false,
+        "requiresDryRun": true
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "action.get_test_case_context",
+      "operation": "context",
+      "targetEntityId": "testing.test_case",
+      "capabilityState": "available",
+      "execution": {
+        "mode": "enabled",
+        "requiresHumanApproval": false,
+        "requiresDryRun": false
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "action.query_defect_aggregate",
+      "operation": "aggregate",
+      "targetEntityId": "quality.defect",
+      "capabilityState": "available",
+      "execution": {
+        "mode": "enabled",
+        "requiresHumanApproval": false,
+        "requiresDryRun": false
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "action.query_defect_records",
+      "operation": "records",
+      "targetEntityId": "quality.defect",
+      "capabilityState": "available",
+      "execution": {
+        "mode": "enabled",
+        "requiresHumanApproval": false,
+        "requiresDryRun": false
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "action.search_duplicates",
+      "operation": "semantic_search",
+      "targetEntityId": "quality.defect",
+      "capabilityState": "available",
+      "execution": {
+        "mode": "enabled",
+        "requiresHumanApproval": false,
+        "requiresDryRun": false
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "action.list_test_runs",
+      "operation": "records",
+      "targetEntityId": "testing.test_run",
+      "capabilityState": "available",
+      "execution": {
+        "mode": "enabled",
+        "requiresHumanApproval": false,
+        "requiresDryRun": false
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "action.get_traceability",
+      "operation": "read",
+      "targetEntityId": "traceability.link",
+      "capabilityState": "available",
+      "execution": {
+        "mode": "enabled",
+        "requiresHumanApproval": false,
+        "requiresDryRun": false
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    }
+  ]
+}

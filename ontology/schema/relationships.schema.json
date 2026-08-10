@@ -1,0 +1,58 @@
+{
+  "$id": "https://vizion-lab.local/ontology/schema/relationships.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["schemaVersion", "ontologyVersion", "relationships"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "ontologyVersion": { "const": "v1" },
+    "relationships": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "predicate", "sourceEntity", "targetEntity", "direction", "cardinality", "reversible", "sourceFields", "allowedJoinPaths", "governance"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]+$" },
+          "predicate": { "type": "string", "pattern": "^[a-z][a-z0-9_]+$" },
+          "sourceEntity": { "type": "string", "minLength": 1 },
+          "targetEntity": { "type": "string", "minLength": 1 },
+          "direction": { "enum": ["outbound"] },
+          "cardinality": { "enum": ["one_to_one", "one_to_many", "many_to_one", "many_to_many"] },
+          "reversible": { "type": "boolean" },
+          "sourceFields": {
+            "type": "object",
+            "required": ["source", "target"],
+            "additionalProperties": false,
+            "properties": {
+              "source": { "type": "string", "minLength": 1 },
+              "target": { "type": "string", "minLength": 1 }
+            }
+          },
+          "allowedJoinPaths": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "array",
+              "minItems": 2,
+              "items": { "type": "string", "minLength": 1 }
+            }
+          },
+          "explosionPolicy": { "enum": ["distinct_source", "distinct_target", "pre_aggregated"] },
+          "governance": { "$ref": "common.schema.json#/$defs/governance" }
+        },
+        "allOf": [
+          {
+            "if": { "properties": { "cardinality": { "const": "many_to_many" } }, "required": ["cardinality"] },
+            "then": {
+              "properties": { "explosionPolicy": { "enum": ["distinct_source", "distinct_target", "pre_aggregated"] } },
+              "required": ["explosionPolicy"]
+            }
+          }
+        ]
+      }
+    }
+  }
+}

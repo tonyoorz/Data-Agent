@@ -1,0 +1,1211 @@
+{
+  "schemaVersion": "1.0",
+  "ontologyVersion": "v1",
+  "metrics": [
+    {
+      "id": "defect.count",
+      "definitionVersion": "1.0.0",
+      "labels": {
+        "zh-CN": "缺陷数",
+        "en-US": "Defect Count"
+      },
+      "description": "Distinct defect primary keys in the authorized snapshot and selected scope.",
+      "entityId": "quality.defect",
+      "grain": "one row per distinct defect_id",
+      "measure": "count_distinct(defect_id)",
+      "unit": "count",
+      "defaultTimeDimension": "time.defect_creation_date",
+      "allowedDimensions": [
+        "time.defect_creation_date",
+        "org.problem_finder_team",
+        "product.project",
+        "product.service_pack",
+        "product.pu",
+        "product.i_step",
+        "product.os",
+        "product.platform",
+        "product.ecu",
+        "vehicle.model_series",
+        "requirements.aida",
+        "quality.phase",
+        "quality.severity",
+        "quality.status",
+        "quality.china_scope",
+        "quality.solution_cluster",
+        "quality.defect_category",
+        "quality.reporting_class",
+        "quality.user_tags",
+        "quality.market",
+        "quality.blocking_reason",
+        "quality.detected_in_release",
+        "quality.parent_child_type",
+        "vehicle.lead_model",
+        "time.defect_last_modified"
+      ],
+      "requiredFilters": [],
+      "missingDataPolicy": "zero_when_empty_result",
+      "capabilities": {
+        "trend": true,
+        "comparison": true,
+        "ranking": true
+      },
+      "sourceReadModel": "full_picture_outcomes",
+      "sourceRevisionStrategy": "snapshot",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "defect.created_count",
+      "definitionVersion": "1.0.0",
+      "labels": {
+        "zh-CN": "新建缺陷数",
+        "en-US": "Created Defect Count"
+      },
+      "description": "Distinct defects grouped or filtered by their creation event time.",
+      "entityId": "quality.defect",
+      "grain": "one row per distinct defect_id creation event",
+      "measure": "count_distinct(defect_id)",
+      "unit": "count",
+      "defaultTimeDimension": "time.defect_creation_date",
+      "allowedDimensions": [
+        "time.defect_creation_date",
+        "org.problem_finder_team",
+        "product.project",
+        "product.pu",
+        "product.os",
+        "product.ecu",
+        "requirements.aida",
+        "quality.phase",
+        "quality.severity",
+        "quality.china_scope",
+        "quality.solution_cluster",
+        "quality.defect_category",
+        "quality.reporting_class",
+        "quality.user_tags",
+        "quality.market",
+        "quality.blocking_reason",
+        "quality.detected_in_release",
+        "quality.parent_child_type",
+        "vehicle.lead_model",
+        "time.defect_last_modified"
+      ],
+      "requiredFilters": [],
+      "missingDataPolicy": "zero_when_empty_result",
+      "capabilities": {
+        "trend": true,
+        "comparison": true,
+        "ranking": true
+      },
+      "sourceReadModel": "full_picture_outcomes",
+      "sourceRevisionStrategy": "snapshot",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "defect.resolved_count",
+      "definitionVersion": "1.0.0",
+      "labels": {
+        "zh-CN": "解决缺陷数",
+        "en-US": "Resolved Defect Count"
+      },
+      "description": "Distinct defects entering an approved resolved outcome during the resolution-time window.",
+      "entityId": "quality.defect",
+      "grain": "one approved resolution event per defect",
+      "measure": "count_distinct(defect_id where approved_resolved_rule)",
+      "unit": "count",
+      "defaultTimeDimension": "time.defect_resolution_date",
+      "allowedDimensions": [
+        "time.defect_resolution_date",
+        "org.problem_finder_team",
+        "product.project",
+        "product.pu",
+        "product.ecu",
+        "quality.phase",
+        "quality.status",
+        "quality.solution_cluster",
+        "quality.defect_category",
+        "quality.reporting_class",
+        "quality.user_tags",
+        "quality.market",
+        "quality.blocking_reason",
+        "quality.detected_in_release",
+        "quality.parent_child_type",
+        "vehicle.lead_model",
+        "time.defect_last_modified"
+      ],
+      "requiredFilters": [],
+      "missingDataPolicy": "preserve_missing",
+      "capabilities": {
+        "trend": true,
+        "comparison": true,
+        "ranking": true
+      },
+      "sourceReadModel": "full_picture_outcomes",
+      "sourceRevisionStrategy": "snapshot",
+      "governance": {
+        "status": "draft",
+        "owner": "Quality Governance",
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md"
+      }
+    },
+    {
+      "id": "defect.rejected_count",
+      "definitionVersion": "1.0.0",
+      "labels": {
+        "zh-CN": "拒绝缺陷数",
+        "en-US": "Rejected Defect Count"
+      },
+      "description": "Distinct defects classified by an approved rejection outcome rule.",
+      "entityId": "quality.defect",
+      "grain": "one approved rejection outcome per defect",
+      "measure": "count_distinct(defect_id where approved_rejection_rule)",
+      "unit": "count",
+      "defaultTimeDimension": "time.defect_creation_date",
+      "allowedDimensions": [
+        "time.defect_creation_date",
+        "org.problem_finder_team",
+        "product.project",
+        "product.pu",
+        "quality.phase",
+        "quality.status",
+        "quality.solution_cluster",
+        "quality.defect_category",
+        "quality.reporting_class",
+        "quality.user_tags",
+        "quality.market",
+        "quality.blocking_reason",
+        "quality.detected_in_release",
+        "quality.parent_child_type",
+        "vehicle.lead_model",
+        "time.defect_last_modified"
+      ],
+      "requiredFilters": [],
+      "missingDataPolicy": "preserve_missing",
+      "capabilities": {
+        "trend": true,
+        "comparison": true,
+        "ranking": true
+      },
+      "sourceReadModel": "full_picture_outcomes",
+      "sourceRevisionStrategy": "snapshot",
+      "governance": {
+        "status": "draft",
+        "owner": "Quality Governance",
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md"
+      }
+    },
+    {
+      "id": "defect.open_count",
+      "definitionVersion": "1.0.0",
+      "labels": {
+        "zh-CN": "未关闭缺陷数",
+        "en-US": "Open Defect Count"
+      },
+      "description": "Distinct defects not in the approved terminal status set at the snapshot time.",
+      "entityId": "quality.defect",
+      "grain": "one current snapshot state per defect",
+      "measure": "count_distinct(defect_id where approved_open_rule)",
+      "unit": "count",
+      "defaultTimeDimension": "time.defect_creation_date",
+      "allowedDimensions": [
+        "time.defect_creation_date",
+        "org.problem_finder_team",
+        "product.project",
+        "product.pu",
+        "product.ecu",
+        "quality.phase",
+        "quality.status",
+        "quality.solution_cluster",
+        "quality.defect_category",
+        "quality.reporting_class",
+        "quality.user_tags",
+        "quality.market",
+        "quality.blocking_reason",
+        "quality.detected_in_release",
+        "quality.parent_child_type",
+        "vehicle.lead_model",
+        "time.defect_last_modified"
+      ],
+      "requiredFilters": [],
+      "missingDataPolicy": "preserve_missing",
+      "capabilities": {
+        "trend": false,
+        "comparison": true,
+        "ranking": true
+      },
+      "sourceReadModel": "full_picture_outcomes",
+      "sourceRevisionStrategy": "snapshot",
+      "governance": {
+        "status": "draft",
+        "owner": "Quality Governance",
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md"
+      }
+    },
+    {
+      "id": "defect.resolve_rate",
+      "definitionVersion": "1.0.0",
+      "labels": {
+        "zh-CN": "缺陷解决率",
+        "en-US": "Defect Resolution Rate"
+      },
+      "description": "Approved resolved defects divided by the approved defect cohort denominator.",
+      "entityId": "quality.defect",
+      "grain": "selected defect cohort",
+      "numerator": "defect.resolved_count",
+      "denominator": "defect.count",
+      "unit": "percent",
+      "defaultTimeDimension": "time.defect_creation_date",
+      "allowedDimensions": [
+        "time.defect_creation_date",
+        "org.problem_finder_team",
+        "product.project",
+        "product.pu",
+        "product.ecu",
+        "quality.solution_cluster",
+        "quality.defect_category",
+        "quality.reporting_class",
+        "quality.user_tags",
+        "quality.market",
+        "quality.blocking_reason",
+        "quality.detected_in_release",
+        "quality.parent_child_type",
+        "vehicle.lead_model",
+        "time.defect_last_modified"
+      ],
+      "requiredFilters": [],
+      "missingDataPolicy": "exclude_null_denominator",
+      "capabilities": {
+        "trend": true,
+        "comparison": true,
+        "ranking": true
+      },
+      "sourceReadModel": "full_picture_outcomes",
+      "sourceRevisionStrategy": "snapshot",
+      "governance": {
+        "status": "draft",
+        "owner": "Quality Governance",
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md"
+      }
+    },
+    {
+      "id": "defect.rejection_rate",
+      "definitionVersion": "1.0.0",
+      "labels": {
+        "zh-CN": "缺陷拒绝率",
+        "en-US": "Defect Rejection Rate"
+      },
+      "description": "Approved rejected defects divided by the approved defect cohort denominator.",
+      "entityId": "quality.defect",
+      "grain": "selected defect cohort",
+      "numerator": "defect.rejected_count",
+      "denominator": "defect.count",
+      "unit": "percent",
+      "defaultTimeDimension": "time.defect_creation_date",
+      "allowedDimensions": [
+        "time.defect_creation_date",
+        "org.problem_finder_team",
+        "product.project",
+        "product.pu",
+        "product.ecu",
+        "quality.solution_cluster",
+        "quality.defect_category",
+        "quality.reporting_class",
+        "quality.user_tags",
+        "quality.market",
+        "quality.blocking_reason",
+        "quality.detected_in_release",
+        "quality.parent_child_type",
+        "vehicle.lead_model",
+        "time.defect_last_modified"
+      ],
+      "requiredFilters": [],
+      "missingDataPolicy": "exclude_null_denominator",
+      "capabilities": {
+        "trend": true,
+        "comparison": true,
+        "ranking": true
+      },
+      "sourceReadModel": "full_picture_outcomes",
+      "sourceRevisionStrategy": "snapshot",
+      "governance": {
+        "status": "draft",
+        "owner": "Quality Governance",
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md"
+      }
+    },
+    {
+      "id": "defect.age_days",
+      "definitionVersion": "1.0.0",
+      "labels": {
+        "zh-CN": "缺陷年龄",
+        "en-US": "Defect Age"
+      },
+      "description": "Elapsed calendar days under an approved clock-stop rule.",
+      "entityId": "quality.defect",
+      "grain": "one age value per defect at snapshot",
+      "measure": "approved_age_days_rule",
+      "unit": "days",
+      "defaultTimeDimension": "time.defect_creation_date",
+      "allowedDimensions": [
+        "time.defect_creation_date",
+        "org.problem_finder_team",
+        "product.project",
+        "product.pu",
+        "product.ecu",
+        "quality.status",
+        "quality.severity",
+        "quality.solution_cluster",
+        "quality.defect_category",
+        "quality.reporting_class",
+        "quality.user_tags",
+        "quality.market",
+        "quality.blocking_reason",
+        "quality.detected_in_release",
+        "quality.parent_child_type",
+        "vehicle.lead_model",
+        "time.defect_last_modified"
+      ],
+      "requiredFilters": [],
+      "missingDataPolicy": "preserve_missing",
+      "capabilities": {
+        "trend": false,
+        "comparison": true,
+        "ranking": true
+      },
+      "sourceReadModel": "full_picture_outcomes",
+      "sourceRevisionStrategy": "snapshot",
+      "governance": {
+        "status": "draft",
+        "owner": "Quality Governance",
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md"
+      }
+    },
+    {
+      "id": "defect.long_runner_count",
+      "definitionVersion": "1.0.0",
+      "labels": {
+        "zh-CN": "长期未解决缺陷数",
+        "en-US": "Long-running Defect Count"
+      },
+      "description": "Distinct eligible defects whose approved age exceeds an approved threshold.",
+      "entityId": "quality.defect",
+      "grain": "one current snapshot state per eligible defect",
+      "measure": "count_distinct(defect_id where approved_long_runner_rule)",
+      "unit": "count",
+      "defaultTimeDimension": "time.defect_creation_date",
+      "allowedDimensions": [
+        "time.defect_creation_date",
+        "org.problem_finder_team",
+        "product.project",
+        "product.pu",
+        "product.ecu",
+        "quality.status",
+        "quality.severity",
+        "quality.solution_cluster",
+        "quality.defect_category",
+        "quality.reporting_class",
+        "quality.user_tags",
+        "quality.market",
+        "quality.blocking_reason",
+        "quality.detected_in_release",
+        "quality.parent_child_type",
+        "vehicle.lead_model",
+        "time.defect_last_modified"
+      ],
+      "requiredFilters": [],
+      "missingDataPolicy": "preserve_missing",
+      "capabilities": {
+        "trend": false,
+        "comparison": true,
+        "ranking": true
+      },
+      "sourceReadModel": "full_picture_outcomes",
+      "sourceRevisionStrategy": "snapshot",
+      "governance": {
+        "status": "draft",
+        "owner": "Quality Governance",
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md"
+      }
+    },
+    {
+      "id": "defect.repeat_rate",
+      "definitionVersion": "1.0.0",
+      "labels": {
+        "zh-CN": "重复缺陷率",
+        "en-US": "Repeated Defect Rate"
+      },
+      "description": "Defects with an approved duplicate linkage divided by an approved defect cohort.",
+      "entityId": "quality.defect",
+      "grain": "selected defect cohort",
+      "numerator": "approved_duplicate_link_count",
+      "denominator": "defect.count",
+      "unit": "percent",
+      "defaultTimeDimension": "time.defect_creation_date",
+      "allowedDimensions": [
+        "time.defect_creation_date",
+        "org.problem_finder_team",
+        "product.project",
+        "product.pu",
+        "product.ecu",
+        "quality.solution_cluster",
+        "quality.defect_category",
+        "quality.reporting_class",
+        "quality.user_tags",
+        "quality.market",
+        "quality.blocking_reason",
+        "quality.detected_in_release",
+        "quality.parent_child_type",
+        "vehicle.lead_model",
+        "time.defect_last_modified"
+      ],
+      "requiredFilters": [],
+      "missingDataPolicy": "exclude_null_denominator",
+      "capabilities": {
+        "trend": true,
+        "comparison": true,
+        "ranking": true
+      },
+      "sourceReadModel": "full_picture_outcomes",
+      "sourceRevisionStrategy": "snapshot",
+      "governance": {
+        "status": "draft",
+        "owner": "Quality Governance",
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md"
+      }
+    },
+    {
+      "id": "testing.run_count",
+      "definitionVersion": "1.0.0",
+      "labels": {
+        "zh-CN": "测试执行数",
+        "en-US": "Test Run Count"
+      },
+      "description": "Distinct manual run IDs completed in the selected scope.",
+      "entityId": "testing.test_run",
+      "grain": "one row per distinct mr_id",
+      "measure": "count_distinct(mr_id)",
+      "unit": "count",
+      "defaultTimeDimension": "time.test_finished_date",
+      "allowedDimensions": [
+        "time.test_finished_date",
+        "time.test_week",
+        "org.tester",
+        "org.team",
+        "product.project",
+        "product.pu",
+        "requirements.aida",
+        "testing.run_status",
+        "testing.domain",
+        "testing.test_phase",
+        "testing.testing_tool_type",
+        "product.release",
+        "time.run_started"
+      ],
+      "requiredFilters": [],
+      "missingDataPolicy": "zero_when_empty_result",
+      "capabilities": {
+        "trend": true,
+        "comparison": true,
+        "ranking": true
+      },
+      "sourceReadModel": "testing_coverage_hot",
+      "sourceRevisionStrategy": "snapshot",
+      "governance": {
+        "status": "approved",
+        "owner": "Testing Analytics"
+      }
+    },
+    {
+      "id": "testing.testcase_count",
+      "definitionVersion": "1.0.0",
+      "labels": {
+        "zh-CN": "测试用例数",
+        "en-US": "Test Case Count"
+      },
+      "description": "Distinct test case IDs in the selected scope.",
+      "entityId": "testing.test_case",
+      "grain": "one row per distinct test_id",
+      "measure": "count_distinct(test_id)",
+      "unit": "count",
+      "defaultTimeDimension": null,
+      "allowedDimensions": [
+        "product.project",
+        "product.pu",
+        "requirements.aida"
+      ],
+      "requiredFilters": [],
+      "missingDataPolicy": "zero_when_empty_result",
+      "capabilities": {
+        "trend": false,
+        "comparison": true,
+        "ranking": true
+      },
+      "sourceReadModel": "testing_coverage_hot",
+      "sourceRevisionStrategy": "snapshot",
+      "governance": {
+        "status": "approved",
+        "owner": "Testing Analytics"
+      }
+    },
+    {
+      "id": "testing.passed_run_count",
+      "definitionVersion": "1.0.0",
+      "labels": {
+        "zh-CN": "通过测试执行数",
+        "en-US": "Passed Test Run Count"
+      },
+      "description": "Distinct manual runs with the canonical Passed status.",
+      "entityId": "testing.test_run",
+      "grain": "one row per distinct passed mr_id",
+      "measure": "count_distinct(mr_id where status='Passed')",
+      "unit": "count",
+      "defaultTimeDimension": "time.test_finished_date",
+      "allowedDimensions": [
+        "time.test_finished_date",
+        "time.test_week",
+        "org.tester",
+        "org.team",
+        "product.project",
+        "product.pu",
+        "requirements.aida",
+        "testing.domain",
+        "testing.test_phase",
+        "testing.testing_tool_type",
+        "product.release",
+        "time.run_started"
+      ],
+      "requiredFilters": [],
+      "missingDataPolicy": "zero_when_empty_result",
+      "capabilities": {
+        "trend": true,
+        "comparison": true,
+        "ranking": true
+      },
+      "sourceReadModel": "testing_coverage_hot",
+      "sourceRevisionStrategy": "snapshot",
+      "governance": {
+        "status": "approved",
+        "owner": "Testing Analytics"
+      }
+    },
+    {
+      "id": "testing.failed_run_count",
+      "definitionVersion": "1.0.0",
+      "labels": {
+        "zh-CN": "失败测试执行数",
+        "en-US": "Failed Test Run Count"
+      },
+      "description": "Distinct manual runs with the canonical Failed status.",
+      "entityId": "testing.test_run",
+      "grain": "one row per distinct failed mr_id",
+      "measure": "count_distinct(mr_id where status='Failed')",
+      "unit": "count",
+      "defaultTimeDimension": "time.test_finished_date",
+      "allowedDimensions": [
+        "time.test_finished_date",
+        "time.test_week",
+        "org.tester",
+        "org.team",
+        "product.project",
+        "product.pu",
+        "requirements.aida",
+        "testing.domain",
+        "testing.test_phase",
+        "testing.testing_tool_type",
+        "product.release",
+        "time.run_started"
+      ],
+      "requiredFilters": [],
+      "missingDataPolicy": "zero_when_empty_result",
+      "capabilities": {
+        "trend": true,
+        "comparison": true,
+        "ranking": true
+      },
+      "sourceReadModel": "testing_coverage_hot",
+      "sourceRevisionStrategy": "snapshot",
+      "governance": {
+        "status": "approved",
+        "owner": "Testing Analytics"
+      }
+    },
+    {
+      "id": "testing.pass_rate",
+      "definitionVersion": "1.0.0",
+      "labels": {
+        "zh-CN": "测试通过率",
+        "en-US": "Test Pass Rate"
+      },
+      "description": "Passed runs divided by the approved eligible-run denominator.",
+      "entityId": "testing.test_run",
+      "grain": "selected test-run cohort",
+      "numerator": "testing.passed_run_count",
+      "denominator": "testing.run_count",
+      "unit": "percent",
+      "defaultTimeDimension": "time.test_finished_date",
+      "allowedDimensions": [
+        "time.test_finished_date",
+        "time.test_week",
+        "org.tester",
+        "org.team",
+        "product.project",
+        "product.pu",
+        "requirements.aida",
+        "testing.domain",
+        "testing.test_phase",
+        "testing.testing_tool_type",
+        "product.release",
+        "time.run_started"
+      ],
+      "requiredFilters": [],
+      "missingDataPolicy": "exclude_null_denominator",
+      "capabilities": {
+        "trend": true,
+        "comparison": true,
+        "ranking": true
+      },
+      "sourceReadModel": "testing_coverage_hot",
+      "sourceRevisionStrategy": "snapshot",
+      "governance": {
+        "status": "draft",
+        "owner": "Testing Governance",
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md"
+      }
+    },
+    {
+      "id": "testing.fail_rate",
+      "definitionVersion": "1.0.0",
+      "labels": {
+        "zh-CN": "测试失败率",
+        "en-US": "Test Fail Rate"
+      },
+      "description": "Failed runs divided by the approved eligible-run denominator.",
+      "entityId": "testing.test_run",
+      "grain": "selected test-run cohort",
+      "numerator": "testing.failed_run_count",
+      "denominator": "testing.run_count",
+      "unit": "percent",
+      "defaultTimeDimension": "time.test_finished_date",
+      "allowedDimensions": [
+        "time.test_finished_date",
+        "time.test_week",
+        "org.tester",
+        "org.team",
+        "product.project",
+        "product.pu",
+        "requirements.aida",
+        "testing.domain",
+        "testing.test_phase",
+        "testing.testing_tool_type",
+        "product.release",
+        "time.run_started"
+      ],
+      "requiredFilters": [],
+      "missingDataPolicy": "exclude_null_denominator",
+      "capabilities": {
+        "trend": true,
+        "comparison": true,
+        "ranking": true
+      },
+      "sourceReadModel": "testing_coverage_hot",
+      "sourceRevisionStrategy": "snapshot",
+      "governance": {
+        "status": "draft",
+        "owner": "Testing Governance",
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md"
+      }
+    },
+    {
+      "id": "testing.requirement_coverage_rate",
+      "definitionVersion": "1.0.0",
+      "labels": {
+        "zh-CN": "需求覆盖率",
+        "en-US": "Requirement Coverage Rate"
+      },
+      "description": "Requirements with approved validating test cases divided by the approved requirement population.",
+      "entityId": "requirements.aida_node",
+      "grain": "selected requirement population",
+      "numerator": "approved_covered_requirement_count",
+      "denominator": "approved_requirement_population",
+      "unit": "percent",
+      "defaultTimeDimension": null,
+      "allowedDimensions": [
+        "product.project",
+        "product.pu",
+        "requirements.aida"
+      ],
+      "requiredFilters": [],
+      "missingDataPolicy": "exclude_null_denominator",
+      "capabilities": {
+        "trend": false,
+        "comparison": true,
+        "ranking": true
+      },
+      "sourceReadModel": "traceability_models",
+      "sourceRevisionStrategy": "snapshot",
+      "governance": {
+        "status": "draft",
+        "owner": "Requirements Governance",
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md"
+      }
+    },
+    {
+      "id": "testing.traceability_rate",
+      "definitionVersion": "1.0.0",
+      "labels": {
+        "zh-CN": "可追溯率",
+        "en-US": "Traceability Rate"
+      },
+      "description": "Eligible test runs with approved requirement links divided by eligible runs.",
+      "entityId": "testing.test_run",
+      "grain": "selected eligible test-run cohort",
+      "numerator": "approved_traced_run_count",
+      "denominator": "testing.run_count",
+      "unit": "percent",
+      "defaultTimeDimension": "time.test_finished_date",
+      "allowedDimensions": [
+        "time.test_finished_date",
+        "time.test_week",
+        "org.team",
+        "product.project",
+        "product.pu",
+        "requirements.aida",
+        "testing.domain",
+        "testing.test_phase",
+        "testing.testing_tool_type",
+        "product.release",
+        "time.run_started"
+      ],
+      "requiredFilters": [],
+      "missingDataPolicy": "exclude_null_denominator",
+      "capabilities": {
+        "trend": true,
+        "comparison": true,
+        "ranking": true
+      },
+      "sourceReadModel": "testing_coverage_hot",
+      "sourceRevisionStrategy": "snapshot",
+      "governance": {
+        "status": "draft",
+        "owner": "Requirements Governance",
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md"
+      }
+    },
+    {
+      "id": "quality.defect_density",
+      "definitionVersion": "1.0.0",
+      "labels": {
+        "zh-CN": "缺陷密度",
+        "en-US": "Defect Density"
+      },
+      "description": "Defect count divided by an explicitly approved size or exposure denominator.",
+      "entityId": "quality.defect",
+      "grain": "selected product exposure cohort",
+      "numerator": "defect.count",
+      "denominator": "approved_exposure_denominator",
+      "unit": "ratio",
+      "defaultTimeDimension": "time.defect_creation_date",
+      "allowedDimensions": [
+        "time.defect_creation_date",
+        "org.problem_finder_team",
+        "product.project",
+        "product.service_pack",
+        "product.pu",
+        "product.ecu",
+        "quality.solution_cluster",
+        "quality.defect_category",
+        "quality.reporting_class",
+        "quality.user_tags",
+        "quality.market",
+        "quality.blocking_reason",
+        "quality.detected_in_release",
+        "quality.parent_child_type",
+        "vehicle.lead_model",
+        "time.defect_last_modified"
+      ],
+      "requiredFilters": [],
+      "missingDataPolicy": "exclude_null_denominator",
+      "capabilities": {
+        "trend": true,
+        "comparison": true,
+        "ranking": true
+      },
+      "sourceReadModel": "full_picture_outcomes",
+      "sourceRevisionStrategy": "snapshot",
+      "governance": {
+        "status": "draft",
+        "owner": "Quality Governance",
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md"
+      }
+    },
+    {
+      "id": "team.execution_count",
+      "definitionVersion": "1.0.0",
+      "labels": {
+        "zh-CN": "团队测试执行数",
+        "en-US": "Team Execution Count"
+      },
+      "description": "Distinct manual runs attributed to a tester or team.",
+      "entityId": "testing.test_run",
+      "grain": "one row per distinct mr_id and authorized team attribution",
+      "measure": "count_distinct(mr_id)",
+      "unit": "count",
+      "defaultTimeDimension": "time.test_finished_date",
+      "allowedDimensions": [
+        "time.test_finished_date",
+        "time.test_week",
+        "org.tester",
+        "org.team",
+        "product.project",
+        "product.pu",
+        "requirements.aida",
+        "testing.domain",
+        "testing.test_phase",
+        "testing.testing_tool_type",
+        "product.release",
+        "time.run_started"
+      ],
+      "requiredFilters": [],
+      "missingDataPolicy": "zero_when_empty_result",
+      "capabilities": {
+        "trend": true,
+        "comparison": true,
+        "ranking": true
+      },
+      "sourceReadModel": "testing_coverage_hot",
+      "sourceRevisionStrategy": "snapshot",
+      "governance": {
+        "status": "approved",
+        "owner": "Testing Analytics"
+      }
+    },
+    {
+      "id": "team.defect_discovery_count",
+      "definitionVersion": "1.0.0",
+      "labels": {
+        "zh-CN": "团队发现缺陷数",
+        "en-US": "Team Defect Discovery Count"
+      },
+      "description": "Distinct defects attributed to the canonical problem-finder team field.",
+      "entityId": "quality.defect",
+      "grain": "one row per distinct defect_id and problem-finder team",
+      "measure": "count_distinct(defect_id)",
+      "unit": "count",
+      "defaultTimeDimension": "time.defect_creation_date",
+      "allowedDimensions": [
+        "time.defect_creation_date",
+        "org.problem_finder_team",
+        "product.project",
+        "product.pu",
+        "product.ecu",
+        "quality.severity",
+        "quality.solution_cluster",
+        "quality.defect_category",
+        "quality.reporting_class",
+        "quality.user_tags",
+        "quality.market",
+        "quality.blocking_reason",
+        "quality.detected_in_release",
+        "quality.parent_child_type",
+        "vehicle.lead_model",
+        "time.defect_last_modified"
+      ],
+      "requiredFilters": [
+        "org.problem_finder_team"
+      ],
+      "missingDataPolicy": "zero_when_empty_result",
+      "capabilities": {
+        "trend": true,
+        "comparison": true,
+        "ranking": true
+      },
+      "sourceReadModel": "full_picture_outcomes",
+      "sourceRevisionStrategy": "snapshot",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "team.discovery_efficiency",
+      "definitionVersion": "1.0.0",
+      "labels": {
+        "zh-CN": "团队缺陷发现效率",
+        "en-US": "Team Discovery Efficiency"
+      },
+      "description": "An approved discovery outcome divided by an approved execution or effort denominator.",
+      "entityId": "organization.team",
+      "grain": "selected team and analysis window",
+      "numerator": "team.defect_discovery_count",
+      "denominator": "team.execution_count",
+      "unit": "ratio",
+      "defaultTimeDimension": "time.defect_creation_date",
+      "allowedDimensions": [
+        "time.defect_creation_date",
+        "org.problem_finder_team",
+        "product.project",
+        "product.pu"
+      ],
+      "requiredFilters": [
+        "org.problem_finder_team"
+      ],
+      "missingDataPolicy": "exclude_null_denominator",
+      "capabilities": {
+        "trend": true,
+        "comparison": true,
+        "ranking": true
+      },
+      "sourceReadModel": "full_picture_outcomes",
+      "sourceRevisionStrategy": "snapshot",
+      "governance": {
+        "status": "draft",
+        "owner": "Quality Governance",
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md"
+      }
+    },
+    {
+      "id": "kpi.defect_detection_ratio",
+      "definitionVersion": "1.0.0",
+      "labels": {
+        "zh-CN": "缺陷检测率(DDP)",
+        "en-US": "Defect Detection Ratio"
+      },
+      "description": "DDP = R1 / (R1 + R2) * 100%。R1=上线前发现的缺陷数，R2=上线后发现的缺陷数。目标≥99%",
+      "entityId": "quality.defect",
+      "grain": "defects detected before vs after customer release",
+      "measure": "count_distinct(defect_id WHERE phase NOT IN ('06-Concluded','09-Concluded without action') AND creation_time < release_date) / count_distinct(defect_id) * 100",
+      "unit": "percent",
+      "defaultTimeDimension": "time.defect_creation_date",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      },
+      "allowedDimensions": [
+        "time.defect_creation_date"
+      ],
+      "requiredFilters": [],
+      "missingDataPolicy": "not_applicable",
+      "sourceReadModel": "full_picture_outcomes",
+      "sourceRevisionStrategy": "snapshot",
+      "capabilities": {
+        "trend": true,
+        "comparison": true,
+        "ranking": true
+      }
+    },
+    {
+      "id": "kpi.regression_coverage",
+      "definitionVersion": "1.0.0",
+      "labels": {
+        "zh-CN": "回归测试覆盖率",
+        "en-US": "Regression Test Coverage"
+      },
+      "description": "每个DTSV周期中，至少执行过一次测试的RG5已签收功能数 / RG5功能总数。目标100%",
+      "entityId": "testing.test_case",
+      "grain": "RG5 signed-off features with at least one test case executed",
+      "measure": "count_distinct(test_id WHERE rg_level='RG5' AND run_count > 0) / count_distinct(test_id WHERE rg_level='RG5') * 100",
+      "unit": "percent",
+      "governance": {
+        "status": "approved",
+        "owner": "DE-611 Test Management"
+      },
+      "defaultTimeDimension": "time.defect_creation_date",
+      "allowedDimensions": [
+        "time.defect_creation_date"
+      ],
+      "requiredFilters": [],
+      "missingDataPolicy": "not_applicable",
+      "sourceReadModel": "testing_coverage_hot",
+      "sourceRevisionStrategy": "snapshot",
+      "capabilities": {
+        "trend": true,
+        "comparison": true,
+        "ranking": true
+      }
+    },
+    {
+      "id": "kpi.config_coverage_models",
+      "definitionVersion": "1.0.0",
+      "labels": {
+        "zh-CN": "配置覆盖率(车型)",
+        "en-US": "Configuration Coverage - Car Models"
+      },
+      "description": "已测试的车型变体数 / I-Step交付支持的总车型变体数。目标100%",
+      "entityId": "vehicle.test_vehicle",
+      "grain": "derivate coverage per I-step delivery",
+      "measure": "count_distinct(model_series WHERE tested=true) / count_distinct(model_series) * 100",
+      "unit": "percent",
+      "governance": {
+        "status": "approved",
+        "owner": "Project Planning"
+      },
+      "defaultTimeDimension": "time.defect_creation_date",
+      "allowedDimensions": [
+        "time.defect_creation_date"
+      ],
+      "requiredFilters": [],
+      "missingDataPolicy": "not_applicable",
+      "sourceReadModel": "test_vehicles",
+      "sourceRevisionStrategy": "snapshot",
+      "capabilities": {
+        "trend": true,
+        "comparison": true,
+        "ranking": true
+      }
+    },
+    {
+      "id": "kpi.config_coverage_variants",
+      "definitionVersion": "1.0.0",
+      "labels": {
+        "zh-CN": "配置覆盖率(硬件变体)",
+        "en-US": "Configuration Coverage - Hardware Variants"
+      },
+      "description": "100%覆盖硬件变体(High, Mid, Base, Premium)。目标100%",
+      "entityId": "vehicle.test_vehicle",
+      "grain": "hardware variant coverage",
+      "measure": "count_distinct(hw_variant WHERE tested=true) / count_distinct(hw_variant) * 100",
+      "unit": "percent",
+      "governance": {
+        "status": "approved",
+        "owner": "Platform Resource Planning"
+      },
+      "defaultTimeDimension": "time.defect_creation_date",
+      "allowedDimensions": [
+        "time.defect_creation_date"
+      ],
+      "requiredFilters": [],
+      "missingDataPolicy": "not_applicable",
+      "sourceReadModel": "test_vehicles",
+      "sourceRevisionStrategy": "snapshot",
+      "capabilities": {
+        "trend": true,
+        "comparison": true,
+        "ranking": true
+      }
+    },
+    {
+      "id": "kpi.defect_rejection_rate",
+      "definitionVersion": "1.0.0",
+      "labels": {
+        "zh-CN": "缺陷拒收率(CWA)",
+        "en-US": "Defect Rejection Rate (CWA)"
+      },
+      "description": "CWA(Child Without Action)率。子缺陷被直接拒绝的比例。目标≤10%",
+      "entityId": "quality.defect",
+      "grain": "child defects rejected directly",
+      "measure": "count_distinct(defect_id WHERE parent_child_type='child' AND phase='09-Concluded without action') / count_distinct(defect_id WHERE parent_child_type='child') * 100",
+      "unit": "percent",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      },
+      "defaultTimeDimension": "time.defect_creation_date",
+      "allowedDimensions": [
+        "time.defect_creation_date"
+      ],
+      "requiredFilters": [],
+      "missingDataPolicy": "not_applicable",
+      "sourceReadModel": "full_picture_outcomes",
+      "sourceRevisionStrategy": "snapshot",
+      "capabilities": {
+        "trend": true,
+        "comparison": true,
+        "ranking": true
+      }
+    },
+    {
+      "id": "kpi.function_coverage",
+      "definitionVersion": "1.0.0",
+      "labels": {
+        "zh-CN": "功能(AIDA)覆盖率",
+        "en-US": "Function (AIDA) Coverage"
+      },
+      "description": "功能(AIDA)的需求或验收标准覆盖率。目标100%。由流程保证",
+      "entityId": "requirements.aida_node",
+      "grain": "AIDA nodes with requirements coverage",
+      "measure": "count_distinct(aida_id WHERE has_requirement=true) / count_distinct(aida_id) * 100",
+      "unit": "percent",
+      "governance": {
+        "status": "approved",
+        "owner": "Process Management"
+      },
+      "defaultTimeDimension": "time.defect_creation_date",
+      "allowedDimensions": [
+        "time.defect_creation_date"
+      ],
+      "requiredFilters": [],
+      "missingDataPolicy": "not_applicable",
+      "sourceReadModel": "traceability_models",
+      "sourceRevisionStrategy": "snapshot",
+      "capabilities": {
+        "trend": true,
+        "comparison": true,
+        "ranking": true
+      }
+    },
+    {
+      "id": "defect.top_issue_count",
+      "definitionVersion": "1.0.0",
+      "labels": {
+        "zh-CN": "Top Issue缺陷数",
+        "en-US": "Top Issue Defect Count"
+      },
+      "description": "在Top Issue阶段(通常I-420~I-470)，阻止功能达到预期Reifegrad的缺陷数。这类缺陷需要在Octane的'Assign'字段标记为'Preventing Maturity Grade ConDrive'",
+      "entityId": "quality.defect",
+      "grain": "defects blocking maturity grade achievement",
+      "measure": "count_distinct(defect_id WHERE reporting_class LIKE '%Top Issue%' OR user_tags LIKE '%TopIssue%')",
+      "unit": "count",
+      "defaultTimeDimension": "time.defect_creation_date",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      },
+      "allowedDimensions": [
+        "time.defect_creation_date"
+      ],
+      "requiredFilters": [],
+      "missingDataPolicy": "not_applicable",
+      "sourceReadModel": "full_picture_outcomes",
+      "sourceRevisionStrategy": "snapshot",
+      "capabilities": {
+        "trend": true,
+        "comparison": true,
+        "ranking": true
+      }
+    },
+    {
+      "id": "defect.showstopper_count",
+      "definitionVersion": "1.0.0",
+      "labels": {
+        "zh-CN": "Showstopper缺陷数",
+        "en-US": "Showstopper Defect Count"
+      },
+      "description": "在Showstopper阶段(通常I-480~I-490)，上线前必须修复的缺陷数。标记为'Showstopper_Candidat'的潜在Showstopper",
+      "entityId": "quality.defect",
+      "grain": "critical defects blocking go-live",
+      "measure": "count_distinct(defect_id WHERE reporting_class LIKE '%Showstopper%' OR user_tags LIKE '%Showstopper%')",
+      "unit": "count",
+      "defaultTimeDimension": "time.defect_creation_date",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      },
+      "allowedDimensions": [
+        "time.defect_creation_date"
+      ],
+      "requiredFilters": [],
+      "missingDataPolicy": "not_applicable",
+      "sourceReadModel": "full_picture_outcomes",
+      "sourceRevisionStrategy": "snapshot",
+      "capabilities": {
+        "trend": true,
+        "comparison": true,
+        "ranking": true
+      }
+    }
+  ]
+}

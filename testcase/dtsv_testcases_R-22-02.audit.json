@@ -1,0 +1,38 @@
+{
+  "generated_at": "2026-06-01T12:30:08.021934",
+  "scope": {
+    "team": "DTSV_China",
+    "release": "R-22-02",
+    "source": "runs"
+  },
+  "totals": {
+    "testcases": 3,
+    "runs": 3
+  },
+  "coverage_before_enrichment": {
+    "defect_non_empty": 3,
+    "feature_non_empty": 0,
+    "story_non_empty": 0
+  },
+  "coverage_after_enrichment": {
+    "defect_non_empty": 3,
+    "feature_non_empty": 3,
+    "story_non_empty": 3
+  },
+  "enrichment": {
+    "unresolved_testcases": 3,
+    "tests_lookup_count": 3,
+    "enriched_testcases": 0,
+    "work_items_fallback": {
+      "candidate_testcases": 3,
+      "processed_testcases": 3,
+      "work_items_queries": 3,
+      "enriched_testcases": 3
+    }
+  },
+  "non_empty_rates": {
+    "defect": 100.0,
+    "feature": 100.0,
+    "story": 100.0
+  }
+}

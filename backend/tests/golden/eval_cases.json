@@ -1,0 +1,1705 @@
+{
+  "cases": [
+    {
+      "id": "agg-001",
+      "natural_question": "当前有多少个缺陷？",
+      "ontology_query": {
+        "schemaVersion": "1.0",
+        "queryId": "eval-aggregate-quality.defect",
+        "ontologyVersion": "v1",
+        "schemaFingerprint": "e6d53ae0f79626303729eec1097b64aa176b6fc32cef6054977a6b252b252fb4",
+        "query": {
+          "schemaVersion": "1.0",
+          "ontologyVersion": "v1",
+          "schemaFingerprint": "e6d53ae0f79626303729eec1097b64aa176b6fc32cef6054977a6b252b252fb4",
+          "intent": "aggregate",
+          "entityIds": [
+            "quality.defect"
+          ],
+          "metricIds": [
+            "defect.count"
+          ],
+          "dimensionIds": [],
+          "filters": [
+            {
+              "dimensionId": "org.problem_finder_team",
+              "operator": "in",
+              "values": [
+                "DTSV_China"
+              ],
+              "source": "policy"
+            }
+          ],
+          "timeScopes": [],
+          "comparison": null,
+          "sort": [],
+          "limit": 20
+        },
+        "actorScope": {
+          "actorId": "eval-bot",
+          "scopeHash": "eval-scope",
+          "workspaceIds": [
+            "DTSV"
+          ],
+          "projectIds": [],
+          "teamIds": [
+            "DTSV"
+          ],
+          "allowedObjectTypes": [
+            "quality.defect",
+            "testing.test_run",
+            "testing.test_case",
+            "requirements.aida_node",
+            "defect",
+            "test_run",
+            "test_case",
+            "aida"
+          ],
+          "allowedPropertyIds": [],
+          "rowPolicyIds": [
+            "dtsv"
+          ],
+          "sensitiveFieldPolicyIds": []
+        }
+      },
+      "expected_entity_ids": [
+        "quality.defect"
+      ],
+      "expected_metric_ids": [
+        "defect.count"
+      ],
+      "expected_dimension_ids": [],
+      "tags": [
+        "defect",
+        "basic",
+        "aggregate"
+      ],
+      "difficulty": "easy"
+    },
+    {
+      "id": "agg-002",
+      "natural_question": "How many test runs were executed in total?",
+      "ontology_query": {
+        "schemaVersion": "1.0",
+        "queryId": "eval-aggregate-testing.test_run",
+        "ontologyVersion": "v1",
+        "schemaFingerprint": "e6d53ae0f79626303729eec1097b64aa176b6fc32cef6054977a6b252b252fb4",
+        "query": {
+          "schemaVersion": "1.0",
+          "ontologyVersion": "v1",
+          "schemaFingerprint": "e6d53ae0f79626303729eec1097b64aa176b6fc32cef6054977a6b252b252fb4",
+          "intent": "aggregate",
+          "entityIds": [
+            "testing.test_run"
+          ],
+          "metricIds": [
+            "testing.run_count"
+          ],
+          "dimensionIds": [],
+          "filters": [
+            {
+              "dimensionId": "org.team",
+              "operator": "in",
+              "values": [
+                "DTSV_China"
+              ],
+              "source": "policy"
+            }
+          ],
+          "timeScopes": [],
+          "comparison": null,
+          "sort": [],
+          "limit": 20
+        },
+        "actorScope": {
+          "actorId": "eval-bot",
+          "scopeHash": "eval-scope",
+          "workspaceIds": [
+            "DTSV"
+          ],
+          "projectIds": [],
+          "teamIds": [
+            "DTSV"
+          ],
+          "allowedObjectTypes": [
+            "quality.defect",
+            "testing.test_run",
+            "testing.test_case",
+            "requirements.aida_node",
+            "defect",
+            "test_run",
+            "test_case",
+            "aida"
+          ],
+          "allowedPropertyIds": [],
+          "rowPolicyIds": [
+            "dtsv"
+          ],
+          "sensitiveFieldPolicyIds": []
+        }
+      },
+      "expected_entity_ids": [
+        "testing.test_run"
+      ],
+      "expected_metric_ids": [
+        "testing.run_count"
+      ],
+      "expected_dimension_ids": [],
+      "tags": [
+        "testing",
+        "basic",
+        "aggregate"
+      ],
+      "difficulty": "easy"
+    },
+    {
+      "id": "agg-003",
+      "natural_question": "按ECU分类统计缺陷数量",
+      "ontology_query": {
+        "schemaVersion": "1.0",
+        "queryId": "eval-aggregate-quality.defect",
+        "ontologyVersion": "v1",
+        "schemaFingerprint": "e6d53ae0f79626303729eec1097b64aa176b6fc32cef6054977a6b252b252fb4",
+        "query": {
+          "schemaVersion": "1.0",
+          "ontologyVersion": "v1",
+          "schemaFingerprint": "e6d53ae0f79626303729eec1097b64aa176b6fc32cef6054977a6b252b252fb4",
+          "intent": "aggregate",
+          "entityIds": [
+            "quality.defect"
+          ],
+          "metricIds": [
+            "defect.count"
+          ],
+          "dimensionIds": [
+            "product.ecu"
+          ],
+          "filters": [
+            {
+              "dimensionId": "org.problem_finder_team",
+              "operator": "in",
+              "values": [
+                "DTSV_China"
+              ],
+              "source": "policy"
+            }
+          ],
+          "timeScopes": [],
+          "comparison": null,
+          "sort": [],
+          "limit": 20
+        },
+        "actorScope": {
+          "actorId": "eval-bot",
+          "scopeHash": "eval-scope",
+          "workspaceIds": [
+            "DTSV"
+          ],
+          "projectIds": [],
+          "teamIds": [
+            "DTSV"
+          ],
+          "allowedObjectTypes": [
+            "quality.defect",
+            "testing.test_run",
+            "testing.test_case",
+            "requirements.aida_node",
+            "defect",
+            "test_run",
+            "test_case",
+            "aida"
+          ],
+          "allowedPropertyIds": [],
+          "rowPolicyIds": [
+            "dtsv"
+          ],
+          "sensitiveFieldPolicyIds": []
+        }
+      },
+      "expected_entity_ids": [
+        "quality.defect"
+      ],
+      "expected_metric_ids": [
+        "defect.count"
+      ],
+      "expected_dimension_ids": [
+        "product.ecu"
+      ],
+      "tags": [
+        "defect",
+        "dimension",
+        "aggregate"
+      ],
+      "difficulty": "medium"
+    },
+    {
+      "id": "trend-001",
+      "natural_question": "缺陷创建数量趋势变化（近三个月）",
+      "ontology_query": {
+        "schemaVersion": "1.0",
+        "queryId": "eval-trend-quality.defect",
+        "ontologyVersion": "v1",
+        "schemaFingerprint": "e6d53ae0f79626303729eec1097b64aa176b6fc32cef6054977a6b252b252fb4",
+        "query": {
+          "schemaVersion": "1.0",
+          "ontologyVersion": "v1",
+          "schemaFingerprint": "e6d53ae0f79626303729eec1097b64aa176b6fc32cef6054977a6b252b252fb4",
+          "intent": "trend",
+          "entityIds": [
+            "quality.defect"
+          ],
+          "metricIds": [
+            "defect.created_count"
+          ],
+          "dimensionIds": [
+            "time.defect_creation_date"
+          ],
+          "filters": [
+            {
+              "dimensionId": "org.problem_finder_team",
+              "operator": "in",
+              "values": [
+                "DTSV_China"
+              ],
+              "source": "policy"
+            }
+          ],
+          "timeScopes": [
+            {
+              "role": "primary",
+              "fieldId": "time.defect_creation_date",
+              "start": "2025-05-01",
+              "end": "2025-07-31",
+              "timezone": "Asia/Shanghai",
+              "anchorAt": "2025-08-01T00:00:00+08:00"
+            }
+          ],
+          "comparison": null,
+          "sort": [],
+          "limit": 20
+        },
+        "actorScope": {
+          "actorId": "eval-bot",
+          "scopeHash": "eval-scope",
+          "workspaceIds": [
+            "DTSV"
+          ],
+          "projectIds": [],
+          "teamIds": [
+            "DTSV"
+          ],
+          "allowedObjectTypes": [
+            "quality.defect",
+            "testing.test_run",
+            "testing.test_case",
+            "requirements.aida_node",
+            "defect",
+            "test_run",
+            "test_case",
+            "aida"
+          ],
+          "allowedPropertyIds": [],
+          "rowPolicyIds": [
+            "dtsv"
+          ],
+          "sensitiveFieldPolicyIds": []
+        }
+      },
+      "expected_entity_ids": [
+        "quality.defect"
+      ],
+      "expected_metric_ids": [
+        "defect.created_count"
+      ],
+      "expected_dimension_ids": [
+        "time.defect_creation_date"
+      ],
+      "tags": [
+        "defect",
+        "trend",
+        "time"
+      ],
+      "difficulty": "medium"
+    },
+    {
+      "id": "trend-002",
+      "natural_question": "Test execution trend over the last 6 months",
+      "ontology_query": {
+        "schemaVersion": "1.0",
+        "queryId": "eval-trend-testing.test_run",
+        "ontologyVersion": "v1",
+        "schemaFingerprint": "e6d53ae0f79626303729eec1097b64aa176b6fc32cef6054977a6b252b252fb4",
+        "query": {
+          "schemaVersion": "1.0",
+          "ontologyVersion": "v1",
+          "schemaFingerprint": "e6d53ae0f79626303729eec1097b64aa176b6fc32cef6054977a6b252b252fb4",
+          "intent": "trend",
+          "entityIds": [
+            "testing.test_run"
+          ],
+          "metricIds": [
+            "testing.run_count"
+          ],
+          "dimensionIds": [
+            "time.test_finished_date"
+          ],
+          "filters": [
+            {
+              "dimensionId": "org.team",
+              "operator": "in",
+              "values": [
+                "DTSV_China"
+              ],
+              "source": "policy"
+            }
+          ],
+          "timeScopes": [
+            {
+              "role": "primary",
+              "fieldId": "time.test_finished_date",
+              "start": "2025-02-01",
+              "end": "2025-07-31",
+              "timezone": "Asia/Shanghai",
+              "anchorAt": "2025-08-01T00:00:00+08:00"
+            }
+          ],
+          "comparison": null,
+          "sort": [],
+          "limit": 20
+        },
+        "actorScope": {
+          "actorId": "eval-bot",
+          "scopeHash": "eval-scope",
+          "workspaceIds": [
+            "DTSV"
+          ],
+          "projectIds": [],
+          "teamIds": [
+            "DTSV"
+          ],
+          "allowedObjectTypes": [
+            "quality.defect",
+            "testing.test_run",
+            "testing.test_case",
+            "requirements.aida_node",
+            "defect",
+            "test_run",
+            "test_case",
+            "aida"
+          ],
+          "allowedPropertyIds": [],
+          "rowPolicyIds": [
+            "dtsv"
+          ],
+          "sensitiveFieldPolicyIds": []
+        }
+      },
+      "expected_entity_ids": [
+        "testing.test_run"
+      ],
+      "expected_metric_ids": [
+        "testing.run_count"
+      ],
+      "expected_dimension_ids": [
+        "time.test_finished_date"
+      ],
+      "tags": [
+        "testing",
+        "trend",
+        "time"
+      ],
+      "difficulty": "medium"
+    },
+    {
+      "id": "trend-003",
+      "natural_question": "团队发现缺陷数量的月度走势如何？",
+      "ontology_query": {
+        "schemaVersion": "1.0",
+        "queryId": "eval-trend-quality.defect",
+        "ontologyVersion": "v1",
+        "schemaFingerprint": "e6d53ae0f79626303729eec1097b64aa176b6fc32cef6054977a6b252b252fb4",
+        "query": {
+          "schemaVersion": "1.0",
+          "ontologyVersion": "v1",
+          "schemaFingerprint": "e6d53ae0f79626303729eec1097b64aa176b6fc32cef6054977a6b252b252fb4",
+          "intent": "trend",
+          "entityIds": [
+            "quality.defect"
+          ],
+          "metricIds": [
+            "team.defect_discovery_count"
+          ],
+          "dimensionIds": [
+            "time.defect_creation_date"
+          ],
+          "filters": [
+            {
+              "dimensionId": "org.problem_finder_team",
+              "operator": "in",
+              "values": [
+                "DTSV_China"
+              ],
+              "source": "policy"
+            }
+          ],
+          "timeScopes": [
+            {
+              "role": "primary",
+              "fieldId": "time.defect_creation_date",
+              "start": "2025-01-01",
+              "end": "2025-07-31",
+              "timezone": "Asia/Shanghai",
+              "anchorAt": "2025-08-01T00:00:00+08:00"
+            }
+          ],
+          "comparison": null,
+          "sort": [],
+          "limit": 20
+        },
+        "actorScope": {
+          "actorId": "eval-bot",
+          "scopeHash": "eval-scope",
+          "workspaceIds": [
+            "DTSV"
+          ],
+          "projectIds": [],
+          "teamIds": [
+            "DTSV"
+          ],
+          "allowedObjectTypes": [
+            "quality.defect",
+            "testing.test_run",
+            "testing.test_case",
+            "requirements.aida_node",
+            "defect",
+            "test_run",
+            "test_case",
+            "aida"
+          ],
+          "allowedPropertyIds": [],
+          "rowPolicyIds": [
+            "dtsv"
+          ],
+          "sensitiveFieldPolicyIds": []
+        }
+      },
+      "expected_entity_ids": [
+        "quality.defect"
+      ],
+      "expected_metric_ids": [
+        "team.defect_discovery_count"
+      ],
+      "expected_dimension_ids": [
+        "time.defect_creation_date"
+      ],
+      "tags": [
+        "defect",
+        "trend",
+        "team"
+      ],
+      "difficulty": "medium"
+    },
+    {
+      "id": "cmp-001",
+      "natural_question": "对比不同项目的缺陷数量",
+      "ontology_query": {
+        "schemaVersion": "1.0",
+        "queryId": "eval-compare-quality.defect",
+        "ontologyVersion": "v1",
+        "schemaFingerprint": "e6d53ae0f79626303729eec1097b64aa176b6fc32cef6054977a6b252b252fb4",
+        "query": {
+          "schemaVersion": "1.0",
+          "ontologyVersion": "v1",
+          "schemaFingerprint": "e6d53ae0f79626303729eec1097b64aa176b6fc32cef6054977a6b252b252fb4",
+          "intent": "compare",
+          "entityIds": [
+            "quality.defect"
+          ],
+          "metricIds": [
+            "defect.count"
+          ],
+          "dimensionIds": [
+            "product.project"
+          ],
+          "filters": [
+            {
+              "dimensionId": "org.problem_finder_team",
+              "operator": "in",
+              "values": [
+                "DTSV_China"
+              ],
+              "source": "policy"
+            }
+          ],
+          "timeScopes": [],
+          "comparison": {
+            "kind": "dimension_values",
+            "dimensionId": "product.project",
+            "groups": [
+              "P1",
+              "P2"
+            ]
+          },
+          "sort": [],
+          "limit": 20
+        },
+        "actorScope": {
+          "actorId": "eval-bot",
+          "scopeHash": "eval-scope",
+          "workspaceIds": [
+            "DTSV"
+          ],
+          "projectIds": [],
+          "teamIds": [
+            "DTSV"
+          ],
+          "allowedObjectTypes": [
+            "quality.defect",
+            "testing.test_run",
+            "testing.test_case",
+            "requirements.aida_node",
+            "defect",
+            "test_run",
+            "test_case",
+            "aida"
+          ],
+          "allowedPropertyIds": [],
+          "rowPolicyIds": [
+            "dtsv"
+          ],
+          "sensitiveFieldPolicyIds": []
+        }
+      },
+      "expected_entity_ids": [
+        "quality.defect"
+      ],
+      "expected_metric_ids": [
+        "defect.count"
+      ],
+      "expected_dimension_ids": [
+        "product.project"
+      ],
+      "tags": [
+        "defect",
+        "compare"
+      ],
+      "difficulty": "medium"
+    },
+    {
+      "id": "cmp-002",
+      "natural_question": "Compare passed vs failed test runs",
+      "ontology_query": {
+        "schemaVersion": "1.0",
+        "queryId": "eval-compare-testing.test_run",
+        "ontologyVersion": "v1",
+        "schemaFingerprint": "e6d53ae0f79626303729eec1097b64aa176b6fc32cef6054977a6b252b252fb4",
+        "query": {
+          "schemaVersion": "1.0",
+          "ontologyVersion": "v1",
+          "schemaFingerprint": "e6d53ae0f79626303729eec1097b64aa176b6fc32cef6054977a6b252b252fb4",
+          "intent": "compare",
+          "entityIds": [
+            "testing.test_run"
+          ],
+          "metricIds": [
+            "testing.run_count"
+          ],
+          "dimensionIds": [
+            "testing.run_status"
+          ],
+          "filters": [
+            {
+              "dimensionId": "org.team",
+              "operator": "in",
+              "values": [
+                "DTSV_China"
+              ],
+              "source": "policy"
+            }
+          ],
+          "timeScopes": [],
+          "comparison": {
+            "kind": "dimension_values",
+            "dimensionId": "testing.run_status",
+            "groups": [
+              "passed",
+              "failed"
+            ]
+          },
+          "sort": [],
+          "limit": 20
+        },
+        "actorScope": {
+          "actorId": "eval-bot",
+          "scopeHash": "eval-scope",
+          "workspaceIds": [
+            "DTSV"
+          ],
+          "projectIds": [],
+          "teamIds": [
+            "DTSV"
+          ],
+          "allowedObjectTypes": [
+            "quality.defect",
+            "testing.test_run",
+            "testing.test_case",
+            "requirements.aida_node",
+            "defect",
+            "test_run",
+            "test_case",
+            "aida"
+          ],
+          "allowedPropertyIds": [],
+          "rowPolicyIds": [
+            "dtsv"
+          ],
+          "sensitiveFieldPolicyIds": []
+        }
+      },
+      "expected_entity_ids": [
+        "testing.test_run"
+      ],
+      "expected_metric_ids": [
+        "testing.run_count"
+      ],
+      "expected_dimension_ids": [
+        "testing.run_status"
+      ],
+      "tags": [
+        "testing",
+        "compare"
+      ],
+      "difficulty": "medium"
+    },
+    {
+      "id": "cmp-003",
+      "natural_question": "按严重程度对比缺陷分布差异",
+      "ontology_query": {
+        "schemaVersion": "1.0",
+        "queryId": "eval-compare-quality.defect",
+        "ontologyVersion": "v1",
+        "schemaFingerprint": "e6d53ae0f79626303729eec1097b64aa176b6fc32cef6054977a6b252b252fb4",
+        "query": {
+          "schemaVersion": "1.0",
+          "ontologyVersion": "v1",
+          "schemaFingerprint": "e6d53ae0f79626303729eec1097b64aa176b6fc32cef6054977a6b252b252fb4",
+          "intent": "compare",
+          "entityIds": [
+            "quality.defect"
+          ],
+          "metricIds": [
+            "defect.count"
+          ],
+          "dimensionIds": [
+            "quality.severity"
+          ],
+          "filters": [
+            {
+              "dimensionId": "org.problem_finder_team",
+              "operator": "in",
+              "values": [
+                "DTSV_China"
+              ],
+              "source": "policy"
+            }
+          ],
+          "timeScopes": [],
+          "comparison": {
+            "kind": "dimension_values",
+            "dimensionId": "quality.severity",
+            "groups": [
+              "Critical",
+              "Major",
+              "Minor"
+            ]
+          },
+          "sort": [],
+          "limit": 20
+        },
+        "actorScope": {
+          "actorId": "eval-bot",
+          "scopeHash": "eval-scope",
+          "workspaceIds": [
+            "DTSV"
+          ],
+          "projectIds": [],
+          "teamIds": [
+            "DTSV"
+          ],
+          "allowedObjectTypes": [
+            "quality.defect",
+            "testing.test_run",
+            "testing.test_case",
+            "requirements.aida_node",
+            "defect",
+            "test_run",
+            "test_case",
+            "aida"
+          ],
+          "allowedPropertyIds": [],
+          "rowPolicyIds": [
+            "dtsv"
+          ],
+          "sensitiveFieldPolicyIds": []
+        }
+      },
+      "expected_entity_ids": [
+        "quality.defect"
+      ],
+      "expected_metric_ids": [
+        "defect.count"
+      ],
+      "expected_dimension_ids": [
+        "quality.severity"
+      ],
+      "tags": [
+        "defect",
+        "compare",
+        "severity"
+      ],
+      "difficulty": "hard"
+    },
+    {
+      "id": "rank-001",
+      "natural_question": "哪个ECU的缺陷最多？排名前10",
+      "ontology_query": {
+        "schemaVersion": "1.0",
+        "queryId": "eval-rank-quality.defect",
+        "ontologyVersion": "v1",
+        "schemaFingerprint": "e6d53ae0f79626303729eec1097b64aa176b6fc32cef6054977a6b252b252fb4",
+        "query": {
+          "schemaVersion": "1.0",
+          "ontologyVersion": "v1",
+          "schemaFingerprint": "e6d53ae0f79626303729eec1097b64aa176b6fc32cef6054977a6b252b252fb4",
+          "intent": "rank",
+          "entityIds": [
+            "quality.defect"
+          ],
+          "metricIds": [
+            "defect.count"
+          ],
+          "dimensionIds": [
+            "product.ecu"
+          ],
+          "filters": [
+            {
+              "dimensionId": "org.problem_finder_team",
+              "operator": "in",
+              "values": [
+                "DTSV_China"
+              ],
+              "source": "policy"
+            }
+          ],
+          "timeScopes": [],
+          "comparison": null,
+          "sort": [
+            {
+              "fieldId": "defect.count",
+              "direction": "desc"
+            }
+          ],
+          "limit": 10
+        },
+        "actorScope": {
+          "actorId": "eval-bot",
+          "scopeHash": "eval-scope",
+          "workspaceIds": [
+            "DTSV"
+          ],
+          "projectIds": [],
+          "teamIds": [
+            "DTSV"
+          ],
+          "allowedObjectTypes": [
+            "quality.defect",
+            "testing.test_run",
+            "testing.test_case",
+            "requirements.aida_node",
+            "defect",
+            "test_run",
+            "test_case",
+            "aida"
+          ],
+          "allowedPropertyIds": [],
+          "rowPolicyIds": [
+            "dtsv"
+          ],
+          "sensitiveFieldPolicyIds": []
+        }
+      },
+      "expected_entity_ids": [
+        "quality.defect"
+      ],
+      "expected_metric_ids": [
+        "defect.count"
+      ],
+      "expected_dimension_ids": [
+        "product.ecu"
+      ],
+      "tags": [
+        "defect",
+        "rank",
+        "ecu"
+      ],
+      "difficulty": "easy"
+    },
+    {
+      "id": "rank-002",
+      "natural_question": "Top 5 teams by test execution count",
+      "ontology_query": {
+        "schemaVersion": "1.0",
+        "queryId": "eval-rank-testing.test_run",
+        "ontologyVersion": "v1",
+        "schemaFingerprint": "e6d53ae0f79626303729eec1097b64aa176b6fc32cef6054977a6b252b252fb4",
+        "query": {
+          "schemaVersion": "1.0",
+          "ontologyVersion": "v1",
+          "schemaFingerprint": "e6d53ae0f79626303729eec1097b64aa176b6fc32cef6054977a6b252b252fb4",
+          "intent": "rank",
+          "entityIds": [
+            "testing.test_run"
+          ],
+          "metricIds": [
+            "testing.run_count"
+          ],
+          "dimensionIds": [
+            "org.team"
+          ],
+          "filters": [
+            {
+              "dimensionId": "org.team",
+              "operator": "in",
+              "values": [
+                "DTSV_China"
+              ],
+              "source": "policy"
+            }
+          ],
+          "timeScopes": [],
+          "comparison": null,
+          "sort": [
+            {
+              "fieldId": "testing.run_count",
+              "direction": "desc"
+            }
+          ],
+          "limit": 5
+        },
+        "actorScope": {
+          "actorId": "eval-bot",
+          "scopeHash": "eval-scope",
+          "workspaceIds": [
+            "DTSV"
+          ],
+          "projectIds": [],
+          "teamIds": [
+            "DTSV"
+          ],
+          "allowedObjectTypes": [
+            "quality.defect",
+            "testing.test_run",
+            "testing.test_case",
+            "requirements.aida_node",
+            "defect",
+            "test_run",
+            "test_case",
+            "aida"
+          ],
+          "allowedPropertyIds": [],
+          "rowPolicyIds": [
+            "dtsv"
+          ],
+          "sensitiveFieldPolicyIds": []
+        }
+      },
+      "expected_entity_ids": [
+        "testing.test_run"
+      ],
+      "expected_metric_ids": [
+        "testing.run_count"
+      ],
+      "expected_dimension_ids": [
+        "org.team"
+      ],
+      "tags": [
+        "testing",
+        "rank",
+        "team"
+      ],
+      "difficulty": "easy"
+    },
+    {
+      "id": "rank-003",
+      "natural_question": "按缺陷数量排名各Problem Finder Team",
+      "ontology_query": {
+        "schemaVersion": "1.0",
+        "queryId": "eval-rank-quality.defect",
+        "ontologyVersion": "v1",
+        "schemaFingerprint": "e6d53ae0f79626303729eec1097b64aa176b6fc32cef6054977a6b252b252fb4",
+        "query": {
+          "schemaVersion": "1.0",
+          "ontologyVersion": "v1",
+          "schemaFingerprint": "e6d53ae0f79626303729eec1097b64aa176b6fc32cef6054977a6b252b252fb4",
+          "intent": "rank",
+          "entityIds": [
+            "quality.defect"
+          ],
+          "metricIds": [
+            "defect.count"
+          ],
+          "dimensionIds": [
+            "org.problem_finder_team"
+          ],
+          "filters": [
+            {
+              "dimensionId": "org.problem_finder_team",
+              "operator": "in",
+              "values": [
+                "DTSV_China"
+              ],
+              "source": "policy"
+            }
+          ],
+          "timeScopes": [],
+          "comparison": null,
+          "sort": [
+            {
+              "fieldId": "defect.count",
+              "direction": "desc"
+            }
+          ],
+          "limit": 20
+        },
+        "actorScope": {
+          "actorId": "eval-bot",
+          "scopeHash": "eval-scope",
+          "workspaceIds": [
+            "DTSV"
+          ],
+          "projectIds": [],
+          "teamIds": [
+            "DTSV"
+          ],
+          "allowedObjectTypes": [
+            "quality.defect",
+            "testing.test_run",
+            "testing.test_case",
+            "requirements.aida_node",
+            "defect",
+            "test_run",
+            "test_case",
+            "aida"
+          ],
+          "allowedPropertyIds": [],
+          "rowPolicyIds": [
+            "dtsv"
+          ],
+          "sensitiveFieldPolicyIds": []
+        }
+      },
+      "expected_entity_ids": [
+        "quality.defect"
+      ],
+      "expected_metric_ids": [
+        "defect.count"
+      ],
+      "expected_dimension_ids": [
+        "org.problem_finder_team"
+      ],
+      "tags": [
+        "defect",
+        "rank",
+        "team"
+      ],
+      "difficulty": "medium"
+    },
+    {
+      "id": "list-001",
+      "natural_question": "列出所有Open状态的缺陷",
+      "ontology_query": {
+        "schemaVersion": "1.0",
+        "queryId": "eval-list-quality.defect",
+        "ontologyVersion": "v1",
+        "schemaFingerprint": "e6d53ae0f79626303729eec1097b64aa176b6fc32cef6054977a6b252b252fb4",
+        "query": {
+          "schemaVersion": "1.0",
+          "ontologyVersion": "v1",
+          "schemaFingerprint": "e6d53ae0f79626303729eec1097b64aa176b6fc32cef6054977a6b252b252fb4",
+          "intent": "list",
+          "entityIds": [
+            "quality.defect"
+          ],
+          "metricIds": [
+            "defect.count"
+          ],
+          "dimensionIds": [],
+          "filters": [
+            {
+              "dimensionId": "org.problem_finder_team",
+              "operator": "in",
+              "values": [
+                "DTSV_China"
+              ],
+              "source": "policy"
+            },
+            {
+              "dimensionId": "quality.status",
+              "operator": "in",
+              "values": [
+                "Open"
+              ],
+              "source": "user"
+            }
+          ],
+          "timeScopes": [],
+          "comparison": null,
+          "sort": [],
+          "limit": 20
+        },
+        "actorScope": {
+          "actorId": "eval-bot",
+          "scopeHash": "eval-scope",
+          "workspaceIds": [
+            "DTSV"
+          ],
+          "projectIds": [],
+          "teamIds": [
+            "DTSV"
+          ],
+          "allowedObjectTypes": [
+            "quality.defect",
+            "testing.test_run",
+            "testing.test_case",
+            "requirements.aida_node",
+            "defect",
+            "test_run",
+            "test_case",
+            "aida"
+          ],
+          "allowedPropertyIds": [],
+          "rowPolicyIds": [
+            "dtsv"
+          ],
+          "sensitiveFieldPolicyIds": []
+        }
+      },
+      "expected_entity_ids": [
+        "quality.defect"
+      ],
+      "expected_metric_ids": [
+        "defect.count"
+      ],
+      "expected_dimension_ids": [],
+      "expected_filters_summary": {
+        "quality.status": [
+          "Open"
+        ]
+      },
+      "tags": [
+        "defect",
+        "list",
+        "status"
+      ],
+      "difficulty": "easy"
+    },
+    {
+      "id": "list-002",
+      "natural_question": "Show me all failed test runs",
+      "ontology_query": {
+        "schemaVersion": "1.0",
+        "queryId": "eval-list-testing.test_run",
+        "ontologyVersion": "v1",
+        "schemaFingerprint": "e6d53ae0f79626303729eec1097b64aa176b6fc32cef6054977a6b252b252fb4",
+        "query": {
+          "schemaVersion": "1.0",
+          "ontologyVersion": "v1",
+          "schemaFingerprint": "e6d53ae0f79626303729eec1097b64aa176b6fc32cef6054977a6b252b252fb4",
+          "intent": "list",
+          "entityIds": [
+            "testing.test_run"
+          ],
+          "metricIds": [
+            "testing.run_count"
+          ],
+          "dimensionIds": [],
+          "filters": [
+            {
+              "dimensionId": "org.team",
+              "operator": "in",
+              "values": [
+                "DTSV_China"
+              ],
+              "source": "policy"
+            },
+            {
+              "dimensionId": "testing.run_status",
+              "operator": "in",
+              "values": [
+                "failed"
+              ],
+              "source": "user"
+            }
+          ],
+          "timeScopes": [],
+          "comparison": null,
+          "sort": [],
+          "limit": 20
+        },
+        "actorScope": {
+          "actorId": "eval-bot",
+          "scopeHash": "eval-scope",
+          "workspaceIds": [
+            "DTSV"
+          ],
+          "projectIds": [],
+          "teamIds": [
+            "DTSV"
+          ],
+          "allowedObjectTypes": [
+            "quality.defect",
+            "testing.test_run",
+            "testing.test_case",
+            "requirements.aida_node",
+            "defect",
+            "test_run",
+            "test_case",
+            "aida"
+          ],
+          "allowedPropertyIds": [],
+          "rowPolicyIds": [
+            "dtsv"
+          ],
+          "sensitiveFieldPolicyIds": []
+        }
+      },
+      "expected_entity_ids": [
+        "testing.test_run"
+      ],
+      "expected_metric_ids": [
+        "testing.run_count"
+      ],
+      "expected_dimension_ids": [],
+      "expected_filters_summary": {
+        "testing.run_status": [
+          "failed"
+        ]
+      },
+      "tags": [
+        "testing",
+        "list",
+        "status"
+      ],
+      "difficulty": "easy"
+    },
+    {
+      "id": "list-003",
+      "natural_question": "显示所有China Scope缺陷明细",
+      "ontology_query": {
+        "schemaVersion": "1.0",
+        "queryId": "eval-list-quality.defect",
+        "ontologyVersion": "v1",
+        "schemaFingerprint": "e6d53ae0f79626303729eec1097b64aa176b6fc32cef6054977a6b252b252fb4",
+        "query": {
+          "schemaVersion": "1.0",
+          "ontologyVersion": "v1",
+          "schemaFingerprint": "e6d53ae0f79626303729eec1097b64aa176b6fc32cef6054977a6b252b252fb4",
+          "intent": "list",
+          "entityIds": [
+            "quality.defect"
+          ],
+          "metricIds": [
+            "defect.count"
+          ],
+          "dimensionIds": [],
+          "filters": [
+            {
+              "dimensionId": "org.problem_finder_team",
+              "operator": "in",
+              "values": [
+                "DTSV_China"
+              ],
+              "source": "policy"
+            },
+            {
+              "dimensionId": "quality.china_scope",
+              "operator": "in",
+              "values": [
+                "Yes"
+              ],
+              "source": "user"
+            }
+          ],
+          "timeScopes": [],
+          "comparison": null,
+          "sort": [],
+          "limit": 20
+        },
+        "actorScope": {
+          "actorId": "eval-bot",
+          "scopeHash": "eval-scope",
+          "workspaceIds": [
+            "DTSV"
+          ],
+          "projectIds": [],
+          "teamIds": [
+            "DTSV"
+          ],
+          "allowedObjectTypes": [
+            "quality.defect",
+            "testing.test_run",
+            "testing.test_case",
+            "requirements.aida_node",
+            "defect",
+            "test_run",
+            "test_case",
+            "aida"
+          ],
+          "allowedPropertyIds": [],
+          "rowPolicyIds": [
+            "dtsv"
+          ],
+          "sensitiveFieldPolicyIds": []
+        }
+      },
+      "expected_entity_ids": [
+        "quality.defect"
+      ],
+      "expected_metric_ids": [
+        "defect.count"
+      ],
+      "expected_dimension_ids": [],
+      "expected_filters_summary": {
+        "quality.china_scope": [
+          "Yes"
+        ]
+      },
+      "tags": [
+        "defect",
+        "list",
+        "china_scope"
+      ],
+      "difficulty": "medium"
+    },
+    {
+      "id": "drill-001",
+      "natural_question": "按ECU细分查看缺陷，进一步下钻到具体项目",
+      "ontology_query": {
+        "schemaVersion": "1.0",
+        "queryId": "eval-drilldown-quality.defect",
+        "ontologyVersion": "v1",
+        "schemaFingerprint": "e6d53ae0f79626303729eec1097b64aa176b6fc32cef6054977a6b252b252fb4",
+        "query": {
+          "schemaVersion": "1.0",
+          "ontologyVersion": "v1",
+          "schemaFingerprint": "e6d53ae0f79626303729eec1097b64aa176b6fc32cef6054977a6b252b252fb4",
+          "intent": "drilldown",
+          "entityIds": [
+            "quality.defect"
+          ],
+          "metricIds": [
+            "defect.count"
+          ],
+          "dimensionIds": [
+            "product.ecu",
+            "product.project"
+          ],
+          "filters": [
+            {
+              "dimensionId": "org.problem_finder_team",
+              "operator": "in",
+              "values": [
+                "DTSV_China"
+              ],
+              "source": "policy"
+            }
+          ],
+          "timeScopes": [],
+          "comparison": null,
+          "sort": [
+            {
+              "fieldId": "defect.count",
+              "direction": "desc"
+            }
+          ],
+          "limit": 20
+        },
+        "actorScope": {
+          "actorId": "eval-bot",
+          "scopeHash": "eval-scope",
+          "workspaceIds": [
+            "DTSV"
+          ],
+          "projectIds": [],
+          "teamIds": [
+            "DTSV"
+          ],
+          "allowedObjectTypes": [
+            "quality.defect",
+            "testing.test_run",
+            "testing.test_case",
+            "requirements.aida_node",
+            "defect",
+            "test_run",
+            "test_case",
+            "aida"
+          ],
+          "allowedPropertyIds": [],
+          "rowPolicyIds": [
+            "dtsv"
+          ],
+          "sensitiveFieldPolicyIds": []
+        }
+      },
+      "expected_entity_ids": [
+        "quality.defect"
+      ],
+      "expected_metric_ids": [
+        "defect.count"
+      ],
+      "expected_dimension_ids": [
+        "product.ecu",
+        "product.project"
+      ],
+      "tags": [
+        "defect",
+        "drilldown",
+        "ecu",
+        "project"
+      ],
+      "difficulty": "hard"
+    },
+    {
+      "id": "drill-002",
+      "natural_question": "Test runs breakdown by team and tester",
+      "ontology_query": {
+        "schemaVersion": "1.0",
+        "queryId": "eval-drilldown-testing.test_run",
+        "ontologyVersion": "v1",
+        "schemaFingerprint": "e6d53ae0f79626303729eec1097b64aa176b6fc32cef6054977a6b252b252fb4",
+        "query": {
+          "schemaVersion": "1.0",
+          "ontologyVersion": "v1",
+          "schemaFingerprint": "e6d53ae0f79626303729eec1097b64aa176b6fc32cef6054977a6b252b252fb4",
+          "intent": "drilldown",
+          "entityIds": [
+            "testing.test_run"
+          ],
+          "metricIds": [
+            "testing.run_count"
+          ],
+          "dimensionIds": [
+            "org.team",
+            "org.tester"
+          ],
+          "filters": [
+            {
+              "dimensionId": "org.team",
+              "operator": "in",
+              "values": [
+                "DTSV_China"
+              ],
+              "source": "policy"
+            }
+          ],
+          "timeScopes": [],
+          "comparison": null,
+          "sort": [
+            {
+              "fieldId": "testing.run_count",
+              "direction": "desc"
+            }
+          ],
+          "limit": 20
+        },
+        "actorScope": {
+          "actorId": "eval-bot",
+          "scopeHash": "eval-scope",
+          "workspaceIds": [
+            "DTSV"
+          ],
+          "projectIds": [],
+          "teamIds": [
+            "DTSV"
+          ],
+          "allowedObjectTypes": [
+            "quality.defect",
+            "testing.test_run",
+            "testing.test_case",
+            "requirements.aida_node",
+            "defect",
+            "test_run",
+            "test_case",
+            "aida"
+          ],
+          "allowedPropertyIds": [],
+          "rowPolicyIds": [
+            "dtsv"
+          ],
+          "sensitiveFieldPolicyIds": []
+        }
+      },
+      "expected_entity_ids": [
+        "testing.test_run"
+      ],
+      "expected_metric_ids": [
+        "testing.run_count"
+      ],
+      "expected_dimension_ids": [
+        "org.team",
+        "org.tester"
+      ],
+      "tags": [
+        "testing",
+        "drilldown",
+        "team",
+        "tester"
+      ],
+      "difficulty": "hard"
+    },
+    {
+      "id": "trace-001",
+      "natural_question": "查看测试追溯链路",
+      "ontology_query": {
+        "schemaVersion": "1.0",
+        "queryId": "eval-trace-testing.test_run",
+        "ontologyVersion": "v1",
+        "schemaFingerprint": "e6d53ae0f79626303729eec1097b64aa176b6fc32cef6054977a6b252b252fb4",
+        "query": {
+          "schemaVersion": "1.0",
+          "ontologyVersion": "v1",
+          "schemaFingerprint": "e6d53ae0f79626303729eec1097b64aa176b6fc32cef6054977a6b252b252fb4",
+          "intent": "trace",
+          "entityIds": [
+            "testing.test_run"
+          ],
+          "metricIds": [
+            "testing.run_count"
+          ],
+          "dimensionIds": [],
+          "filters": [
+            {
+              "dimensionId": "org.team",
+              "operator": "in",
+              "values": [
+                "DTSV_China"
+              ],
+              "source": "policy"
+            }
+          ],
+          "timeScopes": [],
+          "comparison": null,
+          "sort": [],
+          "limit": 20
+        },
+        "actorScope": {
+          "actorId": "eval-bot",
+          "scopeHash": "eval-scope",
+          "workspaceIds": [
+            "DTSV"
+          ],
+          "projectIds": [],
+          "teamIds": [
+            "DTSV"
+          ],
+          "allowedObjectTypes": [
+            "quality.defect",
+            "testing.test_run",
+            "testing.test_case",
+            "requirements.aida_node",
+            "defect",
+            "test_run",
+            "test_case",
+            "aida"
+          ],
+          "allowedPropertyIds": [],
+          "rowPolicyIds": [
+            "dtsv"
+          ],
+          "sensitiveFieldPolicyIds": []
+        }
+      },
+      "expected_entity_ids": [
+        "testing.test_run"
+      ],
+      "expected_metric_ids": [
+        "testing.run_count"
+      ],
+      "expected_dimension_ids": [],
+      "tags": [
+        "testing",
+        "trace",
+        "basic"
+      ],
+      "difficulty": "easy"
+    },
+    {
+      "id": "trace-002",
+      "natural_question": "Show untraced test cases with traceability gaps",
+      "ontology_query": {
+        "schemaVersion": "1.0",
+        "queryId": "eval-trace-testing.test_run",
+        "ontologyVersion": "v1",
+        "schemaFingerprint": "e6d53ae0f79626303729eec1097b64aa176b6fc32cef6054977a6b252b252fb4",
+        "query": {
+          "schemaVersion": "1.0",
+          "ontologyVersion": "v1",
+          "schemaFingerprint": "e6d53ae0f79626303729eec1097b64aa176b6fc32cef6054977a6b252b252fb4",
+          "intent": "trace",
+          "entityIds": [
+            "testing.test_run"
+          ],
+          "metricIds": [
+            "testing.run_count"
+          ],
+          "dimensionIds": [],
+          "filters": [
+            {
+              "dimensionId": "org.team",
+              "operator": "in",
+              "values": [
+                "DTSV_China"
+              ],
+              "source": "policy"
+            },
+            {
+              "dimensionId": "testing.trace_status",
+              "operator": "in",
+              "values": [
+                "Untraced"
+              ],
+              "source": "user"
+            }
+          ],
+          "timeScopes": [],
+          "comparison": null,
+          "sort": [],
+          "limit": 20
+        },
+        "actorScope": {
+          "actorId": "eval-bot",
+          "scopeHash": "eval-scope",
+          "workspaceIds": [
+            "DTSV"
+          ],
+          "projectIds": [],
+          "teamIds": [
+            "DTSV"
+          ],
+          "allowedObjectTypes": [
+            "quality.defect",
+            "testing.test_run",
+            "testing.test_case",
+            "requirements.aida_node",
+            "defect",
+            "test_run",
+            "test_case",
+            "aida"
+          ],
+          "allowedPropertyIds": [],
+          "rowPolicyIds": [
+            "dtsv"
+          ],
+          "sensitiveFieldPolicyIds": []
+        }
+      },
+      "expected_entity_ids": [
+        "testing.test_run"
+      ],
+      "expected_metric_ids": [
+        "testing.run_count"
+      ],
+      "expected_dimension_ids": [],
+      "tags": [
+        "testing",
+        "trace",
+        "gap"
+      ],
+      "difficulty": "hard"
+    },
+    {
+      "id": "trace-003",
+      "natural_question": "追溯特定团队的测试覆盖情况",
+      "ontology_query": {
+        "schemaVersion": "1.0",
+        "queryId": "eval-trace-testing.test_run",
+        "ontologyVersion": "v1",
+        "schemaFingerprint": "e6d53ae0f79626303729eec1097b64aa176b6fc32cef6054977a6b252b252fb4",
+        "query": {
+          "schemaVersion": "1.0",
+          "ontologyVersion": "v1",
+          "schemaFingerprint": "e6d53ae0f79626303729eec1097b64aa176b6fc32cef6054977a6b252b252fb4",
+          "intent": "trace",
+          "entityIds": [
+            "testing.test_run"
+          ],
+          "metricIds": [
+            "testing.run_count"
+          ],
+          "dimensionIds": [],
+          "filters": [
+            {
+              "dimensionId": "org.team",
+              "operator": "in",
+              "values": [
+                "DTSV_China"
+              ],
+              "source": "policy"
+            },
+            {
+              "dimensionId": "org.team",
+              "operator": "in",
+              "values": [
+                "DTSV_China"
+              ],
+              "source": "user"
+            }
+          ],
+          "timeScopes": [],
+          "comparison": null,
+          "sort": [],
+          "limit": 20
+        },
+        "actorScope": {
+          "actorId": "eval-bot",
+          "scopeHash": "eval-scope",
+          "workspaceIds": [
+            "DTSV"
+          ],
+          "projectIds": [],
+          "teamIds": [
+            "DTSV"
+          ],
+          "allowedObjectTypes": [
+            "quality.defect",
+            "testing.test_run",
+            "testing.test_case",
+            "requirements.aida_node",
+            "defect",
+            "test_run",
+            "test_case",
+            "aida"
+          ],
+          "allowedPropertyIds": [],
+          "rowPolicyIds": [
+            "dtsv"
+          ],
+          "sensitiveFieldPolicyIds": []
+        }
+      },
+      "expected_entity_ids": [
+        "testing.test_run"
+      ],
+      "expected_metric_ids": [
+        "testing.run_count"
+      ],
+      "expected_dimension_ids": [],
+      "tags": [
+        "testing",
+        "trace",
+        "team"
+      ],
+      "difficulty": "hard"
+    }
+  ]
+}

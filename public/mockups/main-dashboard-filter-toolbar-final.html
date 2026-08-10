@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dashboard Toolbar Final</title>
+    <style>
+      :root {
+        --bg: #f5f7fb;
+        --panel: #ffffff;
+        --panel-soft: #f8fafc;
+        --border: #e2e8f0;
+        --text: #0f172a;
+        --muted: #64748b;
+        --primary: #2f6fe4;
+        --primary-soft: #edf4ff;
+        --shadow: 0 14px 34px rgba(15, 23, 42, 0.06);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+        color: var(--text);
+        background:
+          radial-gradient(circle at top left, rgba(47, 111, 228, 0.05), transparent 28%),
+          linear-gradient(180deg, #fafbfd 0%, var(--bg) 100%);
+      }
+
+      .page {
+        max-width: 1460px;
+        margin: 0 auto;
+        padding: 28px;
+      }
+
+      .title {
+        margin: 0 0 18px;
+        font-size: 28px;
+        letter-spacing: -0.03em;
+      }
+
+      .panel {
+        border: 1px solid rgba(226, 232, 240, 0.94);
+        border-radius: 26px;
+        background: rgba(255, 255, 255, 0.95);
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }
+
+      .toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 18px 22px;
+        border-bottom: 1px solid rgba(226, 232, 240, 0.82);
+      }
+
+      .toolbar-left,
+      .toolbar-right {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .toolbar-left {
+        min-width: 0;
+        flex: 1;
+      }
+
+      .search {
+        position: relative;
+        width: min(420px, 100%);
+        min-width: 220px;
+      }
+
+      .search input {
+        width: 100%;
+        height: 42px;
+        border-radius: 14px;
+        border: 1px solid var(--border);
+        background: var(--panel);
+        color: var(--text);
+        padding: 0 14px 0 40px;
+        font-size: 14px;
+      }
+
+      .search svg {
+        position: absolute;
+        left: 14px;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 15px;
+        height: 15px;
+        stroke: #94a3b8;
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        height: 42px;
+        padding: 0 16px;
+        border-radius: 14px;
+        border: 1px solid var(--border);
+        background: var(--panel);
+        color: var(--text);
+        font-size: 14px;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+
+      .btn svg {
+        width: 15px;
+        height: 15px;
+        stroke: currentColor;
+      }
+
+      .btn.primary {
+        border-color: transparent;
+        background: var(--primary);
+        color: #fff;
+      }
+
+      .btn.secondary {
+        background: var(--panel);
+      }
+
+      .filter-shell {
+        padding: 18px 22px 22px;
+        background: linear-gradient(180deg, rgba(248, 250, 252, 0.96), rgba(255, 255, 255, 0.98));
+      }
+
+      .filter-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .field {
+        border: 1px solid rgba(226, 232, 240, 0.9);
+        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.98);
+        padding: 14px;
+      }
+
+      .field .label {
+        margin-bottom: 10px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        color: #94a3b8;
+        text-transform: uppercase;
+      }
+
+      .field .trigger {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 0 0 8px;
+        font-size: 15px;
+        font-weight: 600;
+      }
+
+      .field .trigger .meta {
+        color: var(--muted);
+        font-weight: 500;
+        font-size: 12px;
+      }
+
+      .dropdown {
+        margin-top: 8px;
+        border: 1px solid rgba(226, 232, 240, 0.92);
+        border-radius: 16px;
+        background: #fff;
+        overflow: hidden;
+      }
+
+      .dropdown-section {
+        padding: 10px 12px;
+        border-bottom: 1px solid rgba(226, 232, 240, 0.8);
+      }
+
+      .dropdown-section:last-child {
+        border-bottom: none;
+      }
+
+      .dropdown-title {
+        margin-bottom: 8px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        color: #94a3b8;
+        text-transform: uppercase;
+      }
+
+      .menu-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        min-height: 34px;
+        padding: 7px 10px;
+        border-radius: 10px;
+        font-size: 13px;
+      }
+
+      .menu-item.active {
+        background: var(--primary-soft);
+        color: var(--primary);
+        font-weight: 700;
+      }
+
+      .menu-item.subtle {
+        color: var(--muted);
+      }
+
+      .field-value {
+        font-size: 15px;
+        font-weight: 600;
+      }
+
+      .field-note {
+        margin-top: 6px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .summary-strip {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 14px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .summary-pill {
+        display: inline-flex;
+        align-items: center;
+        height: 30px;
+        padding: 0 10px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: var(--panel-soft);
+        color: var(--text);
+      }
+
+      @media (max-width: 1024px) {
+        .filter-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+
+      @media (max-width: 820px) {
+        .toolbar {
+          flex-direction: column;
+          align-items: stretch;
+        }
+
+        .toolbar-left,
+        .toolbar-right {
+          width: 100%;
+        }
+
+        .toolbar-right {
+          justify-content: flex-end;
+        }
+
+        .search {
+          width: 100%;
+        }
+
+        .filter-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <h1 class="title">Final Direction</h1>
+
+      <section class="panel">
+        <div class="toolbar">
+          <div class="toolbar-left">
+            <div class="search">
+              <svg viewBox="0 0 24 24" fill="none" stroke-width="2">
+                <circle cx="11" cy="11" r="7"></circle>
+                <path d="m20 20-3.5-3.5"></path>
+              </svg>
+              <input value="hicar" aria-label="search" />
+            </div>
+          </div>
+          <div class="toolbar-right">
+            <button class="btn primary">
+              <svg viewBox="0 0 24 24" fill="none" stroke-width="2">
+                <path d="M3 4h18"></path>
+                <path d="M6 12h12"></path>
+                <path d="M10 20h4"></path>
+              </svg>
+              Top Topic
+              <svg viewBox="0 0 24 24" fill="none" stroke-width="2">
+                <path d="m6 9 6 6 6-6"></path>
+              </svg>
+            </button>
+            <button class="btn secondary">
+              <svg viewBox="0 0 24 24" fill="none" stroke-width="2">
+                <path d="M3 12a9 9 0 1 0 3-6.7"></path>
+                <path d="M3 3v6h6"></path>
+              </svg>
+              Reset
+              <svg viewBox="0 0 24 24" fill="none" stroke-width="2">
+                <path d="m6 9 6 6 6-6"></path>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="filter-shell">
+          <div class="filter-grid">
+            <div class="field">
+              <div class="label">View</div>
+              <div class="trigger">
+                <span>Top Topic</span>
+                <span class="meta">Shared</span>
+              </div>
+              <div class="dropdown">
+                <div class="dropdown-section">
+                  <div class="dropdown-title">System</div>
+                  <div class="menu-item active"><span>Top Topic</span><span>Current</span></div>
+                  <div class="menu-item"><span>All Selected</span><span></span></div>
+                </div>
+                <div class="dropdown-section">
+                  <div class="dropdown-title">Saved Views</div>
+                  <div class="menu-item"><span>Hicar Focus</span><span></span></div>
+                  <div class="menu-item"><span>Audio Blockers</span><span></span></div>
+                </div>
+                <div class="dropdown-section">
+                  <div class="dropdown-title">Actions</div>
+                  <div class="menu-item"><span>Save as New</span><span></span></div>
+                  <div class="menu-item subtle"><span>Save Changes</span><span></span></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="field">
+              <div class="label">Requirement</div>
+              <div class="field-value">Top Topic</div>
+              <div class="field-note">Preset value</div>
+            </div>
+
+            <div class="field">
+              <div class="label">Project</div>
+              <div class="field-value">IDCEVO + U12</div>
+              <div class="field-note">Custom selection</div>
+            </div>
+
+            <div class="field">
+              <div class="label">Problem Finder Team</div>
+              <div class="field-value">Basis-FIT +6</div>
+              <div class="field-note">Search and select all</div>
+            </div>
+
+            <div class="field">
+              <div class="label">Phase</div>
+              <div class="field-value">03-In Analysis +1</div>
+              <div class="field-note">Default scoped state</div>
+            </div>
+
+            <div class="field">
+              <div class="label">China / Global</div>
+              <div class="field-value">China</div>
+              <div class="field-note">Preset-driven selection</div>
+            </div>
+          </div>
+
+          <div class="summary-strip">
+            <span>Reset menu</span>
+            <span class="summary-pill">Reset to Current View</span>
+            <span class="summary-pill">Reset to All Selected</span>
+            <span class="summary-pill">Reset Search</span>
+          </div>
+        </div>
+      </section>
+    </div>
+  </body>
+</html>

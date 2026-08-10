@@ -1,0 +1,47 @@
+{
+  "$id": "https://vizion-lab.local/ontology/schema/actions.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["schemaVersion", "ontologyVersion", "actions"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "ontologyVersion": { "const": "v1" },
+    "actions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "operation", "targetEntityId", "capabilityState", "execution", "governance"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]+$" },
+          "version": { "type": "string" },
+          "labels": { "$ref": "common.schema.json#/$defs/labels" },
+          "description": { "type": "string" },
+          "targetEntityId": { "type": "string", "minLength": 1 },
+          "operation": { "type": "string" },
+          "capabilityState": { "type": "string" },
+          "intentHints": { "type": "array", "items": { "type": "string" } },
+          "fieldBindings": { "type": "array", "items": { "type": "object" } },
+          "inputSchema": { "type": "object" },
+          "apiBinding": { "type": "object" },
+          "execution": {
+            "type": "object",
+            "required": ["mode"],
+            "properties": {
+              "mode": { "type": "string" },
+              "executor": { "type": "string" },
+              "requiresDryRun": { "type": "boolean" },
+              "requiresHumanApproval": { "type": "boolean" },
+              "requiresActorScope": { "type": "boolean" },
+              "sideEffects": { "type": "array", "items": { "type": "string" } }
+            }
+          },
+          "policies": { "type": "array", "items": { "type": "string" } },
+          "audit": { "type": "object" },
+          "governance": { "$ref": "common.schema.json#/$defs/governance" }
+        }
+      }
+    }
+  }
+}

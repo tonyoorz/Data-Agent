@@ -1,0 +1,62 @@
+{
+  "$id": "https://vizion-lab.local/ontology/schema/vocabulary.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["schemaVersion", "ontologyVersion", "locale", "terms"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "ontologyVersion": { "const": "v1" },
+    "locale": { "const": "zh-CN" },
+    "terms": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "phrases", "kind", "governance"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]+$" },
+          "phrases": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+          "kind": { "enum": ["synonym", "alias", "enum_value", "value_pattern", "derived_business_rule", "ambiguity_trigger", "relative_time", "concept"] },
+          "resolution": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "entityId": { "type": "string" },
+              "metricId": { "type": "string" },
+              "dimensionId": { "type": "string" },
+              "filterValue": {},
+              "valuePattern": { "type": "string", "minLength": 1, "maxLength": 160 },
+              "captureGroup": { "type": "integer", "minimum": 0, "maximum": 9 },
+              "normalizer": { "enum": ["identity", "uppercase", "lowercase"] },
+              "maxMatches": { "type": "integer", "minimum": 1, "maximum": 20 },
+              "ruleId": { "type": "string" },
+              "timePreset": { "type": "string" },
+              "ambiguityCode": { "type": "string" }
+            },
+            "minProperties": 1
+          },
+          "definition": { "type": "string" },
+          "synonyms": { "type": "array", "items": { "type": "string" } },
+          "broader": { "type": ["string", "null"] },
+          "narrower": { "type": "array", "items": { "type": "string" } },
+          "related": { "type": "array", "items": { "type": "string" } },
+          "state_transitions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["from", "to", "condition"],
+              "additionalProperties": false,
+              "properties": {
+                "from": { "type": "string" },
+                "to": { "type": "string" },
+                "condition": { "type": "string" }
+              }
+            }
+          },
+          "governance": { "$ref": "common.schema.json#/$defs/governance" }
+        }
+      }
+    }
+  }
+}

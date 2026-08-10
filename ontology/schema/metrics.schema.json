@@ -1,0 +1,53 @@
+{
+  "$id": "https://vizion-lab.local/ontology/schema/metrics.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["schemaVersion", "ontologyVersion", "metrics"],
+  "additionalProperties": false,
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "ontologyVersion": { "const": "v1" },
+    "metrics": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "definitionVersion", "labels", "description", "entityId", "grain", "unit", "defaultTimeDimension", "allowedDimensions", "requiredFilters", "missingDataPolicy", "capabilities", "sourceReadModel", "sourceRevisionStrategy", "governance"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]+(\\.[a-z][a-z0-9_]+)+$" },
+          "definitionVersion": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+          "labels": { "$ref": "common.schema.json#/$defs/labels" },
+          "description": { "type": "string", "minLength": 1 },
+          "entityId": { "type": "string", "minLength": 1 },
+          "grain": { "type": "string", "minLength": 1 },
+          "measure": { "type": "string", "minLength": 1 },
+          "numerator": { "type": "string", "minLength": 1 },
+          "denominator": { "type": "string", "minLength": 1 },
+          "unit": { "enum": ["count", "ratio", "percent", "days", "score"] },
+          "defaultTimeDimension": { "anyOf": [{ "type": "string" }, { "type": "null" }] },
+          "allowedDimensions": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "requiredFilters": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "missingDataPolicy": { "enum": ["preserve_missing", "zero_when_empty_result", "exclude_null_denominator", "not_applicable"] },
+          "capabilities": {
+            "type": "object",
+            "required": ["trend", "comparison", "ranking"],
+            "additionalProperties": false,
+            "properties": {
+              "trend": { "type": "boolean" },
+              "comparison": { "type": "boolean" },
+              "ranking": { "type": "boolean" }
+            }
+          },
+          "sourceReadModel": { "type": "string", "minLength": 1 },
+          "sourceRevisionStrategy": { "enum": ["snapshot", "watermark", "content_hash", "unknown"] },
+          "governance": { "$ref": "common.schema.json#/$defs/governance" }
+        },
+        "anyOf": [
+          { "properties": { "measure": { "type": "string", "minLength": 1 } }, "required": ["measure"] },
+          { "properties": { "numerator": { "type": "string", "minLength": 1 }, "denominator": { "type": "string", "minLength": 1 } }, "required": ["numerator", "denominator"] }
+        ]
+      }
+    }
+  }
+}

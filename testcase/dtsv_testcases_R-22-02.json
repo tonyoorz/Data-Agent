@@ -1,0 +1,172 @@
+{
+  "generated_at": "2026-06-01T12:30:06.933046",
+  "scope": {
+    "team": "DTSV_China",
+    "release": "R-22-02",
+    "source": "runs"
+  },
+  "total_runs": 3,
+  "runs_without_test_id": 0,
+  "total_testcases": 3,
+  "testcases": [
+    {
+      "test_id": "532211",
+      "test_name": "[IDC23] Automatic Service Call - Straight use case in vehicle",
+      "test_subtype": "test_manual",
+      "run_count": 1,
+      "run_ids": [
+        "3301176"
+      ],
+      "run_status_distribution": {
+        "Failed": 1
+      },
+      "defect_ids": [
+        "920669"
+      ],
+      "defect_links": [
+        {
+          "id": "920669",
+          "name": null,
+          "subtype": "defect"
+        }
+      ],
+      "manual_test_ids": [],
+      "manual_test_links": [],
+      "feature_ids": [
+        "896016"
+      ],
+      "feature_links": [
+        {
+          "id": "896016",
+          "name": "R-22-02_SET_23-03_U11/U12_IDC_DiPS",
+          "subtype": "feature",
+          "path": null
+        }
+      ],
+      "feature_parent_testevent": [
+        {
+          "id": "896016",
+          "name": "R-22-02_SET_23-03_U11/U12_IDC_DiPS",
+          "subtype": "feature"
+        }
+      ],
+      "story_ids": [
+        "892994"
+      ],
+      "story_links": [
+        {
+          "id": "892994",
+          "name": "[DTSV_China]_HU-MGU_02_A & WAVE-01_[CN]",
+          "subtype": "story",
+          "path": null
+        }
+      ]
+    },
+    {
+      "test_id": "690490",
+      "test_name": "[IDC23] Automatic Service Call - change yellow to red via Debugging app",
+      "test_subtype": "test_manual",
+      "run_count": 1,
+      "run_ids": [
+        "3301174"
+      ],
+      "run_status_distribution": {
+        "Failed": 1
+      },
+      "defect_ids": [
+        "920669"
+      ],
+      "defect_links": [
+        {
+          "id": "920669",
+          "name": null,
+          "subtype": "defect"
+        }
+      ],
+      "manual_test_ids": [],
+      "manual_test_links": [],
+      "feature_ids": [
+        "896016"
+      ],
+      "feature_links": [
+        {
+          "id": "896016",
+          "name": "R-22-02_SET_23-03_U11/U12_IDC_DiPS",
+          "subtype": "feature",
+          "path": null
+        }
+      ],
+      "feature_parent_testevent": [
+        {
+          "id": "896016",
+          "name": "R-22-02_SET_23-03_U11/U12_IDC_DiPS",
+          "subtype": "feature"
+        }
+      ],
+      "story_ids": [
+        "892994"
+      ],
+      "story_links": [
+        {
+          "id": "892994",
+          "name": "[DTSV_China]_HU-MGU_02_A & WAVE-01_[CN]",
+          "subtype": "story",
+          "path": null
+        }
+      ]
+    },
+    {
+      "test_id": "693137",
+      "test_name": "[IDC23] Automatic Service Call - Straight use case via Debugging app",
+      "test_subtype": "test_manual",
+      "run_count": 1,
+      "run_ids": [
+        "3301175"
+      ],
+      "run_status_distribution": {
+        "Failed": 1
+      },
+      "defect_ids": [
+        "920669"
+      ],
+      "defect_links": [
+        {
+          "id": "920669",
+          "name": null,
+          "subtype": "defect"
+        }
+      ],
+      "manual_test_ids": [],
+      "manual_test_links": [],
+      "feature_ids": [
+        "896016"
+      ],
+      "feature_links": [
+        {
+          "id": "896016",
+          "name": "R-22-02_SET_23-03_U11/U12_IDC_DiPS",
+          "subtype": "feature",
+          "path": null
+        }
+      ],
+      "feature_parent_testevent": [
+        {
+          "id": "896016",
+          "name": "R-22-02_SET_23-03_U11/U12_IDC_DiPS",
+          "subtype": "feature"
+        }
+      ],
+      "story_ids": [
+        "892994"
+      ],
+      "story_links": [
+        {
+          "id": "892994",
+          "name": "[DTSV_China]_HU-MGU_02_A & WAVE-01_[CN]",
+          "subtype": "story",
+          "path": null
+        }
+      ]
+    }
+  ]
+}

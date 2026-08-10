@@ -1,0 +1,1008 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Main Dashboard Integrated Preview</title>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700;800&family=JetBrains+Mono:wght@400;500&display=swap");
+
+      :root {
+        --bg: #f4f7fb;
+        --panel: #ffffff;
+        --panel-soft: #f7f9fc;
+        --line: #dfe7f1;
+        --line-strong: #cad6e5;
+        --text: #0f172a;
+        --muted: #64748b;
+        --muted-2: #94a3b8;
+        --primary: #2463eb;
+        --primary-soft: rgba(36, 99, 235, 0.12);
+        --success: #1f9d63;
+        --success-soft: rgba(31, 157, 99, 0.12);
+        --warning: #d88a1c;
+        --warning-soft: rgba(216, 138, 28, 0.12);
+        --danger: #da5a5a;
+        --danger-soft: rgba(218, 90, 90, 0.14);
+        --sidebar: #182235;
+        --sidebar-text: #c9d3e3;
+        --sidebar-muted: #8492a8;
+        --shadow: 0 1px 2px rgba(15, 23, 42, 0.05), 0 14px 40px rgba(15, 23, 42, 0.06);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--bg);
+        color: var(--text);
+        font-family: "DM Sans", "Segoe UI", sans-serif;
+      }
+
+      button,
+      input {
+        font: inherit;
+      }
+
+      button {
+        cursor: pointer;
+      }
+
+      .app {
+        display: flex;
+        min-height: 100vh;
+      }
+
+      .sidebar {
+        position: sticky;
+        top: 0;
+        width: 240px;
+        min-height: 100vh;
+        padding: 22px 14px;
+        background: var(--sidebar);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 4px 10px 20px;
+      }
+
+      .brand-badge {
+        display: grid;
+        place-items: center;
+        width: 38px;
+        height: 38px;
+        border-radius: 12px;
+        background: var(--primary);
+        color: #fff;
+        font-size: 18px;
+        font-weight: 800;
+      }
+
+      .brand h1 {
+        margin: 0;
+        font-size: 14px;
+        color: #fff;
+      }
+
+      .brand p {
+        margin: 3px 0 0;
+        font-size: 12px;
+        color: var(--sidebar-muted);
+      }
+
+      .nav {
+        display: grid;
+        gap: 4px;
+      }
+
+      .nav-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        width: 100%;
+        padding: 11px 12px;
+        border: 0;
+        border-radius: 14px;
+        background: transparent;
+        color: var(--sidebar-text);
+        text-align: left;
+      }
+
+      .nav-item:hover {
+        background: rgba(255, 255, 255, 0.06);
+      }
+
+      .nav-item.active {
+        background: rgba(255, 255, 255, 0.96);
+        color: var(--text);
+      }
+
+      .nav-main {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .nav-icon {
+        display: grid;
+        place-items: center;
+        width: 28px;
+        height: 28px;
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.06);
+        font-size: 12px;
+        font-weight: 800;
+      }
+
+      .nav-item.active .nav-icon {
+        background: var(--primary-soft);
+        color: var(--primary);
+      }
+
+      .nav-copy strong {
+        display: block;
+        font-size: 13px;
+      }
+
+      .nav-copy span {
+        display: block;
+        margin-top: 2px;
+        font-size: 11px;
+        color: var(--sidebar-muted);
+      }
+
+      .nav-pill {
+        display: inline-flex;
+        align-items: center;
+        padding: 4px 8px;
+        border-radius: 999px;
+        background: var(--primary-soft);
+        color: var(--primary);
+        font-size: 10px;
+        font-weight: 700;
+      }
+
+      .main {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .header {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 16px 24px;
+        border-bottom: 1px solid var(--line);
+        background: rgba(244, 247, 251, 0.86);
+        backdrop-filter: blur(14px);
+      }
+
+      .header h1 {
+        margin: 0;
+        font-size: 18px;
+      }
+
+      .header p {
+        margin: 4px 0 0;
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .status {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: var(--success);
+      }
+
+      .page {
+        padding: 20px 24px 28px;
+      }
+
+      .panel {
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        background: var(--panel);
+        box-shadow: var(--shadow);
+      }
+
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 10px;
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .search {
+        flex: 1 1 340px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 42px;
+        padding: 0 12px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: var(--panel-soft);
+        color: var(--muted);
+      }
+
+      .search input {
+        width: 100%;
+        border: 0;
+        outline: 0;
+        background: transparent;
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        height: 42px;
+        padding: 0 14px;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: #fff;
+        color: var(--text);
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .btn.primary {
+        border-color: var(--primary);
+        background: var(--primary);
+        color: #fff;
+      }
+
+      .filters {
+        display: grid;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        gap: 12px 14px;
+        padding: 14px 16px 16px;
+      }
+
+      .field label {
+        display: block;
+        margin-bottom: 6px;
+        font-size: 11px;
+        font-weight: 800;
+        color: var(--muted-2);
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+      }
+
+      .field button {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+        height: 36px;
+        padding: 0 12px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: var(--panel-soft);
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .active-strip {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 0 16px 16px;
+      }
+
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        padding: 7px 11px;
+        border-radius: 999px;
+        background: var(--primary-soft);
+        color: var(--primary);
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .content {
+        display: grid;
+        gap: 14px;
+        margin-top: 14px;
+      }
+
+      .kpi-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .kpi-card {
+        padding: 16px;
+      }
+
+      .kpi-top {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .kpi-label {
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--muted);
+      }
+
+      .kpi-value {
+        margin-top: 4px;
+        font-size: 30px;
+        font-weight: 800;
+        letter-spacing: -0.04em;
+      }
+
+      .kpi-note {
+        margin-top: 10px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .kpi-icon {
+        display: grid;
+        place-items: center;
+        width: 40px;
+        height: 40px;
+        border-radius: 12px;
+        font-weight: 800;
+      }
+
+      .analysis {
+        display: grid;
+        grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.45fr);
+        gap: 12px;
+      }
+
+      .card {
+        padding: 16px;
+      }
+
+      .card-head,
+      .table-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+
+      .card-head h2,
+      .table-head h2 {
+        margin: 0;
+        font-size: 16px;
+      }
+
+      .card-head p,
+      .table-head p {
+        margin: 4px 0 0;
+        font-size: 11px;
+        color: var(--muted);
+      }
+
+      .subtle-pill,
+      .mono-pill {
+        display: inline-flex;
+        align-items: center;
+        padding: 6px 10px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .subtle-pill {
+        background: var(--panel-soft);
+        color: var(--muted);
+      }
+
+      .mono-pill {
+        font-family: "JetBrains Mono", monospace;
+        background: #edf2f8;
+        color: #526377;
+      }
+
+      .outcome-list,
+      .team-list {
+        display: grid;
+        gap: 10px;
+      }
+
+      .outcome-row,
+      .team-row {
+        width: 100%;
+        padding: 12px;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        background: var(--panel-soft);
+        text-align: left;
+      }
+
+      .outcome-row.active,
+      .team-row.active {
+        border-color: rgba(36, 99, 235, 0.24);
+        background: rgba(36, 99, 235, 0.05);
+      }
+
+      .row-top {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .row-top strong {
+        font-size: 14px;
+      }
+
+      .stats {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .count {
+        font-size: 26px;
+        font-weight: 800;
+        letter-spacing: -0.04em;
+      }
+
+      .rate {
+        font-family: "JetBrains Mono", monospace;
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .track {
+        margin-top: 12px;
+        height: 12px;
+        border-radius: 999px;
+        overflow: hidden;
+        background: #d9e3ef;
+      }
+
+      .fill {
+        height: 100%;
+        border-radius: inherit;
+      }
+
+      .fill.primary {
+        background: linear-gradient(90deg, #2b67eb 0%, #6ea0ff 100%);
+      }
+
+      .fill.danger {
+        background: linear-gradient(90deg, #dc6767 0%, #f09a9a 100%);
+      }
+
+      .selection-strip {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 12px;
+      }
+
+      .team-name {
+        font-size: 14px;
+        font-weight: 800;
+      }
+
+      .team-meta {
+        margin-top: 4px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .metric-lines {
+        display: grid;
+        gap: 8px;
+        margin-top: 10px;
+      }
+
+      .metric-line {
+        display: grid;
+        grid-template-columns: 132px minmax(0, 1fr) 48px;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .metric-line label,
+      .metric-line strong {
+        font-size: 12px;
+      }
+
+      .metric-line label {
+        color: var(--muted);
+        font-weight: 700;
+      }
+
+      .metric-line strong {
+        text-align: right;
+      }
+
+      .table-card {
+        padding: 16px;
+      }
+
+      .table-shell {
+        overflow-x: auto;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        background: #fff;
+      }
+
+      th {
+        padding: 12px;
+        border-bottom: 1px solid var(--line);
+        text-align: left;
+        font-size: 11px;
+        font-weight: 800;
+        color: var(--muted-2);
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        background: #fbfcfe;
+      }
+
+      td {
+        padding: 13px 12px;
+        border-bottom: 1px solid rgba(223, 231, 241, 0.78);
+        font-size: 13px;
+        vertical-align: top;
+      }
+
+      tr:hover td {
+        background: rgba(36, 99, 235, 0.03);
+      }
+
+      .ticket-title {
+        min-width: 300px;
+        color: var(--muted);
+        line-height: 1.5;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 6px 9px;
+        border-radius: 999px;
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .badge.primary {
+        background: var(--primary-soft);
+        color: var(--primary);
+      }
+
+      .badge.danger {
+        background: var(--danger-soft);
+        color: var(--danger);
+      }
+
+      .badge.neutral {
+        background: #eef2f7;
+        color: #566679;
+      }
+
+      .legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      @media (max-width: 1280px) {
+        .filters {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .kpi-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+
+      @media (max-width: 1080px) {
+        .app {
+          display: block;
+        }
+
+        .sidebar {
+          position: relative;
+          width: auto;
+          min-height: auto;
+        }
+
+        .analysis {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 760px) {
+        .header,
+        .toolbar,
+        .card-head,
+        .table-head {
+          flex-direction: column;
+          align-items: stretch;
+        }
+
+        .page {
+          padding: 16px;
+        }
+
+        .filters,
+        .kpi-grid,
+        .metric-line {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-badge">D</div>
+          <div>
+            <h1>DTSV</h1>
+            <p>数据分析平台</p>
+          </div>
+        </div>
+
+        <nav class="nav">
+          <button class="nav-item active" type="button">
+            <div class="nav-main">
+              <div class="nav-icon">M</div>
+              <div class="nav-copy">
+                <strong>Main Dashboard</strong>
+                <span>Full Picture 管理总览</span>
+              </div>
+            </div>
+          </button>
+          <button class="nav-item" type="button">
+            <div class="nav-main">
+              <div class="nav-icon">T</div>
+              <div class="nav-copy">
+                <strong>Top Issue 分析</strong>
+              </div>
+            </div>
+          </button>
+          <button class="nav-item" type="button">
+            <div class="nav-main">
+              <div class="nav-icon">P</div>
+              <div class="nav-copy">
+                <strong>项目分析</strong>
+              </div>
+            </div>
+          </button>
+          <button class="nav-item" type="button">
+            <div class="nav-main">
+              <div class="nav-icon">D</div>
+              <div class="nav-copy">
+                <strong>缺陷高频分析</strong>
+              </div>
+            </div>
+          </button>
+          <button class="nav-item" type="button">
+            <div class="nav-main">
+              <div class="nav-icon">L</div>
+              <div class="nav-copy">
+                <strong>长周期分析</strong>
+              </div>
+            </div>
+          </button>
+          <button class="nav-item" type="button">
+            <div class="nav-main">
+              <div class="nav-icon">AI</div>
+              <div class="nav-copy">
+                <strong>AI Chat</strong>
+              </div>
+            </div>
+            <span class="nav-pill">Beta</span>
+          </button>
+        </nav>
+      </aside>
+
+      <main class="main">
+        <header class="header">
+          <div>
+            <h1>Main Dashboard</h1>
+            <p>将 Full Picture 数据与交互方式融合进当前 DTSV 看板壳层，而不是引入另一套站点。</p>
+          </div>
+          <div class="status">
+            <span class="status-dot"></span>
+            <span>数据已同步 · 2026-05-22</span>
+          </div>
+        </header>
+
+        <div class="page">
+          <section class="panel">
+            <div class="toolbar">
+              <label class="search">
+                <span>Search</span>
+                <input value="DTSV_China" />
+              </label>
+              <button class="btn primary" type="button">Search</button>
+              <button class="btn" type="button">Filters</button>
+              <button class="btn" type="button">Reset</button>
+            </div>
+
+            <div class="filters">
+              <div class="field"><label>Year</label><button type="button"><span>2026</span><span>▾</span></button></div>
+              <div class="field"><label>Project</label><button type="button"><span>All projects</span><span>▾</span></button></div>
+              <div class="field"><label>AIDA</label><button type="button"><span>Digital, EE</span><span>▾</span></button></div>
+              <div class="field"><label>Market</label><button type="button"><span>CN, EU</span><span>▾</span></button></div>
+              <div class="field"><label>Phase</label><button type="button"><span>Analysis, Validation</span><span>▾</span></button></div>
+              <div class="field"><label>Team</label><button type="button"><span>DTSV_China</span><span>▾</span></button></div>
+              <div class="field"><label>Group</label><button type="button"><span>Integration, Q-Gate</span><span>▾</span></button></div>
+              <div class="field"><label>Lead Model</label><button type="button"><span>All models</span><span>▾</span></button></div>
+              <div class="field"><label>Assigned ECU</label><button type="button"><span>All ECUs</span><span>▾</span></button></div>
+              <div class="field"><label>PU</label><button type="button"><span>All PU</span><span>▾</span></button></div>
+              <div class="field"><label>Solution Cluster</label><button type="button"><span>Integration</span><span>▾</span></button></div>
+            </div>
+
+            <div class="active-strip">
+              <span class="chip">Search: DTSV_China</span>
+              <span class="chip">Outcome: Resolved Forward</span>
+              <span class="chip">Team: DTSV_China</span>
+            </div>
+          </section>
+
+          <div class="content">
+            <section class="kpi-grid">
+              <article class="panel kpi-card">
+                <div class="kpi-top">
+                  <div>
+                    <div class="kpi-label">Tickets in scope</div>
+                    <div class="kpi-value">126</div>
+                  </div>
+                  <div class="kpi-icon" style="background: var(--primary-soft); color: var(--primary);">#</div>
+                </div>
+                <div class="kpi-note">当前搜索与筛选范围内的 ticket 总数</div>
+              </article>
+              <article class="panel kpi-card">
+                <div class="kpi-top">
+                  <div>
+                    <div class="kpi-label">Resolved Forward</div>
+                    <div class="kpi-value">54</div>
+                  </div>
+                  <div class="kpi-icon" style="background: var(--success-soft); color: var(--success);">R</div>
+                </div>
+                <div class="kpi-note">42.9% of scoped tickets</div>
+              </article>
+              <article class="panel kpi-card">
+                <div class="kpi-top">
+                  <div>
+                    <div class="kpi-label">Rejected Directly</div>
+                    <div class="kpi-value">31</div>
+                  </div>
+                  <div class="kpi-icon" style="background: var(--danger-soft); color: var(--danger);">X</div>
+                </div>
+                <div class="kpi-note">24.6% of scoped tickets</div>
+              </article>
+              <article class="panel kpi-card">
+                <div class="kpi-top">
+                  <div>
+                    <div class="kpi-label">Table scope</div>
+                    <div class="kpi-value">18</div>
+                  </div>
+                  <div class="kpi-icon" style="background: var(--warning-soft); color: var(--warning);">T</div>
+                </div>
+                <div class="kpi-note">图表联动后剩余明细行</div>
+              </article>
+            </section>
+
+            <section class="analysis">
+              <article class="panel card">
+                <div class="card-head">
+                  <div>
+                    <h2>Portfolio Outcome</h2>
+                    <p>点击 outcome 行后，明细表和 team panel 同步收窄。</p>
+                  </div>
+                  <span class="subtle-pill">2 tracked outcomes</span>
+                </div>
+
+                <div class="outcome-list">
+                  <button class="outcome-row active" type="button">
+                    <div class="row-top">
+                      <strong>Resolved Forward</strong>
+                      <div class="stats"><span class="count">54</span><span class="rate">42.9%</span></div>
+                    </div>
+                    <div class="track"><div class="fill primary" style="width: 42.9%"></div></div>
+                  </button>
+                  <button class="outcome-row" type="button">
+                    <div class="row-top">
+                      <strong>Rejected Directly</strong>
+                      <div class="stats"><span class="count">31</span><span class="rate">24.6%</span></div>
+                    </div>
+                    <div class="track"><div class="fill danger" style="width: 24.6%"></div></div>
+                  </button>
+                </div>
+
+                <div class="selection-strip">
+                  <span class="chip">Base scope: 126 tickets</span>
+                  <span class="chip">Selected outcome: Resolved Forward</span>
+                </div>
+              </article>
+
+              <article class="panel card">
+                <div class="card-head">
+                  <div>
+                    <h2>Team Expansion</h2>
+                    <p>保持 team denominator，不把 team 百分比错误映射成全局百分比。</p>
+                  </div>
+                  <span class="subtle-pill">8 teams</span>
+                </div>
+
+                <div class="team-list">
+                  <button class="team-row active" type="button">
+                    <div class="row-top">
+                      <div>
+                        <div class="team-name">DTSV_China</div>
+                        <div class="team-meta">Team denominator: 29 tickets</div>
+                      </div>
+                      <strong>selected</strong>
+                    </div>
+                    <div class="metric-lines">
+                      <div class="metric-line">
+                        <label>Resolved Forward</label>
+                        <div class="track"><div class="fill primary" style="width: 62%"></div></div>
+                        <strong>62%</strong>
+                      </div>
+                      <div class="metric-line">
+                        <label>Rejected Directly</label>
+                        <div class="track"><div class="fill danger" style="width: 21%"></div></div>
+                        <strong>21%</strong>
+                      </div>
+                    </div>
+                  </button>
+
+                  <button class="team-row" type="button">
+                    <div class="row-top">
+                      <div>
+                        <div class="team-name">[AT]W72-FIT</div>
+                        <div class="team-meta">Team denominator: 22 tickets</div>
+                      </div>
+                      <strong>drill-down</strong>
+                    </div>
+                    <div class="metric-lines">
+                      <div class="metric-line">
+                        <label>Resolved Forward</label>
+                        <div class="track"><div class="fill primary" style="width: 36%"></div></div>
+                        <strong>36%</strong>
+                      </div>
+                      <div class="metric-line">
+                        <label>Rejected Directly</label>
+                        <div class="track"><div class="fill danger" style="width: 41%"></div></div>
+                        <strong>41%</strong>
+                      </div>
+                    </div>
+                  </button>
+
+                  <button class="team-row" type="button">
+                    <div class="row-top">
+                      <div>
+                        <div class="team-name">[AT]BBA_Basis-FIT</div>
+                        <div class="team-meta">Team denominator: 17 tickets</div>
+                      </div>
+                      <strong>available</strong>
+                    </div>
+                    <div class="metric-lines">
+                      <div class="metric-line">
+                        <label>Resolved Forward</label>
+                        <div class="track"><div class="fill primary" style="width: 47%"></div></div>
+                        <strong>47%</strong>
+                      </div>
+                      <div class="metric-line">
+                        <label>Rejected Directly</label>
+                        <div class="track"><div class="fill danger" style="width: 18%"></div></div>
+                        <strong>18%</strong>
+                      </div>
+                    </div>
+                  </button>
+                </div>
+              </article>
+            </section>
+
+            <section class="panel table-card">
+              <div class="table-head">
+                <div>
+                  <h2>Ticket Detail</h2>
+                  <p>当前表格范围 = 搜索 + filters + selected outcome + selected team。</p>
+                </div>
+                <div class="legend">
+                  <span class="chip">Outcome: Resolved Forward</span>
+                  <span class="chip">Team: DTSV_China</span>
+                  <span class="mono-pill">rows = 18</span>
+                </div>
+              </div>
+
+              <div class="table-shell">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Ticket</th>
+                      <th>Title</th>
+                      <th>Team</th>
+                      <th>Status</th>
+                      <th>Outcome</th>
+                      <th>Phase</th>
+                      <th>Group</th>
+                      <th>Project</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><strong>2553006</strong></td>
+                      <td class="ticket-title">Navigation app reset after route recalculation under mixed market scope.</td>
+                      <td>DTSV_China</td>
+                      <td>03-In Analysis</td>
+                      <td><span class="badge primary">Resolved Forward</span></td>
+                      <td>Validation</td>
+                      <td>Integration</td>
+                      <td>G68</td>
+                    </tr>
+                    <tr>
+                      <td><strong>2536597</strong></td>
+                      <td class="ticket-title">Plant scope handover issue linked to team-level denominator review.</td>
+                      <td>DTSV_China</td>
+                      <td>04-In Progress</td>
+                      <td><span class="badge primary">Resolved Forward</span></td>
+                      <td>Implementation</td>
+                      <td>Q-Gate</td>
+                      <td>U12</td>
+                    </tr>
+                    <tr>
+                      <td><strong>2516231</strong></td>
+                      <td class="ticket-title">Market-specific closure path differs across Global and CN slices for identical team scope.</td>
+                      <td>DTSV_China</td>
+                      <td>02-Assigned</td>
+                      <td>
+                        <span class="badge primary">Resolved Forward</span>
+                        <span class="badge neutral">Also in base scope</span>
+                      </td>
+                      <td>Investigation</td>
+                      <td>Other</td>
+                      <td>NA6</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+        </div>
+      </main>
+    </div>
+  </body>
+</html>

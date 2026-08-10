@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vizion Lab Duplicate Search Agent 架构说明</title>
+  <style>
+    :root {
+      --bg: #f3efe6;
+      --paper: rgba(255, 252, 245, 0.9);
+      --panel: #fffaf0;
+      --ink: #1f2933;
+      --muted: #5f6c7b;
+      --line: rgba(31, 41, 51, 0.12);
+      --accent: #0f766e;
+      --accent-2: #c2410c;
+      --accent-3: #164e63;
+      --shadow: 0 18px 40px rgba(43, 52, 69, 0.12);
+      --radius-xl: 28px;
+      --radius-lg: 20px;
+      --radius-md: 14px;
+      --mono: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+      --sans: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: var(--sans);
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top left, rgba(15, 118, 110, 0.14), transparent 28%),
+        radial-gradient(circle at top right, rgba(194, 65, 12, 0.12), transparent 24%),
+        linear-gradient(180deg, #f7f1e7 0%, var(--bg) 100%);
+      line-height: 1.6;
+    }
+
+    .shell {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 40px 20px 64px;
+    }
+
+    .hero {
+      position: relative;
+      overflow: hidden;
+      padding: 36px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-xl);
+      background: linear-gradient(135deg, rgba(255, 250, 240, 0.94), rgba(247, 242, 230, 0.92));
+      box-shadow: var(--shadow);
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      inset: auto -80px -110px auto;
+      width: 260px;
+      height: 260px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(15, 118, 110, 0.18), transparent 68%);
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: rgba(15, 118, 110, 0.09);
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 18px 0 12px;
+      font-size: clamp(30px, 5vw, 50px);
+      line-height: 1.08;
+    }
+
+    .hero p {
+      max-width: 760px;
+      margin: 0;
+      color: var(--muted);
+      font-size: 16px;
+    }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 28px;
+    }
+
+    .stat {
+      padding: 16px 18px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      background: rgba(255, 255, 255, 0.56);
+      backdrop-filter: blur(4px);
+    }
+
+    .stat strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 14px;
+    }
+
+    .section {
+      margin-top: 24px;
+      padding: 28px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-xl);
+      background: var(--paper);
+      box-shadow: var(--shadow);
+    }
+
+    .section h2 {
+      margin: 0 0 12px;
+      font-size: 26px;
+    }
+
+    .section > p {
+      margin: 0 0 18px;
+      color: var(--muted);
+    }
+
+    .grid-2,
+    .grid-3,
+    .flow-grid,
+    .example-grid {
+      display: grid;
+      gap: 16px;
+    }
+
+    .grid-2 {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .grid-3 {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .flow-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .example-grid {
+      grid-template-columns: 1.2fr 0.8fr;
+    }
+
+    .card {
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-lg);
+      background: var(--panel);
+    }
+
+    .card h3,
+    .card h4 {
+      margin: 0 0 10px;
+    }
+
+    .tag {
+      display: inline-block;
+      margin-bottom: 10px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: rgba(22, 78, 99, 0.08);
+      color: var(--accent-3);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .steps {
+      display: grid;
+      gap: 12px;
+    }
+
+    .step {
+      position: relative;
+      padding: 16px 16px 16px 52px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-md);
+      background: rgba(255, 255, 255, 0.7);
+    }
+
+    .step::before {
+      content: attr(data-step);
+      position: absolute;
+      left: 16px;
+      top: 14px;
+      width: 24px;
+      height: 24px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: var(--accent);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .arch-line {
+      display: grid;
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .arch-box {
+      position: relative;
+      padding: 18px;
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(255,255,255,0.76), rgba(250,246,236,0.96));
+    }
+
+    .arch-box:not(:last-child)::after {
+      content: "↓";
+      position: absolute;
+      left: 50%;
+      bottom: -26px;
+      transform: translateX(-50%);
+      color: var(--accent-2);
+      font-weight: 700;
+    }
+
+    ul {
+      margin: 0;
+      padding-left: 18px;
+      color: var(--muted);
+    }
+
+    li + li {
+      margin-top: 6px;
+    }
+
+    code,
+    pre {
+      font-family: var(--mono);
+    }
+
+    pre {
+      margin: 0;
+      padding: 16px;
+      overflow: auto;
+      border-radius: var(--radius-md);
+      background: #17212b;
+      color: #edf2f7;
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .callout {
+      padding: 16px 18px;
+      border-left: 4px solid var(--accent-2);
+      border-radius: 0 var(--radius-md) var(--radius-md) 0;
+      background: rgba(194, 65, 12, 0.08);
+      color: #7c2d12;
+    }
+
+    .mini {
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .footer {
+      margin-top: 20px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    @media (max-width: 960px) {
+      .hero-grid,
+      .grid-2,
+      .grid-3,
+      .flow-grid,
+      .example-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .section,
+      .hero {
+        padding: 22px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <span class="eyebrow">Vizion Lab / Duplicate Search Agent</span>
+      <h1>Duplicate Search Agent 设计架构与业务流程</h1>
+      <p>
+        这个 agent 不是一个孤立的聊天机器人，而是一条由前端交互、Node 网关、Python 检索桥、SQLite 数据源、反馈式 rerank 共同组成的本地检索链路。
+        它的目标很明确：把“当前问题”快速映射到“历史最可能重复的 defect”，再生成简洁可执行的判断摘要。
+      </p>
+      <div class="hero-grid">
+        <div class="stat">
+          <strong>核心定位</strong>
+          独立重复缺陷检索能力，也可作为 AI Chat 的上下文召回层。
+        </div>
+        <div class="stat">
+          <strong>主要接口</strong>
+          <code>/api/duplicate-search</code>、<code>/api/duplicate-feedback</code>、后台 warmup。
+        </div>
+        <div class="stat">
+          <strong>检索策略</strong>
+          Hint 抽取 + 向量或 TF-IDF 粗召回 + 渐进式 rerank + LLM 或 fallback 总结。
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>1. 架构总览</h2>
+      <p>从实现上看，这条链路分为四层，每层职责边界比较清晰。</p>
+      <div class="arch-line">
+        <div class="arch-box">
+          <span class="tag">Layer 1</span>
+          <h3>UI 入口层</h3>
+          <ul>
+            <li>AI Chat 页面里有一个独立的 <code>Duplicate Search</code> 模式切换。</li>
+            <li>用户输入现象、项目、PU、日志关键词后，前端向本地 API 发请求。</li>
+            <li>页面会先展示“正在检索”状态，再渲染摘要与候选 ticket 列表。</li>
+          </ul>
+        </div>
+        <div class="arch-box">
+          <span class="tag">Layer 2</span>
+          <h3>Node 网关编排层</h3>
+          <ul>
+            <li>统一暴露 <code>/api/duplicate-search</code> 与 <code>/api/duplicate-feedback</code>。</li>
+            <li>通过常驻 JSON Line bridge 复用 Python 子进程，避免每次请求都重启检索内核。</li>
+            <li>在拿到候选后，再调用 summary 逻辑生成用户可读结论。</li>
+          </ul>
+        </div>
+        <div class="arch-box">
+          <span class="tag">Layer 3</span>
+          <h3>Python 检索桥层</h3>
+          <ul>
+            <li>负责数据加载、DataFrame 缓存、索引缓存、hint 抽取、检索与反馈落库。</li>
+            <li>支持三种 action：<code>search</code>、<code>warmup</code>、<code>feedback</code>。</li>
+            <li>把复杂检索逻辑隔离在 Python 侧，Node 只负责编排。</li>
+          </ul>
+        </div>
+        <div class="arch-box">
+          <span class="tag">Layer 4</span>
+          <h3>数据与学习层</h3>
+          <ul>
+            <li>主数据来自 SQLite <code>octane_defects</code> 或本地 defect JSON。</li>
+            <li>Embedding、feedback、模型快照保存在本地 SQLite。</li>
+            <li>检索结果会受到历史 click/positive/negative 反馈影响。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>2. 关键模块拆解</h2>
+      <div class="grid-2">
+        <div class="card">
+          <h3>前端交互</h3>
+          <ul>
+            <li><code>src/components/dashboard/pages/AIChat.tsx</code> 同时承载聊天与 duplicate search 模式。</li>
+            <li>Duplicate Search 模式不支持附件，强调文本现象检索。</li>
+            <li>独立模式返回候选列表和摘要；普通 AI Chat 模式则可把 duplicate search 结果当作上下文。</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>运行时桥接</h3>
+          <ul>
+            <li><code>server/duplicateBridgeRuntime.cjs</code> 维护一个常驻 Python 进程。</li>
+            <li>通信协议很轻：Node 写入一行 JSON，请求；Python 回一行 JSON，响应。</li>
+            <li>好处是简单、跨平台、易排障，也方便在本地环境复用现有 Python 检索代码。</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>检索桥</h3>
+          <ul>
+            <li><code>scripts/duplicate_search_bridge.py</code> 会优先解析 SQLite，退化时再读取 defect JSON。</li>
+            <li>Bridge 内维护 defect DataFrame 缓存和 index cache key，减少重复构建。</li>
+            <li>对外统一输出 <code>searchId</code>、<code>candidates</code>、<code>timings</code>、<code>modelPhase</code> 等字段。</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>检索核心</h3>
+          <ul>
+            <li><code>backend/duplicate_issue_finder.py</code> 会先从 query 中提取 project、PU、ECU、lead model 等 hint。</li>
+            <li>优先使用本地 sentence-transformer embedding，失败时回退到 TF-IDF，再不行则走 keyword fallback。</li>
+            <li>对匹配到的 project/PU/ECU 做 boost，并过滤掉默认不参与检索的 phase 前缀。</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>反馈学习</h3>
+          <ul>
+            <li><code>backend/feedback_store.py</code> 记录 <code>click</code>、<code>positive</code>、<code>negative</code> 信号。</li>
+            <li>它还负责 rate limit、同用户短时间反向反馈覆盖、训练阶段判定。</li>
+            <li>反馈量越多，rerank 从简单 click boost 逐步升级到 feature / adapter phase。</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>结果总结</h3>
+          <ul>
+            <li><code>server/duplicateSummary.mjs</code> 会把 Top-N 候选转成简明 prompt。</li>
+            <li>如果配置了聊天模型凭据，就用 LLM 输出 6 行内中文结论。</li>
+            <li>如果没有可用模型，则退回到 deterministic fallback summary。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>3. 业务流程</h2>
+      <p>你项目里实际上有两条业务链路，共享同一个 duplicate search 内核。</p>
+      <div class="grid-2">
+        <div class="card">
+          <h3>流程 A: 用户主动做重复缺陷检索</h3>
+          <div class="steps">
+            <div class="step" data-step="1">
+              前端切到 Duplicate Search 模式，用户输入“现象 + 项目 + PU + 日志关键字”。
+            </div>
+            <div class="step" data-step="2">
+              Node 接收 <code>/api/duplicate-search</code>，把 <code>action=search</code> 发送给 Python bridge。
+            </div>
+            <div class="step" data-step="3">
+              Python 加载 defect 数据，构建或复用索引，抽取 hints，然后执行 coarse search + rerank。
+            </div>
+            <div class="step" data-step="4">
+              Node 对结果做摘要，再把候选 ticket、评分、摘要一起返回给前端展示。
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <h3>流程 B: AI Chat 把它当作上下文召回层</h3>
+          <div class="steps">
+            <div class="step" data-step="1">
+              用户仍在 AI Chat 中提问，但开启了“缺陷上下文”。
+            </div>
+            <div class="step" data-step="2">
+              <code>server/aiContext.mjs</code> 提取最后一条用户消息，先调用 duplicate bridge 检索相关 defect。
+            </div>
+            <div class="step" data-step="3">
+              系统把 Top 结果格式化成一段结构化 defect context，注入后续 AI 对话请求。
+            </div>
+            <div class="step" data-step="4">
+              最终大模型回答不只是“聊天”，而是带着 qgate 历史缺陷上下文的回答。
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="callout" style="margin-top:16px;">
+        关键业务价值：duplicate search 既能独立给出“可能重复票”，也能作为 AI 的召回底座，减少大模型在缺陷排查上的盲答。
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>4. 检索过程内部机制</h2>
+      <div class="flow-grid">
+        <div class="card">
+          <h4>Query 解析</h4>
+          <p class="mini">从自然语言里抽取 project、PU、ECU、lead model，形成 hint。</p>
+        </div>
+        <div class="card">
+          <h4>粗召回</h4>
+          <p class="mini">优先 embedding，相同文本走 embedding cache；无模型时退化到 TF-IDF 或关键词匹配。</p>
+        </div>
+        <div class="card">
+          <h4>重排序</h4>
+          <p class="mini">基于 feedback 做 click boost 或 feature re-rank，让历史有效候选更容易上浮。</p>
+        </div>
+        <div class="card">
+          <h4>摘要输出</h4>
+          <p class="mini">返回结构化候选结果，再由 Node 侧进行人类可读总结。</p>
+        </div>
+      </div>
+      <div class="grid-3" style="margin-top:16px;">
+        <div class="card">
+          <h3>为什么要 warmup</h3>
+          <ul>
+            <li>首次请求最慢，主要耗时在数据加载与索引构建。</li>
+            <li><code>server/duplicateWarmup.mjs</code> 在服务启动时触发后台 warmup。</li>
+            <li>这样用户第一次搜时更像“热命中”，减少冷启动感知。</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>为什么要独立 Python bridge</h3>
+          <ul>
+            <li>现有检索与数据处理代码主要是 Python 资产，直接复用成本最低。</li>
+            <li>Node 负责对前端友好的接口、SSE、AI 编排，Python 负责算法与数据。</li>
+            <li>这比把检索逻辑完全重写到 JS 更稳，也更便于后续调试与实验。</li>
+          </ul>
+        </div>
+        <div class="card">
+          <h3>为什么要 feedback</h3>
+          <ul>
+            <li>重复缺陷判断很依赖领域经验，纯相似度排序不够稳定。</li>
+            <li>反馈把“实际好结果”变成可学习信号，逐步修正排序。</li>
+            <li>所以它不是纯静态搜索，而是一个可渐进优化的检索 agent。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>5. 真实示例</h2>
+      <p>下面的示例基于你仓库里的测试数据与接口结构整理，便于给团队做演示。</p>
+      <div class="example-grid">
+        <div class="card">
+          <h3>示例 1: 前端发起 duplicate search</h3>
+          <pre>{
+  "query": "IDCEVO 26/07 导航黑屏",
+  "model": "deepseek-v4-flash",
+  "top_k": 8
+}</pre>
+        </div>
+        <div class="card">
+          <h3>用户视角结果</h3>
+          <ul>
+            <li>摘要：最可能的重复问题是 DTV-1024，请优先复核。</li>
+            <li>候选票：DTV-1024</li>
+            <li>评分：9/10</li>
+            <li>摘要片段：车辆冷启动后中控导航黑屏，需要重启恢复。</li>
+          </ul>
+        </div>
+      </div>
+      <div class="grid-2" style="margin-top:16px;">
+        <div class="card">
+          <h3>示例 2: Node 发给 Python bridge 的请求</h3>
+          <pre>{
+  "action": "search",
+  "query": "IDCEVO 26/07 导航黑屏",
+  "top_k": 8
+}</pre>
+        </div>
+        <div class="card">
+          <h3>示例 3: Python 返回的核心字段</h3>
+          <pre>{
+  "success": true,
+  "result": {
+    "searchId": "search-1",
+    "queryText": "IDCEVO 26/07 导航黑屏",
+    "modelPhase": "click_boost",
+    "feedbackCount": 3,
+    "dataset_size": 12345,
+    "candidates": [
+      {
+        "ticketId": "DTV-1024",
+        "name": "IDCEVO 26/07 导航黑屏",
+        "score1to10": 9,
+        "similarity": 0.92,
+        "project": "IDCEVO",
+        "pu": "26-07",
+        "statusPhase": "03-In Analysis",
+        "snippet": "车辆冷启动后中控导航黑屏，需要重启恢复。"
+      }
+    ]
+  }
+}</pre>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2>6. 一句话总结</h2>
+      <div class="grid-2">
+        <div class="card">
+          <h3>从工程角度</h3>
+          <p>
+            Duplicate Search Agent 是一个由 React 页面触发、由 Node 编排、由 Python 执行检索、由 SQLite 承载状态、并能借助反馈持续改进排序的本地检索系统。
+          </p>
+        </div>
+        <div class="card">
+          <h3>从业务角度</h3>
+          <p>
+            它解决的是“当前问题像不像历史某个 defect”这个高频场景，并把答案包装成可读、可操作、可继续学习的结果，而不是只返回一堆相似文本。
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <p class="footer">文档基于当前仓库实现整理，适合演示、交接与新成员快速理解 duplicate search agent。</p>
+  </main>
+</body>
+</html>
