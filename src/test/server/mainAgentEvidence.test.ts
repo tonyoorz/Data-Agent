@@ -20,6 +20,19 @@ const validEvidence = {
   evidence: { kind: "semantic_metric_result", analysisRef: "analysis-1", sourceRevisionId: "snap-1" },
 };
 
+const validTraceEvidence = {
+  ...validEvidence,
+  tool: "query_traceability",
+  analysisRef: "analysis-trace-1",
+  evidence: {
+    kind: "semantic_lineage_result",
+    analysisRef: "analysis-trace-1",
+    sourceRevisionId: "snap-1",
+    rowCount: 1,
+    relationshipIds: ["testing.test_run.executes.test_case"],
+  },
+};
+
 describe("main agent semantic evidence", () => {
   it("passes only complete machine-checkable semantic evidence", () => {
     const gate = evaluateSemanticEvidence([validEvidence]);
@@ -98,15 +111,29 @@ describe("main agent semantic evidence", () => {
   });
 
   it("treats traceability as claim-bearing semantic evidence", () => {
-    const gate = evaluateSemanticEvidence([{ ...validEvidence, tool: "query_traceability" }], {
+    const gate = evaluateSemanticEvidence([validTraceEvidence], {
       expectedActorScopeHash: "scope-a",
     });
 
     expect(gate.status).toBe("pass");
   });
 
+  it("rejects a metric evidence kind presented by the trace tool", () => {
+    const gate = evaluateSemanticEvidence([{
+      ...validTraceEvidence,
+      evidence: { ...validTraceEvidence.evidence, kind: "semantic_metric_result" },
+    }]);
+
+    expect(gate.status).toBe("blocked");
+    expect(gate.violations).toContain("SEMANTIC_BACKEND_EVIDENCE_KIND_INVALID");
+  });
+
   it("exposes only a continuation from the same actor scope", () => {
     expect(buildSemanticContinuationContext([validEvidence], { scopeHash: "scope-a" })).toContain("analysis_ref: analysis-1");
     expect(buildSemanticContinuationContext([validEvidence], { scopeHash: "scope-b" })).toBe("");
+  });
+
+  it("does not expose trace analysis refs as records continuation context", () => {
+    expect(buildSemanticContinuationContext([validTraceEvidence], { scopeHash: "scope-a" })).toBe("");
   });
 });

@@ -30,7 +30,9 @@ import {
   completeCatalogBackedAnalyticsRetry,
 } from "../mainAgentToolRecovery.mjs";
 import { createOntologyRegistry } from "../ontology/registry.mjs";
-import { validateGovernedAnalysisPlan } from "../ontology/analysisPlanner.mjs";
+import { createGovernedAnalysisPlanner, validateGovernedAnalysisPlan } from "../ontology/analysisPlanner.mjs";
+import { validateSemanticQuery } from "../ontology/queryCompiler.mjs";
+import { fingerprintQueryPlan, fingerprintQueryPlanSteps, validatePlan } from "../ontology/queryPlanner.mjs";
 
 const SUPPORTED_RUNTIME_MODES = new Set(["langgraph"]);
 
@@ -51,6 +53,7 @@ const ChatState = Annotation.Root({
   toolRouting: Annotation({ reducer: overwrite, default: () => null }),
   plannedToolCalls: Annotation({ reducer: overwrite, default: () => [] }),
   plannedToolCallSource: Annotation({ reducer: overwrite, default: () => "" }),
+  governedPlanBlockCode: Annotation({ reducer: overwrite, default: () => "" }),
   toolStepIndex: Annotation({ reducer: overwrite, default: () => 0 }),
   stoppedReason: Annotation({ reducer: overwrite, default: () => "" }),
   directResponse: Annotation({ reducer: overwrite, default: () => null }),
@@ -300,45 +303,86 @@ function isCompletedTopIssueGrowthRank(toolCall, result) {
     && ordersByDeltaDescending;
 }
 
-function buildReadySemanticPlanToolCalls({ analyticsContext, actorScope, selectedToolset } = {}) {
-  const analysisPlan = governedAnalysisAuditFromContext(analyticsContext);
-  const queryPlan = analyticsContext?.queryPlan;
+const GOVERNED_SEMANTIC_STEP_TOOLS = Object.freeze({
+  semantic_metric_query: "query_semantic_metrics",
+  semantic_record_query: "query_semantic_records",
+  traceability_query: "query_traceability",
+});
+
+function blockedGovernedPlan(code) {
+  return { status: "blocked", code, toolCalls: [] };
+}
+
+function rawGovernedAnalysisPlan(analyticsContext) {
+  return analyticsContext?.analysisPlan || analyticsContext?.shadowObservation?.analysisPlan;
+}
+
+function hasReadyGovernedPlanCandidate(analyticsContext) {
+  return rawGovernedAnalysisPlan(analyticsContext)?.status === "ready"
+    || analyticsContext?.queryPlan?.status === "valid";
+}
+
+function inspectReadySemanticPlan({ analyticsContext, actorScope, selectedToolset, ontologyRegistry } = {}) {
+  if (!hasReadyGovernedPlanCandidate(analyticsContext)) {
+    return { status: "absent", code: "", toolCalls: [] };
+  }
+
+  let analysisPlan;
+  let expectedAnalysisPlan;
+  let queryPlan;
+  try {
+    analysisPlan = validateGovernedAnalysisPlan(rawGovernedAnalysisPlan(analyticsContext));
+    queryPlan = validatePlan(analyticsContext?.queryPlan);
+    expectedAnalysisPlan = createGovernedAnalysisPlanner({ registry: ontologyRegistry }).createPlan({
+      frame: analyticsContext?.semanticFrame,
+      queryPlan,
+    });
+  } catch {
+    return blockedGovernedPlan("GOVERNED_QUERY_PLAN_SCHEMA_INVALID");
+  }
+
   const actorScopeHash = String(actorScope?.scopeHash || "");
-  if (
-    analysisPlan?.status !== "ready"
-    || queryPlan?.status !== "valid"
-    || !actorScopeHash
-    || String(queryPlan?.actorScopeHash || "") !== actorScopeHash
-    || String(analysisPlan?.sourcePlanId || "") !== String(queryPlan?.planId || "")
-  ) {
-    return [];
+  if (!actorScopeHash || queryPlan.actorScopeHash !== actorScopeHash) {
+    return blockedGovernedPlan("GOVERNED_QUERY_PLAN_SCOPE_MISMATCH");
+  }
+  if (queryPlan.status !== "valid" || queryPlan.violations.length || !queryPlan.steps.length) {
+    return blockedGovernedPlan("GOVERNED_QUERY_PLAN_NOT_EXECUTABLE");
+  }
+  if (analysisPlan.sourcePlanId !== queryPlan.planId
+    || analysisPlan.sourcePlanFingerprint !== fingerprintQueryPlan(queryPlan)) {
+    return blockedGovernedPlan("GOVERNED_QUERY_PLAN_SOURCE_MISMATCH");
+  }
+  if (analysisPlan.status !== "ready" || expectedAnalysisPlan.status !== "ready"
+    || canonicalJson(analysisPlan) !== canonicalJson(expectedAnalysisPlan)) {
+    return blockedGovernedPlan("GOVERNED_QUERY_PLAN_CONTRACT_MISMATCH");
+  }
+  if (queryPlan.executionFingerprint !== fingerprintQueryPlanSteps(queryPlan.steps)) {
+    return blockedGovernedPlan("GOVERNED_QUERY_PLAN_EXECUTION_FINGERPRINT_MISMATCH");
   }
 
-  const semanticSteps = (Array.isArray(queryPlan?.steps) ? queryPlan.steps : [])
-    .filter((step) => isRecord(step?.canonicalArgs)
-      && isRecord(step?.canonicalArgs?.query)
-      && ((step?.operation === "semantic_metric_query" && step?.toolName === "query_semantic_metrics")
-        || (step?.operation === "semantic_record_query" && step?.toolName === "query_semantic_records")));
-  if (semanticSteps.length !== 1) {
-    return [];
+  const toolCalls = [];
+  for (const step of queryPlan.steps) {
+    if (GOVERNED_SEMANTIC_STEP_TOOLS[step.operation] !== step.toolName) {
+      return blockedGovernedPlan("GOVERNED_QUERY_PLAN_STEP_UNSUPPORTED");
+    }
+    if (!isToolAllowed(step.toolName, selectedToolset)) {
+      return blockedGovernedPlan("GOVERNED_QUERY_PLAN_TOOLSET_DENIED");
+    }
+    try {
+      validateSemanticQuery(step.canonicalArgs?.query);
+    } catch {
+      return blockedGovernedPlan("GOVERNED_QUERY_PLAN_ARGS_INVALID");
+    }
+    toolCalls.push({
+      id: `${queryPlan.planId}-${step.stepId}`,
+      type: "function",
+      function: {
+        name: step.toolName,
+        arguments: JSON.stringify(step.canonicalArgs),
+      },
+    });
   }
-
-  const step = semanticSteps[0];
-  if (!isToolAllowed(step.toolName, selectedToolset)) {
-    return [];
-  }
-  const stepId = String(step?.stepId || "").trim();
-  if (!stepId) {
-    return [];
-  }
-  return [{
-    id: `${queryPlan.planId}-${stepId}`,
-    type: "function",
-    function: {
-      name: step.toolName,
-      arguments: JSON.stringify(step.canonicalArgs),
-    },
-  }];
+  return { status: "ready", code: "", toolCalls };
 }
 
 function toolAuditsFromContext(mainAgentToolContext, { runId, threadId, actorScope }) {
@@ -544,6 +588,15 @@ function buildMainAgentToolContextFromState(state) {
   const toolEvents = (state.toolEvents || []).slice(Number(state.turnToolEventStart || 0));
   const evidence = (state.toolEvidence || []).slice(Number(state.turnToolEvidenceStart || 0));
   const toolResultTexts = (state.toolResultTexts || []).slice(Number(state.turnToolResultStart || 0));
+  const evidenceGate = state.governedPlanBlockCode
+    ? {
+        status: "blocked",
+        violations: [state.governedPlanBlockCode],
+        analysisRefs: [],
+        sourceRevisionIds: [],
+        warnings: [],
+      }
+    : evaluateSemanticEvidence(evidence, { expectedActorScopeHash: state.actorScope?.scopeHash || "" });
   return {
     contextText: toolResultTexts.filter(Boolean).join("\n\n"),
     toolCalls,
@@ -551,7 +604,7 @@ function buildMainAgentToolContextFromState(state) {
     toolConversationMessages,
     toolEvents,
     evidence,
-    evidenceGate: evaluateSemanticEvidence(evidence, { expectedActorScopeHash: state.actorScope?.scopeHash || "" }),
+    evidenceGate,
     selectedToolset: state.toolRouting?.selectedToolset,
     stoppedReason: state.stoppedReason || "no_tool_calls",
   };
@@ -596,6 +649,7 @@ export function createLangGraphChatRuntime({
       queryText,
       model: String(body?.model || ""),
       plannedToolCalls: [],
+      governedPlanBlockCode: "",
       toolStepIndex: 0,
       stoppedReason: "",
       turnToolCallStart: (state.toolCalls || []).length,
@@ -651,15 +705,19 @@ export function createLangGraphChatRuntime({
 
   async function routeTools(state, config) {
     const body = state.body || {};
-    const directResponse = classifyDirectMainAgentIntent(state.queryText || extractLatestUserQuery(body?.messages));
+    const governedPlanCandidate = hasReadyGovernedPlanCandidate(state.analyticsContext);
+    const directResponse = governedPlanCandidate
+      ? null
+      : classifyDirectMainAgentIntent(state.queryText || extractLatestUserQuery(body?.messages));
     const selectedToolset = selectMainAgentToolset(body?.messages);
     const governedPlanDenied = state.analyticsContext?.analysisPlan?.status === "denied";
-    const shouldUseTools =
-      !directResponse &&
-      !governedPlanDenied &&
-      body?.useAnalyticsContext === true &&
-      !state.analyticsContext?.skipDefectContext &&
-      shouldPlanTools(body?.messages);
+    const shouldUseTools = body?.useAnalyticsContext === true && (
+      governedPlanCandidate
+      || (!directResponse
+        && !governedPlanDenied
+        && !state.analyticsContext?.skipDefectContext
+        && shouldPlanTools(body?.messages))
+    );
     const toolRouting = { shouldUseTools, selectedToolset };
     const compact = compactToolRouting(toolRouting);
     const event = emit(config, {
@@ -693,17 +751,42 @@ export function createLangGraphChatRuntime({
     const events = Number(state.toolStepIndex || 0) === 0
       ? [emit(config, { type: "tool-planning-started", threadId: state.threadId })]
       : [];
-    const governedPlanToolCalls = buildReadySemanticPlanToolCalls({
+    const governedPlan = inspectReadySemanticPlan({
       analyticsContext: state.analyticsContext,
       actorScope: state.actorScope,
       selectedToolset,
+      ontologyRegistry,
     });
-    if (governedPlanToolCalls.length) {
+    if (governedPlan.status === "ready") {
       return {
-        plannedToolCalls: governedPlanToolCalls,
+        plannedToolCalls: governedPlan.toolCalls,
         plannedToolCallSource: "governed_semantic_plan",
+        governedPlanBlockCode: "",
         stoppedReason: "",
         runtimeEvents: events,
+      };
+    }
+    if (governedPlan.status === "blocked") {
+      const blockedContext = [
+        "# Governed query plan gate",
+        "Status: BLOCKED",
+        `Code: ${governedPlan.code}`,
+        "GOVERNED_QUERY_PLAN_BLOCKED: do not execute tools or make data claims from this plan.",
+      ].join("\n");
+      return {
+        plannedToolCalls: [],
+        plannedToolCallSource: "governed_semantic_plan_blocked",
+        governedPlanBlockCode: governedPlan.code,
+        stoppedReason: "governed_plan_invalid",
+        toolResultTexts: [blockedContext],
+        runtimeEvents: [
+          ...events,
+          emit(config, {
+            type: "governed-query-plan-blocked",
+            threadId: state.threadId,
+            code: governedPlan.code,
+          }),
+        ],
       };
     }
     const planningResult = await requestToolCompletion({
@@ -794,9 +877,10 @@ export function createLangGraphChatRuntime({
       };
     }
 
+    const governedExecution = state.plannedToolCallSource === "governed_semantic_plan";
     for (const toolCall of plannedToolCalls) {
       allToolCalls.push(toolCall);
-      const execution = await executeOne(toolCall, { deferCatalogStop: true });
+      const execution = await executeOne(toolCall, { deferCatalogStop: !governedExecution });
       const result = execution.result;
       if (execution.deferredCatalogStop) {
         const correction = buildGovernedSemanticPlanRetry({

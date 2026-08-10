@@ -61,6 +61,11 @@ describe("resolveAiAnalyticsContext", () => {
     expect(resolved.contextText).toContain("defect.created_count");
     expect(resolved.contextText).toContain("Plan status: valid");
     expect(resolved.contextText).toContain("# Governed analysis plan");
+    expect(resolved.semanticFrame).toMatchObject({
+      intent: "rank",
+      ontologyVersion: resolved.queryPlan.ontologyVersion,
+      schemaFingerprint: resolved.queryPlan.schemaFingerprint,
+    });
     expect(resolved.analysisPlan).toMatchObject({ operation: "ranked_comparison", visualization: "bar" });
     expect(resolved.contextText).toContain(`Analysis plan: ${resolved.analysisPlan.analysisPlanId}`);
     expect(resolved.contextText).toContain(`Ontology version: ${resolved.analysisPlan.ontologyVersion}`);

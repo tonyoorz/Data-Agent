@@ -69,7 +69,11 @@ export function evaluateSemanticEvidence(items, {
     }
     if (!item?.quality?.completeness) violations.push("SEMANTIC_QUALITY_EVIDENCE_MISSING");
     if (!item?.evidence?.kind) violations.push("SEMANTIC_BACKEND_EVIDENCE_MISSING");
-    const expectedKind = item?.tool === "query_semantic_records" ? "semantic_record_set" : "semantic_metric_result";
+    const expectedKind = item?.tool === "query_semantic_records"
+      ? "semantic_record_set"
+      : item?.tool === "query_traceability"
+        ? "semantic_lineage_result"
+        : "semantic_metric_result";
     if (item?.evidence?.kind && item.evidence.kind !== expectedKind) {
       violations.push("SEMANTIC_BACKEND_EVIDENCE_KIND_INVALID");
     }
@@ -134,7 +138,9 @@ export function formatSemanticEvidenceGate(gate) {
 export function buildSemanticContinuationContext(items, actorScope) {
   const scopeHash = String(actorScope?.scopeHash || "");
   if (!scopeHash) return "";
-  const semanticItems = (Array.isArray(items) ? items : []).filter((item) => CLAIM_BEARING_SEMANTIC_TOOLS.has(item?.tool));
+  const semanticItems = (Array.isArray(items) ? items : []).filter((item) => (
+    item?.tool === "query_semantic_metrics" || item?.tool === "query_semantic_records"
+  ));
   const candidate = [...semanticItems].reverse().find((item) => item?.scope?.actorScopeHash === scopeHash
     && evaluateSemanticEvidence([item]).status === "pass");
   if (!candidate) return "";

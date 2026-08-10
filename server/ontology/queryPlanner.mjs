@@ -96,6 +96,10 @@ export function fingerprintQueryPlanSteps(steps) {
   return createHash("sha256").update(canonicalJson(steps || [])).digest("hex");
 }
 
+export function fingerprintQueryPlan(plan) {
+  return createHash("sha256").update(canonicalJson(plan)).digest("hex");
+}
+
 export function createQueryPlanId({ frame, actorScopeHash, sourceQueryFingerprint, executionFingerprint }) {
   return `plan-${createHash("sha256").update(canonicalJson({ frame, actorScopeHash, sourceQueryFingerprint, executionFingerprint })).digest("hex").slice(0, 16)}`;
 }

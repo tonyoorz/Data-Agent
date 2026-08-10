@@ -2,7 +2,11 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { verifyActorCapabilityHeader } from "../../../server/agentActorCapability.mjs";
-import { buildToolEvidence, evaluateSemanticEvidence } from "../../../server/mainAgentEvidence.mjs";
+import {
+  buildSemanticContinuationContext,
+  buildToolEvidence,
+  evaluateSemanticEvidence,
+} from "../../../server/mainAgentEvidence.mjs";
 import { executeMainAgentToolCall } from "../../../server/mainAgentTools.mjs";
 
 const fingerprint = "f".repeat(64);
@@ -26,6 +30,20 @@ const aggregateQuery = {
   comparison: null,
   sort: [{ fieldId: "defect.count", direction: "desc" }],
   limit: 5,
+};
+const traceQuery = {
+  schemaVersion: "1.0",
+  ontologyVersion: "v1",
+  schemaFingerprint: fingerprint,
+  intent: "trace",
+  entityIds: ["requirements.aida_node", "testing.test_case", "testing.test_run", "quality.defect"],
+  metricIds: [],
+  dimensionIds: [],
+  filters: [{ dimensionId: "org.team", operator: "in", values: ["DTSV_China"], source: "policy" }],
+  timeScopes: [],
+  comparison: null,
+  sort: [],
+  limit: 20,
 };
 
 describe("semantic analysis closure", () => {
@@ -143,5 +161,74 @@ describe("semantic analysis closure", () => {
       analysisRefs: ["analysis-e2e-1"],
       sourceRevisionIds: ["snap-e2e-1"],
     });
+  });
+
+  it("accepts the Python trace response shape as lineage evidence without exposing a records continuation", async () => {
+    const relationshipIds = [
+      "testing.test_case.validates.aida_node",
+      "testing.test_run.executes.test_case",
+      "quality.defect.detected_in.test_run",
+    ];
+    const analyticsFetch = vi.fn(async (url: string, init: { body?: string; headers?: Record<string, string> }) => {
+      const body = JSON.parse(String(init.body || "{}"));
+      expect(url).toMatch(/\/api\/semantic\/query$/);
+      expect(body).not.toHaveProperty("actorScope");
+      expect(body.query).toEqual(traceQuery);
+      expect(verifyActorCapabilityHeader(init.headers || {}, {
+        secret: capabilitySecret,
+        now: capabilityNow,
+      })).toMatchObject({ actorId: "alice", scopeHash: "scope-a" });
+      return {
+        ok: true,
+        json: async () => ({
+          schemaVersion: "1.0",
+          queryId: "trace-e2e-1",
+          ontologyVersion: "v1",
+          schemaFingerprint: fingerprint,
+          analysisRef: "analysis-trace-e2e-1",
+          sourceRevision: { sourceId: "analytics.traceability", revisionId: "snap-trace-e2e-1", status: "unpinned" },
+          scope: { actorScopeHash: "scope-a", filters: traceQuery.filters, timeScopes: [], grain: [] },
+          data: [{ run_id: "MR-1", scope_team: "DTSV_China" }],
+          summary: { total_runs: 1, rowCount: 1 },
+          quality: { completeness: "complete", missingness: "not_applicable", truncated: false, warnings: [], redactionStatus: "not_required" },
+          businessRules: { applied: [] },
+          evidence: {
+            kind: "semantic_lineage_result",
+            analysisRef: "analysis-trace-e2e-1",
+            sourceRevisionId: "snap-trace-e2e-1",
+            rowCount: 1,
+            relationshipIds,
+          },
+          lineage: {
+            path: [],
+            sourceRevision: { sourceId: "analytics.traceability", revisionId: "snap-trace-e2e-1", status: "unpinned" },
+            evidence: { rowCount: 1, rowIndexes: [0], relationshipIds },
+          },
+        }),
+      };
+    });
+    const toolCall = {
+      id: "trace-e2e-1",
+      type: "function",
+      function: { name: "query_traceability", arguments: JSON.stringify({ query: traceQuery }) },
+    };
+
+    const result = await executeMainAgentToolCall(toolCall, {
+      analyticsFetch,
+      analyticsApiBase: "http://127.0.0.1:3003",
+      actor,
+      actorCapabilitySecret: capabilitySecret,
+      actorCapabilityNow: capabilityNow,
+      actorCapabilityNonce: "semantic-trace-e2e-capability-nonce",
+    });
+    const evidence = buildToolEvidence({ toolCall, result, intent: "traceability" });
+
+    expect(evidence.evidence).toMatchObject({ kind: "semantic_lineage_result", relationshipIds });
+    expect(evaluateSemanticEvidence([evidence], { expectedActorScopeHash: "scope-a" })).toMatchObject({
+      status: "pass",
+      analysisRefs: ["analysis-trace-e2e-1"],
+      sourceRevisionIds: ["snap-trace-e2e-1"],
+    });
+    expect(buildSemanticContinuationContext([evidence], actor)).toBe("");
   });
 });

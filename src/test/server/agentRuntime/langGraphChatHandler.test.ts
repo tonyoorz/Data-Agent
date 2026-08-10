@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { streamLangGraphChatResponse } from "../../../../server/agentRuntime/langGraphChatHandler.mjs";
+import { createLangGraphChatRuntime } from "../../../../server/agentRuntime/langGraphChatRuntime.mjs";
 
 describe("LangGraph chat handler", () => {
   it("streams a runtime direct response without calling the final chat model", async () => {
@@ -243,6 +244,45 @@ describe("LangGraph chat handler", () => {
     }));
   });
 
+  it("blocks the final model when runtime rejects an incomplete ready governed plan candidate", async () => {
+    const response = { writeHead: vi.fn(), write: vi.fn(), end: vi.fn(), flushHeaders: vi.fn() };
+    const requestToolCompletion = vi.fn();
+    const executeToolCall = vi.fn();
+    const runtime = createLangGraphChatRuntime({
+      resolveAnalyticsContext: vi.fn().mockResolvedValue({
+        contextText: "# Analytics",
+        queryPlan: { status: "valid" },
+      }),
+      shouldPlanTools: vi.fn().mockReturnValue(false),
+      requestToolCompletion,
+      executeToolCall,
+    });
+    const streamCompletion = vi.fn();
+
+    const result = await streamLangGraphChatResponse({
+      body: {
+        threadId: "thread-invalid-ready-plan",
+        useAnalyticsContext: true,
+        actor: { actorId: "alice", scopeHash: "scope-a" },
+        messages: [{ role: "user", content: "缺陷总数" }],
+      },
+      response,
+      runtime,
+      streamCompletion,
+    });
+
+    expect(requestToolCompletion).not.toHaveBeenCalled();
+    expect(executeToolCall).not.toHaveBeenCalled();
+    expect(streamCompletion).not.toHaveBeenCalled();
+    expect(result.runtimeResult.mainAgentToolContext.evidenceGate).toEqual(expect.objectContaining({
+      status: "blocked",
+      violations: ["GOVERNED_QUERY_PLAN_SCHEMA_INVALID"],
+    }));
+    expect(result.streamMetrics).toEqual({ evidenceReleaseBlocked: true, finalModelInvoked: false });
+    expect(response.write.mock.calls.map(([chunk]) => String(chunk)).join(""))
+      .toContain("GOVERNED_QUERY_PLAN_SCHEMA_INVALID");
+  });
+
   it("fails closed before the final model when claim evidence has no declared release binding", async () => {
     const response = { writeHead: vi.fn(), write: vi.fn(), end: vi.fn() };
     const runtime = {
@@ -257,7 +297,7 @@ describe("LangGraph chat handler", () => {
             ontologyVersion: "v1", schemaFingerprint: "fingerprint-1", analysisRef: "analysis-1",
             sourceRevision: { revisionId: "snap-1", status: "pinned" }, scope: { actorScopeHash: "scope-a" },
             quality: { completeness: "complete", warnings: [] },
-            evidence: { kind: "semantic_metric_result", analysisRef: "analysis-1", sourceRevisionId: "snap-1" },
+            evidence: { kind: "semantic_lineage_result", analysisRef: "analysis-1", sourceRevisionId: "snap-1" },
           }],
         },
         metrics: { mainAgentToolCallCount: 1 },
