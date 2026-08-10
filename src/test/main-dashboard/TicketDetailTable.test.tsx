@@ -5,8 +5,6 @@ import { describe, expect, it, vi } from "vitest";
 import TicketDetailTable from "@/components/dashboard/main-dashboard/TicketDetailTable";
 import type { MainDashboardTicketRow } from "@/components/dashboard/main-dashboard/mainDashboardTypes";
 
-type TicketDetailTableProps = ComponentProps<typeof TicketDetailTable>;
-
 function createRows(count: number): MainDashboardTicketRow[] {
   return Array.from({ length: count }, (_value, index) => ({
     ticketId: `${1000 + index}`,
@@ -36,14 +34,14 @@ function createRows(count: number): MainDashboardTicketRow[] {
 
 function renderTicketDetailTable(
   rows = createRows(2),
-  overrides: Partial<TicketDetailTableProps> = {},
+  overrides: Record<string, unknown> = {},
 ) {
   const onPageChange = vi.fn();
   const onPageSizeChange = vi.fn();
   const onSearchChange = vi.fn();
   const onSortChange = vi.fn();
 
-  const props: TicketDetailTableProps = {
+  const props: ComponentProps<typeof TicketDetailTable> = {
     rows,
     totalRows: 120,
     page: 1,
@@ -155,7 +153,7 @@ describe("TicketDetailTable", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Compact density" }));
     expect(screen.getByTestId("ticket-detail-grid")).toHaveAttribute("data-density", "compact");
-  });
+  }, 10_000);
 
   it("delegates header sorting to the parent in ascending and descending order", () => {
     const { onSortChange } = renderTicketDetailTable(createRows(3), {

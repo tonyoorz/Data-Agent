@@ -2624,42 +2624,39 @@ def list_runs() -> list[dict[str, object]]:
     conn = _connect()
     try:
         manual_run_columns = _table_columns(conn, "octane_manual_runs")
-        if {"project", "team"}.issubset(manual_run_columns):
-            rows = conn.execute(
-                "SELECT mr_id, defect_id, test_id, test_name, status, project, team FROM octane_manual_runs ORDER BY mr_id"
-            ).fetchall()
-        elif _table_exists(conn, "octane_defects"):
-            rows = conn.execute(
-                '''
-                SELECT
-                    mr.mr_id,
-                    mr.defect_id,
-                    mr.test_id,
-                    TRIM(COALESCE(CAST(mr.test_name AS TEXT), CAST(mr.name AS TEXT), '')) AS test_name,
-                    TRIM(COALESCE(CAST(mr.status AS TEXT), '')) AS status,
-                    TRIM(COALESCE(CAST(d.project AS TEXT), '')) AS project,
-                    TRIM(COALESCE(CAST(d.team AS TEXT), '')) AS team
-                FROM octane_manual_runs mr
-                LEFT JOIN octane_defects d
-                    ON CAST(d.defect_id AS TEXT) = CAST(mr.defect_id AS TEXT)
-                ORDER BY mr.mr_id
-                '''
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                '''
-                SELECT
-                    mr_id,
-                    defect_id,
-                    test_id,
-                    TRIM(COALESCE(CAST(test_name AS TEXT), CAST(name AS TEXT), '')) AS test_name,
-                    TRIM(COALESCE(CAST(status AS TEXT), '')) AS status,
-                    '' AS project,
-                    '' AS team
-                FROM octane_manual_runs
-                ORDER BY mr_id
-                '''
-            ).fetchall()
+        has_defects = _table_exists(conn, "octane_defects")
+        defect_columns = _table_columns(conn, "octane_defects") if has_defects else set()
+
+        def optional_text(alias: str, columns: set[str], *names: str) -> str:
+            candidates = [f"NULLIF(TRIM(CAST({alias}.{name} AS TEXT)), '')" for name in names if name in columns]
+            return f"COALESCE({', '.join(candidates)}, '')" if candidates else "''"
+
+        project_expr = optional_text("mr", manual_run_columns, "project")
+        team_expr = optional_text("mr", manual_run_columns, "run_team", "team")
+        if has_defects:
+            project_expr = f"COALESCE(NULLIF({project_expr}, ''), {optional_text('d', defect_columns, 'project')})"
+            team_expr = f"COALESCE(NULLIF({team_expr}, ''), {optional_text('d', defect_columns, 'team')})"
+        join_sql = "LEFT JOIN octane_defects d ON CAST(d.defect_id AS TEXT) = CAST(mr.defect_id AS TEXT)" if has_defects and "defect_id" in defect_columns else ""
+        rows = conn.execute(
+            f'''
+            SELECT
+                mr.mr_id,
+                {optional_text("mr", manual_run_columns, "defect_id")} AS defect_id,
+                {optional_text("mr", manual_run_columns, "test_id")} AS test_id,
+                {optional_text("mr", manual_run_columns, "test_name", "name")} AS test_name,
+                {optional_text("mr", manual_run_columns, "status")} AS status,
+                {project_expr} AS project,
+                {team_expr} AS team,
+                {optional_text("mr", manual_run_columns, "pu")} AS pu,
+                {optional_text("mr", manual_run_columns, "top_aida")} AS aida,
+                {optional_text("mr", manual_run_columns, "tester", "run_by", "author", "author_name")} AS tester,
+                {optional_text("mr", manual_run_columns, "test_week")} AS test_week,
+                {optional_text("mr", manual_run_columns, "finished", "finished_udf")} AS finished
+            FROM octane_manual_runs mr
+            {join_sql}
+            ORDER BY mr.mr_id
+            '''
+        ).fetchall()
     finally:
         conn.close()
 

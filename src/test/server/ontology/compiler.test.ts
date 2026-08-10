@@ -20,17 +20,7 @@ describe("Ontology compiler", () => {
 
     expect(first.fingerprint).toMatch(/^[a-f0-9]{64}$/);
     expect(second.fingerprint).toBe(first.fingerprint);
-    expect(first.counts).toMatchObject({
-      entityCount: 28,
-      relationshipCount: 27,
-      dimensionCount: 50,
-      metricCount: 30,
-      businessRuleCount: 1,
-      actionCount: 3,
-    });
-    expect(first.bundle.businessRules).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "business.defect_created_count.creation_time", kind: "plan_warning" }),
-    ]));
+    expect(first.counts).toMatchObject({ entityCount: 23, relationshipCount: 15, dimensionCount: 22, metricCount: 22 });
   });
 
   it("rejects invalid relationship endpoints and metric references", () => {

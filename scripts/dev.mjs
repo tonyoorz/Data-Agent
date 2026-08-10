@@ -139,7 +139,7 @@ await launchIfNeeded({
 await launchIfNeeded({
   name: "local-api",
   command: process.execPath,
-  args: [path.join(repoRoot, "server", "index.mjs")],
+  args: ["--experimental-sqlite", path.join(repoRoot, "server", "index.mjs")],
   port: apiPort,
 });
 await launchIfNeeded({

@@ -1,5 +1,4 @@
 import { validateSemanticFrame } from "./semanticFrame.mjs";
-import { composeSourceQuery, fingerprintSourceQuery } from "./fingerprint.mjs";
 import { resolveTimeScopes } from "./timeResolver.mjs";
 import { mandatoryScopeFilters } from "./scopePolicy.mjs";
 
@@ -210,15 +209,13 @@ export function createSemanticResolver({ registry, now = () => new Date().toISOS
   if (!registry) throw new Error("ONTOLOGY_REGISTRY_REQUIRED");
   return Object.freeze({
     resolve({ query, actor, requestAnchorAt = now(), clarification = null, candidate = null, priorSemanticFrame = null }) {
-      const rawQuery = String(query || "").trim();
       const clarificationText = String(clarification?.text || "").trim();
       const clarificationSelection = String(clarification?.selection || "");
-      const sourceQuery = composeSourceQuery(rawQuery, clarificationText);
-      const text = sourceQuery;
+      const text = [String(query || "").trim(), clarificationText].filter(Boolean).join(" ");
       if (!text) throw new Error("SEMANTIC_QUERY_REQUIRED");
       const anchorAt = new Date(requestAnchorAt).toISOString();
       const priorFrame = compatiblePriorFrame(priorSemanticFrame, registry);
-      const followUp = isEllipticalFollowUp(rawQuery, priorFrame);
+      const followUp = isEllipticalFollowUp(query, priorFrame);
       const matchedTerms = registry.matchTerms(text);
       const clarificationMetricIds = unique(registry.matchTerms(clarificationText)
         .map((term) => term.resolution.metricId)
@@ -258,15 +255,14 @@ export function createSemanticResolver({ registry, now = () => new Date().toISOS
       }
       const metrics = metricIds.map((id) => registry.getMetric(id));
       const candidateEntityIds = unique(candidate?.entityIds || []).map((id) => registry.getEntity(id).id);
-      const entityIds = intent === "trace"
-        ? ["requirements.aida_node", "testing.test_case", "testing.test_run", "quality.defect"]
-        : intent === "similarity"
-          ? ["quality.defect"]
-          : unique([
-              ...metrics.map((metric) => metric.entityId),
-              ...(metrics.length ? [] : candidateEntityIds),
-              ...(metrics.length || !usingInheritedMetric ? [] : priorFrame.entityIds || []),
-            ]);
+      const entityIds = unique([
+        ...metrics.map((metric) => metric.entityId),
+        ...matchedTerms.map((term) => term.resolution.entityId),
+        ...(usingInheritedMetric ? priorFrame.entityIds || [] : []),
+        ...candidateEntityIds,
+        intent === "similarity" ? "quality.defect" : null,
+        ...(intent === "trace" ? ["requirements.aida_node", "testing.test_case", "testing.test_run", "quality.defect"] : []),
+      ]);
       const metricAllowedDimensions = new Set(metrics.flatMap((metric) => metric.allowedDimensions || []));
       const matchedTermIds = new Set(matchedTerms.map((term) => term.id));
       const inferredPatternTerms = registry.bundle.terms.filter((term) => term.kind === "value_pattern"
@@ -384,7 +380,6 @@ export function createSemanticResolver({ registry, now = () => new Date().toISOS
         ontologyVersion: registry.version,
         schemaFingerprint: registry.fingerprint,
         requestAnchorAt: anchorAt,
-        sourceQueryFingerprint: fingerprintSourceQuery(sourceQuery),
         intent,
         entityIds,
         metricIds,

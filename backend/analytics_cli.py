@@ -457,8 +457,8 @@ def sync_octane_auth_from_legacy(*, sync_login: bool = False) -> dict[str, objec
 
 def _refresh_all_sources_with_progress(args: argparse.Namespace) -> dict[str, object]:
     teams = tuple(part.strip() for part in str(args.teams or "").split(",") if part.strip()) or ("DTSV_China",)
-    years = tuple(int(part.strip()) for part in str(args.years or datetime.now().year).split(",") if part.strip())
-    manual_years = _parse_year_values(getattr(args, "manual_years", None)) or (datetime.now().year,)
+    years = _parse_year_values(args.years) or _traceability_default_years()
+    manual_years = _parse_year_values(getattr(args, "manual_years", None)) or _traceability_default_years()
     manual_team_name = str(args.team_name or "DTSV_China")
     source_db_path = get_full_picture_source_db_path()
     hot_db_path = get_full_picture_hot_db_path()

@@ -1,0 +1,21 @@
+{
+  "$id": "https://vizion-lab.local/evals/main-agent/eval-case.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Main Agent Runtime Phase 1 Eval Case",
+  "type": "object",
+  "required": ["eval_schema_version", "case_id", "group", "language", "request", "actor", "expected", "forbidden"],
+  "additionalProperties": false,
+  "properties": {
+    "eval_schema_version": { "const": "1.0" },
+    "case_id": { "type": "string", "minLength": 1 },
+    "group": { "enum": ["fact", "policy", "lifecycle", "recovery", "isolation"] },
+    "language": { "enum": ["zh-CN", "en-US", "mixed"] },
+    "request": { "type": "object" },
+    "actor": { "type": "object" },
+    "model_fixture": { "type": "object" },
+    "tool_fixtures": { "type": "array", "items": { "type": "object" } },
+    "injected_fault": { "type": ["string", "null"] },
+    "expected": { "type": "object" },
+    "forbidden": { "type": "array", "items": { "type": "string" } }
+  }
+}

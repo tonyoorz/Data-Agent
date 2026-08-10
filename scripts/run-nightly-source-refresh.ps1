@@ -2,7 +2,7 @@ param(
   [string]$PythonLauncher = "py",
   [string]$PythonVersion = "-3.11",
   [string]$Teams = "DTSV_China,[AT]CoC_EI_IuK,Plant-Tiexi FIT,[AT]FIT_LAENDER_CHINA,Plant-Dadong FIT,[AT]BBA_Basis-FIT,Spotlight_FIT",
-  [string]$Years = "2025,2026",
+  [string]$Years = "",
   [string]$ManualRunYears = "",
   [string]$TeamName = "DTSV_China",
   [int]$HistoryMaxWorkers = 8,
@@ -63,6 +63,11 @@ function Write-LogLine {
   if (-not $NoConsole) {
     Write-Host $Message
   }
+}
+
+if ([string]::IsNullOrWhiteSpace($Years)) {
+  $yearEnd = [Math]::Max(2025, (Get-Date).Year)
+  $Years = ((2025..$yearEnd) -join ",")
 }
 
 if ([string]::IsNullOrWhiteSpace($ManualRunYears)) {

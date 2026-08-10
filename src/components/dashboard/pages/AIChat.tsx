@@ -3,6 +3,7 @@ import {
   ArrowUp,
   Check,
   Copy,
+  Database,
   Loader2,
   MessageSquarePlus,
   Mic,
@@ -22,10 +23,14 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import MessageRenderer from "../chat/MessageRenderer";
-import SlashMenu, { SLASH_COMMANDS, SlashCommand } from "../chat/SlashMenu";
+import AgentRunTimeline from "../chat/AgentRunTimeline";
+import SlashMenu from "../chat/SlashMenu";
+import { SLASH_COMMANDS, type SlashCommand } from "../chat/slashCommands";
 import { segmentsToPlainText, parseAgentStream } from "../chat/agentParser";
 import DuplicateSearchResults from "../chat/DuplicateSearchResults";
 import { createStreamTextAnimator, type StreamTextAnimator } from "../chat/streamTextAnimator";
+import { AgentApiError, cancelAgentRun, createAgentThread, fetchAgentRuntimeConfig, openAgentEvents, resumeAgentRun, startAgentRun, uploadAgentArtifact } from "@/lib/agentApi";
+import { AgentEventProtocolError, type AgentAnswerCompletedPayload, type PublicAgentEvent } from "@/lib/agentEventStream";
 import {
   COMPANY_CHAT_MODELS,
   DEFAULT_COMPANY_CHAT_MODEL,
@@ -43,15 +48,7 @@ interface Attachment {
   mimeType?: string;
   dataUrl?: string;
   size: number;
-}
-interface TokenUsage {
-  promptTokens: number;
-  completionTokens: number;
-  totalTokens: number;
-}
-interface MessageMeta {
-  model?: string;
-  usage?: TokenUsage;
+  file?: File;
 }
 interface Msg {
   id: string;
@@ -60,7 +57,19 @@ interface Msg {
   mode?: ChatMode;
   duplicateResult?: DuplicateSearchResult;
   attachments?: Attachment[];
-  meta?: MessageMeta;
+  agentEvents?: PublicAgentEvent[];
+  agentInteraction?: AgentInteraction;
+  agentAnswer?: AgentAnswerCompletedPayload;
+}
+interface AgentInteraction {
+  runId: string;
+  interactionId: string;
+  threadVersion: number;
+  question: string;
+  options?: string[];
+  expiresAt?: string;
+  lastEventId?: string;
+  status: "pending" | "submitted";
 }
 interface Conversation {
   id: string;
@@ -68,28 +77,27 @@ interface Conversation {
   pinned?: boolean;
   messages: Msg[];
   updatedAt: number;
+  runtimeThreadId?: string;
+  runtimeThreadVersion?: number;
 }
+
+const STORAGE_KEY = "dtsv.chat.v2";
 
 type GatewayContentPart =
   | { type: "text"; text: string }
   | { type: "image_url"; image_url: { url: string } }
-  | { type: "file_data"; file_data: { name: string; mime_type?: string; url: string } };
+  | { type: "file_data"; file_data: { name: string; mime_type: string; url: string } };
 
-type ToolStreamEvent = {
-  type?: unknown;
-  toolName?: unknown;
+interface LegacyToolStreamEvent {
+  type?: string;
+  toolName?: string;
   input?: unknown;
   outputSummary?: unknown;
-};
+}
 
-const STORAGE_KEY = "dtsv.chat.v2";
-
-const CHAT_MODEL_PRICING = [
-  { pattern: /^glm/i, currency: "CNY", inputPerMillion: 0.8, outputPerMillion: 2 },
-  { pattern: /^deepseek/i, currency: "USD", inputPerMillion: 0.27, outputPerMillion: 1.1 },
-  { pattern: /^qwen/i, currency: "CNY", inputPerMillion: 2, outputPerMillion: 8 },
-] as const;
-
+function errorName(error: unknown) {
+  return error instanceof Error ? error.name : "";
+}
 function createId() {
   if (typeof globalThis.crypto?.randomUUID === "function") {
     return globalThis.crypto.randomUUID();
@@ -131,37 +139,6 @@ function pickPreferredAudioInputId(devices: MediaDeviceInfo[], current = "") {
   return devices.find((device) => device.deviceId === "default")?.deviceId || devices[0]?.deviceId || "";
 }
 
-function toTokenCount(value: unknown) {
-  const numeric = Number(value);
-  return Number.isFinite(numeric) && numeric > 0 ? Math.round(numeric) : 0;
-}
-
-function parseTokenUsage(usage: unknown): TokenUsage | undefined {
-  if (!usage || typeof usage !== "object") return undefined;
-  const record = usage as Record<string, unknown>;
-  const promptTokens = toTokenCount(record.prompt_tokens ?? record.input_tokens);
-  const completionTokens = toTokenCount(record.completion_tokens ?? record.output_tokens);
-  const totalTokens = toTokenCount(record.total_tokens) || promptTokens + completionTokens;
-  if (!totalTokens) return undefined;
-  return { promptTokens, completionTokens, totalTokens };
-}
-
-function estimateChatCost(modelId: string | undefined, usage: TokenUsage | undefined) {
-  if (!modelId || !usage) return undefined;
-  const pricing = CHAT_MODEL_PRICING.find((entry) => entry.pattern.test(modelId));
-  if (!pricing) return undefined;
-  const amount =
-    (usage.promptTokens * pricing.inputPerMillion + usage.completionTokens * pricing.outputPerMillion) / 1_000_000;
-  return { amount, currency: pricing.currency };
-}
-
-function formatEstimatedCost(cost: ReturnType<typeof estimateChatCost>) {
-  if (!cost) return "";
-  const symbol = cost.currency === "CNY" ? "¥" : "$";
-  const decimals = cost.amount >= 0.01 ? 4 : 6;
-  return `${symbol}${cost.amount.toFixed(decimals).replace(/0+$/, "").replace(/\.$/, "")}`;
-}
-
 interface Props {
   moduleKey?: string;
   moduleLabel?: string;
@@ -176,7 +153,7 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
         if (Array.isArray(parsed) && parsed.length) return parsed;
       }
     } catch {
-      // Ignore malformed persisted state and start a fresh conversation.
+      // Ignore corrupt local-only conversation state and start a clean thread.
     }
     return [newConversation()];
   });
@@ -198,10 +175,13 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
   const [transcribing, setTranscribing] = useState(false);
   const [voiceError, setVoiceError] = useState("");
   const [selectedAudioInputId, setSelectedAudioInputId] = useState("");
+  const [clarificationDrafts, setClarificationDrafts] = useState<Record<string, string>>({});
 
   const abortRef = useRef<AbortController | null>(null);
   const activeRequestRef = useRef<string | null>(null);
   const streamAnimatorRef = useRef<StreamTextAnimator | null>(null);
+  const streamReaderRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
+  const activeAgentRunRef = useRef<{ runId: string; threadVersion: number } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const taRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -217,7 +197,7 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations));
     } catch {
-      // Storage can be unavailable in privacy-restricted browser contexts.
+      // Storage may be disabled by the browser; chat remains usable in memory.
     }
   }, [conversations]);
 
@@ -302,10 +282,21 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
 
   const stop = () => {
     abortRef.current?.abort();
+    streamReaderRef.current?.cancel().catch(() => undefined);
+    const activeAgentRun = activeAgentRunRef.current;
+    if (activeAgentRun) {
+      void cancelAgentRun({
+        runId: activeAgentRun.runId,
+        threadVersion: activeAgentRun.threadVersion,
+        reasonCode: "user_stop",
+      }).catch(() => undefined);
+    }
     activeRequestRef.current = null;
     abortRef.current = null;
     streamAnimatorRef.current?.stop();
     streamAnimatorRef.current = null;
+    streamReaderRef.current = null;
+    activeAgentRunRef.current = null;
     setStreaming(false);
   };
 
@@ -332,6 +323,7 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
         mimeType: f.type || (isPdf ? "application/pdf" : "application/octet-stream"),
         dataUrl,
         size: f.size,
+        file: f,
       });
     }
     setAttachments((prev) => [...prev, ...adds]);
@@ -562,7 +554,7 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
     return normalized.length > maxLength ? `${normalized.slice(0, maxLength - 3).trimEnd()}...` : normalized;
   };
 
-  const formatToolEventStep = (event: ToolStreamEvent) => {
+  const formatToolEventStep = (event: LegacyToolStreamEvent) => {
     if (event?.type === "tool-input-available") {
       return `<step title="调用工具" source="${escapeAgentAttr(event.toolName || "tool")}">${escapeAgentAttr(summarizeToolEventPayload(event.input))}</step>`;
     }
@@ -572,7 +564,218 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
     return "";
   };
 
-  const runStream = async (history: Msg[], assistantMsgId: string) => {
+  const shouldUseAgentRuntime = async (history: Msg[]) => {
+    try {
+      const runtimeConfig = await fetchAgentRuntimeConfig();
+      return runtimeConfig.serverControlled === true
+        && runtimeConfig.agentApiEnabled === true
+        && runtimeConfig.runtimeMode === "langgraph";
+    } catch {
+      return false;
+    }
+  };
+
+  const attachmentFile = async (attachment: Attachment) => {
+    if (attachment.file) return attachment.file;
+    if (!attachment.dataUrl) throw new Error(`附件 ${attachment.name} 的本地内容已不可用，请重新选择。`);
+    const blob = await fetch(attachment.dataUrl).then((response) => response.blob());
+    return new File([blob], attachment.name, { type: attachment.mimeType || blob.type || "application/octet-stream" });
+  };
+
+  const runAgentRuntimeStream = async (history: Msg[], assistantMsgId: string) => {
+    setStreaming(true);
+    const controller = new AbortController();
+    const requestId = newId();
+    activeRequestRef.current = requestId;
+    abortRef.current = controller;
+    streamAnimatorRef.current?.stop();
+    updateActive((c) => ({
+      ...c,
+      messages: c.messages.map((m) =>
+        m.id === assistantMsgId ? { ...m, content: "正在生成回答…" } : m,
+      ),
+      updatedAt: Date.now(),
+    }));
+
+    const lastUserMessage = [...history].reverse().find((message) => message.role === "user");
+    const animator = createStreamTextAnimator({
+      onUpdate: (nextText) => {
+        updateActive((c) => ({
+          ...c,
+          messages: c.messages.map((m) =>
+            m.id === assistantMsgId ? { ...m, content: nextText } : m,
+          ),
+          updatedAt: Date.now(),
+        }));
+      },
+    });
+    streamAnimatorRef.current = animator;
+
+    try {
+      let runtimeThreadId = active.runtimeThreadId;
+      let runtimeThreadVersion = active.runtimeThreadVersion ?? 0;
+      if (!runtimeThreadId) {
+        const created = await createAgentThread({ title: lastUserMessage?.content?.slice(0, 80) || "附件问答" });
+        runtimeThreadId = created.thread.threadId;
+        runtimeThreadVersion = created.thread.threadVersion;
+        updateActive((c) => ({ ...c, runtimeThreadId, runtimeThreadVersion, updatedAt: Date.now() }));
+      }
+      const artifactRefs: string[] = [];
+      for (const attachment of lastUserMessage?.attachments || []) {
+        const uploaded = await uploadAgentArtifact({ threadId: runtimeThreadId, file: await attachmentFile(attachment), signal: controller.signal });
+        artifactRefs.push(uploaded.artifactId);
+      }
+      const started = await startAgentRun({
+        messageId: lastUserMessage?.id || newId(),
+        threadId: runtimeThreadId,
+        threadVersion: runtimeThreadVersion,
+        message: { role: "user", text: lastUserMessage?.content || "", artifactRefs },
+        selectedModel: model,
+        useDefectContext: chatContextEnabled,
+        useAnalyticsContext: true,
+      });
+      activeAgentRunRef.current = { runId: started.runId, threadVersion: started.threadVersion };
+      updateActive((c) => ({
+        ...c,
+        runtimeThreadId: started.threadId,
+        runtimeThreadVersion: started.threadVersion,
+        updatedAt: Date.now(),
+      }));
+
+      let lastEventId: string | undefined;
+      let terminal = false;
+      let reconnects = 0;
+
+      while (!terminal) {
+        const opened = await openAgentEvents({
+          runId: started.runId,
+          profile: "agent-v1",
+          lastEventId,
+          signal: controller.signal,
+        });
+        const reader = opened.response.body?.getReader();
+        if (!reader) throw new Error("Agent Runtime event stream is unavailable");
+        streamReaderRef.current = reader;
+
+        for (;;) {
+          const { done, value } = await reader.read();
+          const events = done ? opened.decoder.finish() : opened.decoder.push(value);
+          for (const event of events) {
+            if (event.type !== "answer.delta") {
+              updateActive((c) => ({
+                ...c,
+                messages: c.messages.map((m) =>
+                  m.id === assistantMsgId
+                    ? { ...m, agentEvents: [...(m.agentEvents || []), event] }
+                    : m,
+                ),
+                updatedAt: Date.now(),
+              }));
+            }
+            if (event.type === "answer.delta" && typeof event.payload?.text === "string") {
+              animator.push(event.payload.text);
+            }
+            if (event.type === "answer.completed") {
+              updateActive((c) => ({
+                ...c,
+                messages: c.messages.map((m) => m.id === assistantMsgId ? { ...m, agentAnswer: event.payload as AgentAnswerCompletedPayload } : m),
+                updatedAt: Date.now(),
+              }));
+            }
+            if (event.type === "clarification.required") {
+              terminal = true;
+              activeAgentRunRef.current = null;
+              updateActive((c) => ({
+                ...c,
+                messages: c.messages.map((m) =>
+                  m.id === assistantMsgId
+                    ? {
+                        ...m,
+                        content: "需要补充信息后继续。",
+                        agentInteraction: {
+                          runId: started.runId,
+                          interactionId: event.payload.interactionId,
+                          threadVersion: event.payload.threadVersion,
+                          question: event.payload.question,
+                          options: Array.isArray(event.payload.options) ? event.payload.options.filter((item): item is string => typeof item === "string") : [],
+                          expiresAt: event.payload.expiresAt,
+                          lastEventId: event.eventId,
+                          status: "pending",
+                        },
+                      }
+                    : m,
+                ),
+                updatedAt: Date.now(),
+              }));
+            }
+            if (event.type === "run.completed" && Number.isInteger(event.payload?.threadVersion)) {
+              terminal = true;
+              activeAgentRunRef.current = null;
+              updateActive((c) => ({ ...c, runtimeThreadVersion: event.payload.threadVersion, updatedAt: Date.now() }));
+            }
+            if (event.type === "run.failed") {
+              terminal = true;
+              activeAgentRunRef.current = null;
+              animator.pushImmediate(`⚠️ ${event.payload?.safeMessage || "请求失败，请稍后再试。"}`);
+            }
+            if (event.type === "run.cancelled") {
+              terminal = true;
+              activeAgentRunRef.current = null;
+              animator.pushImmediate("请求已取消。");
+            }
+          }
+          lastEventId = opened.decoder.snapshot().lastEventId || lastEventId;
+          if (done) break;
+        }
+
+        if (terminal) break;
+        if (controller.signal.aborted || reconnects >= 1) break;
+        reconnects += 1;
+      }
+
+      await animator.finish();
+    } catch (error: unknown) {
+      if (activeRequestRef.current === requestId && errorName(error) !== "AbortError") {
+        if (error instanceof AgentApiError && error.status === 410) {
+          const recoveryText = error.snapshotUrl
+            ? `⚠️ ${error.message}\n\nSnapshot: ${error.snapshotUrl}`
+            : `⚠️ ${error.message}`;
+          updateActive((c) => ({
+            ...c,
+            messages: c.messages.map((m) =>
+              m.id === assistantMsgId ? { ...m, content: recoveryText } : m,
+            ),
+            updatedAt: Date.now(),
+          }));
+          return;
+        }
+        if (error instanceof AgentEventProtocolError) {
+          activeAgentRunRef.current = null;
+          streamReaderRef.current = null;
+          await runLegacyChatStream(history, assistantMsgId);
+          return;
+        }
+        updateActive((c) => ({
+          ...c,
+          messages: c.messages.map((m) =>
+            m.id === assistantMsgId ? { ...m, content: "⚠️ 连接中断，请重试。" } : m,
+          ),
+          updatedAt: Date.now(),
+        }));
+      }
+    } finally {
+      if (activeRequestRef.current === requestId) {
+        activeRequestRef.current = null;
+        streamAnimatorRef.current = null;
+        streamReaderRef.current = null;
+        activeAgentRunRef.current = null;
+        setStreaming(false);
+        abortRef.current = null;
+      }
+    }
+  };
+
+  const runLegacyChatStream = async (history: Msg[], assistantMsgId: string) => {
     setStreaming(true);
     const controller = new AbortController();
     const requestId = newId();
@@ -600,7 +803,6 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          threadId: active.id,
           messages: buildGatewayMessages(history),
           model,
           context: contextStr,
@@ -706,27 +908,6 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
               continue;
             }
 
-            const usage = parseTokenUsage(parsed?.usage);
-            if (usage) {
-              updateActive((c) => ({
-                ...c,
-                messages: c.messages.map((m) =>
-                  m.id === assistantMsgId
-                    ? {
-                        ...m,
-                        meta: {
-                          ...m.meta,
-                          model: typeof parsed?.model === "string" && parsed.model ? parsed.model : m.meta?.model || model,
-                          usage,
-                        },
-                      }
-                    : m,
-                ),
-                updatedAt: Date.now(),
-              }));
-              continue;
-            }
-
             const chunk = parsed.choices?.[0]?.delta?.content as string | undefined;
             if (chunk) {
               animator.push(chunk);
@@ -740,8 +921,7 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
 
       await animator.finish();
     } catch (error: unknown) {
-      const errorName = error instanceof Error ? error.name : "";
-      if (errorName !== "AbortError") {
+      if (errorName(error) !== "AbortError") {
         updateActive((c) => ({
           ...c,
           messages: c.messages.map((m) =>
@@ -753,6 +933,145 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
       if (activeRequestRef.current === requestId) {
         activeRequestRef.current = null;
         streamAnimatorRef.current = null;
+        setStreaming(false);
+        abortRef.current = null;
+      }
+    }
+  };
+
+  const runStream = async (history: Msg[], assistantMsgId: string) => {
+    if (!chatContextEnabled) {
+      updateActive((conversation) => ({
+        ...conversation,
+        messages: conversation.messages.map((message) =>
+          message.id === assistantMsgId ? { ...message, content: "正在生成回答…" } : message,
+        ),
+        updatedAt: Date.now(),
+      }));
+    }
+    if (await shouldUseAgentRuntime(history)) {
+      await runAgentRuntimeStream(history, assistantMsgId);
+      return;
+    }
+
+    await runLegacyChatStream(history, assistantMsgId);
+  };
+
+  const resumeClarification = async (messageId: string, interaction: AgentInteraction, selection = "补充其他明确口径") => {
+    const answer = (clarificationDrafts[messageId] || "").trim();
+    const requiresText = selection === "补充其他明确口径";
+    if ((requiresText && !answer) || streaming) return;
+
+    setStreaming(true);
+    const controller = new AbortController();
+    const requestId = newId();
+    activeRequestRef.current = requestId;
+    abortRef.current = controller;
+    try {
+      const resumed = await resumeAgentRun({
+        runId: interaction.runId,
+        interactionId: interaction.interactionId,
+        threadVersion: interaction.threadVersion,
+        value: { selection, ...(requiresText ? { text: answer } : {}) },
+      });
+      updateActive((c) => ({
+        ...c,
+        runtimeThreadVersion: resumed.threadVersion,
+        messages: c.messages.map((m) =>
+          m.id === messageId
+            ? {
+                ...m,
+                content: "已提交补充信息，等待 Runtime 继续处理…",
+                agentInteraction: { ...interaction, status: "submitted" },
+              }
+            : m,
+        ),
+        updatedAt: Date.now(),
+      }));
+      activeAgentRunRef.current = { runId: interaction.runId, threadVersion: resumed.threadVersion };
+
+      const animator = createStreamTextAnimator({
+        onUpdate: (nextText) => {
+          updateActive((c) => ({
+            ...c,
+            messages: c.messages.map((m) =>
+              m.id === messageId ? { ...m, content: nextText } : m,
+            ),
+            updatedAt: Date.now(),
+          }));
+        },
+      });
+      streamAnimatorRef.current = animator;
+
+      const opened = await openAgentEvents({
+        runId: interaction.runId,
+        profile: "agent-v1",
+        lastEventId: interaction.lastEventId,
+        signal: controller.signal,
+      });
+      const reader = opened.response.body?.getReader();
+      if (!reader) throw new Error("Agent Runtime event stream is unavailable");
+      streamReaderRef.current = reader;
+
+      let terminal = false;
+      while (!terminal) {
+        const { done, value } = await reader.read();
+        const events = done ? opened.decoder.finish() : opened.decoder.push(value);
+        for (const event of events) {
+          if (event.type !== "answer.delta") {
+            updateActive((c) => ({
+              ...c,
+              messages: c.messages.map((m) =>
+                m.id === messageId ? { ...m, agentEvents: [...(m.agentEvents || []), event] } : m,
+              ),
+              updatedAt: Date.now(),
+            }));
+          }
+          if (event.type === "answer.delta" && typeof event.payload?.text === "string") {
+            animator.push(event.payload.text);
+          }
+          if (event.type === "answer.completed") {
+            updateActive((c) => ({
+              ...c,
+              messages: c.messages.map((m) => m.id === messageId ? { ...m, agentAnswer: event.payload as AgentAnswerCompletedPayload } : m),
+              updatedAt: Date.now(),
+            }));
+          }
+          if (event.type === "run.completed" && Number.isInteger(event.payload?.threadVersion)) {
+            terminal = true;
+            activeAgentRunRef.current = null;
+            updateActive((c) => ({ ...c, runtimeThreadVersion: event.payload.threadVersion, updatedAt: Date.now() }));
+          }
+          if (event.type === "run.failed") {
+            terminal = true;
+            activeAgentRunRef.current = null;
+            animator.pushImmediate(`⚠️ ${event.payload?.safeMessage || "请求失败，请稍后再试。"}`);
+          }
+          if (event.type === "run.cancelled") {
+            terminal = true;
+            activeAgentRunRef.current = null;
+            animator.pushImmediate("请求已取消。");
+          }
+        }
+        if (done) break;
+      }
+
+      await animator.finish();
+    } catch (error) {
+      const message = error instanceof Error && error.message ? error.message : "补充信息提交失败，请重试。";
+      updateActive((c) => ({
+        ...c,
+        messages: c.messages.map((m) =>
+          m.id === messageId ? { ...m, content: `⚠️ ${message}`, agentInteraction: interaction } : m,
+        ),
+        updatedAt: Date.now(),
+      }));
+    } finally {
+      if (activeRequestRef.current === requestId) {
+        activeRequestRef.current = null;
+        streamAnimatorRef.current = null;
+        streamReaderRef.current = null;
+        activeAgentRunRef.current = null;
         setStreaming(false);
         abortRef.current = null;
       }
@@ -838,7 +1157,6 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
                 content: summaryText,
                 mode: "duplicate-search",
                 duplicateResult: payload.result,
-                meta: { ...message.meta, model: payload.result.answerModel || model },
               }
             : message,
         ),
@@ -889,7 +1207,6 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
       role: "assistant",
       content: "",
       mode: interactionMode,
-      meta: { model },
     };
     const history = [...active.messages, userMsg];
     updateActive((c) => ({
@@ -919,7 +1236,7 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
     const trimmed = msgs.slice(0, lastAsst);
     const lastUserMessage = [...trimmed].reverse().find((message) => message.role === "user");
     const retryMode = lastUserMessage?.mode || "chat";
-    const assistantMsg: Msg = { id: newId(), role: "assistant", content: "", mode: retryMode, meta: { model } };
+    const assistantMsg: Msg = { id: newId(), role: "assistant", content: "", mode: retryMode };
     updateActive((c) => ({ ...c, messages: [...trimmed, assistantMsg], updatedAt: Date.now() }));
     if (retryMode === "duplicate-search" && lastUserMessage) {
       await runDuplicateSearch(lastUserMessage.content, assistantMsg.id);
@@ -935,7 +1252,7 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
     const trimmed = active.messages.slice(0, idx);
     const newUser: Msg = { ...active.messages[idx], content: editingMsgVal };
     const retryMode = newUser.mode || "chat";
-    const assistantMsg: Msg = { id: newId(), role: "assistant", content: "", mode: retryMode, meta: { model } };
+    const assistantMsg: Msg = { id: newId(), role: "assistant", content: "", mode: retryMode };
     const history = [...trimmed, newUser];
     updateActive((c) => ({ ...c, messages: [...history, assistantMsg], updatedAt: Date.now() }));
     setEditingMsgId(null);
@@ -1289,7 +1606,62 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
                           )
                         ) : m.role === "assistant" ? (
                           <div className="space-y-3">
+                            {m.agentEvents?.length ? <AgentRunTimeline events={m.agentEvents} /> : null}
                             <MessageRenderer content={m.content} streaming={streaming && isLastAsst} />
+                            {m.agentAnswer ? (
+                              <div aria-label="答案引用" className="rounded-lg border border-border bg-muted/20 p-3">
+                                <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-foreground">
+                                  <Database className="h-3.5 w-3.5 text-primary" />
+                                  <span>证据与引用</span>
+                                  <span className="ml-auto rounded-full bg-primary/10 px-2 py-0.5 text-[10px] text-primary">{m.agentAnswer.groundingStatus}</span>
+                                </div>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {m.agentAnswer.citations.map((citation) => (
+                                    <span key={citation.citationId} title={`Claims: ${citation.claimIds.join(", ")}`} className="rounded-md border border-primary/20 bg-card px-2 py-1 text-[11px] text-muted-foreground">
+                                      {citation.label}
+                                    </span>
+                                  ))}
+                                  {!m.agentAnswer.citations.length ? <span className="text-[11px] text-muted-foreground">当前没有可用引用</span> : null}
+                                </div>
+                                {m.agentAnswer.limitations.length ? <p className="mt-2 text-[11px] text-muted-foreground">限制：{m.agentAnswer.limitations.join("；")}</p> : null}
+                              </div>
+                            ) : null}
+                            {m.agentInteraction?.status === "pending" ? (
+                              <div className="rounded-md border border-border bg-muted/30 p-3 text-sm">
+                                <p className="mb-2 font-medium text-foreground">{m.agentInteraction.question}</p>
+                                <div className="flex flex-col gap-2 sm:flex-row">
+                                  <input
+                                    aria-label="补充信息"
+                                    value={clarificationDrafts[m.id] || ""}
+                                    onChange={(event) => setClarificationDrafts((prev) => ({ ...prev, [m.id]: event.target.value }))}
+                                    className="min-w-0 flex-1 rounded-md border border-border bg-card px-2.5 py-1.5 text-sm outline-none focus:border-primary"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => resumeClarification(m.id, m.agentInteraction!)}
+                                    className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+                                    disabled={streaming || !(clarificationDrafts[m.id] || "").trim()}
+                                  >
+                                    提交补充信息
+                                  </button>
+                                </div>
+                                {(m.agentInteraction.options || []).some((option) => option !== "补充其他明确口径") ? (
+                                  <div className="mt-2 flex flex-wrap gap-2" aria-label="澄清选项">
+                                    {(m.agentInteraction.options || []).filter((option) => option !== "补充其他明确口径").map((option) => (
+                                      <button
+                                        key={option}
+                                        type="button"
+                                        onClick={() => resumeClarification(m.id, m.agentInteraction!, option)}
+                                        className="rounded-md border border-border bg-card px-2.5 py-1.5 text-xs text-foreground hover:bg-muted disabled:opacity-60"
+                                        disabled={streaming}
+                                      >
+                                        {option}
+                                      </button>
+                                    ))}
+                                  </div>
+                                ) : null}
+                              </div>
+                            ) : null}
                             {showDuplicateResults ? (
                               <DuplicateSearchResults
                                 result={m.duplicateResult}
@@ -1314,7 +1686,6 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
                                 {isLastAsst && !streaming && (
                                   <ActionBtn icon={RefreshCcw} label="重新生成" onClick={regenerate} />
                                 )}
-                                <MessageUsageMeta meta={m.meta} />
                               </>
                             ) : (
                               <>
@@ -1534,20 +1905,6 @@ const ActionBtn = ({
     <Icon className="h-3.5 w-3.5" />
   </button>
 );
-
-const MessageUsageMeta = ({ meta }: { meta?: MessageMeta }) => {
-  const usage = meta?.usage;
-  const cost = formatEstimatedCost(estimateChatCost(meta?.model, usage));
-  if (!meta?.model && !usage) return null;
-
-  return (
-    <div className="ml-1 flex h-6 items-center gap-1 text-[11px] text-muted-foreground">
-      {meta?.model ? <span aria-label={`模型 ${meta.model}`} className="rounded-md px-1 py-0.5">{meta.model}</span> : null}
-      {usage ? <span aria-label={`Tokens ${usage.totalTokens}`} className="rounded-md px-1 py-0.5">Tokens {usage.totalTokens.toLocaleString()}</span> : null}
-      {cost ? <span aria-label={`Cost ${cost}`} className="rounded-md px-1 py-0.5">Cost {cost}</span> : null}
-    </div>
-  );
-};
 
 const CopyBtn = ({ text }: { text: string }) => {
   const [done, setDone] = useState(false);

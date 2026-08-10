@@ -25,20 +25,16 @@ export function validateOntologyBundle(bundle) {
   const dimensions = bundle.dimensions || [];
   const metrics = bundle.metrics || [];
   const terms = bundle.terms || [];
-  const businessRules = bundle.businessRules || [];
   const policies = bundle.policies || [];
   const constraints = bundle.constraints || [];
-  const actions = bundle.actions || [];
   const sourceIds = uniqueById(sources, "source");
   const entityIds = uniqueById(entities, "entity");
   uniqueById(relationships, "relationship");
   const dimensionIds = uniqueById(dimensions, "dimension");
   const metricIds = uniqueById(metrics, "metric");
   uniqueById(terms, "term");
-  uniqueById(businessRules, "business_rule");
-  const policyIds = uniqueById(policies, "policy");
+  uniqueById(policies, "policy");
   uniqueById(constraints, "constraint");
-  uniqueById(actions, "action");
 
   const sourceById = new Map(sources.map((item) => [item.id, item]));
   const sourceByReadModel = new Map(sources.map((item) => [item.readModel, item]));
@@ -152,15 +148,6 @@ export function validateOntologyBundle(bundle) {
     }
   }
 
-  for (const rule of businessRules) {
-    for (const metricId of rule.appliesTo?.metricIds || []) {
-      if (!metricIds.has(metricId)) fail("ONTOLOGY_BUSINESS_RULE_METRIC_NOT_FOUND", `${rule.id}:${metricId}`);
-    }
-    if (governanceStatus(rule) === "approved" && rule.kind === "plan_warning" && !rule.effect?.warningCode) {
-      fail("ONTOLOGY_BUSINESS_RULE_WARNING_REQUIRED", rule.id);
-    }
-  }
-
   for (const constraint of constraints) {
     for (const metricId of constraint.metricIds || []) if (!metricIds.has(metricId)) fail("ONTOLOGY_CONSTRAINT_METRIC_NOT_FOUND", `${constraint.id}:${metricId}`);
     for (const dimensionId of constraint.dimensionIds || []) if (!dimensionIds.has(dimensionId)) fail("ONTOLOGY_CONSTRAINT_DIMENSION_NOT_FOUND", `${constraint.id}:${dimensionId}`);
@@ -171,40 +158,6 @@ export function validateOntologyBundle(bundle) {
     }
   }
 
-  for (const action of actions) {
-    const entity = entityById.get(action.targetEntityId);
-    if (!entity) fail("ONTOLOGY_ACTION_ENTITY_NOT_FOUND", action.id);
-    if (action.apiBinding?.sourceId && !sourceIds.has(action.apiBinding.sourceId)) {
-      fail("ONTOLOGY_ACTION_SOURCE_NOT_FOUND", `${action.id}:${action.apiBinding.sourceId}`);
-    }
-    for (const policyId of action.policies || []) {
-      if (!policyIds.has(policyId)) fail("ONTOLOGY_ACTION_POLICY_NOT_FOUND", `${action.id}:${policyId}`);
-    }
-    const propertyIds = new Set((entity.properties || []).map((property) => property.id));
-    for (const binding of action.fieldBindings || []) {
-      if (binding.localPropertyId && !propertyIds.has(binding.localPropertyId)) {
-        fail("ONTOLOGY_ACTION_PROPERTY_NOT_FOUND", `${action.id}:${binding.localPropertyId}`);
-      }
-    }
-    if (action.execution?.mode === "enabled" && governanceStatus(action) !== "approved") {
-      fail("ONTOLOGY_ACTION_ENABLED_NOT_APPROVED", action.id);
-    }
-    if (governanceStatus(action) === "approved" && governanceStatus(entity) !== "approved") {
-      fail("ONTOLOGY_APPROVED_ACTION_USES_UNAPPROVED_ENTITY", action.id);
-    }
-    if (action.operation === "delete" && action.capabilityState !== "blocked") {
-      fail("ONTOLOGY_DELETE_ACTION_MUST_BE_BLOCKED", action.id);
-    }
-    if (action.execution?.mode === "enabled" && ["create", "update", "delete", "comment"].includes(action.operation)) {
-      if (!action.execution.requiresDryRun || !action.execution.requiresHumanApproval || !action.execution.requiresActorScope) {
-        fail("ONTOLOGY_WRITE_ACTION_GUARDRAILS_REQUIRED", action.id);
-      }
-      if (!action.audit?.runAudit || !action.audit?.toolCallAudit || !action.audit?.externalRequestAudit) {
-        fail("ONTOLOGY_WRITE_ACTION_AUDIT_REQUIRED", action.id);
-      }
-    }
-  }
-
   return Object.freeze({
     sourceCount: sources.length,
     entityCount: entities.length,
@@ -212,9 +165,7 @@ export function validateOntologyBundle(bundle) {
     dimensionCount: dimensions.length,
     metricCount: metrics.length,
     termCount: terms.length,
-    businessRuleCount: businessRules.length,
     policyCount: policies.length,
     constraintCount: constraints.length,
-    actionCount: actions.length,
   });
 }

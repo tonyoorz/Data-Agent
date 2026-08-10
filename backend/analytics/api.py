@@ -6,8 +6,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Query, Request
 from fastapi.responses import JSONResponse
 
+from backend.analytics.cache import get_default_query_cache
 from backend.analytics.config import get_analytics_db_path, get_full_picture_hot_db_path
 from backend.analytics.dashboard_snapshot import read_active_snapshot_state
+from backend.analytics.ontology import load_ontology
+from backend.analytics.semantic_query import SemanticQueryError, execute_semantic_query
 from backend.analytics.read_models import (
     FullPictureDashboardDataError,
     FullPictureDashboardRequestError,
@@ -47,6 +50,7 @@ from backend.analytics.schema import ensure_schema
 
 @asynccontextmanager
 async def analytics_lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    _app.state.ontology = load_ontology()
     ensure_schema(get_analytics_db_path())
     yield
 
@@ -68,8 +72,24 @@ def _full_picture_query_params(request: Request) -> dict[str, object]:
 
 
 @app.get("/health")
-def health() -> dict[str, object]:
-    return {"ok": True, "service": "analytics"}
+def health(request: Request) -> dict[str, object]:
+    ontology = getattr(request.app.state, "ontology", None) or load_ontology()
+    return {
+        "ok": True,
+        "service": "analytics",
+        "ontologyVersion": ontology.version,
+        "ontologyFingerprint": ontology.fingerprint,
+    }
+
+
+@app.post("/api/semantic/query")
+def semantic_query(request: Request, payload: dict[str, object]) -> JSONResponse:
+    try:
+        catalog = getattr(request.app.state, "ontology", None) or load_ontology()
+        result = execute_semantic_query(payload, catalog=catalog)
+    except SemanticQueryError as exc:
+        return JSONResponse(status_code=exc.status_code, content={"code": exc.code, "safeMessage": "semantic query rejected", "retryable": False})
+    return JSONResponse(status_code=200, content=result)
 
 
 @app.get("/api/full-picture/dashboard")
@@ -86,8 +106,12 @@ def full_picture_dashboard(request: Request) -> JSONResponse:
 
 @app.get("/api/full-picture/dashboard/summary")
 def full_picture_dashboard_summary(request: Request) -> JSONResponse:
+    params = _full_picture_query_params(request)
+    cached_payload = get_default_query_cache().get(request.url.path, params)
+    if cached_payload is not None:
+        return JSONResponse(status_code=200, content=cached_payload)
     try:
-        payload = build_full_picture_summary_payload(**_full_picture_query_params(request))
+        payload = build_full_picture_summary_payload(**params)
     except FullPictureDashboardDataError:
         return JSONResponse(
             status_code=503,
@@ -96,6 +120,7 @@ def full_picture_dashboard_summary(request: Request) -> JSONResponse:
     except FullPictureDashboardRequestError as exc:
         status_code = 409 if "snapshot" in str(exc).lower() else 400
         return JSONResponse(status_code=status_code, content={"error": str(exc)})
+    get_default_query_cache().set(request.url.path, params, payload, ttl_seconds=300)
     return JSONResponse(status_code=200, content=payload)
 
 

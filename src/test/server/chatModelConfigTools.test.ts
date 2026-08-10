@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { buildChatCompletionRequest } from "../../../server/chatModelConfig.mjs";
+import {
+  buildChatCompletionRequest,
+  getChatModelOptions,
+  resolveChatModelConfig,
+} from "../../../server/chatModelConfig.mjs";
 
 const sampleTools = [
   {
@@ -23,17 +27,49 @@ const sampleToolChoice = {
 };
 
 describe("buildChatCompletionRequest tool calling options", () => {
-  it("requests streamed usage metadata for OpenAI-compatible chat streams", () => {
+  it("keeps legacy Duplicate endpoint selection and max_token_length body", () => {
     const request = buildChatCompletionRequest({
       selectedModel: "deepseek-v4-flash",
-      messages: [{ role: "user", content: "stream with usage" }],
-      env: {
-        DUPSEARCH_CHAT_ACCESS_CODE: "test-access-code",
-      },
-      stream: true,
+      messages: [{ role: "user", content: "hello" }],
+      env: { DUPSEARCH_CHAT_ACCESS_CODE: "test-access-code" },
     });
 
-    expect(request.body.stream_options).toEqual({ include_usage: true });
+    expect(request.config.usesInternalEndpoint).toBe(true);
+    expect(request.url).toContain("/chat/completions");
+    expect(request.headers.authorization).toBe("ACCESSCODE test-access-code");
+    expect(request.body.max_token_length).toBe(2048);
+    expect(request.body).not.toHaveProperty("max_tokens");
+  });
+
+  it("keeps legacy fallback API-key mode for unknown models", () => {
+    const config = resolveChatModelConfig("custom-model", {
+      DUPSEARCH_CHAT_MODEL_ENDPOINTS: "{}",
+      DUPSEARCH_CHAT_API_KEY: "test-api-key",
+      DUPSEARCH_CHAT_API_BASE: "https://example.test/v1",
+    });
+    const request = buildChatCompletionRequest({
+      selectedModel: "custom-model",
+      messages: [{ role: "user", content: "hello" }],
+      env: {
+        DUPSEARCH_CHAT_MODEL_ENDPOINTS: "{}",
+        DUPSEARCH_CHAT_API_KEY: "test-api-key",
+        DUPSEARCH_CHAT_API_BASE: "https://example.test/v1",
+      },
+    });
+
+    expect(config).toMatchObject({ model: "custom-model", usesInternalEndpoint: false, authScheme: "Bearer" });
+    expect(request.url).toBe("https://example.test/v1/chat/completions");
+    expect(request.headers.Authorization).toBe("Bearer test-api-key");
+    expect(request.body.max_tokens).toBe(900);
+  });
+
+  it("keeps legacy model option ordering and default fallback", () => {
+    expect(getChatModelOptions({ DUPSEARCH_CHAT_MODEL_OPTIONS: "bacon,deepseek-v4-flash,bacon" }).slice(0, 4)).toEqual([
+      "bacon",
+      "deepseek-v4-flash",
+      "qwen3.5-397b-a17b",
+      "glm-5",
+    ]);
   });
 
   it("passes OpenAI-compatible tools through to internal company endpoints", () => {

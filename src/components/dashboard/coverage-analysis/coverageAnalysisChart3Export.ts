@@ -1,5 +1,5 @@
 import type { CoverageAnalysisTestcaseDetailRow } from "./coverageAnalysisTypes";
-import type { Cell } from "exceljs";
+import type { Row } from "exceljs";
 
 const EXPORT_BASE_COLUMNS = [
   { key: "test_id", label: "Testcase ID", width: 14 },
@@ -251,7 +251,7 @@ function downloadBuffer(buffer: ArrayBuffer, filename: string) {
   URL.revokeObjectURL(objectUrl);
 }
 
-function applyHeaderStyle(row: { eachCell: (callback: (cell: Cell) => void) => void }) {
+function applyHeaderStyle(row: Row) {
   row.eachCell((cell) => {
     cell.font = { bold: true, color: { argb: "FF1F2937" } };
     cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF3F4F6" } };

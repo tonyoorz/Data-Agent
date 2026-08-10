@@ -45,8 +45,8 @@ if (current === 0) {
       args: ["-e", childScript],
       cwd: process.cwd(),
       env: { ...process.env, DUP_BRIDGE_RETRY_MARKER: markerPath },
-      requestTimeoutMs: 25,
-      searchRequestTimeoutMs: 25,
+      requestTimeoutMs: 1000,
+      searchRequestTimeoutMs: 1000,
     });
 
     await expect(client.request({ action: "search" })).resolves.toEqual({

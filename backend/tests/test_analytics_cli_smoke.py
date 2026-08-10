@@ -4,6 +4,7 @@ import json
 import sqlite3
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import backend.analytics_cli as analytics_cli
@@ -252,15 +253,7 @@ def test_analytics_cli_refresh_traceability_source_invokes_repo_owned_pipeline(
         return "fake-client"
 
     def fake_refresh_octane_traceability_source(
-        *,
-        source_db_path,
-        team_name,
-        years,
-        client,
-        releases=(),
-        force=False,
-        workers=24,
-        progress=None,
+        *, source_db_path, team_name, years, releases, force, workers, client, progress=None
     ) -> dict[str, object]:
         captured["pipeline"] = {
             "source_db_path": source_db_path,
@@ -556,7 +549,7 @@ def test_analytics_cli_refresh_all_sources_runs_steps_in_order(
     assert calls[5][1]["defect_ids"] == ("D-1", "D-2")
 
 
-def test_analytics_cli_refresh_all_sources_defaults_to_current_year(
+def test_analytics_cli_refresh_all_sources_defaults_to_2025_through_current_testing_year(
     tmp_path: Path,
     monkeypatch,
     capsys,
@@ -611,10 +604,12 @@ def test_analytics_cli_refresh_all_sources_defaults_to_current_year(
 
     stdout = capsys.readouterr().out
     assert exit_code == 0
-    assert calls[1][1]["request"].years == (2026,)
-    assert calls[3][1]["years"] == (2026,)
-    assert "years=2026" in stdout
-    assert "manual_years=2026" in stdout
+    expected_years = tuple(range(2025, datetime.now().year + 1))
+    expected_text = ",".join(str(year) for year in expected_years)
+    assert calls[1][1]["request"].years == expected_years
+    assert calls[3][1]["years"] == expected_years
+    assert f"years={expected_text}" in stdout
+    assert f"manual_years={expected_text}" in stdout
 
 
 def test_analytics_cli_prepare_duplicate_search_index_invokes_bridge_warmup(

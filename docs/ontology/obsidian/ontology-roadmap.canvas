@@ -1,0 +1,151 @@
+{
+  "nodes": [
+    {
+      "id": "goal",
+      "type": "text",
+      "text": "# 目标\n建设企业/团队级有效 Ontology\n让 Data-Agent 成为可治理的语义控制平面",
+      "x": -400,
+      "y": -200,
+      "width": 400,
+      "height": 160
+    },
+    {
+      "id": "l3",
+      "type": "text",
+      "text": "## L3 治理与策略层\n- policies\n- constraints\n- vocab\n- approval state",
+      "x": -400,
+      "y": 40,
+      "width": 240,
+      "height": 160,
+      "color": "1"
+    },
+    {
+      "id": "l2",
+      "type": "text",
+      "text": "## L2 语义层\n- metrics\n- dimensions",
+      "x": -80,
+      "y": 40,
+      "width": 200,
+      "height": 160,
+      "color": "2"
+    },
+    {
+      "id": "l1",
+      "type": "text",
+      "text": "## L1 领域本体层\n- entities (19)\n- relationships (15)\n- sources",
+      "x": 200,
+      "y": 40,
+      "width": 200,
+      "height": 160,
+      "color": "3"
+    },
+    {
+      "id": "l0",
+      "type": "text",
+      "text": "## L0 执行内核\n- aggregate\n- trend\n- rank\n- compare\n- records\n- traverse",
+      "x": 480,
+      "y": 40,
+      "width": 200,
+      "height": 200,
+      "color": "4"
+    },
+    {
+      "id": "w1",
+      "type": "text",
+      "text": "## W1 CQ 工作坊\n产出：ontology/cq-list.md\n35 条胜任问题定稿",
+      "x": -400,
+      "y": 320,
+      "width": 200,
+      "height": 140
+    },
+    {
+      "id": "w2",
+      "type": "text",
+      "text": "## W2 清理 draft\n核心 10 指标 approved\n其余挂决策单",
+      "x": -160,
+      "y": 320,
+      "width": 200,
+      "height": 140
+    },
+    {
+      "id": "w3",
+      "type": "text",
+      "text": "## W3 可视化\n编译器输出 Mermaid\nObsidian 目录页",
+      "x": 80,
+      "y": 320,
+      "width": 200,
+      "height": 140
+    },
+    {
+      "id": "w4",
+      "type": "text",
+      "text": "## W4 v2 内核对齐\n六原语契约测试先行",
+      "x": 320,
+      "y": 320,
+      "width": 200,
+      "height": 140
+    },
+    {
+      "id": "w5",
+      "type": "text",
+      "text": "## W5 跨域 POC\n选 1 新域\n建 3 实体 + 5 CQ",
+      "x": 560,
+      "y": 320,
+      "width": 200,
+      "height": 140
+    },
+    {
+      "id": "w6",
+      "type": "text",
+      "text": "## W6 治理自动化\nPR 模板\ndraft 超期提醒\n指纹影响报告",
+      "x": -400,
+      "y": 520,
+      "width": 200,
+      "height": 160
+    },
+    {
+      "id": "w7",
+      "type": "text",
+      "text": "## W7 评测对齐\n每 approved CQ\n≥1 golden case",
+      "x": -160,
+      "y": 520,
+      "width": 200,
+      "height": 160
+    },
+    {
+      "id": "w8",
+      "type": "text",
+      "text": "## W8 复盘推广\n价值指标看板\n答题时长/自助率/准确率",
+      "x": 80,
+      "y": 520,
+      "width": 200,
+      "height": 160
+    },
+    {
+      "id": "antipatterns",
+      "type": "text",
+      "text": "# 反模式\n- 煮沸海洋\n- 委员会式设计\n- 只建类不填数据\n- 语义漂移无人管\n- LLM 自由生成 SQL\n- 过度 OWL 推理",
+      "x": 480,
+      "y": 520,
+      "width": 260,
+      "height": 220,
+      "color": "6"
+    }
+  ],
+  "edges": [
+    {"id": "e1", "fromNode": "goal", "fromSide": "bottom", "toNode": "l3", "toSide": "top"},
+    {"id": "e2", "fromNode": "l3", "fromSide": "right", "toNode": "l2", "toSide": "left"},
+    {"id": "e3", "fromNode": "l2", "fromSide": "right", "toNode": "l1", "toSide": "left"},
+    {"id": "e4", "fromNode": "l1", "fromSide": "right", "toNode": "l0", "toSide": "left"},
+    {"id": "e5", "fromNode": "l0", "fromSide": "bottom", "toNode": "w4", "toSide": "top"},
+    {"id": "e6", "fromNode": "l3", "fromSide": "bottom", "toNode": "w1", "toSide": "top"},
+    {"id": "e7", "fromNode": "w1", "fromSide": "right", "toNode": "w2", "toSide": "left"},
+    {"id": "e8", "fromNode": "w2", "fromSide": "right", "toNode": "w3", "toSide": "left"},
+    {"id": "e9", "fromNode": "w3", "fromSide": "right", "toNode": "w4", "toSide": "left"},
+    {"id": "e10", "fromNode": "w4", "fromSide": "right", "toNode": "w5", "toSide": "left"},
+    {"id": "e11", "fromNode": "w5", "fromSide": "bottom", "toNode": "w7", "toSide": "top"},
+    {"id": "e12", "fromNode": "w1", "fromSide": "bottom", "toNode": "w6", "toSide": "top"},
+    {"id": "e13", "fromNode": "w6", "fromSide": "right", "toNode": "w7", "toSide": "left"},
+    {"id": "e14", "fromNode": "w7", "fromSide": "right", "toNode": "w8", "toSide": "left"}
+  ]
+}

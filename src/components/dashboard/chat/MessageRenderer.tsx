@@ -29,7 +29,7 @@ function preprocessCitations(md: string) {
 }
 
 export default function MessageRenderer({ content, streaming }: Props) {
-  const segs = parseAgentStream(content);
+  const segs = parseAgentStream(content).filter((segment) => segment.kind !== "think");
   return (
     <div className="space-y-3">
       {segs.map((s, i) => {
@@ -179,10 +179,9 @@ function CitationChip({ source, children }: { source: string; children: ReactNod
 
 function CodeBlock({ children }: { children: ReactNode }) {
   const [copied, setCopied] = useState(false);
+  const nestedChildren = isValidElement<{ children?: ReactNode }>(children) ? children.props.children : undefined;
   const codeText =
-    (isValidElement<{ children?: ReactNode }>(children) && typeof children.props.children === "string"
-      ? children.props.children
-      : "") ||
+    (typeof nestedChildren === "string" ? nestedChildren : undefined) ??
     (typeof children === "string" ? children : "");
   return (
     <div className="group relative my-3 overflow-hidden rounded-lg border border-border bg-[hsl(220_15%_15%)]">

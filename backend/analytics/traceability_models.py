@@ -185,6 +185,15 @@ def _build_trace_where(
         placeholders = ", ".join("?" for _ in values)
         clauses.append(f"{expression} IN ({placeholders})")
         params.extend(values)
+    aida_values = () if "aidas" in excluded else _get_values(query_params, "aidas")
+    if aida_values:
+        placeholders = ", ".join("?" for _ in aida_values)
+        clauses.append(
+            f"(TRIM(COALESCE(CAST({alias}.related_id AS TEXT), '')) IN ({placeholders}) "
+            f"OR TRIM(COALESCE(CAST({alias}.parent_id AS TEXT), '')) IN ({placeholders}))"
+        )
+        params.extend(aida_values)
+        params.extend(aida_values)
     search_values = _get_values(query_params, "search")
     if search_values:
         search_text = f"%{search_values[0].casefold()}%"
@@ -233,8 +242,8 @@ def _to_percent(numerator: int, denominator: int) -> float:
     return round((numerator / denominator) * 100.0, 2)
 
 
-def _has_release_filter(query_params: Any) -> bool:
-    return len(_get_values(query_params, "releases")) > 0
+def _has_trace_relation_filter(query_params: Any) -> bool:
+    return any(_get_values(query_params, key) for key in ("releases", "aidas", "relation_types"))
 
 
 GRAPH_LAYERS = ["epic", "feature", "story", "testcase", "manual_run", "defect"]
@@ -497,6 +506,8 @@ def _empty_payload() -> dict[str, object]:
 
 
 def build_traceability_analysis_payload(query_params: Any = None) -> dict[str, object]:
+    query_params = query_params or {}
+    include_internal_fields = bool(query_params.get("__include_internal_fields", False))
     db_path = get_full_picture_source_db_path()
     if not Path(db_path).exists():
         return _empty_payload()
@@ -507,12 +518,12 @@ def build_traceability_analysis_payload(query_params: Any = None) -> dict[str, o
         if not _table_exists(conn, "octane_manual_runs") or not _table_exists(conn, "octane_run_traceability"):
             return _empty_payload()
 
-        has_release_filter = _has_release_filter(query_params or {})
-        manual_excluded_keys = {"weeks"} if has_release_filter else None
-        manual_where, manual_params = _build_manual_where(query_params or {}, excluded_keys=manual_excluded_keys)
-        trace_where, trace_params = _build_trace_where(query_params or {})
+        has_trace_relation_filter = _has_trace_relation_filter(query_params or {})
+        manual_excluded_keys = {"weeks"} if has_trace_relation_filter else None
+        manual_where, manual_params = _build_manual_where(query_params, excluded_keys=manual_excluded_keys)
+        trace_where, trace_params = _build_trace_where(query_params)
 
-        if has_release_filter:
+        if has_trace_relation_filter:
             scoped_manual_from = f"""
                 octane_manual_runs mr
                 INNER JOIN (
@@ -587,7 +598,7 @@ def build_traceability_analysis_payload(query_params: Any = None) -> dict[str, o
             ).fetchall()
         ]
 
-        if has_release_filter:
+        if has_trace_relation_filter:
             status_sql = f"""
                 SELECT TRIM(COALESCE(CAST(mr.status AS TEXT), '')) AS status,
                        COUNT(DISTINCT mr.mr_id) AS total_runs,
@@ -662,6 +673,7 @@ def build_traceability_analysis_payload(query_params: Any = None) -> dict[str, o
                 "test_name": str(row["test_name"] or ""),
                 "run_id": str(row["run_id"] or ""),
                 "run_status": str(row["run_status"] or ""),
+                **({"run_finished": str(row["run_finished"] or "")} if include_internal_fields else {}),
                 "scope_team": str(row["scope_team"] or ""),
                 "scope_release": str(row["scope_release"] or ""),
             }
@@ -672,6 +684,7 @@ def build_traceability_analysis_payload(query_params: Any = None) -> dict[str, o
                     rt.test_id,
                     MAX(rt.test_name) AS test_name,
                     MAX(rt.status) AS run_status,
+                    MAX(rt.run_finished) AS run_finished,
                     rt.scope_team,
                     rt.scope_release,
                     GROUP_CONCAT(DISTINCT CASE WHEN rt.relation_type = 'feature' THEN NULLIF(TRIM(COALESCE(CAST(rt.parent_id AS TEXT), '')), '') END) AS epic_ids,
@@ -749,7 +762,7 @@ def build_traceability_analysis_payload(query_params: Any = None) -> dict[str, o
             ).fetchall()
         ]
 
-        if has_release_filter:
+        if has_trace_relation_filter:
             gap_rows = []
         else:
             gap_rows = [
@@ -782,7 +795,7 @@ def build_traceability_analysis_payload(query_params: Any = None) -> dict[str, o
                 ).fetchall()
             ]
 
-        week_trace_where, week_trace_params = _build_trace_where(query_params or {}, excluded_keys={"weeks"})
+        week_trace_where, week_trace_params = _build_trace_where(query_params, excluded_keys={"weeks"})
         week_plan_expression = _trace_plan_week_expression("rt")
         week_manual_expression = _manual_week_expression("mr")
         week_rows = conn.execute(
