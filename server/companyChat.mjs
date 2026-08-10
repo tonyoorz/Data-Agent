@@ -377,16 +377,36 @@ function writePseudoToolFallbackIfNeeded(response, state) {
   state.fallbackEmitted = true;
 }
 
+function citationFooter(answerValidation) {
+  const toolCallId = (Array.isArray(answerValidation?.evidence) ? answerValidation.evidence : [])
+    .map((item) => String(item?.toolCallId || "").trim())
+    .find((value) => /^[A-Za-z0-9._:-]+$/.test(value));
+  return toolCallId ? `\n\nEvidence source: <cite source="${toolCallId}">governed tool result</cite>` : "";
+}
+
 function writeAnswerValidationIfNeeded(response, state) {
   if (!state.answerValidation || state.answerValidationEmitted) {
     return;
   }
   state.answerValidationEmitted = true;
-  const validation = validateAnswerTextCitations({
+  let validation = validateAnswerTextCitations({
     text: (state.visibleContentParts || []).join(""),
     evidence: state.answerValidation.evidence,
     registry: state.answerValidation.registry,
   });
+  if (validation.violations.length === 1 && validation.violations[0] === "ANSWER_CITATION_REQUIRED") {
+    const footer = citationFooter(state.answerValidation);
+    if (footer) {
+      writeSseEvent(response, { choices: [{ delta: { content: footer } }] });
+      state.visibleContentParts?.push(footer);
+      state.emittedVisibleContent = true;
+      validation = validateAnswerTextCitations({
+        text: state.visibleContentParts.join(""),
+        evidence: state.answerValidation.evidence,
+        registry: state.answerValidation.registry,
+      });
+    }
+  }
   writeSseEvent(response, { type: "answer-validation", ...validation });
   try {
     state.onAnswerValidation?.(validation);

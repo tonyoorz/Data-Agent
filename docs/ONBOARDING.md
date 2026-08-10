@@ -147,7 +147,7 @@ AI Chat 的生产路径不是把浏览器传来的 scope 直接交给工具。No
 4. 语义查询继续使用 Ontology scope、敏感字段和 source revision 校验。
 5. 最终回答带 evidence/citation contract；stream 完成后记录脱敏的 runtime summary。
 
-本地运行默认可显式使用 `VIZION_AGENT_AUTH_MODE=internal`。共享环境使用 `oidc`，需要 `VIZION_OIDC_ISSUER`、`VIZION_OIDC_AUDIENCE`、`VIZION_OIDC_JWKS_URI`、`VIZION_AGENT_OIDC_SCOPE_POLICY_JSON` 和 `VIZION_AGENT_ACTOR_CAPABILITY_SECRET`。不要把 capability secret 或 OIDC policy 放到前端环境变量。
+`npm run dev` 会先读取 `.env`/`.env.local`；当 `VIZION_AGENT_AUTH_MODE` 未设置时才使用 `internal`，并为 Node/FastAPI 子进程生成同一个进程内 capability secret，同时默认缺陷行范围为 `DTSV_China`，为本地 Agent Operations 页面授予只读 `agent.operations.read` policy。配置任一 `VIZION_INTERNAL_TEAM_IDS`、`VIZION_INTERNAL_PROJECT_IDS` 或 `VIZION_INTERNAL_WORKSPACE_IDS` 即可覆盖默认范围；配置 `VIZION_INTERNAL_ROW_POLICY_IDS` 可覆盖本地 operator policy。Node 与 FastAPI 分开启动时，必须在 `.env.local` 中为两者配置同一个 `VIZION_AGENT_ACTOR_CAPABILITY_SECRET`、显式的 `VIZION_INTERNAL_*` 行范围和所需 row policy。显式配置的 `oidc` 不会被覆盖，`npm start` 仍默认使用 fail-closed 的 `oidc`。共享环境使用 `oidc`，需要 `VIZION_OIDC_ISSUER`、`VIZION_OIDC_AUDIENCE`、`VIZION_OIDC_JWKS_URI`、`VIZION_AGENT_OIDC_SCOPE_POLICY_JSON` 和 `VIZION_AGENT_ACTOR_CAPABILITY_SECRET`。不要把 capability secret 或 OIDC policy 放到前端环境变量。
 
 Agent Operations 是受限页面，只有 scope 中带 `rowPolicyIds: ["agent.operations.read"]` 的 server-resolved actor 可读取。页面只显示 opaque run reference、意图、结果、恢复、证据和 citation 状态，不显示 raw prompt、ticket/person 数据、tool input/output 或 actor ID。
 

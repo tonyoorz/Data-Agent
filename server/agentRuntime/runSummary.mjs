@@ -42,6 +42,7 @@ const SAFE_TOOL_NAMES = new Set([
   "query_dashboard_summary",
   "query_testing_coverage_project_status",
   "query_testing_coverage_aida_status",
+  "query_testing_team_fv_analysis",
   "get_test_case_context",
   "query_defect_high_frequency_analysis",
   "query_defect_aggregate",

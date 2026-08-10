@@ -269,6 +269,135 @@ class OctaneApiClient:
         rows = [row for row in list(payload.get("data") or []) if isinstance(row, dict)]
         return rows[0] if rows else payload
 
+    def _xsrf_header(self) -> dict[str, str]:
+        xsrf_cookie = _session_cookie_value(self._session, "XSRF_COOKIE")
+        if not xsrf_cookie:
+            raise ValueError("XSRF_COOKIE is required to write to Octane")
+        return {"XSRF-HEADER": xsrf_cookie}
+
+    def create_entity(
+        self,
+        *,
+        collection: str,
+        entity_type: str,
+        fields: dict[str, Any],
+    ) -> dict[str, Any]:
+        """POST a single entity to any Octane collection (defects, tests, work_items, ...).
+
+        Generalizes the proven write pattern in ``create_comment_for_work_item``: the body is
+        ``{"data": [{"type": <entity_type>, **fields}]}`` and the request carries the
+        ``XSRF-HEADER`` from the session cookie. The same session is shared with reads, so the
+        existing 401 cookie self-healing chain transfers to writes.
+        """
+        response = self._session.post(
+            f"{self._api_base}/{collection}",
+            json={"data": [{"type": entity_type, **fields}]},
+            headers=self._xsrf_header(),
+            timeout=60,
+            verify=False,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        rows = [row for row in list(payload.get("data") or []) if isinstance(row, dict)]
+        return rows[0] if rows else payload
+
+    def update_entity(
+        self,
+        *,
+        collection: str,
+        entity_id: str,
+        entity_type: str,
+        fields: dict[str, Any],
+    ) -> dict[str, Any]:
+        """PUT a single-entity update. The body is the entity object directly (NOT wrapped in
+        ``{"data": [...]}``), and multi-value reference fields use ``{"data": [...]}``.
+        """
+        response = self._session.put(
+            f"{self._api_base}/{collection}/{entity_id}",
+            json={"type": entity_type, "id": entity_id, **fields},
+            headers=self._xsrf_header(),
+            timeout=60,
+            verify=False,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def create_test_case(
+        self,
+        *,
+        name: str,
+        description_html: str,
+        owner_workspace_user_id: str,
+        servicepack_node_id: str,
+        covered_work_item_ids: Sequence[str] = (),
+    ) -> dict[str, Any]:
+        """Create a ``test_manual`` work item in the ``/tests`` collection.
+
+        ``covered_content`` links the test to one or more backlog work items (feature/story),
+        so the test appears under them in the Octane UI. Phase defaults to ``phase.test_manual.new``
+        ("New / In Design"). ``owner`` and ``servicepack_udf`` are required fields in workspace
+        2001 and must be supplied as ids.
+        """
+        fields: dict[str, Any] = {
+            "subtype": "test_manual",
+            "name": name,
+            "description": description_html,
+            "phase": {"type": "phase", "id": "phase.test_manual.new"},
+            "owner": {"type": "workspace_user", "id": owner_workspace_user_id},
+            "servicepack_udf": {"data": [{"type": "list_node", "id": servicepack_node_id}]},
+        }
+        if covered_work_item_ids:
+            fields["covered_content"] = {
+                "data": [{"type": "work_item", "id": str(wid)} for wid in covered_work_item_ids]
+            }
+        return self.create_entity(collection="tests", entity_type="test", fields=fields)
+
+    def fetch_test_steps(self, *, test_id: str) -> dict[str, Any]:
+        """Read a test_manual's steps from the ``/tests/{id}/script`` sub-resource.
+
+        Manual test steps in workspace 2001 are stored as plain text in the test's ``script``
+        field, accessed via the ``/tests/{id}/script`` sub-resource (NOT a field on the test
+        entity, and NOT a ``test_steps`` collection — that returns 404). Returns a dict with
+        ``script`` (the steps text), ``test_version``, and ``version_stamp``.
+        """
+        normalized_id = str(test_id or "").strip()
+        if not normalized_id:
+            raise ValueError("test_id is required")
+        response = self._session.get(
+            f"{self._api_base}/tests/{normalized_id}/script",
+            timeout=60,
+            verify=False,
+        )
+        response.raise_for_status()
+        return response.json()
+
+    def write_test_steps(self, *, test_id: str, steps_text: str) -> dict[str, Any]:
+        """Write a test_manual's steps to the ``/tests/{id}/script`` sub-resource.
+
+        ``steps_text`` is plain text following the workspace convention (verified against
+        hand-written test 1414874):
+
+        - ``- [PreCon] <text>`` — precondition line
+        - ``- <text>``          — action step
+        - ``- ? <text>``        — checkpoint / expected result
+
+        Each line is one step. The PUT body is ``{"script": <text>}`` (a bare object, not wrapped
+        in ``{"data": [...]}``).
+        """
+        normalized_id = str(test_id or "").strip()
+        if not normalized_id:
+            raise ValueError("test_id is required")
+        text = str(steps_text or "")
+        response = self._session.put(
+            f"{self._api_base}/tests/{normalized_id}/script",
+            json={"script": text},
+            headers=self._xsrf_header(),
+            timeout=60,
+            verify=False,
+        )
+        response.raise_for_status()
+        return response.json()
+
     def fetch_history(self, *, defect_id: str) -> dict[str, Any]:
         query = f'"(entity_id=\'{_escape_octane_text(str(defect_id).strip())}\';entity_type=\'defect\')"'
         return self._fetch_history_payload(query=query)

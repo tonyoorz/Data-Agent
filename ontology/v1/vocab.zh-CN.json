@@ -380,6 +380,41 @@
       }
     },
     {
+      "id": "project.idcevo",
+      "phrases": [
+        "IDCEVO"
+      ],
+      "kind": "enum_value",
+      "resolution": {
+        "dimensionId": "product.project",
+        "filterValue": "IDCEVO"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Product Analytics"
+      }
+    },
+    {
+      "id": "dimension.defect_status",
+      "phrases": [
+        "缺陷状态",
+        "按状态",
+        "状态统计",
+        "defect status",
+        "by status",
+        "grouped by status"
+      ],
+      "kind": "alias",
+      "resolution": {
+        "dimensionId": "quality.status",
+        "entityId": "quality.defect"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
       "id": "dimension.phase",
       "phrases": [
         "Phase",
@@ -406,6 +441,24 @@
       "kind": "alias",
       "resolution": {
         "dimensionId": "quality.severity",
+        "entityId": "quality.defect"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "dimension.business_impact",
+      "phrases": [
+        "BI",
+        "业务影响",
+        "business impact",
+        "problem severity"
+      ],
+      "kind": "alias",
+      "resolution": {
+        "dimensionId": "quality.business_impact",
         "entityId": "quality.defect"
       },
       "governance": {
@@ -685,11 +738,36 @@
       "phrases": [
         "报告类别",
         "reporting class",
-        "上报类别"
+        "上报类别",
+        "defect classification",
+        "classification"
       ],
       "kind": "synonym",
       "resolution": {
         "dimensionId": "quality.reporting_class",
+        "entityId": "quality.defect"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "metric.severe_defects",
+      "phrases": [
+        "严重缺陷",
+        "严重的缺陷",
+        "严重 defect",
+        "严重的defect",
+        "严重的 defect",
+        "严重的个defect",
+        "高影响缺陷",
+        "high impact defect",
+        "high-impact defect"
+      ],
+      "kind": "synonym",
+      "resolution": {
+        "metricId": "defect.severe_count",
         "entityId": "quality.defect"
       },
       "governance": {

@@ -73,7 +73,7 @@ function intentFrom(query) {
   if (/对比|比较|相比|差异|\bcompare\b|\bvs\.?\b|versus|(?:本周|这周|本月|这个月|今年|去年|20\d{2}\s*年?)\s*比\s*(?:上周|上月|上个月|去年|今年|20\d{2})/i.test(query)) return "compare";
   if (/趋势|变化|走势|trend/i.test(query)) return "trend";
   if (/top\s*\d*|排名|排行|高频|最多|rank/i.test(query)) return "rank";
-  if (/明细|列表|逐条|list|details?/i.test(query)) return "list";
+  if (/明细|列表|逐条|list|details?|(?:带(?:着)?|展示|显示|返回)\s*(?:缺陷\s*)?(?:id|编号|ticket\s*id)|(?:id|编号|ticket\s*id)\s*(?:展示|列表|明细)/i.test(query)) return "list";
   return "aggregate";
 }
 
@@ -191,8 +191,11 @@ function extractGovernedValueFilters(query, matchedTerms) {
 
 function explicitGroupingForDimension(query, terms, dimensionId) {
   const phrases = terms.filter((term) => term.resolution.dimensionId === dimensionId).flatMap((term) => term.phrases);
-  const groupingText = [...String(query || "").matchAll(/(?:按|根据|by)\s*([^，,。；;？?]+)/giu)].map((match) => match[1]).join(" ").toLocaleLowerCase("zh-CN");
+  const normalizedQuery = String(query || "").toLocaleLowerCase("zh-CN");
+  const groupingText = [...normalizedQuery.matchAll(/(?:按|根据|by)\s*([^，,。；;？?]+)/giu)].map((match) => match[1]).join(" ");
   return phrases.some((phrase) => groupingText.includes(String(phrase).toLocaleLowerCase("zh-CN")))
+    || phrases.some((phrase) => /^(?:按|根据)|^(?:grouped\s+)?by\s+/iu.test(String(phrase))
+      && normalizedQuery.includes(String(phrase).toLocaleLowerCase("zh-CN")))
     || phrases.some((phrase) => new RegExp(`(?:每个|各)\\s*${String(phrase).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "iu").test(query));
 }
 
@@ -279,11 +282,12 @@ export function createSemanticResolver({ registry, now = () => new Date().toISOS
           .filter((term) => term.resolution.filterValue === undefined || intent === "compare")
           .map((term) => term.resolution.dimensionId)))
         .filter((dimensionId) => !governedValueDimensions.has(dimensionId) || intent === "compare" || explicitGroupingForDimension(text, matchedTerms, dimensionId));
+      const explicitGroupingDimensionIds = matchedDimensionIds.filter((dimensionId) => explicitGroupingForDimension(text, matchedTerms, dimensionId));
       const candidateDimensionIds = unique(candidate?.dimensionIds || []).map((id) => registry.getDimension(id).id)
         .filter((dimensionId) => !governedValueDimensions.has(dimensionId) || intent === "compare" || explicitGroupingForDimension(text, matchedTerms, dimensionId));
       const inheritedDimensionIds = usingInheritedMetric ? unique(priorFrame.dimensionIds || []).map((id) => registry.getDimension(id).id) : [];
       let dimensionIds = unique([
-        ...(matchedDimensionIds.length ? matchedDimensionIds : inheritedDimensionIds.length ? inheritedDimensionIds : candidateDimensionIds),
+        ...(explicitGroupingDimensionIds.length ? explicitGroupingDimensionIds : matchedDimensionIds.length ? matchedDimensionIds : inheritedDimensionIds.length ? inheritedDimensionIds : candidateDimensionIds),
         intent === "rank" && /高频|模块|ECU/i.test(text) ? "product.ecu" : null,
         ...(intent === "compare" ? governedValueFilters.filter((item) => item.values.length >= 2).map((item) => item.dimensionId) : []),
       ]);
@@ -379,6 +383,9 @@ export function createSemanticResolver({ registry, now = () => new Date().toISOS
 
       const maximumLimit = registry.getConstraint("query.max_limit").parameters.maximum;
       const timeSeries = intent === "trend" || comparison?.kind === "time_periods" || comparisonTrend;
+      const recentRecordList = intent === "list"
+        && defaultTimeDimension
+        && /(?:最近|近期|近来|recent(?:ly)?|last\s+week)/i.test(text);
       const frame = validateSemanticFrame({
         schemaVersion: "1.0",
         ontologyVersion: registry.version,
@@ -394,7 +401,9 @@ export function createSemanticResolver({ registry, now = () => new Date().toISOS
         comparison,
         sort: timeSeries && defaultTimeDimension
           ? [{ fieldId: defaultTimeDimension, direction: "asc" }]
-          : intent === "rank" && metricIds[0] ? [{ fieldId: metricIds[0], direction: "desc" }] : [],
+          : intent === "rank" && metricIds[0]
+            ? [{ fieldId: metricIds[0], direction: "desc" }]
+            : recentRecordList ? [{ fieldId: defaultTimeDimension, direction: "desc" }] : [],
         limit: timeSeries ? maximumLimit : topLimit(text, maximumLimit),
         ambiguities: [...ambiguitiesByCode.values()],
         assumptions,

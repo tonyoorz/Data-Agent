@@ -21,6 +21,24 @@ describe("Ontology time resolver", () => {
     ]);
   });
 
+  it("defaults bare recent wording to the latest seven calendar days", () => {
+    const recentAnchor = "2026-08-06T07:00:00.000Z";
+    const result = resolveTimeScopes({ query: "最近出现的严重缺陷", fieldId, anchorAt: recentAnchor });
+
+    expect(result.timeScopes).toEqual([
+      {
+        role: "primary",
+        fieldId,
+        start: "2026-07-31",
+        end: "2026-08-06",
+        timezone: "Asia/Shanghai",
+        relativeText: "最近7天",
+        anchorAt: recentAnchor,
+      },
+    ]);
+    expect(result.assumptions).toEqual(["RECENT_DEFAULTS_TO_LAST_7_DAYS"]);
+  });
+
   it("resolves previous calendar week and month without model-generated dates", () => {
     expect(resolveTimeScopes({ query: "上周缺陷", fieldId, anchorAt }).timeScopes[0]).toMatchObject({ start: "2026-07-06", end: "2026-07-12" });
     expect(resolveTimeScopes({ query: "上月缺陷", fieldId, anchorAt }).timeScopes[0]).toMatchObject({ start: "2026-06-01", end: "2026-06-30" });

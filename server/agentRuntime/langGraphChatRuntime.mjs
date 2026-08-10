@@ -47,6 +47,7 @@ const ChatState = Annotation.Root({
   defectContext: Annotation({ reducer: overwrite, default: () => null }),
   toolRouting: Annotation({ reducer: overwrite, default: () => null }),
   plannedToolCalls: Annotation({ reducer: overwrite, default: () => [] }),
+  plannedToolCallSource: Annotation({ reducer: overwrite, default: () => "" }),
   toolStepIndex: Annotation({ reducer: overwrite, default: () => 0 }),
   stoppedReason: Annotation({ reducer: overwrite, default: () => "" }),
   directResponse: Annotation({ reducer: overwrite, default: () => null }),
@@ -170,6 +171,139 @@ function ensureAbortSignalCompatibility() {
 
 function mergeContext(...parts) {
   return parts.filter(Boolean).join("\n\n");
+}
+
+function isRecord(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function canonicalJson(value) {
+  if (Array.isArray(value)) {
+    return `[${value.map(canonicalJson).join(",")}]`;
+  }
+  if (isRecord(value)) {
+    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(value[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function toolCallSignature(toolCall) {
+  const toolName = String(toolCall?.function?.name || "").trim();
+  if (!toolName) {
+    return "";
+  }
+  const rawArguments = toolCall?.function?.arguments;
+  if (typeof rawArguments === "string") {
+    try {
+      return `${toolName}:${canonicalJson(JSON.parse(rawArguments))}`;
+    } catch {
+      return `${toolName}:${JSON.stringify(rawArguments)}`;
+    }
+  }
+  return `${toolName}:${canonicalJson(rawArguments ?? {})}`;
+}
+
+function removeRepeatedToolCalls(plannedToolCalls, priorToolCalls) {
+  const signatures = new Set((Array.isArray(priorToolCalls) ? priorToolCalls : [])
+    .map(toolCallSignature)
+    .filter(Boolean));
+  let removedDuplicate = false;
+  const uniqueToolCalls = [];
+
+  for (const toolCall of Array.isArray(plannedToolCalls) ? plannedToolCalls : []) {
+    const signature = toolCallSignature(toolCall);
+    if (signature && signatures.has(signature)) {
+      removedDuplicate = true;
+      continue;
+    }
+    if (signature) {
+      signatures.add(signature);
+    }
+    uniqueToolCalls.push(toolCall);
+  }
+
+  return { uniqueToolCalls, removedDuplicate };
+}
+
+function parseToolCallArguments(toolCall) {
+  const rawArguments = toolCall?.function?.arguments;
+  if (isRecord(rawArguments)) {
+    return rawArguments;
+  }
+  try {
+    const parsed = JSON.parse(String(rawArguments || "{}"));
+    return isRecord(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function isCompletedTopIssueGrowthRank(toolCall, result) {
+  if (toolCall?.function?.name !== "query_analytics" || hasEmptyAnalyticsResult(toolCall, result)) {
+    return false;
+  }
+  let payload = {};
+  try {
+    payload = JSON.parse(String(result?.toolMessage?.content || "{}"));
+  } catch {
+    return false;
+  }
+  if (payload?.ok !== true) {
+    return false;
+  }
+
+  const query = parseToolCallArguments(toolCall);
+  const dimensions = Array.isArray(query.dimensions) ? query.dimensions : [];
+  const derivedMetrics = Array.isArray(query.derived_metrics) ? query.derived_metrics : [];
+  const orderBy = Array.isArray(query.order_by) ? query.order_by : [];
+  const ordersByDeltaDescending = orderBy.some((order) => order?.field === "delta" && order?.direction === "desc");
+  return query.dataset === "defects"
+    && query.intent === "rank"
+    && dimensions.includes("business_module")
+    && derivedMetrics.includes("delta")
+    && derivedMetrics.includes("growth_pct")
+    && ordersByDeltaDescending;
+}
+
+function buildReadySemanticPlanToolCalls({ analyticsContext, actorScope, selectedToolset } = {}) {
+  const analysisPlan = governedAnalysisAuditFromContext(analyticsContext);
+  const queryPlan = analyticsContext?.queryPlan;
+  const actorScopeHash = String(actorScope?.scopeHash || "");
+  if (
+    analysisPlan?.status !== "ready"
+    || queryPlan?.status !== "valid"
+    || !actorScopeHash
+    || String(queryPlan?.actorScopeHash || "") !== actorScopeHash
+    || String(analysisPlan?.sourcePlanId || "") !== String(queryPlan?.planId || "")
+  ) {
+    return [];
+  }
+
+  const semanticSteps = (Array.isArray(queryPlan?.steps) ? queryPlan.steps : [])
+    .filter((step) => isRecord(step?.canonicalArgs)
+      && isRecord(step?.canonicalArgs?.query)
+      && ((step?.operation === "semantic_metric_query" && step?.toolName === "query_semantic_metrics")
+        || (step?.operation === "semantic_record_query" && step?.toolName === "query_semantic_records")));
+  if (semanticSteps.length !== 1) {
+    return [];
+  }
+
+  const step = semanticSteps[0];
+  if (!isToolAllowed(step.toolName, selectedToolset)) {
+    return [];
+  }
+  const stepId = String(step?.stepId || "").trim();
+  if (!stepId) {
+    return [];
+  }
+  return [{
+    id: `${queryPlan.planId}-${stepId}`,
+    type: "function",
+    function: {
+      name: step.toolName,
+      arguments: JSON.stringify(step.canonicalArgs),
+    },
+  }];
 }
 
 function toolAuditsFromContext(mainAgentToolContext, { runId, threadId, actorScope }) {
@@ -519,6 +653,19 @@ export function createLangGraphChatRuntime({
     const events = Number(state.toolStepIndex || 0) === 0
       ? [emit(config, { type: "tool-planning-started", threadId: state.threadId })]
       : [];
+    const governedPlanToolCalls = buildReadySemanticPlanToolCalls({
+      analyticsContext: state.analyticsContext,
+      actorScope: state.actorScope,
+      selectedToolset,
+    });
+    if (governedPlanToolCalls.length) {
+      return {
+        plannedToolCalls: governedPlanToolCalls,
+        plannedToolCallSource: "governed_semantic_plan",
+        stoppedReason: "",
+        runtimeEvents: events,
+      };
+    }
     const planningResult = await requestToolCompletion({
       messages: [
         ...(Array.isArray(body?.messages) ? body.messages : []),
@@ -534,16 +681,19 @@ export function createLangGraphChatRuntime({
       tools: selectedToolset.tools,
       toolChoice: "auto",
     });
-    const plannedToolCalls = Array.isArray(planningResult.toolCalls) ? planningResult.toolCalls.slice(0, 3) : [];
+    const modelToolCalls = Array.isArray(planningResult.toolCalls) ? planningResult.toolCalls.slice(0, 3) : [];
+    const { uniqueToolCalls: plannedToolCalls, removedDuplicate } = removeRepeatedToolCalls(modelToolCalls, state.toolCalls);
     if (!plannedToolCalls.length) {
       return {
         plannedToolCalls: [],
-        stoppedReason: "no_tool_calls",
+        plannedToolCallSource: "",
+        stoppedReason: removedDuplicate ? "duplicate_tool_call" : "no_tool_calls",
         runtimeEvents: events,
       };
     }
     return {
       plannedToolCalls,
+      plannedToolCallSource: "model",
       stoppedReason: "",
       runtimeEvents: events,
     };
@@ -629,6 +779,10 @@ export function createLangGraphChatRuntime({
       if (stoppedReason) {
         break;
       }
+      if (isCompletedTopIssueGrowthRank(toolCall, result)) {
+        stoppedReason = "top_issue_growth_rank_completed";
+        break;
+      }
       if (hasEmptyAnalyticsResult(toolCall, result) && !hasPlannedDiagnosis(allToolCalls)) {
         const diagnosisToolCall = buildEmptyDiagnosisToolCall(toolCall);
         allToolCalls.push(diagnosisToolCall);
@@ -681,7 +835,6 @@ export function createLangGraphChatRuntime({
     );
     const finalMessages = [
       ...(Array.isArray(body?.messages) ? body.messages : []),
-      ...(mainAgentToolContext?.toolConversationMessages || []),
     ];
     const prefaceEvents = [
       ...(mainAgentToolContext?.toolEvents || []),
@@ -732,6 +885,9 @@ export function createLangGraphChatRuntime({
   }
 
   function routeAfterToolExecution(state) {
+    if (state.plannedToolCallSource === "governed_semantic_plan") {
+      return "finalize";
+    }
     return state.stoppedReason ? "finalize" : "plan_tool_calls";
   }
 

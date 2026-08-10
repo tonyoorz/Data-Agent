@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from backend.analytics.agent_actor_capability import (
     ActorCapabilityError,
     enforce_defect_query_scope,
+    enforce_testing_team_fv_analysis_scope,
     get_agent_actor_capability_secret,
     verify_actor_capability_header,
 )
@@ -26,6 +27,7 @@ from backend.analytics.read_models import (
     build_full_picture_payload,
     build_full_picture_summary_payload,
     build_long_runner_analysis_payload,
+    build_recent_defects_payload,
     build_top_issue_analysis_payload,
     build_testing_summary,
     list_full_picture_ticket_rows,
@@ -166,6 +168,38 @@ def full_picture_defect_high_frequency_analysis(request: Request) -> JSONRespons
     return JSONResponse(status_code=200, content=payload)
 
 
+@app.get("/api/full-picture/recent-defects")
+def full_picture_recent_defects(
+    request: Request,
+    days: int = Query(default=7, ge=1, le=90),
+    team: str | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+) -> JSONResponse:
+    """Return defects created within the last ``days`` days, optional team filter."""
+    forwarded = _full_picture_query_params(request)
+    # These are handled as explicit params above; drop them so they don't collide.
+    for reserved in ("days", "team", "page", "page_size"):
+        forwarded.pop(reserved, None)
+    try:
+        payload = build_recent_defects_payload(
+            days=days,
+            team=team,
+            page=page,
+            page_size=page_size,
+            **forwarded,
+        )
+    except FullPictureDashboardDataError:
+        return JSONResponse(
+            status_code=503,
+            content={"error": "analytics database not initialized"},
+        )
+    except FullPictureDashboardRequestError as exc:
+        status_code = 409 if "snapshot" in str(exc).lower() else 400
+        return JSONResponse(status_code=status_code, content={"error": str(exc)})
+    return JSONResponse(status_code=200, content=payload)
+
+
 @app.post("/api/analytics/defects/aggregate")
 async def analytics_defects_aggregate(request: Request) -> JSONResponse:
     try:
@@ -261,6 +295,21 @@ async def agent_analytics_defects_records(request: Request) -> JSONResponse:
             content={"error": "analytics database not initialized"},
         )
     except (FullPictureDashboardRequestError, ValueError):
+        return _agent_analytics_schema_error_response()
+    return JSONResponse(status_code=200, content=payload)
+
+
+@app.post("/api/agent/analytics/testing/team-fv-analysis")
+async def agent_testing_team_fv_analysis(request: Request) -> JSONResponse:
+    try:
+        actor = verify_actor_capability_header(request.headers)
+        raw_payload = await request.json()
+        scoped_payload = enforce_testing_team_fv_analysis_scope(raw_payload, actor)
+        team = str(scoped_payload.pop("team"))
+        payload = build_test_team_analysis_payload(team, {**scoped_payload, "group_by": "fv"})
+    except ActorCapabilityError as exc:
+        return _agent_capability_error_response(exc)
+    except (ValueError, TypeError):
         return _agent_analytics_schema_error_response()
     return JSONResponse(status_code=200, content=payload)
 

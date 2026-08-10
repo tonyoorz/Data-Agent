@@ -74,7 +74,7 @@ $env:VIZION_AGENT_RUNTIME_STORE_DIR = "D:\vizion-agent-runtime"
 
 ## Internal Deployment Principal
 
-The current LAN deployment uses one server-owned principal rather than a user/RBAC subsystem. By default it can query the governed defect, testcase, test-run, and AIDA object types without adding a team or project restriction. Optional environment variables narrow that shared principal:
+The current LAN deployment uses one server-owned principal rather than a user/RBAC subsystem. Agent-only defect routes require this principal to carry at least one team, project, or workspace row scope. `npm run dev` supplies `DTSV_China` plus the read-only `agent.operations.read` policy only for its trusted local bootstrap; shared deployments must configure both scopes explicitly. Environment variables define that principal:
 
 ```powershell
 $env:VIZION_INTERNAL_ACTOR_ID = "vizion-internal"
@@ -83,7 +83,7 @@ $env:VIZION_INTERNAL_PROJECT_IDS = "project-a"
 $env:VIZION_INTERNAL_TEAM_IDS = "DTSV_China"
 $env:VIZION_INTERNAL_ALLOWED_OBJECT_TYPES = "quality.defect,testing.test_case,testing.test_run,requirements.aida_node"
 $env:VIZION_INTERNAL_ALLOWED_PROPERTY_IDS = ""
-$env:VIZION_INTERNAL_ROW_POLICY_IDS = ""
+$env:VIZION_INTERNAL_ROW_POLICY_IDS = "agent.operations.read"
 $env:VIZION_INTERNAL_SENSITIVE_FIELD_POLICY_IDS = ""
 ```
 

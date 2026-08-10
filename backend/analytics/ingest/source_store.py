@@ -368,6 +368,26 @@ class OctaneSourceStore:
             ON octane_defect_history_events(defect_id, event_timestamp)
             """
         )
+        # Composite (defect_id, field_name) is the right access path for the
+        # heavy SEM-analysis pattern  field_name = ? AND defect_id IN (...) :
+        # it locates the few matching defect rows directly instead of scanning
+        # every row for that field_name. (defect_id is covered by the PK, but
+        # pairing it with field_name lets the planner seek both at once.)
+        self._conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_he_defect_field
+            ON octane_defect_history_events(defect_id, field_name)
+            """
+        )
+        # Covering index for the phase 02->01 fallback-transition query
+        # (field_name, old_value_text, new_value_text, event_timestamp, defect_id):
+        # serves the WHERE + DISTINCT defect_id without touching the main table.
+        self._conn.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_he_phase_transition
+            ON octane_defect_history_events(field_name, old_value_text, new_value_text, event_timestamp, defect_id)
+            """
+        )
         self._conn.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_octane_run_traceability_related

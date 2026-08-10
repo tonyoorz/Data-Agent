@@ -607,7 +607,7 @@ describe("streamCompanyChatCompletion", () => {
     expect(streamedText).toContain("SAM-HERE: 86");
   });
 
-  it("emits answer-validation before DONE when cited evidence is missing", async () => {
+  it("adds a deterministic citation footer before validating a tool-backed answer without citations", async () => {
     const encoder = new TextEncoder();
     const response = {
       writeHead: vi.fn(),
@@ -650,11 +650,12 @@ describe("streamCompanyChatCompletion", () => {
       .map(([chunk]) => Buffer.from(chunk).toString("utf8"))
       .join("");
     expect(streamedText).toContain('"type":"answer-validation"');
-    expect(streamedText).toContain("ANSWER_CITATION_REQUIRED");
+    expect(streamedText).toContain('source=\\"call-1\\"');
+    expect(streamedText).not.toContain("ANSWER_CITATION_REQUIRED");
     expect(streamedText.indexOf('"type":"answer-validation"')).toBeLessThan(streamedText.indexOf("data: [DONE]"));
     expect(onAnswerValidation).toHaveBeenCalledWith(expect.objectContaining({
-      valid: false,
-      violations: ["ANSWER_CITATION_REQUIRED"],
+      valid: true,
+      violations: [],
     }));
   });
 

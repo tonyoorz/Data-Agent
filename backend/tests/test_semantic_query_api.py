@@ -481,6 +481,57 @@ def test_approved_derive_rule_scopes_direct_semantic_record_execution(catalog, t
     assert result["businessRules"] == {"applied": ["BUSINESS_RULE_DERIVE:business.test.project_scope"]}
 
 
+def test_severe_defect_record_query_applies_classification_and_bi_definition(catalog, tmp_path: Path) -> None:
+    query = deepcopy(_payload(catalog)["query"])
+    query.update({
+        "intent": "list",
+        "metricIds": ["defect.severe_count"],
+        "dimensionIds": [],
+        "timeScopes": [{
+            "role": "primary",
+            "fieldId": "time.defect_creation_date",
+            "start": "2026-08-01",
+            "end": "2026-08-06",
+            "timezone": "Asia/Shanghai",
+            "anchorAt": "2026-08-06T07:00:00.000Z",
+        }],
+        "sort": [{"fieldId": "time.defect_creation_date", "direction": "desc"}],
+    })
+    request = _records_payload(catalog, analysis_ref=None, query=query)
+    request["selections"] = []
+    request["fields"] = ["defect_id", "name", "reporting_class", "problem_severity"]
+    request["page"] = 1
+    request["pageSize"] = 20
+
+    result = execute_semantic_records(
+        request,
+        catalog=catalog,
+        analysis_store=SemanticAnalysisStore(tmp_path / "severe-defect-records.db"),
+        defect_provider=lambda _filters: {
+            "snapshot_version": "severe-defect-1",
+            "generated_from": {},
+            "ticket_rows": [
+                {"ticket_id": "D-1", "ticket_name": "Candidate with high BI", "creation_time": "2026-08-04T09:00:00Z", "problem_finder_team": "DTSV_China", "classification": "Showstopper_Candidate", "problem_severity": "05-unsatisfactory"},
+                {"ticket_id": "D-2", "ticket_name": "Confirmed with high BI", "creation_time": "2026-08-05T09:00:00Z", "problem_finder_team": "DTSV_China", "classification": "Showstopper_Confirmed", "problem_severity": "06-customer irritated"},
+                {"ticket_id": "D-3", "ticket_name": "Candidate but low BI", "creation_time": "2026-08-06T09:00:00Z", "problem_finder_team": "DTSV_China", "classification": "Showstopper_Candidate", "problem_severity": "07-customer noticed"},
+                {"ticket_id": "D-4", "ticket_name": "Top Issue but not Showstopper", "creation_time": "2026-08-06T10:00:00Z", "problem_finder_team": "DTSV_China", "classification": "Top_Issue_Confirmed", "problem_severity": "05-unsatisfactory"},
+                {"ticket_id": "D-5", "ticket_name": "Explicit non-showstopper", "creation_time": "2026-08-06T11:00:00Z", "problem_finder_team": "DTSV_China", "classification": "No_Showstopper_Candidate", "problem_severity": "05-unsatisfactory"},
+            ],
+        },
+    )
+
+    assert result["data"] == [
+        {"defect_id": "D-2", "name": "Confirmed with high BI", "reporting_class": "Showstopper_Confirmed", "problem_severity": "06-customer irritated"},
+        {"defect_id": "D-1", "name": "Candidate with high BI", "reporting_class": "Showstopper_Candidate", "problem_severity": "05-unsatisfactory"},
+    ]
+    assert result["businessRules"] == {
+        "applied": [
+            "BUSINESS_RULE_DERIVE:business.severe_defect.business_impact",
+            "BUSINESS_RULE_DERIVE:business.severe_defect.classification",
+        ],
+    }
+
+
 def test_empty_result_is_zero_not_missing(catalog) -> None:
     result = execute_semantic_query(
         _payload(catalog),

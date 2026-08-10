@@ -23,7 +23,7 @@ export const MAIN_AGENT_INTENT_PROFILES = Object.freeze({
     reason: "testing coverage wording matched",
     requiredSlots: ["coverage_metric", "dimension", "threshold"],
     policyHints: ["use_testing_coverage_tools", "join_defect_impact_when_requested"],
-    toolNames: ["resolve_business_terms", "search_analytics_filter_values", "query_testing_coverage_project_status", "query_testing_coverage_aida_status", "query_analytics", "diagnose_analytics_empty", "query_analytics_fallback", "ask_clarification"],
+    toolNames: ["resolve_business_terms", "search_analytics_filter_values", "query_testing_coverage_project_status", "query_testing_coverage_aida_status", "query_testing_team_fv_analysis", "query_analytics", "diagnose_analytics_empty", "query_analytics_fallback", "ask_clarification"],
   },
   record_query: {
     confidence: 0.82,
@@ -115,7 +115,7 @@ export const MAIN_AGENT_TOOL_POLICIES = Object.freeze(
   }, {}),
 );
 
-const PLANNING_QUERY_RE = /\b(DTSV|QGate|Octane|ticket|work_item|dashboard|ontology|capability|available|partial|unavailable|bug|defect|issue|top\s*issue|octane_defects|solution_cluster|assigned_ecu|business_module|opened|created|raised|submitted|resolved|coverage|test|summary|count|metric|trend|growth|rising|increase|delta|duplicate|similar|write|update|delete|edit|risk|health|overview|assessment|empty\s*result|no\s*data|zero\s*rows)\b|entityType=work_item|id=\d+|本体|能力|缺陷|测试|覆盖率|多少|几个|统计|趋势|风险|健康度|当前情况|怎么看|怎么样|创建|提交|新建|解决|关闭|更新|修改|删除|写入|重复|查重|相似|模块|问题模块|上升|增长|环比|同比|根因|提票|报票|提了|数据.*(?:为空|没数据|没有数据|查不到)|为什么.*(?:为空|没数据|没有数据|查不到)|空结果/i;
+const PLANNING_QUERY_RE = /\b(DTSV|QGate|Octane|ticket|work_item|dashboard|ontology|capability|available|partial|unavailable|bug|defect|issue|top\s*issue|octane_defects|solution_cluster|assigned_ecu|business_module|opened|created|raised|submitted|resolved|coverage|test|summary|count|metric|trend|growth|rising|increase|delta|duplicate|similar|write|update|delete|edit|risk|health|overview|assessment|empty\s*result|no\s*data|zero\s*rows)\b|entityType=work_item|id=\d+|本体|能力|缺陷|测试|测试小组|执行效率|缺陷发现率|覆盖率|多少|几个|统计|趋势|风险|健康度|当前情况|怎么看|怎么样|创建|提交|新建|解决|关闭|更新|修改|删除|写入|重复|查重|相似|模块|问题模块|上升|增长|环比|同比|根因|提票|报票|提了|数据.*(?:为空|没数据|没有数据|查不到)|为什么.*(?:为空|没数据|没有数据|查不到)|空结果/i;
 
 function routeToolIntent(queryText) {
   if (/删除|更新|修改|写入|评论|comment|write|update|delete|edit/i.test(queryText)) return "action_capability";
@@ -125,11 +125,11 @@ function routeToolIntent(queryText) {
   if (/字段|API|UDF|filterable|sortable|editable|schema|field|octane_defects/i.test(queryText)) return "schema_discovery";
   if (/ontology|本体|能力|available|partial|unavailable|dry_run_only|disabled|blocked/i.test(queryText)) return "ontology_catalog";
   if (/缺陷高频|high.?frequency|缺陷.*集中|集中.*ECU/i.test(queryText)) return "high_frequency";
-  if (/覆盖率|通过率|执行率|manual[-\s]?run|coverage|pass\s*rate|execution\s*rate/i.test(queryText)) return "coverage_query";
+  if (/覆盖率|通过率|执行率|执行效率|缺陷发现率|测试小组|manual[-\s]?run|coverage|pass\s*rate|execution\s*rate/i.test(queryText)) return "coverage_query";
   if (/Full Picture|dashboard|Top Issue|long runner|page.?parity/i.test(queryText)) return "dashboard_fallback";
-  if (/列出|明细|ticket|record|drilldown|list/i.test(queryText)) return "record_query";
+  if (/列出|明细|ticket|record|drilldown|list|(?:带(?:着)?|展示|显示|返回)\s*(?:缺陷\s*)?(?:id|编号|ticket\s*id)|(?:id|编号|ticket\s*id)\s*(?:展示|列表|明细)/i.test(queryText)) return "record_query";
   if (/\b(risk|health|overview|assessment)\b|\u98ce\u9669|\u5065\u5eb7\u5ea6|\u5f53\u524d\u60c5\u51b5|\u600e\u4e48\u770b|\u600e\u4e48\u6837/i.test(queryText)) return "business_risk_assessment";
-  if (/覆盖率|通过率|执行率|manual[-\s]?run|多少|几个|统计|趋势|Top|排名|排序|低于|高于|新增|解决|关闭|增长|上升|环比|同比|提票|报票|提了|数据.*(?:为空|没数据|没有数据|查不到)|为什么.*(?:为空|没数据|没有数据|查不到)|空结果|coverage|pass\s*rate|execution\s*rate|count|metric|trend|rank|growth|delta|empty\s*result|no\s*data|zero\s*rows/i.test(queryText)) return "metric_query";
+  if (/覆盖率|通过率|执行率|执行效率|缺陷发现率|测试小组|manual[-\s]?run|多少|几个|统计|趋势|Top|排名|排序|低于|高于|新增|解决|关闭|增长|上升|环比|同比|提票|报票|提了|数据.*(?:为空|没数据|没有数据|查不到)|为什么.*(?:为空|没数据|没有数据|查不到)|空结果|coverage|pass\s*rate|execution\s*rate|count|metric|trend|rank|growth|delta|empty\s*result|no\s*data|zero\s*rows/i.test(queryText)) return "metric_query";
   return "general";
 }
 

@@ -7,7 +7,7 @@
     "dev": "node ./scripts/dev.mjs",
     "dev:analytics": "python -m uvicorn backend.analytics.api:app --host 127.0.0.1 --port 3003",
     "dev:client": "vite",
-    "dev:server": "node ./server/index.mjs",
+    "dev:server": "node ./server/devLocalApi.mjs",
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
@@ -20,6 +20,7 @@
     "ontology:compile": "node scripts/compileOntology.mjs --emit-graph",
     "ontology:graph": "node scripts/compileOntology.mjs --emit-graph",
     "ontology:check": "node scripts/compileOntology.mjs --check",
+    "ontology:sync-vault": "node scripts/sync-vault-graph.mjs",
     "test:ontology": "vitest run src/test/server/ontology && python -m pytest backend/tests/test_ontology_contract.py -q"
   },
   "dependencies": {

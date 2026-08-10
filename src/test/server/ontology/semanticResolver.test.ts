@@ -94,6 +94,29 @@ describe("Ontology semantic resolver", () => {
     });
   });
 
+  it("uses an IDCEVO project filter with an explicit defect-status grouping", () => {
+    const frame = resolver.resolve({ query: "IDCEVO 项目当前缺陷数按状态统计", actor, requestAnchorAt: anchorAt });
+
+    expect(frame).toMatchObject({
+      intent: "aggregate",
+      metricIds: ["defect.count"],
+      dimensionIds: ["quality.status"],
+    });
+    expect(frame.filters).toContainEqual({
+      dimensionId: "product.project",
+      operator: "in",
+      values: ["IDCEVO"],
+      source: "user",
+    });
+  });
+
+  it("keeps every explicitly requested grouping dimension", () => {
+    const frame = resolver.resolve({ query: "当前缺陷数按项目和状态统计", actor, requestAnchorAt: anchorAt });
+
+    expect(frame.dimensionIds).toHaveLength(2);
+    expect(frame.dimensionIds).toEqual(expect.arrayContaining(["product.project", "quality.status"]));
+  });
+
   it("clarifies a governed metric when its source lacks the requested filter", () => {
     const frame = resolver.resolve({ query: "OS9 最近四周失败 Run 数量是多少？", actor, requestAnchorAt: anchorAt });
 
@@ -191,6 +214,44 @@ describe("Ontology semantic resolver", () => {
     const frame = resolver.resolve({ query: "DTSV 本月测试执行数", actor, requestAnchorAt: anchorAt });
     expect(frame.filters).toContainEqual({ dimensionId: "org.team", operator: "in", values: ["DTSV_China"], source: "user" });
     expect(frame.filters).not.toContainEqual(expect.objectContaining({ dimensionId: "org.problem_finder_team" }));
+  });
+
+  it("resolves severe defect ID requests as governed record lists", () => {
+    const frame = resolver.resolve({
+      query: "最近7天一些严重的defect，带着id展示",
+      actor,
+      requestAnchorAt: anchorAt,
+    });
+
+    expect(frame).toMatchObject({
+      intent: "list",
+      entityIds: ["quality.defect"],
+      metricIds: ["defect.severe_count"],
+      timeScopes: [{ fieldId: "time.defect_creation_date", start: "2026-07-09", end: "2026-07-15" }],
+    });
+    expect(frame.filters).toContainEqual({
+      dimensionId: "org.problem_finder_team",
+      operator: "in",
+      values: ["DTSV_China"],
+      source: "policy",
+    });
+  });
+
+  it("defaults bare recent severe defect ID requests to seven days and newest-first records", () => {
+    const recentAnchor = "2026-08-06T07:00:00.000Z";
+    const frame = resolver.resolve({
+      query: "最近出现的一些严重的个defect，带着id展示一下。",
+      actor,
+      requestAnchorAt: recentAnchor,
+    });
+
+    expect(frame).toMatchObject({
+      intent: "list",
+      metricIds: ["defect.severe_count"],
+      timeScopes: [{ fieldId: "time.defect_creation_date", start: "2026-07-31", end: "2026-08-06" }],
+      sort: [{ fieldId: "time.defect_creation_date", direction: "desc" }],
+      assumptions: ["RECENT_DEFAULTS_TO_LAST_7_DAYS"],
+    });
   });
 
   it("inherits only validated semantic context across elliptical follow-ups", () => {

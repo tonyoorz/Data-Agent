@@ -280,6 +280,21 @@
       }
     },
     {
+      "id": "quality.business_impact",
+      "labels": {
+        "zh-CN": "业务影响（BI）",
+        "en-US": "Business Impact (BI)"
+      },
+      "entityId": "quality.defect",
+      "propertyId": "problem_severity",
+      "type": "categorical",
+      "sourceReadModel": "full_picture_outcomes",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
       "id": "quality.status",
       "labels": {
         "zh-CN": "缺陷状态",

@@ -3,11 +3,14 @@ import { spawn, spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { loadLocalEnv } from "../server/loadLocalEnv.mjs";
+
 import {
   getTerminationCommand,
   hasHealthyServiceOnPort,
   hasTcpServiceOnPort,
   hasViteDevServerOnPort,
+  resolveLocalApiEnvironment,
   waitForHealthyService,
 } from "./devHelpers.mjs";
 import { assertSupportedNodeVersion } from "./nodeVersion.mjs";
@@ -15,6 +18,8 @@ import { assertSupportedNodeVersion } from "./nodeVersion.mjs";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "..");
+loadLocalEnv();
+Object.assign(process.env, resolveLocalApiEnvironment(process.env));
 const analyticsPort = Number(process.env.VIZION_ANALYTICS_PORT || "3003");
 const apiPort = Number(process.env.VIZION_API_PORT || "3004");
 const webPort = Number(process.env.VIZION_WEB_PORT || "8080");
@@ -139,7 +144,7 @@ await launchIfNeeded({
 await launchIfNeeded({
   name: "local-api",
   command: process.execPath,
-  args: [path.join(repoRoot, "server", "index.mjs")],
+  args: [path.join(repoRoot, "server", "devLocalApi.mjs")],
   port: apiPort,
 });
 await launchIfNeeded({

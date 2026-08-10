@@ -2,6 +2,8 @@ import { EventEmitter } from "node:events";
 
 import { describe, expect, it } from "vitest";
 
+import * as devHelpers from "../../../scripts/devHelpers.mjs";
+
 import {
   getTerminationCommand,
   hasHealthyServiceOnPort,
@@ -9,6 +11,66 @@ import {
   hasViteDevServerOnPort,
   waitForHealthyService,
 } from "../../../scripts/devHelpers.mjs";
+
+describe("resolveLocalApiEnvironment", () => {
+  it("defaults an unset local API authentication mode to internal", () => {
+    expect(devHelpers.resolveLocalApiEnvironment).toBeTypeOf("function");
+    expect(devHelpers.resolveLocalApiEnvironment({})).toMatchObject({
+      VIZION_AGENT_AUTH_MODE: "internal",
+    });
+  });
+
+  it("adds an actor capability secret for the implicit local internal mode", () => {
+    const localEnv = devHelpers.resolveLocalApiEnvironment({});
+
+    expect(localEnv.VIZION_AGENT_ACTOR_CAPABILITY_SECRET).toEqual(expect.any(String));
+    expect(localEnv.VIZION_AGENT_ACTOR_CAPABILITY_SECRET.trim()).not.toBe("");
+  });
+
+  it("adds the DTSV China row scope for the implicit local internal mode", () => {
+    const localEnv = devHelpers.resolveLocalApiEnvironment({});
+
+    expect(localEnv.VIZION_INTERNAL_TEAM_IDS).toBe("DTSV_China");
+  });
+
+  it("preserves an explicitly configured local internal row scope", () => {
+    const localEnv = devHelpers.resolveLocalApiEnvironment({ VIZION_INTERNAL_PROJECT_IDS: "IDCEVO" });
+
+    expect(localEnv.VIZION_INTERNAL_PROJECT_IDS).toBe("IDCEVO");
+    expect(localEnv.VIZION_INTERNAL_TEAM_IDS).toBeUndefined();
+  });
+
+  it("adds the operations read policy for the implicit local internal mode", () => {
+    const localEnv = devHelpers.resolveLocalApiEnvironment({});
+
+    expect(localEnv.VIZION_INTERNAL_ROW_POLICY_IDS).toBe("agent.operations.read");
+  });
+
+  it("preserves an explicitly configured local internal row policy", () => {
+    const localEnv = devHelpers.resolveLocalApiEnvironment({ VIZION_INTERNAL_ROW_POLICY_IDS: "quality-readonly" });
+
+    expect(localEnv.VIZION_INTERNAL_ROW_POLICY_IDS).toBe("quality-readonly");
+  });
+
+  it("does not add a development actor capability secret to explicit OIDC mode", () => {
+    const localEnv = devHelpers.resolveLocalApiEnvironment({ VIZION_AGENT_AUTH_MODE: "oidc" });
+
+    expect(localEnv.VIZION_AGENT_ACTOR_CAPABILITY_SECRET).toBeUndefined();
+    expect(localEnv.VIZION_INTERNAL_ROW_POLICY_IDS).toBeUndefined();
+  });
+
+  it("treats a blank local API authentication mode as unset", () => {
+    expect(devHelpers.resolveLocalApiEnvironment({ VIZION_AGENT_AUTH_MODE: "   " })).toMatchObject({
+      VIZION_AGENT_AUTH_MODE: "internal",
+    });
+  });
+
+  it.each(["oidc", "internal"])("preserves the explicitly configured %s local API authentication mode", (authMode) => {
+    expect(devHelpers.resolveLocalApiEnvironment({ VIZION_AGENT_AUTH_MODE: authMode })).toMatchObject({
+      VIZION_AGENT_AUTH_MODE: authMode,
+    });
+  });
+});
 
 describe("getTerminationCommand", () => {
   it("uses taskkill tree termination on Windows", () => {

@@ -1,4 +1,34 @@
+import { randomBytes } from "node:crypto";
 import net from "node:net";
+
+const LOCAL_INTERNAL_ROW_SCOPE_KEYS = [
+  "VIZION_INTERNAL_TEAM_IDS",
+  "VIZION_INTERNAL_PROJECT_IDS",
+  "VIZION_INTERNAL_WORKSPACE_IDS",
+];
+const LOCAL_INTERNAL_ROW_POLICY = "agent.operations.read";
+
+export function resolveLocalApiEnvironment(env = process.env) {
+  const authMode = String(env?.VIZION_AGENT_AUTH_MODE || "").trim();
+  const localEnv = {
+    ...env,
+    VIZION_AGENT_AUTH_MODE: authMode || "internal",
+  };
+  const isInternalMode = localEnv.VIZION_AGENT_AUTH_MODE.toLowerCase() === "internal";
+  const capabilitySecret = String(env?.VIZION_AGENT_ACTOR_CAPABILITY_SECRET || "").trim();
+  if (isInternalMode && !capabilitySecret) {
+    localEnv.VIZION_AGENT_ACTOR_CAPABILITY_SECRET = randomBytes(32).toString("base64url");
+  }
+  const hasRowScope = LOCAL_INTERNAL_ROW_SCOPE_KEYS.some((key) => String(env?.[key] || "").trim());
+  if (isInternalMode && !hasRowScope) {
+    localEnv.VIZION_INTERNAL_TEAM_IDS = "DTSV_China";
+  }
+  const rowPolicyIds = String(env?.VIZION_INTERNAL_ROW_POLICY_IDS || "").trim();
+  if (isInternalMode && !rowPolicyIds) {
+    localEnv.VIZION_INTERNAL_ROW_POLICY_IDS = LOCAL_INTERNAL_ROW_POLICY;
+  }
+  return localEnv;
+}
 
 export function getTerminationCommand(platform, pid, signal = "SIGTERM") {
   if (!Number.isInteger(pid) || pid <= 0) {

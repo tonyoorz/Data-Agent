@@ -60,7 +60,7 @@ const ajv = new Ajv2020({ allErrors: true, strict: true });
 const validate = ajv.compile(queryPlanSchema);
 
 const DEFAULT_RECORD_FIELDS = Object.freeze({
-  "quality.defect": ["defect_id", "name", "status", "assigned_ecu", "problem_finder_team", "creation_time"],
+  "quality.defect": ["defect_id", "name", "status", "assigned_ecu", "problem_finder_team", "creation_time", "reporting_class", "problem_severity"],
   "testing.test_run": ["mr_id", "test_id", "test_name", "status", "team", "finished"],
   "testing.test_case": ["test_id", "test_name", "project", "pu", "aida", "trace_status"],
 });

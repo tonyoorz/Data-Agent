@@ -292,6 +292,73 @@
       "id": "business.defect_created_count.creation_time",
       "kind": "require",
       "version": "1.0.0"
+    },
+    {
+      "appliesTo": {
+        "intents": [
+          "aggregate",
+          "trend",
+          "compare",
+          "rank",
+          "list",
+          "drilldown"
+        ],
+        "metricIds": [
+          "defect.severe_count"
+        ]
+      },
+      "effect": {
+        "derivedFilter": {
+          "dimensionId": "quality.business_impact",
+          "operator": "in",
+          "values": [
+            "04-deficient",
+            "05-unsatisfactory",
+            "06-customer irritated"
+          ]
+        },
+        "message": "Severe defects use approved BI levels from deficient through customer irritated."
+      },
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "business.severe_defect.business_impact",
+      "kind": "derive",
+      "version": "1.0.0"
+    },
+    {
+      "appliesTo": {
+        "intents": [
+          "aggregate",
+          "trend",
+          "compare",
+          "rank",
+          "list",
+          "drilldown"
+        ],
+        "metricIds": [
+          "defect.severe_count"
+        ]
+      },
+      "effect": {
+        "derivedFilter": {
+          "dimensionId": "quality.reporting_class",
+          "operator": "in",
+          "values": [
+            "Showstopper_Candidate",
+            "Showstopper_Confirmed"
+          ]
+        },
+        "message": "Severe defects use approved Showstopper candidate or confirmed classification."
+      },
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "business.severe_defect.classification",
+      "kind": "derive",
+      "version": "1.0.0"
     }
   ],
   "compilerVersion": "ontology-compiler-v1",
@@ -570,6 +637,21 @@
         "zh-CN": "阻塞原因"
       },
       "propertyId": "blocking_reason",
+      "sourceReadModel": "full_picture_outcomes",
+      "type": "categorical"
+    },
+    {
+      "entityId": "quality.defect",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "quality.business_impact",
+      "labels": {
+        "en-US": "Business Impact (BI)",
+        "zh-CN": "业务影响（BI）"
+      },
+      "propertyId": "problem_severity",
       "sourceReadModel": "full_picture_outcomes",
       "type": "categorical"
     },
@@ -3600,6 +3682,7 @@
         "requirements.aida",
         "quality.phase",
         "quality.severity",
+        "quality.business_impact",
         "quality.status",
         "quality.china_scope",
         "quality.solution_cluster",
@@ -3650,6 +3733,7 @@
         "requirements.aida",
         "quality.phase",
         "quality.severity",
+        "quality.business_impact",
         "quality.china_scope",
         "quality.solution_cluster",
         "quality.defect_category",
@@ -4008,6 +4092,47 @@
       },
       "measure": "count_distinct(defect_id where approved_resolved_rule)",
       "missingDataPolicy": "preserve_missing",
+      "requiredFilters": [],
+      "sourceReadModel": "full_picture_outcomes",
+      "sourceRevisionStrategy": "snapshot",
+      "unit": "count"
+    },
+    {
+      "allowedDimensions": [
+        "time.defect_creation_date",
+        "org.problem_finder_team",
+        "product.project",
+        "product.pu",
+        "product.ecu",
+        "quality.phase",
+        "quality.business_impact",
+        "quality.reporting_class",
+        "quality.status",
+        "quality.solution_cluster",
+        "quality.defect_category",
+        "vehicle.lead_model"
+      ],
+      "capabilities": {
+        "comparison": true,
+        "ranking": true,
+        "trend": true
+      },
+      "defaultTimeDimension": "time.defect_creation_date",
+      "definitionVersion": "1.0.0",
+      "description": "受治理的严重缺陷：Defect Classification 为 Showstopper_Candidate 或 Showstopper_Confirmed，且业务影响（BI）为 04-deficient、05-unsatisfactory 或 06-customer irritated。不是通用 Critical/Major 枚举。",
+      "entityId": "quality.defect",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "grain": "one defect satisfying the approved Showstopper and BI severity definition",
+      "id": "defect.severe_count",
+      "labels": {
+        "en-US": "Severe Defect Count",
+        "zh-CN": "严重缺陷数"
+      },
+      "measure": "count_distinct(defect_id WHERE classification IN ('Showstopper_Candidate', 'Showstopper_Confirmed') AND problem_severity IN ('04-deficient', '05-unsatisfactory', '06-customer irritated'))",
+      "missingDataPolicy": "zero_when_empty_result",
       "requiredFilters": [],
       "sourceReadModel": "full_picture_outcomes",
       "sourceRevisionStrategy": "snapshot",
@@ -6296,7 +6421,9 @@
       "phrases": [
         "报告类别",
         "reporting class",
-        "上报类别"
+        "上报类别",
+        "defect classification",
+        "classification"
       ],
       "resolution": {
         "dimensionId": "quality.reporting_class",
@@ -6386,6 +6513,44 @@
       "resolution": {
         "dimensionId": "requirements.aida",
         "entityId": "requirements.aida_node"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "dimension.business_impact",
+      "kind": "alias",
+      "phrases": [
+        "BI",
+        "业务影响",
+        "business impact",
+        "problem severity"
+      ],
+      "resolution": {
+        "dimensionId": "quality.business_impact",
+        "entityId": "quality.defect"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "dimension.defect_status",
+      "kind": "alias",
+      "phrases": [
+        "缺陷状态",
+        "按状态",
+        "状态统计",
+        "defect status",
+        "by status",
+        "grouped by status"
+      ],
+      "resolution": {
+        "dimensionId": "quality.status",
+        "entityId": "quality.defect"
       }
     },
     {
@@ -6916,6 +7081,29 @@
     },
     {
       "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "metric.severe_defects",
+      "kind": "synonym",
+      "phrases": [
+        "严重缺陷",
+        "严重的缺陷",
+        "严重 defect",
+        "严重的defect",
+        "严重的 defect",
+        "严重的个defect",
+        "高影响缺陷",
+        "high impact defect",
+        "high-impact defect"
+      ],
+      "resolution": {
+        "entityId": "quality.defect",
+        "metricId": "defect.severe_count"
+      }
+    },
+    {
+      "governance": {
         "owner": "Testing Analytics",
         "status": "approved"
       },
@@ -6947,6 +7135,21 @@
       "resolution": {
         "entityId": "testing.test_case",
         "metricId": "testing.testcase_count"
+      }
+    },
+    {
+      "governance": {
+        "owner": "Product Analytics",
+        "status": "approved"
+      },
+      "id": "project.idcevo",
+      "kind": "enum_value",
+      "phrases": [
+        "IDCEVO"
+      ],
+      "resolution": {
+        "dimensionId": "product.project",
+        "filterValue": "IDCEVO"
       }
     },
     {

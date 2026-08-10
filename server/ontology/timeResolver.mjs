@@ -97,7 +97,8 @@ export function resolveTimeScopes({ query, fieldId, anchorAt }) {
   }
 
   const recentMatch = /最近\s*([一二两三四五六七八九十十二\d]+)\s*(天|周|个?月)|近\s*([一二两三四五六七八九十十二\d]+)\s*(天|周|个?月)|(?:last|recent)\s+(\d+)\s+(days?|weeks?|months?)/i.exec(text);
-  if (recentMatch || /最近一周|近一周|last\s+week/i.test(text)) {
+  const bareRecent = !recentMatch && /(?:最近|近期|近来|recent(?:ly)?)/i.test(text);
+  if (recentMatch || /最近一周|近一周|last\s+week/i.test(text) || bareRecent) {
     const rawCount = recentMatch?.[1] || recentMatch?.[3] || recentMatch?.[5] || "1";
     const unit = recentMatch?.[2] || recentMatch?.[4] || recentMatch?.[6] || "周";
     const count = Math.max(1, parsedCount(rawCount));
@@ -109,8 +110,8 @@ export function resolveTimeScopes({ query, fieldId, anchorAt }) {
     }
     const days = /周|week/i.test(unit) ? count * 7 : count;
     return {
-      timeScopes: [makeScope({ fieldId, start: addDays(anchorDate, -(days - 1)), end: anchorDate, anchorAt, relativeText: recentMatch?.[0] || "最近一周" })],
-      assumptions: [],
+      timeScopes: [makeScope({ fieldId, start: addDays(anchorDate, -(days - 1)), end: anchorDate, anchorAt, relativeText: recentMatch?.[0] || (bareRecent ? "最近7天" : "最近一周") })],
+      assumptions: bareRecent ? ["RECENT_DEFAULTS_TO_LAST_7_DAYS"] : [],
     };
   }
 

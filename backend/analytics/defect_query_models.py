@@ -359,18 +359,21 @@ def _normalize_order_by(order_by: Any) -> list[dict[str, str]]:
     return normalized or [{"field": "defect_count", "direction": "desc"}]
 
 
+def _order_value(value: Any) -> tuple[int, Any]:
+    if isinstance(value, (int, float)):
+        return (0, value)
+    return (1, read_models._sortable_value(value))
+
+
 def _sort_rows(rows: list[dict[str, Any]], order_by: list[dict[str, str]], dimensions: list[str]) -> list[dict[str, Any]]:
     ordered = list(rows)
     tie_field = dimensions[0] if dimensions else "scope"
-    for order in reversed(order_by):
-        field = order["field"]
-        reverse = order["direction"] == "desc"
-        ordered.sort(key=lambda row: row.get(field) if isinstance(row.get(field), (int, float)) else read_models._sortable_value(row.get(field)), reverse=reverse)
     ordered.sort(key=lambda row: read_models._sortable_value(row.get(tie_field)))
     for order in reversed(order_by):
         field = order["field"]
         reverse = order["direction"] == "desc"
-        ordered.sort(key=lambda row: row.get(field) if isinstance(row.get(field), (int, float)) else read_models._sortable_value(row.get(field)), reverse=reverse)
+        ordered.sort(key=lambda row: _order_value(row.get(field)), reverse=reverse)
+        ordered.sort(key=lambda row: row.get(field) is None)
     return ordered
 
 

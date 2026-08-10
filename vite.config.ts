@@ -11,7 +11,7 @@ export default defineConfig(({ mode }) => ({
     port: 8080,
     strictPort: true,
     watch: {
-      ignored: ["**/.worktrees/**", "**/dist/**", "**/src/test/**"],
+      ignored: ["**/.worktrees/**", "**/.venv/**", "**/dist/**", "**/src/test/**"],
     },
     hmr: {
       overlay: false,
@@ -40,6 +40,9 @@ export default defineConfig(({ mode }) => ({
     },
   },
   plugins: [react(), mode === "development" && componentTagger()].filter(Boolean),
+  optimizeDeps: {
+    entries: ["index.html"],
+  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

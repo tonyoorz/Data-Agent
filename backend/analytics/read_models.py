@@ -2771,3 +2771,58 @@ def build_defect_test_correlation(defect_id: str) -> dict[str, object]:
             test_ids.append(row["test_id"])
 
     return {"defect_id": defect_id, "test_ids": test_ids}
+
+
+def _resolve_recent_defects_date_range(days: int, *, reference_date: str = "") -> tuple[str, str]:
+    """Return the [start, end] ISO date window for the last ``days`` days.
+
+    ``reference_date`` is a YYYY-MM-DD anchor used by tests for deterministic
+    output; in production it defaults to today (UTC).
+    """
+    anchor = _parse_iso_date_value(reference_date)
+    if anchor is None:
+        anchor = datetime.now(timezone.utc).date()
+    window = max(int(days), 1)
+    start_date = anchor - timedelta(days=window - 1)
+    return start_date.isoformat(), anchor.isoformat()
+
+
+def build_recent_defects_payload(
+    *,
+    days: int = 7,
+    team: str | None = None,
+    page: int = 1,
+    page_size: int = 50,
+    reference_date: str = "",
+    **kwargs: Any,
+) -> dict[str, Any]:
+    """Return defects created within the last ``days`` days, optionally by team.
+
+    Reuses the governed dashboard snapshot path so the result is consistent
+    with ``/api/full-picture/dashboard/tickets`` (same snapshot version,
+    pagination, and creation-time filtering semantics).
+    """
+    creation_time_start, creation_time_end = _resolve_recent_defects_date_range(
+        days,
+        reference_date=reference_date,
+    )
+    team_filter = str(team or "").strip()
+    extra_filters: dict[str, Any] = {
+        "creation_time_start": creation_time_start,
+        "creation_time_end": creation_time_end,
+        "page": page,
+        "page_size": page_size,
+    }
+    if team_filter:
+        extra_filters["problem_finder_teams"] = (team_filter,)
+    extra_filters.update(kwargs)
+
+    payload = list_full_picture_ticket_rows(**extra_filters)
+    payload["date_range"] = {
+        "days": max(int(days), 1),
+        "creation_time_start": creation_time_start,
+        "creation_time_end": creation_time_end,
+    }
+    if team_filter:
+        payload["team"] = team_filter
+    return payload

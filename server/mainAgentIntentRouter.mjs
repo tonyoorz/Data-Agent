@@ -93,11 +93,11 @@ function routeToolIntent(queryText) {
   if (/字段|API|UDF|filterable|sortable|editable|schema|field|octane_defects/i.test(queryText)) return "schema_discovery";
   if (/ontology|本体|能力|available|partial|unavailable|dry_run_only|disabled|blocked/i.test(queryText)) return "ontology_catalog";
   if (/缺陷高频|high.?frequency|缺陷.*集中|集中.*ECU/i.test(queryText)) return "high_frequency";
-  if (/覆盖率|通过率|执行率|manual[-\s]?run|coverage|pass\s*rate|execution\s*rate/i.test(queryText)) return "coverage_query";
+  if (/覆盖率|通过率|执行率|执行效率|缺陷发现率|测试小组|manual[-\s]?run|coverage|pass\s*rate|execution\s*rate/i.test(queryText)) return "coverage_query";
   if (/Full Picture|dashboard|Top Issue|long runner|page.?parity/i.test(queryText)) return "dashboard_fallback";
-  if (/列出|明细|ticket|record|drilldown|list/i.test(queryText)) return "record_query";
+  if (/列出|明细|ticket|record|drilldown|list|(?:带(?:着)?|展示|显示|返回)\s*(?:缺陷\s*)?(?:id|编号|ticket\s*id)|(?:id|编号|ticket\s*id)\s*(?:展示|列表|明细)/i.test(queryText)) return "record_query";
   if (/\b(risk|health|overview|assessment)\b|风险|健康度|当前情况|怎么看|怎么样/i.test(queryText)) return "business_risk_assessment";
-  if (/覆盖率|通过率|执行率|manual[-\s]?run|多少|几个|统计|趋势|Top|排名|排序|低于|高于|新增|解决|关闭|增长|上升|环比|同比|提票|报票|提了|数据.*(?:为空|没数据|没有数据|查不到)|为什么.*(?:为空|没数据|没有数据|查不到)|空结果|coverage|pass\s*rate|execution\s*rate|count|metric|trend|rank|growth|delta|empty\s*result|no\s*data|zero\s*rows/i.test(queryText)) return "metric_query";
+  if (/覆盖率|通过率|执行率|执行效率|缺陷发现率|测试小组|manual[-\s]?run|多少|几个|统计|趋势|Top|排名|排序|低于|高于|新增|解决|关闭|增长|上升|环比|同比|提票|报票|提了|数据.*(?:为空|没数据|没有数据|查不到)|为什么.*(?:为空|没数据|没有数据|查不到)|空结果|coverage|pass\s*rate|execution\s*rate|count|metric|trend|rank|growth|delta|empty\s*result|no\s*data|zero\s*rows/i.test(queryText)) return "metric_query";
   return "general";
 }
 

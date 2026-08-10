@@ -43,6 +43,15 @@ describe("main agent tool loop", () => {
     expect(aidaCoverage.toolNames).toContain("query_analytics");
   });
 
+  it("routes internal test-group efficiency and defect discovery to FV coverage analysis", () => {
+    const selected = selectMainAgentToolset([
+      { role: "user", content: "对比 DTSV_China 内部测试小组的执行效率与缺陷发现率" },
+    ]);
+
+    expect(selected.intent).toBe("coverage_query");
+    expect(selected.toolNames).toContain("query_testing_team_fv_analysis");
+  });
+
   it("exposes governed fallback only for analytics toolsets", () => {
     const analyticsQueries = [
       "最近一周 DTSV 新增缺陷按 ECU Top 5",

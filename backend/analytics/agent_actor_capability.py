@@ -418,6 +418,7 @@ def verify_actor_capability_header(
 
 
 _DEFECT_OBJECT_TYPE_ALIASES = frozenset({"quality.defect", "defect", "quality-defect"})
+_TESTING_TEAM_OBJECT_TYPE_ALIASES = frozenset({"quality.defect", "defect", "quality-defect", "testing.manual_run", "manual_run"})
 
 
 def _normalize_defect_scope_team(value: str) -> str:
@@ -501,4 +502,47 @@ def enforce_defect_query_scope(raw_payload: Any, actor: Mapping[str, Any]) -> di
 
     payload = dict(raw_payload)
     payload["filters"] = filters
+    return payload
+
+
+def _normalize_team_analysis_values(value: Any) -> list[str]:
+    if isinstance(value, str):
+        raw_values = [value]
+    elif isinstance(value, list):
+        raw_values = value
+    else:
+        raise ActorCapabilityError("AGENT_TESTING_TEAM_QUERY_INVALID", 400)
+    return [_require_normalized_text(item) for item in raw_values]
+
+
+def enforce_testing_team_fv_analysis_scope(raw_payload: Any, actor: Mapping[str, Any]) -> dict[str, Any]:
+    """Validate a team-FV analysis request against the verified actor capability."""
+
+    if not isinstance(raw_payload, Mapping) or set(raw_payload) - {"team", "years", "test_weeks"}:
+        raise ActorCapabilityError("AGENT_TESTING_TEAM_QUERY_INVALID", 400)
+
+    scopes = actor.get("scopes")
+    if not isinstance(scopes, Mapping):
+        raise _invalid_capability()
+
+    allowed_object_types = scopes.get("allowedObjectTypes")
+    if not isinstance(allowed_object_types, list) or not {
+        str(value).casefold() for value in allowed_object_types
+    } & _TESTING_TEAM_OBJECT_TYPE_ALIASES:
+        raise ActorCapabilityError("ACTOR_CAPABILITY_OBJECT_SCOPE_DENIED", 403)
+
+    team = _normalize_defect_scope_team(_require_normalized_text(raw_payload.get("team")))
+    team_values = scopes.get("teamIds") or scopes.get("workspaceIds") or []
+    if not isinstance(team_values, list):
+        raise _invalid_capability()
+    allowed_teams = [_normalize_defect_scope_team(_require_normalized_text(value)) for value in team_values]
+    if not allowed_teams:
+        raise ActorCapabilityError("ACTOR_CAPABILITY_ROW_SCOPE_REQUIRED", 403)
+    if team not in allowed_teams:
+        raise ActorCapabilityError("ACTOR_CAPABILITY_SCOPE_DENIED", 403)
+
+    payload: dict[str, Any] = {"team": team}
+    for field_name in ("years", "test_weeks"):
+        if field_name in raw_payload:
+            payload[field_name] = _normalize_team_analysis_values(raw_payload[field_name])
     return payload

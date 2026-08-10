@@ -38,6 +38,8 @@ const COVERAGE_FILTER_KEYS = new Set([
   "fvs",
 ]);
 
+const COVERAGE_WEEK_RE = /^(\d{2}|\d{4})\s*-\s*(?:CW|W)\s*(\d{1,2})$/i;
+
 const STRING_OR_STRING_ARRAY_SCHEMA = {
   oneOf: [{ type: "string" }, { type: "array", items: { type: "string" } }],
 };
@@ -167,7 +169,7 @@ const SEMANTIC_RECORD_FIELD_VALUES = [
   "defect_id", "name", "creation_time", "status", "severity", "phase", "china_scope",
   "problem_finder_team", "project", "service_pack", "pu", "i_step", "os", "platform",
   "assigned_ecu", "model_series", "aida", "detected_by", "solution_cluster",
-  "defect_category", "lead_model", "market", "year", "mr_id", "test_id", "test_name",
+  "defect_category", "reporting_class", "problem_severity", "lead_model", "market", "year", "mr_id", "test_id", "test_name",
   "finished", "test_week", "tester", "team", "started", "release", "trace_status",
   "run_count", "scope_team", "scope_release",
 ];
@@ -518,6 +520,23 @@ export const MAIN_AGENT_TOOLS = [
   {
     type: "function",
     function: {
+      name: "query_testing_team_fv_analysis",
+      description: "Compare one organization team's internal manual-testing groups by FV. Use this for DTSV internal test-group comparisons; it returns each FV's executions, passed executions, distinct linked defects, pass rate, and defect discovery rate.",
+      parameters: {
+        type: "object",
+        properties: {
+          team: { type: "string", description: "Exact organization team scope, for example DTSV_China." },
+          years: STRING_OR_STRING_ARRAY_SCHEMA,
+          test_weeks: STRING_OR_STRING_ARRAY_SCHEMA,
+        },
+        required: ["team"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "get_test_case_context",
       description: "Fetch ontology-backed context for creating or extending a test case from a test_id or defect_id anchor, including tested scope, run results, traceability, gaps, and provenance.",
       parameters: {
@@ -838,6 +857,17 @@ function buildCoverageAidaStatusUrl(filters, analyticsApiBase) {
     appendFilterValue(url.searchParams, key, value);
   }
   return url.toString();
+}
+
+function normalizeCoverageWeek(value) {
+  const rawValue = String(value || "").trim();
+  const match = rawValue.match(COVERAGE_WEEK_RE);
+  if (!match) {
+    return rawValue;
+  }
+  const yearValue = Number(match[1]);
+  const year = yearValue < 100 ? 2000 + yearValue : yearValue;
+  return `${String(year).padStart(4, "0")}-CW${String(Number(match[2])).padStart(2, "0")}`;
 }
 
 function toIsoDate(date) {
@@ -1198,6 +1228,7 @@ function buildDataCatalogPayload() {
       "manual-run": { dataset: "testing_coverage" },
       "通过率": { dataset: "testing_coverage", metric: "pass_rate" },
       "执行率": { dataset: "testing_coverage", metric: "execution_rate" },
+      "测试小组": { dataset: "testing_coverage", dimension: "fv", tool: "query_testing_team_fv_analysis" },
     },
     guardrails: [
       "Use only listed filters, dimensions, and modules.",
@@ -1240,7 +1271,7 @@ function formatOntologyCatalogContext(url, payload) {
   return [
     "# Main agent tool result",
     "Tool: get_ontology_catalog",
-    `Source query: GET ${url}`,
+    `Source query: POST ${url}`,
     `Ontology version: ${payload?.ontology_version || "unknown"}`,
     entities ? `Entities: ${entities}` : "Entities: none",
     relationships ? `Relationships: ${relationships}` : "Relationships: none",
@@ -1398,11 +1429,16 @@ function resolveBusinessTerms(query) {
   const metrics = [];
   const datasets = new Set();
   const clarifications = [];
-  const isTestingCoverageQuery = /测试.*覆盖率|覆盖率|manual[-\s]?run|通过率|执行率|coverage|pass\s*rate|execution\s*rate|\btest\b/i.test(lowerText);
+  const isTestingCoverageQuery = /测试.*覆盖率|覆盖率|manual[-\s]?run|通过率|执行率|执行效率|缺陷发现率|测试小组|coverage|pass\s*rate|execution\s*rate|\btest\b/i.test(lowerText);
+  const isTestingTeamFvQuery = isTestingCoverageQuery && /测试小组|内部.*(?:小组|团队)|各(?:测试)?小组|\bfv\b/i.test(text);
 
   if (/dtsv/i.test(text)) {
-    filters.problem_finder_teams = ["DTSV_China"];
-    resolved.push({ term: "DTSV", mapsTo: "problem_finder_teams", value: "DTSV_China" });
+    if (isTestingTeamFvQuery) {
+      resolved.push({ term: "DTSV", mapsTo: "testing team scope with fv groups", value: "DTSV_China" });
+    } else {
+      filters.problem_finder_teams = ["DTSV_China"];
+      resolved.push({ term: "DTSV", mapsTo: "problem_finder_teams", value: "DTSV_China" });
+    }
   }
   if (/最近一周|last\s*7\s*days|recent\s*week/i.test(text)) {
     filters.recent_days = 7;
@@ -1429,6 +1465,10 @@ function resolveBusinessTerms(query) {
   if (isTestingCoverageQuery) {
     datasets.add("testing_coverage");
     resolved.push({ term: "测试覆盖率", mapsTo: "testing_coverage" });
+    if (isTestingTeamFvQuery) {
+      metrics.push("pass_rate", "defect_discovery_rate");
+      resolved.push({ term: "内部测试小组", mapsTo: "query_testing_team_fv_analysis grouped by fv" });
+    }
     if (/通过率|pass\s*rate/i.test(lowerText)) {
       metrics.push("pass_rate");
     }
@@ -1529,6 +1569,24 @@ function formatCoverageAidaStatusContext(url, payload) {
   ].join("\n");
 }
 
+function formatTestingTeamFvAnalysisContext(url, payload) {
+  const rows = Array.isArray(payload?.rows) ? payload.rows : [];
+  const rowLines = rows.slice(0, 20).map((row) => (
+    `FV ${row?.fv || "unknown"}: executions=${Number(row?.total_runs || 0)}, passed=${Number(row?.passed_runs || 0)}, linked_defects=${Number(row?.linked_defects || 0)}, pass_rate=${Number(row?.pass_rate || 0)}%, defect_discovery_rate=${Number(row?.defect_discovery_rate || 0)}%`
+  ));
+  return [
+    "# Main agent tool result",
+    "Tool: query_testing_team_fv_analysis",
+    `Source query: GET ${url}`,
+    `Team: ${payload?.team || "unknown"}`,
+    `Group dimension: ${payload?.group_by || "fv"}`,
+    `Test weeks: ${(Array.isArray(payload?.test_weeks) ? payload.test_weeks.join(", ") : "all") || "all"}`,
+    `Rows: ${rows.length}`,
+    ...rowLines,
+    "Each row is one FV-based internal test group. pass_rate and defect_discovery_rate are percentages; do not replace FV with tester or the organization team.",
+  ].join("\n");
+}
+
 async function executeCoverageProjectStatus(toolCall, { analyticsFetch, analyticsApiBase }) {
   const args = parseToolArguments(toolCall?.function?.arguments);
   const url = buildCoverageProjectStatusUrl(args.filters || {}, analyticsApiBase);
@@ -1564,6 +1622,40 @@ async function executeCoverageAidaStatus(toolCall, { analyticsFetch, analyticsAp
   return {
     toolMessage: buildToolMessage(toolCall, JSON.stringify({ ok: true, tool: "query_testing_coverage_aida_status", url, result: payload })),
     contextText: formatCoverageAidaStatusContext(url, payload),
+  };
+}
+
+async function executeTestingTeamFvAnalysis(toolCall, dependencies) {
+  const args = parseToolArguments(toolCall?.function?.arguments);
+  const team = String(args.team || "").trim();
+  if (!team) {
+    const content = JSON.stringify({ error: "query_testing_team_fv_analysis requires team" });
+    return {
+      toolMessage: buildToolMessage(toolCall, content),
+      contextText: "# Main agent tool result\nTool: query_testing_team_fv_analysis\nResult: unavailable because team is required.",
+    };
+  }
+  const requestPayload = {
+    team,
+    ...(args.years == null ? {} : { years: (Array.isArray(args.years) ? args.years : [args.years]).map(String).map((value) => value.trim()).filter(Boolean) }),
+    ...(args.test_weeks == null ? {} : { test_weeks: (Array.isArray(args.test_weeks) ? args.test_weeks : [args.test_weeks]).map(normalizeCoverageWeek).filter(Boolean) }),
+  };
+  const { url, response } = await postAgentAnalyticsJson(
+    "/api/agent/analytics/testing/team-fv-analysis",
+    requestPayload,
+    dependencies,
+  );
+  if (!response?.ok) {
+    const content = JSON.stringify({ error: `Analytics API request failed for query_testing_team_fv_analysis: ${response?.status || "unknown"}` });
+    return {
+      toolMessage: buildToolMessage(toolCall, content),
+      contextText: `# Main agent tool result\nTool: query_testing_team_fv_analysis\nSource query: POST ${url}\nResult: unavailable because the analytics API request failed.`,
+    };
+  }
+  const resultPayload = await response.json();
+  return {
+    toolMessage: buildToolMessage(toolCall, JSON.stringify({ ok: true, tool: "query_testing_team_fv_analysis", url, result: resultPayload })),
+    contextText: formatTestingTeamFvAnalysisContext(url, resultPayload),
   };
 }
 
@@ -1670,13 +1762,33 @@ async function executeDefectHighFrequency(toolCall, { analyticsFetch, analyticsA
 function formatDefectAggregateContext(payload, { toolName = "query_defect_aggregate" } = {}) {
   const rows = Array.isArray(payload?.rows) ? payload.rows : [];
   const metrics = Array.isArray(payload?.applied_query?.metrics) ? payload.applied_query.metrics : ["defect_count"];
+  const derivedMetrics = Array.isArray(payload?.applied_query?.derived_metrics) ? payload.applied_query.derived_metrics : [];
   const dimensions = Array.isArray(payload?.applied_query?.dimensions) ? payload.applied_query.dimensions : [];
   const dimension = dimensions[0] || "scope";
   const rowLines = rows.slice(0, 8).map((row, index) => {
     const label = String(row[dimension] || row.business_module || row.assigned_ecu || row.project || "all_defects").trim();
-    const metricText = metrics
+    const comparisonText = [];
+    if (derivedMetrics.length) {
+      comparisonText.push(`current_count ${row.current_count ?? "N/A"}`);
+      comparisonText.push(`previous_count ${row.previous_count ?? "N/A"}`);
+    }
+    if (derivedMetrics.includes("delta")) {
+      comparisonText.push(`delta ${row.delta ?? "N/A"}`);
+    }
+    if (derivedMetrics.includes("growth_pct")) {
+      const growthValue = row.growth_pct === null && row.is_new === true
+        ? "new_group"
+        : row.growth_pct === null || row.growth_pct === undefined
+          ? "N/A"
+          : `${row.growth_pct}%`;
+      comparisonText.push(`growth_pct ${growthValue}`);
+    }
+    if (row.is_new === true) {
+      comparisonText.push("is_new true");
+    }
+    const metricText = [...metrics
       .map((metric) => `${metric} ${row[metric] ?? "N/A"}`)
-      .join(", ");
+      , ...comparisonText].join(", ");
     const drilldownRef = row.drilldown_ref ? `; drilldown_ref: ${row.drilldown_ref}` : "";
     return `${index + 1}. ${label}: ${metricText}${drilldownRef}`;
   });
@@ -2199,6 +2311,9 @@ export async function executeMainAgentToolCall(toolCall, {
     }
     if (name === "query_testing_coverage_aida_status") {
       return await executeCoverageAidaStatus(toolCall, { analyticsFetch, analyticsApiBase });
+    }
+    if (name === "query_testing_team_fv_analysis") {
+      return await executeTestingTeamFvAnalysis(toolCall, agentAnalyticsDependencies);
     }
     if (name === "get_test_case_context") {
       return await executeTestCaseContext(toolCall, { analyticsFetch, analyticsApiBase });

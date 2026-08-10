@@ -1185,6 +1185,23 @@ def test_defect_aggregate_comparison_returns_delta_growth_and_new_group(tmp_path
     assert rows_by_module["Speech CN"]["growth_pct"] == -100.0
     assert rows_by_module["Speech CN"]["is_new"] is False
 
+    growth_ranked_payload = read_models.build_defect_aggregate_payload(
+        metrics=["defect_count"],
+        dimensions=["business_module"],
+        filters={"problem_finder_teams": ["DTSV_China"]},
+        time={
+            "field": "creation_time",
+            "current": ["2026-04-01", "2026-04-30"],
+            "comparison": ["2026-03-01", "2026-03-31"],
+            "timezone": "Asia/Shanghai",
+        },
+        derived_metrics=["delta", "growth_pct"],
+        order_by=[{"field": "growth_pct", "direction": "desc"}],
+        limit=10,
+    )
+
+    assert [row["business_module"] for row in growth_ranked_payload["rows"]] == ["Speech CN", "Navigation CN"]
+
 
 def test_defect_query_api_posts_aggregate_and_records(tmp_path, monkeypatch):
     db_path = tmp_path / "qgate_data.db"
@@ -3121,3 +3138,182 @@ def test_full_picture_skips_empty_local_candidate_when_non_empty_qgate_db_exists
     assert payload["ticket_rows"][0]["ticket_id"] == "D-3"
     assert payload["generated_from"]["defect_db_path"] == str(populated_db)
     assert payload["generated_from"]["outcome_db_path"] == str(hot_db_path)
+
+
+def _seed_recent_defects_db(db_path: Path) -> None:
+    """Seed defects with deterministic creation times anchored at 2026-05-25.
+
+    D-001/D-002 are recent (created on/after 2026-05-19); D-OLD is outside the
+    7-day window so it must be excluded by the creation-time filter.
+    """
+    conn = sqlite3.connect(db_path)
+    try:
+        conn.executescript(
+            """
+            CREATE TABLE octane_defects (
+                defect_id TEXT PRIMARY KEY,
+                name TEXT,
+                status_phase TEXT,
+                problem_finder_team TEXT,
+                year TEXT,
+                assigned_ecu TEXT,
+                top_aida TEXT,
+                aida_english TEXT,
+                aida_businesskey TEXT,
+                phase TEXT,
+                solution_cluster TEXT,
+                lead_model TEXT,
+                project TEXT,
+                pu TEXT,
+                market TEXT,
+                last_modified TEXT,
+                creation_time TEXT
+            );
+            CREATE TABLE octane_defect_history_events (
+                defect_id TEXT,
+                field_name TEXT,
+                event_timestamp TEXT,
+                entry_index INTEGER,
+                change_index INTEGER,
+                old_value TEXT,
+                new_value TEXT,
+                old_value_text TEXT,
+                new_value_text TEXT
+            );
+            """
+        )
+        rows = [
+            ("D-001", "Recent defect one", "DTSV_China", "2026-05-20T00:00:00Z"),
+            ("D-002", "Recent defect two", "DTSV_Global", "2026-05-24T00:00:00Z"),
+            ("D-OLD", "Stale defect", "DTSV_China", "2026-04-01T00:00:00Z"),
+        ]
+        for defect_id, name, team, creation_time in rows:
+            conn.execute(
+                """
+                INSERT INTO octane_defects(
+                    defect_id, name, status_phase, problem_finder_team, year,
+                    assigned_ecu, top_aida, aida_english, aida_businesskey, phase,
+                    solution_cluster, lead_model, project, pu, market, last_modified, creation_time
+                ) VALUES (?, ?, '03-In Analysis', ?, '2026', 'ECU-A', 'Speech', '', '',
+                          '03-In Analysis', 'Integration', 'NA5', 'IDCEVO', 'PU1', 'CN', ?, ?)
+                """,
+                (defect_id, name, team, creation_time, creation_time),
+            )
+            conn.execute(
+                """
+                INSERT INTO octane_defect_history_events(
+                    defect_id, field_name, event_timestamp, entry_index, change_index,
+                    old_value, new_value, old_value_text, new_value_text
+                ) VALUES (?, 'status_phase', ?, 1, 1, '08', '06', '08-Resolved Forward', '06-Ready for Test')
+                """,
+                (defect_id, creation_time),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_build_recent_defects_payload_filters_to_last_week_and_team(tmp_path, monkeypatch):
+    db_path = tmp_path / "qgate_data.db"
+    hot_db_path = _default_hot_db_path(tmp_path)
+    _seed_recent_defects_db(db_path)
+    _refresh_full_picture_hot_outcomes(db_path, hot_db_path)
+    _record_active_snapshot(hot_db_path, source_db_path=db_path)
+    _configure_full_picture_env(
+        monkeypatch,
+        defect_db_path=db_path,
+        hot_db_path=hot_db_path,
+    )
+
+    payload = read_models.build_recent_defects_payload(
+        days=7,
+        team="DTSV_China",
+        reference_date="2026-05-25",
+    )
+
+    assert payload["date_range"] == {
+        "days": 7,
+        "creation_time_start": "2026-05-19",
+        "creation_time_end": "2026-05-25",
+    }
+    assert payload["team"] == "DTSV_China"
+    assert payload["total_rows"] == 1
+    assert [row["ticket_id"] for row in payload["rows"]] == ["D-001"]
+    assert payload["rows"][0]["problem_finder_team"] == "DTSV_China"
+
+
+def test_build_recent_defects_payload_without_team_returns_all_recent(tmp_path, monkeypatch):
+    db_path = tmp_path / "qgate_data.db"
+    hot_db_path = _default_hot_db_path(tmp_path)
+    _seed_recent_defects_db(db_path)
+    _refresh_full_picture_hot_outcomes(db_path, hot_db_path)
+    _record_active_snapshot(hot_db_path, source_db_path=db_path)
+    _configure_full_picture_env(
+        monkeypatch,
+        defect_db_path=db_path,
+        hot_db_path=hot_db_path,
+    )
+
+    payload = read_models.build_recent_defects_payload(
+        days=7,
+        reference_date="2026-05-25",
+    )
+
+    assert payload["date_range"]["creation_time_start"] == "2026-05-19"
+    assert payload["date_range"]["creation_time_end"] == "2026-05-25"
+    assert "team" not in payload
+    assert payload["total_rows"] == 2
+    assert sorted(row["ticket_id"] for row in payload["rows"]) == ["D-001", "D-002"]
+
+
+def test_recent_defects_endpoint_filters_by_team_and_week(tmp_path, monkeypatch):
+    db_path = tmp_path / "qgate_data.db"
+    hot_db_path = _default_hot_db_path(tmp_path)
+    _seed_recent_defects_db(db_path)
+    _refresh_full_picture_hot_outcomes(db_path, hot_db_path)
+    _record_active_snapshot(hot_db_path, source_db_path=db_path)
+    _configure_full_picture_env(
+        monkeypatch,
+        defect_db_path=db_path,
+        hot_db_path=hot_db_path,
+    )
+    client = TestClient(app)
+
+    # Anchor the rolling "today" so the 7-day window is deterministic regardless
+    # of the real wall clock. Only the date resolver is patched; the rest of the
+    # request path (snapshot, filtering, pagination) runs unmodified.
+    monkeypatch.setattr(
+        read_models,
+        "_resolve_recent_defects_date_range",
+        lambda days, reference_date="": ("2026-05-19", "2026-05-25"),
+    )
+
+    response = client.get("/api/full-picture/recent-defects?team=DTSV_China&days=7")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["date_range"] == {
+        "days": 7,
+        "creation_time_start": "2026-05-19",
+        "creation_time_end": "2026-05-25",
+    }
+    assert payload["team"] == "DTSV_China"
+    assert [row["ticket_id"] for row in payload["rows"]] == ["D-001"]
+
+
+def test_recent_defects_endpoint_rejects_days_out_of_range(tmp_path, monkeypatch):
+    db_path = tmp_path / "qgate_data.db"
+    hot_db_path = _default_hot_db_path(tmp_path)
+    _seed_recent_defects_db(db_path)
+    _refresh_full_picture_hot_outcomes(db_path, hot_db_path)
+    _record_active_snapshot(hot_db_path, source_db_path=db_path)
+    _configure_full_picture_env(
+        monkeypatch,
+        defect_db_path=db_path,
+        hot_db_path=hot_db_path,
+    )
+    client = TestClient(app)
+
+    response = client.get("/api/full-picture/recent-defects?days=0")
+
+    assert response.status_code == 422

@@ -243,11 +243,52 @@ describe("Ontology query planner", () => {
         query: expect.objectContaining({ intent: "list", entityIds: ["quality.defect"] }),
         analysis_ref: null,
         selections: [],
-        fields: ["defect_id", "name", "status", "assigned_ecu", "problem_finder_team", "creation_time"],
+        fields: ["defect_id", "name", "status", "assigned_ecu", "problem_finder_team", "creation_time", "reporting_class", "problem_severity"],
         page: 1,
         page_size: 20,
       },
     });
+  });
+
+  it("plans severe defect ID lists with classification and BI policy filters", () => {
+    const query = "最近7天一些严重的defect，带着id展示";
+    const frame = resolver.resolve({ query, actor });
+    const plan = planner.createPlan({ frame, actor, query });
+
+    expect(plan.steps[0]).toMatchObject({
+      operation: "semantic_record_query",
+      toolName: "query_semantic_records",
+      metricIds: ["defect.severe_count"],
+      canonicalArgs: {
+        fields: ["defect_id", "name", "status", "assigned_ecu", "problem_finder_team", "creation_time", "reporting_class", "problem_severity"],
+      },
+    });
+    expect(plan.steps[0].canonicalArgs.query.filters).toEqual(expect.arrayContaining([
+      {
+        dimensionId: "quality.reporting_class",
+        operator: "in",
+        values: ["Showstopper_Candidate", "Showstopper_Confirmed"],
+        source: "policy",
+      },
+      {
+        dimensionId: "quality.business_impact",
+        operator: "in",
+        values: ["04-deficient", "05-unsatisfactory", "06-customer irritated"],
+        source: "policy",
+      },
+    ]));
+    expect(plan.ruleEffects).toEqual(expect.arrayContaining([
+      {
+        ruleId: "business.severe_defect.classification",
+        kind: "derive",
+        code: "BUSINESS_RULE_DERIVE:business.severe_defect.classification",
+      },
+      {
+        ruleId: "business.severe_defect.business_impact",
+        kind: "derive",
+        code: "BUSINESS_RULE_DERIVE:business.severe_defect.business_impact",
+      },
+    ]));
   });
 
   it("enforces Ontology capability and query-limit records at plan time", () => {

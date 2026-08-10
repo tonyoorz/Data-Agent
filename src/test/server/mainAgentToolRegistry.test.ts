@@ -26,4 +26,23 @@ describe("main agent tool registry", () => {
     expect(shouldPlanMainAgentTools(messages)).toBe(true);
     expect(selectMainAgentToolset(messages).intent).toBe("business_risk_assessment");
   });
+
+  it("routes Chinese defect ID display wording to the record-query toolset", () => {
+    const messages = [{ role: "user", content: "最近7天一些严重的defect，带着id展示" }];
+
+    expect(shouldPlanMainAgentTools(messages)).toBe(true);
+    expect(selectMainAgentToolset(messages)).toMatchObject({
+      intent: "record_query",
+      toolNames: expect.arrayContaining(["query_semantic_records"]),
+    });
+  });
+
+  it("routes DTSV internal testing-group comparisons to the FV analysis tool", () => {
+    const selected = selectMainAgentToolset([
+      { role: "user", content: "对比 DTSV_China 内部测试小组的通过率和缺陷发现率" },
+    ]);
+
+    expect(selected.intent).toBe("coverage_query");
+    expect(selected.toolNames).toContain("query_testing_team_fv_analysis");
+  });
 });

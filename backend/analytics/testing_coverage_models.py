@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 from pathlib import Path
+import re
 from typing import Any
 
 import sqlite3
@@ -150,6 +151,35 @@ def _to_percent(numerator: int, denominator: int) -> float:
     if denominator <= 0:
         return 0.0
     return round((numerator / denominator) * 100.0, 2)
+
+
+_COVERAGE_WEEK_RE = re.compile(r"^(?P<year>\d{2}|\d{4})\s*-\s*(?:CW|W)\s*(?P<week>\d{1,2})$", re.IGNORECASE)
+
+
+def _normalize_coverage_week(value: str) -> tuple[str, tuple[str, ...]]:
+    raw_value = str(value or "").strip()
+    match = _COVERAGE_WEEK_RE.match(raw_value)
+    if not match:
+        return raw_value, (raw_value,) if raw_value else ()
+
+    year_value = int(match.group("year"))
+    year = year_value if year_value >= 100 else 2000 + year_value
+    week = int(match.group("week"))
+    canonical = f"{year:04d}-CW{week:02d}"
+    return canonical, (canonical, f"{year % 100:02d}-CW{week:02d}")
+
+
+def _normalize_team_analysis_weeks(query_params: Any) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    canonical_weeks: list[str] = []
+    filter_values: list[str] = []
+    for raw_week in _get_multi_values(query_params or {}, "test_weeks"):
+        canonical, aliases = _normalize_coverage_week(raw_week)
+        if canonical and canonical not in canonical_weeks:
+            canonical_weeks.append(canonical)
+        for alias in aliases:
+            if alias and alias not in filter_values:
+                filter_values.append(alias)
+    return tuple(canonical_weeks), tuple(filter_values)
 
 
 def _table_columns(conn: sqlite3.Connection, table_name: str = "octane_manual_runs") -> set[str]:
@@ -648,37 +678,49 @@ def build_testcase_detail_rows(query_params: Any) -> list[dict[str, object]]:
 def build_test_team_analysis_payload(team_name: str = "DTSV_China", query_params: Any = None) -> dict[str, object]:
     normalized_team = str(team_name or "DTSV_China").strip() or "DTSV_China"
     years = _get_multi_values(query_params or {}, "years")
+    requested_group_by = str((query_params or {}).get("group_by", "tester")).strip().lower()
+    group_by = "fv" if requested_group_by == "fv" else "tester"
+    test_weeks, test_week_values = _normalize_team_analysis_weeks(query_params)
+    payload: dict[str, object] = {"team": normalized_team, "years": list(years), "rows": []}
+    if group_by == "fv":
+        payload["test_weeks"] = list(test_weeks)
+        payload["group_by"] = "fv"
+
     conn = _connect_test_team()
     try:
         if not _table_exists(conn, "octane_manual_runs"):
-            return {"team": normalized_team, "rows": []}
+            return payload
         columns = _table_columns(conn, "octane_manual_runs")
-        if not {"team", "tester"}.issubset(columns):
-            return {"team": normalized_team, "rows": []}
+        if not {"team", group_by}.issubset(columns):
+            return payload
 
         where_clauses = [
             "TRIM(COALESCE(CAST(team AS TEXT), '')) = ?",
-            "TRIM(COALESCE(CAST(tester AS TEXT), '')) <> ''",
+            f"TRIM(COALESCE(CAST({group_by} AS TEXT), '')) <> ''",
         ]
         params: list[str] = [normalized_team]
         if years and "year" in columns:
             placeholders = ", ".join("?" for _ in years)
             where_clauses.append(f"TRIM(COALESCE(CAST(year AS TEXT), '')) IN ({placeholders})")
             params.extend(years)
+        if test_week_values and "test_week" in columns:
+            placeholders = ", ".join("?" for _ in test_week_values)
+            where_clauses.append(f"TRIM(COALESCE(CAST(test_week AS TEXT), '')) IN ({placeholders})")
+            params.extend(test_week_values)
 
         rows = conn.execute(
             """
             SELECT
-                TRIM(COALESCE(CAST(tester AS TEXT), '')) AS tester,
+                TRIM(COALESCE(CAST({group_by} AS TEXT), '')) AS {group_by},
                 COUNT(*) AS total_runs,
                 SUM(CASE WHEN LOWER(TRIM(COALESCE(CAST(status AS TEXT), ''))) LIKE '%pass%' THEN 1 ELSE 0 END) AS passed_runs,
                 COUNT(DISTINCT NULLIF(TRIM(COALESCE(CAST(defect_id AS TEXT), '')), '')) AS linked_defects
             FROM octane_manual_runs
-                        WHERE {where_clause}
-            GROUP BY TRIM(COALESCE(CAST(tester AS TEXT), ''))
-            ORDER BY total_runs DESC, tester COLLATE NOCASE
-                        """.format(where_clause=" AND ".join(where_clauses)),
-                        params,
+            WHERE {where_clause}
+            GROUP BY TRIM(COALESCE(CAST({group_by} AS TEXT), ''))
+            ORDER BY total_runs DESC, {group_by} COLLATE NOCASE
+            """.format(group_by=group_by, where_clause=" AND ".join(where_clauses)),
+            params,
         ).fetchall()
     finally:
         conn.close()
@@ -689,12 +731,14 @@ def build_test_team_analysis_payload(team_name: str = "DTSV_China", query_params
         passed_runs = int(row["passed_runs"] or 0)
         payload_rows.append(
             {
-                "tester": str(row["tester"] or ""),
+                group_by: str(row[group_by] or ""),
                 "total_runs": total_runs,
                 "passed_runs": passed_runs,
                 "linked_defects": int(row["linked_defects"] or 0),
                 "pass_rate": _to_percent(passed_runs, total_runs),
+                **({"defect_discovery_rate": _to_percent(int(row["linked_defects"] or 0), total_runs)} if group_by == "fv" else {}),
             }
         )
 
-    return {"team": normalized_team, "years": list(years), "rows": payload_rows}
+    payload["rows"] = payload_rows
+    return payload

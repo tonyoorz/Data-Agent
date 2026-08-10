@@ -17,6 +17,11 @@ const resources = {
         synced: "数据已同步",
         noDate: "暂无日期",
       },
+      theme: {
+        toggle: "切换主题",
+        light: "亮色模式",
+        dark: "暗色模式",
+      },
     },
     navigation: {
       productSubtitle: "数据分析平台",
@@ -107,6 +112,11 @@ const resources = {
       sync: {
         synced: "Data synced",
         noDate: "No date",
+      },
+      theme: {
+        toggle: "Toggle theme",
+        light: "Light mode",
+        dark: "Dark mode",
       },
     },
     navigation: {

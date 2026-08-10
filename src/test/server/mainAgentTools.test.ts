@@ -706,6 +706,33 @@ describe("main agent analytics tools", () => {
     expect(result.contextText).toContain("Datasets: testing_coverage");
   });
 
+  it("normalizes DTSV internal test groups to FV coverage analysis", async () => {
+    const analyticsFetch = vi.fn();
+
+    const result = await executeMainAgentToolCall(
+      {
+        id: "terms-dtsv-fv-groups",
+        type: "function",
+        function: {
+          name: "resolve_business_terms",
+          arguments: JSON.stringify({ query: "对比 DTSV_China 内部测试小组的通过率和缺陷发现率" }),
+        },
+      },
+      { analyticsFetch },
+    );
+
+    const payload = JSON.parse(result.toolMessage.content).result;
+    expect(analyticsFetch).not.toHaveBeenCalled();
+    expect(payload.datasets).toEqual(["testing_coverage"]);
+    expect(payload.filters).toEqual({});
+    expect(payload.metrics).toEqual(expect.arrayContaining(["pass_rate", "defect_discovery_rate"]));
+    expect(payload.resolved_terms).toContainEqual({
+      term: "DTSV",
+      mapsTo: "testing team scope with fv groups",
+      value: "DTSV_China",
+    });
+  });
+
   it("executes query_dashboard_summary against the analytics API", async () => {
     const analyticsFetch = vi.fn().mockResolvedValue({
       ok: true,
@@ -814,6 +841,67 @@ describe("main agent analytics tools", () => {
       content: expect.stringContaining('"project":"SP25"'),
     });
     expect(result.contextText).toContain("Tool: query_testing_coverage_project_status");
+    expect(result.contextText).toContain("Rows: 1");
+  });
+
+  it("executes FV team analysis with a normalized coverage week", async () => {
+    const analyticsFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        team: "DTSV_China",
+        group_by: "fv",
+        test_weeks: ["2026-CW19"],
+        rows: [
+          {
+            fv: "Speech",
+            total_runs: 10,
+            passed_runs: 8,
+            linked_defects: 2,
+            pass_rate: 80,
+            defect_discovery_rate: 20,
+          },
+        ],
+      }),
+    });
+
+    const result = await executeMainAgentToolCall(
+      {
+        id: "team-fv-analysis",
+        type: "function",
+        function: {
+          name: "query_testing_team_fv_analysis",
+          arguments: JSON.stringify({
+            team: "DTSV_China",
+            test_weeks: ["2026-W19"],
+          }),
+        },
+      },
+      {
+        analyticsFetch,
+        analyticsApiBase: "http://127.0.0.1:3003",
+        ...scopedAgentDependencies(),
+      },
+    );
+
+    expect(analyticsFetch).toHaveBeenCalledWith(
+      "http://127.0.0.1:3003/api/agent/analytics/testing/team-fv-analysis",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(JSON.parse(analyticsFetch.mock.calls[0][1].body)).toEqual({
+      team: "DTSV_China",
+      test_weeks: ["2026-CW19"],
+    });
+    expect(verifyActorCapabilityHeader(analyticsFetch.mock.calls[0][1].headers, {
+      secret: AGENT_CAPABILITY_SECRET,
+      now: AGENT_CAPABILITY_NOW,
+    })).toMatchObject({
+      actorId: "alice",
+      scopeHash: "scope-alice-dtsv",
+      scopes: { teamIds: ["DTSV_China"] },
+    });
+    expect(analyticsFetch.mock.calls[0][1].headers).toHaveProperty(ACTOR_CAPABILITY_HEADER);
+    expect(result.toolMessage.name).toBe("query_testing_team_fv_analysis");
+    expect(result.contextText).toContain("Group dimension: fv");
     expect(result.contextText).toContain("Rows: 1");
   });
 
@@ -1194,6 +1282,82 @@ describe("main agent analytics tools", () => {
     expect(result.toolMessage.content).toContain('"tool":"query_analytics"');
     expect(result.contextText).toContain("Tool: query_analytics");
     expect(result.contextText).toContain("all_defects: defect_count 2");
+  });
+
+  it("includes derived comparison metrics in query_analytics context", async () => {
+    const analyticsFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        schema_version: "1.0",
+        snapshot_version: "snapshot-query-analytics-comparison",
+        query_fingerprint: "fp-query-analytics-comparison",
+        applied_query: {
+          metrics: ["defect_count"],
+          dimensions: ["business_module"],
+          derived_metrics: ["delta", "growth_pct"],
+        },
+        rows: [
+          {
+            business_module: "Navigation CN",
+            defect_count: 201,
+            current_count: 201,
+            previous_count: 35,
+            delta: 166,
+            growth_pct: 474.29,
+            is_new: false,
+            drilldown_ref: "ref-navigation",
+          },
+          {
+            business_module: "New Module",
+            defect_count: 20,
+            current_count: 20,
+            previous_count: 0,
+            delta: 20,
+            growth_pct: null,
+            is_new: true,
+            drilldown_ref: "ref-new-module",
+          },
+        ],
+        total_groups: 2,
+        returned_groups: 2,
+        truncated: false,
+        warnings: [],
+      }),
+    });
+
+    const result = await executeMainAgentToolCall(
+      {
+        id: "call-query-analytics-comparison",
+        type: "function",
+        function: {
+          name: "query_analytics",
+          arguments: JSON.stringify({
+            dataset: "defects",
+            intent: "rank",
+            metrics: ["defect_count"],
+            dimensions: ["business_module"],
+            derived_metrics: ["delta", "growth_pct"],
+            filters: {},
+            time: {
+              field: "creation_time",
+              current: ["2026-05-06", "2026-08-06"],
+              comparison: ["2026-02-06", "2026-05-06"],
+              timezone: "Asia/Shanghai",
+            },
+            order_by: [{ field: "delta", direction: "desc" }],
+            limit: 10,
+          }),
+        },
+      },
+      {
+        analyticsFetch,
+        analyticsApiBase: "http://127.0.0.1:3003",
+        ...scopedAgentDependencies(),
+      },
+    );
+
+    expect(result.contextText).toContain("Navigation CN: defect_count 201, current_count 201, previous_count 35, delta 166, growth_pct 474.29%");
+    expect(result.contextText).toContain("New Module: defect_count 20, current_count 20, previous_count 0, delta 20, growth_pct new_group, is_new true");
   });
 
   it("preserves a sanitized schema failure for bounded catalog recovery", async () => {

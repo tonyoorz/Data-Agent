@@ -12,6 +12,36 @@
         "message": "Created/submitted/opened defect questions use octane_defects.creation_time semantics."
       },
       "governance": { "status": "approved", "owner": "Quality Analytics" }
+    },
+    {
+      "id": "business.severe_defect.classification",
+      "version": "1.0.0",
+      "kind": "derive",
+      "appliesTo": { "metricIds": ["defect.severe_count"], "intents": ["aggregate", "trend", "compare", "rank", "list", "drilldown"] },
+      "effect": {
+        "derivedFilter": {
+          "dimensionId": "quality.reporting_class",
+          "operator": "in",
+          "values": ["Showstopper_Candidate", "Showstopper_Confirmed"]
+        },
+        "message": "Severe defects use approved Showstopper candidate or confirmed classification."
+      },
+      "governance": { "status": "approved", "owner": "Quality Analytics" }
+    },
+    {
+      "id": "business.severe_defect.business_impact",
+      "version": "1.0.0",
+      "kind": "derive",
+      "appliesTo": { "metricIds": ["defect.severe_count"], "intents": ["aggregate", "trend", "compare", "rank", "list", "drilldown"] },
+      "effect": {
+        "derivedFilter": {
+          "dimensionId": "quality.business_impact",
+          "operator": "in",
+          "values": ["04-deficient", "05-unsatisfactory", "06-customer irritated"]
+        },
+        "message": "Severe defects use approved BI levels from deficient through customer irritated."
+      },
+      "governance": { "status": "approved", "owner": "Quality Analytics" }
     }
   ],
   "description": "从8份业务文档提取的纯业务逻辑规则。这些规则不属于数据约束，而是业务领域知识。",

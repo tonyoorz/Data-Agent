@@ -217,7 +217,7 @@ The dashboard can run locally with its trusted internal principal. A shared or p
 | `internal` | local development or a trusted single-user machine | server-owned internal principal from `VIZION_INTERNAL_*` settings |
 | `oidc` | shared, LAN, or production deployment | default; fails closed unless a valid bearer token and server-owned scope policy resolve an actor |
 
-Set the mode explicitly in local deployment configuration:
+`npm run dev` loads `.env` and `.env.local`, then uses `internal` only when `VIZION_AGENT_AUTH_MODE` is unset. In that local mode it creates one process-local actor-capability secret for the Node and FastAPI children, defaults the defect row scope to `DTSV_China`, and grants the read-only `agent.operations.read` policy for the local Agent Operations view. Set any `VIZION_INTERNAL_TEAM_IDS`, `VIZION_INTERNAL_PROJECT_IDS`, or `VIZION_INTERNAL_WORKSPACE_IDS` value to override the row scope, or set `VIZION_INTERNAL_ROW_POLICY_IDS` to override the local operator policy. `npm start` retains the fail-closed `oidc` default. When Node and FastAPI are started separately, configure the same `VIZION_AGENT_ACTOR_CAPABILITY_SECRET`, an explicit `VIZION_INTERNAL_*` row scope, and any required row policy in `.env.local`. Set OIDC explicitly for a shared or production deployment:
 
 ```powershell
 $env:VIZION_AGENT_AUTH_MODE = "oidc"

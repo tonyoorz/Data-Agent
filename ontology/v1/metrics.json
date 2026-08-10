@@ -29,6 +29,7 @@
         "requirements.aida",
         "quality.phase",
         "quality.severity",
+        "quality.business_impact",
         "quality.status",
         "quality.china_scope",
         "quality.solution_cluster",
@@ -79,6 +80,7 @@
         "requirements.aida",
         "quality.phase",
         "quality.severity",
+        "quality.business_impact",
         "quality.china_scope",
         "quality.solution_cluster",
         "quality.defect_category",
@@ -1199,6 +1201,47 @@
       ],
       "requiredFilters": [],
       "missingDataPolicy": "not_applicable",
+      "sourceReadModel": "full_picture_outcomes",
+      "sourceRevisionStrategy": "snapshot",
+      "capabilities": {
+        "trend": true,
+        "comparison": true,
+        "ranking": true
+      }
+    },
+    {
+      "id": "defect.severe_count",
+      "definitionVersion": "1.0.0",
+      "labels": {
+        "zh-CN": "严重缺陷数",
+        "en-US": "Severe Defect Count"
+      },
+      "description": "受治理的严重缺陷：Defect Classification 为 Showstopper_Candidate 或 Showstopper_Confirmed，且业务影响（BI）为 04-deficient、05-unsatisfactory 或 06-customer irritated。不是通用 Critical/Major 枚举。",
+      "entityId": "quality.defect",
+      "grain": "one defect satisfying the approved Showstopper and BI severity definition",
+      "measure": "count_distinct(defect_id WHERE classification IN ('Showstopper_Candidate', 'Showstopper_Confirmed') AND problem_severity IN ('04-deficient', '05-unsatisfactory', '06-customer irritated'))",
+      "unit": "count",
+      "defaultTimeDimension": "time.defect_creation_date",
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      },
+      "allowedDimensions": [
+        "time.defect_creation_date",
+        "org.problem_finder_team",
+        "product.project",
+        "product.pu",
+        "product.ecu",
+        "quality.phase",
+        "quality.business_impact",
+        "quality.reporting_class",
+        "quality.status",
+        "quality.solution_cluster",
+        "quality.defect_category",
+        "vehicle.lead_model"
+      ],
+      "requiredFilters": [],
+      "missingDataPolicy": "zero_when_empty_result",
       "sourceReadModel": "full_picture_outcomes",
       "sourceRevisionStrategy": "snapshot",
       "capabilities": {

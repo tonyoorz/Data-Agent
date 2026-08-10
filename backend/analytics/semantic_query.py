@@ -33,7 +33,7 @@ class SemanticQueryError(ValueError):
         self.rule_codes = list(rule_codes or [])
 
 
-DEFECT_METRICS = frozenset({"defect.count", "defect.created_count", "team.defect_discovery_count"})
+DEFECT_METRICS = frozenset({"defect.count", "defect.created_count", "defect.severe_count", "team.defect_discovery_count"})
 TEST_RUN_METRICS = frozenset({"testing.run_count", "testing.passed_run_count", "testing.failed_run_count", "team.execution_count"})
 TESTCASE_METRICS = frozenset({"testing.testcase_count"})
 
@@ -51,6 +51,8 @@ DEFECT_DIMENSION_FIELDS = {
     "requirements.aida": "aida",
     "quality.phase": "phase",
     "quality.severity": "problem_severity",
+    "quality.business_impact": "problem_severity",
+    "quality.reporting_class": "classification",
     "quality.status": "status",
     "quality.china_scope": "china_scope",
 }
@@ -89,6 +91,8 @@ RECORD_FIELD_MAPS = {
         "creation_time": "creation_time",
         "status": "status",
         "severity": "problem_severity",
+        "problem_severity": "problem_severity",
+        "reporting_class": "classification",
         "phase": "phase",
         "china_scope": "china_scope",
         "problem_finder_team": "problem_finder_team",
@@ -487,12 +491,13 @@ def _validate_request(payload: dict[str, Any], catalog: OntologyCatalog) -> tupl
                 or comparison["groups"] != expected_groups
             ):
                 raise SemanticQueryError("SEMANTIC_TIME_COMPARISON_MISMATCH")
+    time_scope_fields = {str(scope.get("fieldId") or "") for scope in query["timeScopes"]}
     for sort_item in query["sort"]:
         if not isinstance(sort_item, dict):
             raise SemanticQueryError("SEMANTIC_SORT_OBJECT_REQUIRED")
         _assert_exact_keys(sort_item, allowed={"fieldId", "direction"}, required={"fieldId", "direction"}, label="SORT")
         field_id = _require_string(sort_item["fieldId"], "SORT_FIELD")
-        if field_id not in {*metric_ids, *dimension_ids} or sort_item["direction"] not in {"asc", "desc"}:
+        if field_id not in {*metric_ids, *dimension_ids, *time_scope_fields} or sort_item["direction"] not in {"asc", "desc"}:
             raise SemanticQueryError("SEMANTIC_SORT_INVALID")
 
     for label in ACTOR_SCOPE_LIST_FIELDS:
@@ -1159,7 +1164,7 @@ def _validate_record_request(
         "intent": "drilldown",
         "filters": [*base_query.get("filters", []), *selection_filters],
         "comparison": None,
-        "sort": [],
+        "sort": list(base_query.get("sort", [])),
     }
     validated_query, validated_scope, business_rule_codes = _validate_request(
         {
@@ -1286,6 +1291,27 @@ def _record_field_projection(
     return projected, warnings, "applied" if redact_fields else "not_required"
 
 
+def _sort_record_rows(
+    rows: list[dict[str, Any]],
+    *,
+    sort_items: list[dict[str, Any]],
+    field_map: dict[str, str],
+    identifier: str,
+) -> list[dict[str, Any]]:
+    distinct = {str(row.get(identifier) or ""): row for row in rows if str(row.get(identifier) or "")}
+    ordered = [distinct[key] for key in sorted(distinct)]
+    for sort_item in reversed(sort_items):
+        field_id = str(sort_item.get("fieldId") or "")
+        source_field = field_map.get(field_id)
+        if not source_field:
+            raise SemanticQueryError(f"SEMANTIC_RECORD_SORT_NOT_EXECUTABLE:{field_id}")
+        ordered.sort(
+            key=lambda row: str(row.get(source_field) or ""),
+            reverse=sort_item.get("direction") == "desc",
+        )
+    return ordered
+
+
 def execute_semantic_records(
     payload: dict[str, Any],
     *,
@@ -1310,7 +1336,7 @@ def execute_semantic_records(
         catalog=catalog,
     )
     expected_revision = str(stored.get("source_revision", {}).get("revisionId") or "") if stored else ""
-    rows, revision, warnings, _dimension_field_map = _record_revision(
+    rows, revision, warnings, dimension_field_map = _record_revision(
         query,
         defect_provider=defect_provider,
         run_provider=run_provider,
@@ -1321,8 +1347,12 @@ def execute_semantic_records(
         raise SemanticQueryError("SEMANTIC_ANALYSIS_REVISION_STALE", status_code=409)
 
     source_identifier, _output_identifier = RECORD_IDENTIFIERS[entity_id]
-    distinct = {str(row.get(source_identifier) or ""): row for row in rows if str(row.get(source_identifier) or "")}
-    ordered_rows = [distinct[key] for key in sorted(distinct)]
+    ordered_rows = _sort_record_rows(
+        rows,
+        sort_items=query["sort"],
+        field_map=dimension_field_map,
+        identifier=source_identifier,
+    )
     total_rows = len(ordered_rows)
     total_pages = max((total_rows + page_size - 1) // page_size, 1)
     start = (page - 1) * page_size
