@@ -304,6 +304,17 @@ export function createQueryPlanner({ registry } = {}) {
       const metricConstraint = registry.getConstraint("planner.approved_metric_only");
       for (const metricId of executionFrame.metricIds) {
         const metric = registry.getMetric(metricId, { approvedOnly: metricConstraint.parameters.enabled !== false });
+        const allowedDimensions = new Set(metric.allowedDimensions || []);
+        const requestedDimensions = unique([
+          ...executionFrame.dimensionIds,
+          ...executionFrame.filters.map((item) => item.dimensionId),
+          ...executionFrame.timeScopes.map((item) => item.fieldId),
+        ]);
+        for (const dimensionId of requestedDimensions) {
+          if (!allowedDimensions.has(dimensionId)) {
+            throw new Error(`SEMANTIC_DIMENSION_NOT_ALLOWED:${metric.id}:${dimensionId}`);
+          }
+        }
         const presentFilters = new Set(executionFrame.filters.filter((item) => Array.isArray(item.values) && item.values.length).map((item) => item.dimensionId));
         for (const requiredFilter of metric.requiredFilters || []) {
           if (!presentFilters.has(requiredFilter)) throw new Error(`SEMANTIC_METRIC_REQUIRED_FILTER_MISSING:${metric.id}:${requiredFilter}`);

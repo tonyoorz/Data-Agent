@@ -515,7 +515,7 @@ function buildMainAgentToolContextFromState(state) {
     toolConversationMessages,
     toolEvents,
     evidence,
-    evidenceGate: evaluateSemanticEvidence(evidence),
+    evidenceGate: evaluateSemanticEvidence(evidence, { expectedActorScopeHash: state.actorScope?.scopeHash || "" }),
     selectedToolset: state.toolRouting?.selectedToolset,
     stoppedReason: state.stoppedReason || "no_tool_calls",
   };

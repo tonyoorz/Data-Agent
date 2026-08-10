@@ -284,7 +284,10 @@ async function requestCompanySemanticCandidate({ registry, query, priorSemanticC
     messages: createSemanticCandidateMessages({ registry, query, priorSemanticContext, catalog }),
     model,
   });
-  return parseSemanticCandidate(completion.content, schema);
+  return {
+    ...parseSemanticCandidate(completion.content, schema),
+    catalogSelection: catalog.selection,
+  };
 }
 
 async function bestEffortSemanticCandidate({ requestSemanticCandidate, registry, query, priorSemanticContext, model }) {

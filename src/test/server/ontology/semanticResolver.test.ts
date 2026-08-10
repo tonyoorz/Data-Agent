@@ -283,9 +283,29 @@ describe("Ontology semantic resolver", () => {
     const frame = spyingResolver.resolve({ query: "各楼层工位利用率", actor, requestAnchorAt: anchorAt });
 
     expect(frame.intent).toBe("aggregate");
+    expect(frame.metricIds).toEqual([]);
+    expect(frame.ambiguities).toContainEqual(expect.objectContaining({ code: "METRIC_REQUIRED" }));
     expect(calls).toHaveLength(1);
-    expect(calls[0]).toMatchObject({ intent: "aggregate", heuristicMetric: "defect.count" });
+    expect(calls[0]).toMatchObject({ intent: "aggregate", heuristicMetric: null });
     expect(calls[0].query).toBe("各楼层工位利用率");
+  });
+
+  it("does not accept an ungrounded full-catalog model guess", () => {
+    const frame = resolver.resolve({
+      query: "各楼层工位利用率",
+      actor,
+      requestAnchorAt: anchorAt,
+      candidate: {
+        intent: "aggregate",
+        metricIds: ["testing.run_count"],
+        dimensionIds: [],
+        entityIds: ["testing.test_run"],
+        catalogSelection: { mode: "full_catalog", matchedTermIds: [] },
+      },
+    });
+
+    expect(frame.metricIds).toEqual([]);
+    expect(frame.ambiguities).toContainEqual(expect.objectContaining({ code: "METRIC_REQUIRED" }));
   });
 
   it("does not surface an unmatched signal for a query that matches a governed term", () => {

@@ -106,4 +106,27 @@ describe("resolveAiAnalyticsContext", () => {
     expect(resolved.contextText).toContain("testing.run_count");
     expect(resolved.contextText).not.toContain("defect.count@1.0.0");
   });
+
+  it("keeps an ungrounded full-catalog guess behind clarification", async () => {
+    const resolved = await resolveAiAnalyticsContext({
+      messages: [{ role: "user", content: "各楼层工位利用率" }],
+      now: new Date("2026-07-15T04:00:00.000Z"),
+      actor: { actorId: "alice", scopeHash: "scope-a", scopes: { workspaceIds: ["DTSV"], teamIds: ["DTSV"] } },
+      ontologyRegistry: createOntologyRegistry(),
+      requestSemanticCandidate: vi.fn().mockResolvedValue({
+        intent: "aggregate",
+        entityIds: ["testing.test_run"],
+        metricIds: ["testing.run_count"],
+        dimensionIds: [],
+        catalogSelection: { mode: "full_catalog", matchedTermIds: [] },
+      }),
+    });
+
+    expect(resolved.queryPlan).toMatchObject({
+      status: "needs_clarification",
+      steps: [],
+      violations: expect.arrayContaining(["METRIC_REQUIRED"]),
+    });
+    expect(resolved.contextText).not.toContain("testing.run_count@1.0.0");
+  });
 });

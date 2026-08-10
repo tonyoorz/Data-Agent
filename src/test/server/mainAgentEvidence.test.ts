@@ -69,6 +69,21 @@ describe("main agent semantic evidence", () => {
     ]));
   });
 
+  it("blocks evidence from a different actor scope", () => {
+    const gate = evaluateSemanticEvidence([validEvidence], { expectedActorScopeHash: "scope-b" });
+
+    expect(gate.status).toBe("blocked");
+    expect(gate.violations).toContain("SEMANTIC_SCOPE_EVIDENCE_MISMATCH");
+  });
+
+  it("treats traceability as claim-bearing semantic evidence", () => {
+    const gate = evaluateSemanticEvidence([{ ...validEvidence, tool: "query_traceability" }], {
+      expectedActorScopeHash: "scope-a",
+    });
+
+    expect(gate.status).toBe("pass");
+  });
+
   it("exposes only a continuation from the same actor scope", () => {
     expect(buildSemanticContinuationContext([validEvidence], { scopeHash: "scope-a" })).toContain("analysis_ref: analysis-1");
     expect(buildSemanticContinuationContext([validEvidence], { scopeHash: "scope-b" })).toBe("");

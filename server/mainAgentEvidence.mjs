@@ -31,9 +31,9 @@ export function buildToolEvidence({ toolCall, result, intent }) {
   });
 }
 
-const CLAIM_BEARING_SEMANTIC_TOOLS = new Set(["query_semantic_metrics", "query_semantic_records"]);
+const CLAIM_BEARING_SEMANTIC_TOOLS = new Set(["query_semantic_metrics", "query_semantic_records", "query_traceability"]);
 
-export function evaluateSemanticEvidence(items) {
+export function evaluateSemanticEvidence(items, { expectedActorScopeHash = "" } = {}) {
   const semanticItems = (Array.isArray(items) ? items : []).filter((item) => CLAIM_BEARING_SEMANTIC_TOOLS.has(item?.tool));
   if (!semanticItems.length) {
     return { status: "not_required", violations: [], analysisRefs: [], sourceRevisionIds: [], warnings: [] };
@@ -50,6 +50,10 @@ export function evaluateSemanticEvidence(items) {
     if (!item?.analysisRef) violations.push("SEMANTIC_ANALYSIS_REF_MISSING");
     if (!item?.sourceRevision?.revisionId) violations.push("SEMANTIC_SOURCE_REVISION_MISSING");
     if (!item?.scope?.actorScopeHash) violations.push("SEMANTIC_SCOPE_EVIDENCE_MISSING");
+    if (expectedActorScopeHash && item?.scope?.actorScopeHash
+      && item.scope.actorScopeHash !== expectedActorScopeHash) {
+      violations.push("SEMANTIC_SCOPE_EVIDENCE_MISMATCH");
+    }
     if (!item?.quality?.completeness) violations.push("SEMANTIC_QUALITY_EVIDENCE_MISSING");
     if (!item?.evidence?.kind) violations.push("SEMANTIC_BACKEND_EVIDENCE_MISSING");
     const expectedKind = item?.tool === "query_semantic_records" ? "semantic_record_set" : "semantic_metric_result";

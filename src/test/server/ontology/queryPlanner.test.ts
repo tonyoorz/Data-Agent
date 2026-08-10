@@ -154,6 +154,33 @@ describe("Ontology query planner", () => {
     expect(() => planner.createPlan({ frame: tampered, actor, query: "本月测试执行数" })).toThrow("SEMANTIC_POLICY_FILTER_REQUIRED:org.team");
   });
 
+  it("revalidates metric dimensions at the planner boundary", () => {
+    const frame = resolver.resolve({ query: "本月测试执行数", actor });
+    const tampered = {
+      ...frame,
+      dimensionIds: ["product.os"],
+      ambiguities: [],
+    };
+
+    expect(() => planner.createPlan({ frame: tampered, actor, query: "本月测试执行数" }))
+      .toThrow("SEMANTIC_DIMENSION_NOT_ALLOWED:testing.run_count:product.os");
+  });
+
+  it("revalidates metric filters at the planner boundary", () => {
+    const frame = resolver.resolve({ query: "本月测试执行数", actor });
+    const tampered = {
+      ...frame,
+      filters: [
+        ...frame.filters,
+        { dimensionId: "product.os", operator: "in", values: ["OS9"], source: "user" },
+      ],
+      ambiguities: [],
+    };
+
+    expect(() => planner.createPlan({ frame: tampered, actor, query: "本月测试执行数" }))
+      .toThrow("SEMANTIC_DIMENSION_NOT_ALLOWED:testing.run_count:product.os");
+  });
+
   it("routes trace and similarity intents only to their typed tools", () => {
     const traceFrame = resolver.resolve({ query: "追溯 Requirement 到 Defect", actor });
     const similarityFrame = resolver.resolve({ query: "蓝牙断连缺陷查重", actor });
