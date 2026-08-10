@@ -76,6 +76,27 @@ describe("main agent semantic evidence", () => {
     expect(gate.violations).toContain("SEMANTIC_SCOPE_EVIDENCE_MISMATCH");
   });
 
+  it("fails closed when the expected actor scope or source revision binding is missing", () => {
+    const gate = evaluateSemanticEvidence([validEvidence], { requireReleaseBinding: true });
+
+    expect(gate.status).toBe("blocked");
+    expect(gate.violations).toEqual(expect.arrayContaining([
+      "SEMANTIC_EXPECTED_SCOPE_MISSING",
+      "SEMANTIC_EXPECTED_SOURCE_REVISION_MISSING",
+    ]));
+  });
+
+  it("blocks evidence outside the expected source revision set", () => {
+    const gate = evaluateSemanticEvidence([validEvidence], {
+      expectedActorScopeHash: "scope-a",
+      expectedSourceRevisionIds: ["snap-2"],
+      requireReleaseBinding: true,
+    });
+
+    expect(gate.status).toBe("blocked");
+    expect(gate.violations).toContain("SEMANTIC_SOURCE_REVISION_EXPECTATION_MISMATCH");
+  });
+
   it("treats traceability as claim-bearing semantic evidence", () => {
     const gate = evaluateSemanticEvidence([{ ...validEvidence, tool: "query_traceability" }], {
       expectedActorScopeHash: "scope-a",

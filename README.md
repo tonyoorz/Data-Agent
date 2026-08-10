@@ -212,6 +212,8 @@ Default model order:
 
 The dashboard can run locally with its trusted internal principal. A shared or production deployment must use OIDC and keep the analytics service private.
 
+AI Chat has one production orchestration path: LangGraph. `VIZION_AGENT_RUNTIME=legacy`, empty values, and unknown values all normalize to `langgraph`; there is no legacy server-entry fallback. Keep rollback and migration changes inside the governed LangGraph path so actor scope, evidence release validation, and terminal audit cannot be bypassed.
+
 ### Authentication Modes
 
 | Mode | Intended use | Behavior |

@@ -3,6 +3,7 @@ import { compactChatMessages } from "./chatMessageBudget.mjs";
 import { expandMessagesWithDocumentText } from "./documentText.mjs";
 import { expandImageMessagesWithOcr } from "./imageOcr.mjs";
 import { validateAnswerTextCitations } from "./answerValidator.mjs";
+import { evaluateSemanticEvidence } from "./mainAgentEvidence.mjs";
 
 const SYSTEM_PROMPT = `You are DTSV Intelligence — a senior data analyst embedded in a quality engineering dashboard.
 
@@ -139,6 +140,10 @@ async function fetchWithResilience(url, init, { env = process.env } = {}) {
 }
 
 const PSEUDO_TOOL_FALLBACK_CONTENT = "工具调用阶段已结束；无法继续调用工具。我会基于已有工具结果说明数据限制。";
+export const GOVERNED_EVIDENCE_UNAVAILABLE_CONTENT = "受治理证据不可用，因此本次不会发布数据事实或结论。请重试或缩小查询范围。";
+const DEFAULT_ANSWER_RELEASE_MAX_BYTES = 256 * 1024;
+const DEFAULT_ANSWER_RELEASE_TIMEOUT_MS = 30_000;
+const ANSWER_RELEASE_CHUNK_CHARACTERS = 120;
 const TOOL_FALLBACK_MAX_LINES = 12;
 
 const PSEUDO_TOOL_START_MARKERS = [
@@ -327,6 +332,30 @@ function sanitizeFinalAnswerContent(content, state) {
   return output;
 }
 
+function addVisibleContent(response, state, content) {
+  const text = String(content || "");
+  if (!text || state.releaseViolation) {
+    return;
+  }
+  if (state.releaseRequired) {
+    const nextBytes = state.releaseBytes + Buffer.byteLength(text, "utf8");
+    if (nextBytes > state.releaseMaxBytes) {
+      state.releaseViolation = "ANSWER_RELEASE_BUFFER_LIMIT_EXCEEDED";
+      state.visibleContentParts = [];
+      state.releaseBytes = 0;
+      state.emittedVisibleContent = false;
+      return;
+    }
+    state.releaseBytes = nextBytes;
+    state.visibleContentParts.push(text);
+    state.emittedVisibleContent = true;
+    return;
+  }
+  writeSseEvent(response, { choices: [{ delta: { content: text } }] });
+  state.visibleContentParts.push(text);
+  state.emittedVisibleContent = true;
+}
+
 function flushPendingSanitizedContent(response, state) {
   const pending = state.pendingPseudoToolText || "";
   state.pendingPseudoToolText = "";
@@ -334,9 +363,7 @@ function flushPendingSanitizedContent(response, state) {
     if (looksLikePseudoToolPrefix(pending)) {
       state.suppressedPseudoToolCall = true;
     } else {
-      writeSseEvent(response, { choices: [{ delta: { content: pending } }] });
-      state.visibleContentParts?.push(pending);
-      state.emittedVisibleContent = true;
+      addVisibleContent(response, state, pending);
     }
   }
 
@@ -349,9 +376,7 @@ function flushPendingSanitizedContent(response, state) {
     state.droppedStopTokenFragment = true;
     return;
   }
-  writeSseEvent(response, { choices: [{ delta: { content: pendingStopToken } }] });
-  state.visibleContentParts?.push(pendingStopToken);
-  state.emittedVisibleContent = true;
+  addVisibleContent(response, state, pendingStopToken);
 }
 
 function hasOnlyEmptyContentDelta(payload) {
@@ -371,42 +396,46 @@ function writePseudoToolFallbackIfNeeded(response, state) {
     return;
   }
   const fallbackContent = buildToolResultFallbackContent(state.context);
-  writeSseEvent(response, { choices: [{ delta: { content: fallbackContent } }] });
-  state.visibleContentParts?.push(fallbackContent);
-  state.emittedVisibleContent = true;
+  addVisibleContent(response, state, fallbackContent);
   state.fallbackEmitted = true;
 }
 
-function citationFooter(answerValidation) {
-  const toolCallId = (Array.isArray(answerValidation?.evidence) ? answerValidation.evidence : [])
-    .map((item) => String(item?.toolCallId || "").trim())
-    .find((value) => /^[A-Za-z0-9._:-]+$/.test(value));
-  return toolCallId ? `\n\nEvidence source: <cite source="${toolCallId}">governed tool result</cite>` : "";
+function computeAnswerValidation(state) {
+  if (state.releaseViolation) {
+    return { valid: false, violations: [state.releaseViolation] };
+  }
+  const violations = [];
+  if (state.releaseRequired) {
+    let registryConstraintAvailable = false;
+    try {
+      registryConstraintAvailable = Boolean(state.answerValidation?.registry?.getConstraint?.("answer.claim_evidence_binding"));
+    } catch {
+      registryConstraintAvailable = false;
+    }
+    if (!registryConstraintAvailable) {
+      violations.push("ANSWER_VALIDATION_REGISTRY_UNAVAILABLE");
+    }
+    const evidenceGate = evaluateSemanticEvidence(state.answerValidation?.evidence, {
+      expectedActorScopeHash: state.answerValidation?.expectedActorScopeHash,
+      expectedSourceRevisionIds: state.answerValidation?.expectedSourceRevisionIds,
+      requireReleaseBinding: true,
+    });
+    if (evidenceGate.status === "not_required") {
+      violations.push("SEMANTIC_CLAIM_EVIDENCE_MISSING");
+    }
+    violations.push(...evidenceGate.violations);
+  }
+  const citationValidation = validateAnswerTextCitations({
+    text: (state.visibleContentParts || []).join(""),
+    evidence: state.answerValidation?.evidence,
+    registry: state.answerValidation?.registry,
+  });
+  violations.push(...citationValidation.violations);
+  const uniqueViolations = [...new Set(violations)];
+  return { valid: uniqueViolations.length === 0, violations: uniqueViolations };
 }
 
-function writeAnswerValidationIfNeeded(response, state) {
-  if (!state.answerValidation || state.answerValidationEmitted) {
-    return;
-  }
-  state.answerValidationEmitted = true;
-  let validation = validateAnswerTextCitations({
-    text: (state.visibleContentParts || []).join(""),
-    evidence: state.answerValidation.evidence,
-    registry: state.answerValidation.registry,
-  });
-  if (validation.violations.length === 1 && validation.violations[0] === "ANSWER_CITATION_REQUIRED") {
-    const footer = citationFooter(state.answerValidation);
-    if (footer) {
-      writeSseEvent(response, { choices: [{ delta: { content: footer } }] });
-      state.visibleContentParts?.push(footer);
-      state.emittedVisibleContent = true;
-      validation = validateAnswerTextCitations({
-        text: state.visibleContentParts.join(""),
-        evidence: state.answerValidation.evidence,
-        registry: state.answerValidation.registry,
-      });
-    }
-  }
+function emitAnswerValidation(response, state, validation) {
   writeSseEvent(response, { type: "answer-validation", ...validation });
   try {
     state.onAnswerValidation?.(validation);
@@ -415,25 +444,68 @@ function writeAnswerValidationIfNeeded(response, state) {
   }
 }
 
+function writeAnswerValidationIfNeeded(response, state) {
+  if (!state.answerValidation || state.answerValidationEmitted) {
+    return null;
+  }
+  state.answerValidationEmitted = true;
+  const validation = computeAnswerValidation(state);
+  emitAnswerValidation(response, state, validation);
+  return validation;
+}
+
+function writeContentChunks(response, content) {
+  const chunks = String(content || "").match(new RegExp(`.{1,${ANSWER_RELEASE_CHUNK_CHARACTERS}}`, "gs")) || [String(content || "")];
+  for (const chunk of chunks) {
+    writeSseEvent(response, { choices: [{ delta: { content: chunk } }] });
+  }
+}
+
+function finalizeAnswerRelease(response, state) {
+  if (state.terminalEmitted) {
+    return;
+  }
+  flushPendingSanitizedContent(response, state);
+  writePseudoToolFallbackIfNeeded(response, state);
+  const validation = computeAnswerValidation(state);
+  state.answerValidationEmitted = true;
+  if (validation.valid) {
+    writeContentChunks(response, state.visibleContentParts.join(""));
+  } else {
+    writeContentChunks(response, GOVERNED_EVIDENCE_UNAVAILABLE_CONTENT);
+  }
+  emitAnswerValidation(response, state, validation);
+  response.write("data: [DONE]\n\n");
+  state.terminalEmitted = true;
+}
+
 function writeSanitizedSseFrame(response, frame, state) {
+  if (state.terminalEmitted) {
+    return true;
+  }
   const dataLines = String(frame || "")
     .split(/\r?\n/)
     .filter((line) => line.startsWith("data:"))
     .map((line) => line.slice(5).trimStart());
   if (!dataLines.length) {
-    if (frame) {
+    if (frame && !state.releaseRequired) {
       response.write(`${frame}\n\n`);
     }
-    return;
+    return false;
   }
 
   const data = dataLines.join("\n");
   if (data === "[DONE]") {
-    flushPendingSanitizedContent(response, state);
-    writePseudoToolFallbackIfNeeded(response, state);
-    writeAnswerValidationIfNeeded(response, state);
-    response.write("data: [DONE]\n\n");
-    return;
+    if (state.releaseRequired) {
+      finalizeAnswerRelease(response, state);
+    } else {
+      flushPendingSanitizedContent(response, state);
+      writePseudoToolFallbackIfNeeded(response, state);
+      writeAnswerValidationIfNeeded(response, state);
+      response.write("data: [DONE]\n\n");
+      state.terminalEmitted = true;
+    }
+    return true;
   }
 
   let payload;
@@ -442,11 +514,9 @@ function writeSanitizedSseFrame(response, frame, state) {
   } catch {
     const sanitized = stripModelStopTokenFragments(sanitizeFinalAnswerContent(data, state), state);
     if (sanitized) {
-      response.write(`data: ${sanitized}\n\n`);
-      state.visibleContentParts?.push(sanitized);
-      state.emittedVisibleContent = true;
+      addVisibleContent(response, state, sanitized);
     }
-    return;
+    return false;
   }
 
   for (const choice of Array.isArray(payload?.choices) ? payload.choices : []) {
@@ -460,14 +530,19 @@ function writeSanitizedSseFrame(response, frame, state) {
     }
     choice.delta.content = sanitized;
     if (sanitized) {
-      state.visibleContentParts?.push(sanitized);
-      state.emittedVisibleContent = true;
+      if (state.releaseRequired) {
+        addVisibleContent(response, state, sanitized);
+      } else {
+        state.visibleContentParts.push(sanitized);
+        state.emittedVisibleContent = true;
+      }
     }
   }
 
-  if (!hasOnlyEmptyContentDelta(payload)) {
+  if (!state.releaseRequired && !hasOnlyEmptyContentDelta(payload)) {
     writeSseEvent(response, payload);
   }
+  return false;
 }
 
 export async function requestCompanyChatCompletion({
@@ -587,6 +662,7 @@ export async function streamCompanyChatCompletion({
 
     const reader = upstreamResponse.body.getReader();
     const decoder = new TextDecoder();
+    const releaseRequired = answerValidation?.releaseRequired === true;
     const sanitizerState = {
       suppressingPseudoToolCall: false,
       suppressedPseudoToolCall: false,
@@ -602,11 +678,46 @@ export async function streamCompanyChatCompletion({
       answerValidation,
       answerValidationEmitted: false,
       onAnswerValidation,
+      releaseRequired,
+      releaseMaxBytes: positiveInteger(process.env.VIZION_ANSWER_RELEASE_MAX_BYTES, DEFAULT_ANSWER_RELEASE_MAX_BYTES),
+      releaseFrameMaxBytes: positiveInteger(process.env.VIZION_ANSWER_RELEASE_MAX_BYTES, DEFAULT_ANSWER_RELEASE_MAX_BYTES) + 64 * 1024,
+      releaseBytes: 0,
+      releaseViolation: "",
+      terminalEmitted: false,
     };
+    const releaseDeadline = releaseRequired
+      ? Date.now() + positiveInteger(process.env.VIZION_ANSWER_RELEASE_TIMEOUT_MS, DEFAULT_ANSWER_RELEASE_TIMEOUT_MS)
+      : null;
     let sseBuffer = "";
+    let stopReading = false;
 
-    while (true) {
-      const { done, value } = await reader.read();
+    while (!stopReading) {
+      let readResult;
+      if (releaseDeadline) {
+        const remainingMs = releaseDeadline - Date.now();
+        if (remainingMs <= 0) {
+          sanitizerState.releaseViolation = "ANSWER_RELEASE_TIMEOUT";
+          break;
+        }
+        let timeout;
+        try {
+          readResult = await Promise.race([
+            reader.read(),
+            new Promise((resolve) => {
+              timeout = setTimeout(() => resolve({ releaseTimedOut: true }), remainingMs);
+            }),
+          ]);
+        } finally {
+          if (timeout) clearTimeout(timeout);
+        }
+        if (readResult?.releaseTimedOut) {
+          sanitizerState.releaseViolation = "ANSWER_RELEASE_TIMEOUT";
+          break;
+        }
+      } else {
+        readResult = await reader.read();
+      }
+      const { done, value } = readResult;
       if (done) {
         break;
       }
@@ -618,19 +729,47 @@ export async function streamCompanyChatCompletion({
           firstChunkMs = roundMs(nowMs() - startedAt);
         }
         sseBuffer += decoder.decode(value, { stream: true });
+        if (releaseRequired && Buffer.byteLength(sseBuffer, "utf8") > sanitizerState.releaseFrameMaxBytes) {
+          sanitizerState.releaseViolation = "ANSWER_RELEASE_BUFFER_LIMIT_EXCEEDED";
+          sseBuffer = "";
+          stopReading = true;
+          continue;
+        }
         let frameBoundary = sseBuffer.indexOf("\n\n");
         while (frameBoundary >= 0) {
           const frame = sseBuffer.slice(0, frameBoundary);
           sseBuffer = sseBuffer.slice(frameBoundary + 2);
-          writeSanitizedSseFrame(response, frame, sanitizerState);
+          if (writeSanitizedSseFrame(response, frame, sanitizerState)) {
+            stopReading = true;
+            break;
+          }
+          if (sanitizerState.releaseViolation) {
+            stopReading = true;
+            break;
+          }
           frameBoundary = sseBuffer.indexOf("\n\n");
         }
       }
     }
 
+    if (stopReading || sanitizerState.releaseViolation) {
+      await reader.cancel().catch(() => {});
+    }
     sseBuffer += decoder.decode();
-    if (sseBuffer.trim()) {
+    if (!sanitizerState.terminalEmitted && !sanitizerState.releaseViolation && sseBuffer.trim()) {
       writeSanitizedSseFrame(response, sseBuffer.trimEnd(), sanitizerState);
+    }
+
+    if (!sanitizerState.terminalEmitted) {
+      if (releaseRequired) {
+        finalizeAnswerRelease(response, sanitizerState);
+      } else {
+        flushPendingSanitizedContent(response, sanitizerState);
+        writePseudoToolFallbackIfNeeded(response, sanitizerState);
+        writeAnswerValidationIfNeeded(response, sanitizerState);
+        response.write("data: [DONE]\n\n");
+        sanitizerState.terminalEmitted = true;
+      }
     }
 
     response.end();
@@ -678,4 +817,20 @@ export function writeSseResponse(response, content) {
   }
   response.write("data: [DONE]\n\n");
   response.end();
+}
+
+export function writeGovernedEvidenceBlockResponse(response, violations = []) {
+  ensureSseHeaders(response);
+  const validation = {
+    valid: false,
+    violations: [...new Set((Array.isArray(violations) ? violations : []).map((value) => String(value || "").trim()).filter(Boolean))],
+  };
+  if (!validation.violations.length) {
+    validation.violations.push("SEMANTIC_EVIDENCE_GATE_BLOCKED");
+  }
+  writeContentChunks(response, GOVERNED_EVIDENCE_UNAVAILABLE_CONTENT);
+  writeSseEvent(response, { type: "answer-validation", ...validation });
+  response.write("data: [DONE]\n\n");
+  response.end();
+  return validation;
 }

@@ -34,6 +34,56 @@ describe("LangGraph chat handler", () => {
     expect(result.streamMetrics).toEqual(expect.objectContaining({ directResponse: true }));
   });
 
+  it("never releases a direct response when claim-bearing evidence requires validation", async () => {
+    const response = { writeHead: vi.fn(), write: vi.fn(), end: vi.fn(), flushHeaders: vi.fn() };
+    const runtime = {
+      invoke: vi.fn(async () => ({
+        runtime: "langgraph",
+        threadId: "thread-1",
+        actorScope: { scopeHash: "scope-a" },
+        directResponse: { content: "LEAK_DIRECT_CLAIM: 缺陷数是 12" },
+        mainAgentToolContext: {
+          evidenceGate: { status: "pass", violations: [], sourceRevisionIds: ["snap-1"] },
+          evidence: [{
+            toolCallId: "call-1", tool: "query_semantic_metrics", ok: true,
+            ontologyVersion: "v1", schemaFingerprint: "fingerprint-1", analysisRef: "analysis-1",
+            sourceRevision: { revisionId: "snap-1", status: "pinned" }, scope: { actorScopeHash: "scope-a" },
+            quality: { completeness: "complete", warnings: [] },
+            evidence: { kind: "semantic_metric_result", analysisRef: "analysis-1", sourceRevisionId: "snap-1" },
+          }],
+        },
+        metrics: {
+          mainAgentToolCallCount: 1,
+          evidenceGate: { status: "pass", violations: [], sourceRevisionIds: ["snap-1"] },
+        },
+      })),
+    };
+    const streamCompletion = vi.fn();
+    const onCompleted = vi.fn();
+
+    const result = await streamLangGraphChatResponse({
+      response,
+      runtime,
+      streamCompletion,
+      onCompleted,
+    });
+
+    const streamedText = response.write.mock.calls.map(([chunk]) => String(chunk)).join("");
+    expect(streamCompletion).not.toHaveBeenCalled();
+    expect(streamedText).not.toContain("LEAK_DIRECT_CLAIM");
+    expect(streamedText).not.toContain("缺陷数是 12");
+    expect(streamedText).toContain("受治理证据不可用");
+    expect(streamedText).toContain("ANSWER_DIRECT_RESPONSE_CLAIM_BYPASS_BLOCKED");
+    expect(streamedText.match(/data: \[DONE\]/g)).toHaveLength(1);
+    expect(result.answerValidation).toEqual({
+      valid: false,
+      violations: ["ANSWER_DIRECT_RESPONSE_CLAIM_BYPASS_BLOCKED"],
+    });
+    expect(onCompleted).toHaveBeenCalledWith(expect.objectContaining({
+      answerValidation: expect.objectContaining({ valid: false }),
+    }));
+  });
+
   it("streams a response using graph-produced messages, context, and preface events", async () => {
     const response = { writeHead: vi.fn(), write: vi.fn(), end: vi.fn() };
     const runtime = {
@@ -48,8 +98,26 @@ describe("LangGraph chat handler", () => {
           ],
           context: "# Tool context",
           prefaceEvents: [{ type: "tool-output-available", toolName: "query_semantic_metrics" }],
-          mainAgentToolContext: { evidence: [{ toolCallId: "call-1", tool: "query_semantic_metrics" }] },
-          metrics: { mainAgentToolCallCount: 1 },
+          actorScope: { scopeHash: "scope-a" },
+          mainAgentToolContext: {
+            evidence: [{
+              toolCallId: "call-1",
+              tool: "query_semantic_metrics",
+              ok: true,
+              ontologyVersion: "v1",
+              schemaFingerprint: "fingerprint-1",
+              analysisRef: "analysis-1",
+              sourceRevision: { revisionId: "snap-1", status: "pinned" },
+              scope: { actorScopeHash: "scope-a" },
+              quality: { completeness: "complete", warnings: [] },
+              evidence: { kind: "semantic_metric_result", analysisRef: "analysis-1", sourceRevisionId: "snap-1" },
+            }],
+            evidenceGate: { status: "pass", violations: [], sourceRevisionIds: ["snap-1"] },
+          },
+          metrics: {
+            mainAgentToolCallCount: 1,
+            evidenceGate: { status: "pass", violations: [], sourceRevisionIds: ["snap-1"] },
+          },
         };
       }),
     };
@@ -58,6 +126,7 @@ describe("LangGraph chat handler", () => {
       onMetrics({ streamTotalMs: 12 });
     });
     const writeEvent = vi.fn();
+    const onCompleted = vi.fn();
 
     const result = await streamLangGraphChatResponse({
       body: {
@@ -70,6 +139,7 @@ describe("LangGraph chat handler", () => {
       toolDependencies: { runDuplicateBridge: "bridge" },
       streamCompletion,
       writeEvent,
+      onCompleted,
     });
 
     expect(runtime.invoke).toHaveBeenCalledWith(
@@ -94,7 +164,10 @@ describe("LangGraph chat handler", () => {
         response,
         prefaceEvents: [{ type: "tool-output-available", toolName: "query_semantic_metrics" }],
         answerValidation: expect.objectContaining({
-          evidence: [{ toolCallId: "call-1", tool: "query_semantic_metrics" }],
+          releaseRequired: true,
+          expectedActorScopeHash: "scope-a",
+          expectedSourceRevisionIds: ["snap-1"],
+          evidence: [expect.objectContaining({ toolCallId: "call-1", tool: "query_semantic_metrics" })],
           registry: expect.objectContaining({ version: "v1" }),
         }),
       }),
@@ -102,6 +175,147 @@ describe("LangGraph chat handler", () => {
     expect(result.runtimeResult.threadId).toBe("thread-1");
     expect(result.streamMetrics).toEqual({ streamTotalMs: 12 });
     expect(result.answerValidation).toEqual({ valid: true, violations: [] });
+    expect(onCompleted).toHaveBeenCalledWith(expect.objectContaining({
+      streamMetrics: { streamTotalMs: 12 },
+      answerValidation: { valid: true, violations: [] },
+    }));
+  });
+
+  it("skips the final model and suppresses evidence prefaces when the evidence gate is blocked", async () => {
+    const response = { writeHead: vi.fn(), write: vi.fn(), end: vi.fn(), flushHeaders: vi.fn() };
+    const runtime = {
+      invoke: vi.fn(async () => ({
+        runtime: "langgraph",
+        threadId: "thread-1",
+        finalMessages: [{ role: "user", content: "缺陷数是多少？" }],
+        context: "# Tool context\nLEAK_BLOCKED_CONTEXT: 999",
+        prefaceEvents: [{
+          type: "tool-output-available",
+          toolName: "query_semantic_metrics",
+          outputSummary: "LEAK_BLOCKED_PREFACE: 999",
+        }],
+        actorScope: { scopeHash: "scope-a" },
+        mainAgentToolContext: {
+          evidence: [{ toolCallId: "call-1", tool: "query_semantic_metrics" }],
+          evidenceGate: {
+            status: "blocked",
+            violations: ["SEMANTIC_SCOPE_EVIDENCE_MISMATCH"],
+            sourceRevisionIds: ["snap-1"],
+          },
+        },
+        metrics: {
+          mainAgentToolCallCount: 1,
+          evidenceGate: {
+            status: "blocked",
+            violations: ["SEMANTIC_SCOPE_EVIDENCE_MISMATCH"],
+            sourceRevisionIds: ["snap-1"],
+          },
+        },
+      })),
+    };
+    const streamCompletion = vi.fn();
+    const onCompleted = vi.fn();
+
+    const result = await streamLangGraphChatResponse({
+      body: { threadId: "thread-1", messages: [{ role: "user", content: "缺陷数是多少？" }] },
+      response,
+      runtime,
+      streamCompletion,
+      onCompleted,
+    });
+
+    const streamedText = response.write.mock.calls.map(([chunk]) => String(chunk)).join("");
+    expect(streamCompletion).not.toHaveBeenCalled();
+    expect(streamedText).not.toContain("LEAK_BLOCKED_CONTEXT");
+    expect(streamedText).not.toContain("LEAK_BLOCKED_PREFACE");
+    expect(streamedText).toContain("受治理证据不可用");
+    expect(streamedText).toContain('"type":"answer-validation"');
+    expect(streamedText).toContain("SEMANTIC_SCOPE_EVIDENCE_MISMATCH");
+    expect(streamedText.match(/data: \[DONE\]/g)).toHaveLength(1);
+    expect(response.end).toHaveBeenCalledTimes(1);
+    expect(result.answerValidation).toEqual({
+      valid: false,
+      violations: ["SEMANTIC_SCOPE_EVIDENCE_MISMATCH"],
+    });
+    expect(onCompleted).toHaveBeenCalledWith(expect.objectContaining({
+      answerValidation: expect.objectContaining({ valid: false }),
+      streamMetrics: expect.objectContaining({ evidenceReleaseBlocked: true }),
+    }));
+  });
+
+  it("fails closed before the final model when claim evidence has no declared release binding", async () => {
+    const response = { writeHead: vi.fn(), write: vi.fn(), end: vi.fn() };
+    const runtime = {
+      invoke: vi.fn(async () => ({
+        runtime: "langgraph",
+        threadId: "thread-1",
+        actorScope: { scopeHash: "scope-a" },
+        finalMessages: [{ role: "user", content: "trace count" }],
+        mainAgentToolContext: {
+          evidence: [{
+            toolCallId: "trace-1", tool: "query_traceability", ok: true,
+            ontologyVersion: "v1", schemaFingerprint: "fingerprint-1", analysisRef: "analysis-1",
+            sourceRevision: { revisionId: "snap-1", status: "pinned" }, scope: { actorScopeHash: "scope-a" },
+            quality: { completeness: "complete", warnings: [] },
+            evidence: { kind: "semantic_metric_result", analysisRef: "analysis-1", sourceRevisionId: "snap-1" },
+          }],
+        },
+        metrics: { mainAgentToolCallCount: 1 },
+      })),
+    };
+    const streamCompletion = vi.fn();
+
+    const result = await streamLangGraphChatResponse({ response, runtime, streamCompletion });
+
+    expect(streamCompletion).not.toHaveBeenCalled();
+    expect(result.answerValidation).toEqual(expect.objectContaining({
+      valid: false,
+      violations: expect.arrayContaining(["SEMANTIC_EVIDENCE_GATE_MISSING"]),
+    }));
+    expect(response.write.mock.calls.map(([chunk]) => String(chunk)).join(""))
+      .toContain("SEMANTIC_EVIDENCE_GATE_MISSING");
+  });
+
+  it("propagates a buffered answer validation failure to the terminal completion observer", async () => {
+    const response = { writeHead: vi.fn(), write: vi.fn(), end: vi.fn() };
+    const runtime = {
+      invoke: vi.fn(async () => ({
+        runtime: "langgraph",
+        threadId: "thread-1",
+        actorScope: { scopeHash: "scope-a" },
+        finalMessages: [{ role: "user", content: "缺陷数是多少？" }],
+        context: "# Tool context",
+        prefaceEvents: [],
+        mainAgentToolContext: {
+          evidenceGate: { status: "pass", violations: [], sourceRevisionIds: ["snap-1"] },
+          evidence: [{
+            toolCallId: "call-1", tool: "query_semantic_metrics", ok: true,
+            ontologyVersion: "v1", schemaFingerprint: "fingerprint-1", analysisRef: "analysis-1",
+            sourceRevision: { revisionId: "snap-1", status: "pinned" }, scope: { actorScopeHash: "scope-a" },
+            quality: { completeness: "complete", warnings: [] },
+            evidence: { kind: "semantic_metric_result", analysisRef: "analysis-1", sourceRevisionId: "snap-1" },
+          }],
+        },
+      })),
+    };
+    const streamCompletion = vi.fn(async ({ onAnswerValidation, onMetrics }) => {
+      onAnswerValidation({ valid: false, violations: ["ANSWER_CITATION_REQUIRED"] });
+      onMetrics({ streamTotalMs: 15 });
+    });
+    const onCompleted = vi.fn();
+
+    const result = await streamLangGraphChatResponse({
+      response,
+      runtime,
+      streamCompletion,
+      onCompleted,
+    });
+
+    expect(result.answerValidation).toEqual({ valid: false, violations: ["ANSWER_CITATION_REQUIRED"] });
+    expect(onCompleted).toHaveBeenCalledWith(expect.objectContaining({
+      streamMetrics: { streamTotalMs: 15 },
+      answerValidation: { valid: false, violations: ["ANSWER_CITATION_REQUIRED"] },
+    }));
   });
 
   it("does not write after stream completion when a telemetry observer fails", async () => {

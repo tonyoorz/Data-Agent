@@ -33,7 +33,11 @@ export function buildToolEvidence({ toolCall, result, intent }) {
 
 const CLAIM_BEARING_SEMANTIC_TOOLS = new Set(["query_semantic_metrics", "query_semantic_records", "query_traceability"]);
 
-export function evaluateSemanticEvidence(items, { expectedActorScopeHash = "" } = {}) {
+export function evaluateSemanticEvidence(items, {
+  expectedActorScopeHash = "",
+  expectedSourceRevisionIds = [],
+  requireReleaseBinding = false,
+} = {}) {
   const semanticItems = (Array.isArray(items) ? items : []).filter((item) => CLAIM_BEARING_SEMANTIC_TOOLS.has(item?.tool));
   if (!semanticItems.length) {
     return { status: "not_required", violations: [], analysisRefs: [], sourceRevisionIds: [], warnings: [] };
@@ -43,6 +47,15 @@ export function evaluateSemanticEvidence(items, { expectedActorScopeHash = "" } 
   const sourceRevisionIds = [];
   const warnings = [];
   const revisionsByAnalysisRef = new Map();
+  const expectedRevisions = [...new Set((Array.isArray(expectedSourceRevisionIds) ? expectedSourceRevisionIds : [])
+    .map((value) => String(value || "").trim())
+    .filter(Boolean))].sort();
+  if (requireReleaseBinding && !String(expectedActorScopeHash || "").trim()) {
+    violations.push("SEMANTIC_EXPECTED_SCOPE_MISSING");
+  }
+  if (requireReleaseBinding && expectedRevisions.length === 0) {
+    violations.push("SEMANTIC_EXPECTED_SOURCE_REVISION_MISSING");
+  }
   for (const item of semanticItems) {
     if (item?.ok !== true) violations.push("SEMANTIC_TOOL_RESULT_FAILED");
     if (!item?.ontologyVersion) violations.push("SEMANTIC_ONTOLOGY_VERSION_MISSING");
@@ -82,6 +95,12 @@ export function evaluateSemanticEvidence(items, { expectedActorScopeHash = "" } 
   }
   if ([...revisionsByAnalysisRef.values()].some((revisions) => revisions.size > 1)) {
     violations.push("SEMANTIC_ANALYSIS_REVISION_INCONSISTENT");
+  }
+  const actualRevisions = [...new Set(sourceRevisionIds)].sort();
+  if (expectedRevisions.length > 0
+    && (actualRevisions.length !== expectedRevisions.length
+      || actualRevisions.some((revisionId, index) => revisionId !== expectedRevisions[index]))) {
+    violations.push("SEMANTIC_SOURCE_REVISION_EXPECTATION_MISMATCH");
   }
   return {
     status: violations.length ? "blocked" : "pass",

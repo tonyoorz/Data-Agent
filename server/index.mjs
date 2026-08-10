@@ -8,12 +8,9 @@ import { streamLangGraphChatResponse } from "./agentRuntime/langGraphChatHandler
 import { createLangGraphChatRuntime, resolveAgentRuntimeMode } from "./agentRuntime/langGraphChatRuntime.mjs";
 import { createFileAgentRuntimeStore } from "./agentRuntime/runtimeAuditStore.mjs";
 import { resolveAgentOperationsResponse } from "./agentOperations.mjs";
-import { resolveAiAnalyticsContext } from "./aiAnalyticsContext.mjs";
-import { resolveMainAgentToolContext } from "./mainAgentToolLoop.mjs";
-import { shouldPlanMainAgentTools } from "./mainAgentToolPlanning.mjs";
 import { createDuplicateWarmupManager } from "./duplicateWarmup.mjs";
 import { extractLatestUserQuery, resolveAiDefectContext } from "./aiContext.mjs";
-import { streamCompanyChatCompletion, writeSseEvent } from "./companyChat.mjs";
+import { writeSseEvent } from "./companyChat.mjs";
 import { resolveRequestUrl } from "./httpRequestUrl.mjs";
 import {
   resolveInternalAuxiliaryActor,
@@ -82,13 +79,6 @@ function logMetric(event, payload) {
   console.info(`[vizion-metric] ${JSON.stringify({ event, ...payload })}`);
 }
 
-function shouldResolveGatewayAnalyticsContext({ runtimeMode, useAnalyticsContext } = {}) {
-  if (useAnalyticsContext !== true) {
-    return false;
-  }
-  return String(runtimeMode || "").trim().toLowerCase() !== "langgraph";
-}
-
 export async function handleAiChatRequest(request, response) {
   return runAuthenticatedChatRequest(request, {
     env: process.env,
@@ -137,136 +127,46 @@ async function handleAuthenticatedAiChatRequest(body, response) {
   const requestId = buildRequestId("ai-chat");
   const queryText = extractLatestUserQuery(body?.messages);
   const runtimeMode = resolveAgentRuntimeMode(process.env);
-  const useDefectContext = body?.useDefectContext === true;
-  const useAnalyticsContext = body?.useAnalyticsContext === true;
-  const analyticsContext = shouldResolveGatewayAnalyticsContext({ runtimeMode, useAnalyticsContext })
-    ? await resolveAiAnalyticsContext({ messages: body?.messages })
-    : null;
-  let aiContext = null;
-  let mainAgentToolContext = null;
   let streamMetrics = null;
+  let runtimeResult = null;
 
   try {
-    if (runtimeMode === "langgraph") {
-      const graphResult = await streamLangGraphChatResponse({
-        body,
-        response,
-        runtime: langGraphChatRuntime,
-        toolDependencies: {
-          runDuplicateBridge,
-          ensureDuplicateWarmup: () => duplicateWarmupManager.ensureWarm({ reason: "langgraph-agent-tool" }),
-        },
-        onCompleted: async (completed) => {
-          await agentRuntimeStore.appendRunEvent({
-            runId: completed.runtimeResult?.runId || "",
-            threadId: completed.runtimeResult?.threadId || "",
-            actorScope: completed.runtimeResult?.actorScope || {},
-            type: "agent-stream-completed",
-            ...(Number.isFinite(Number(completed.streamMetrics?.streamTotalMs)) ? { latencyMs: Number(completed.streamMetrics.streamTotalMs) } : {}),
-            citationValidation: completed.answerValidation
-              ? completed.answerValidation.valid ? "pass" : "blocked"
-              : "not_required",
-          });
-        },
-      });
-      streamMetrics = graphResult.streamMetrics;
-      logMetric("ai_chat_request", {
-        requestId,
-        runtime: runtimeMode,
-        model: String(body?.model || ""),
-        query: summarizeQuery(graphResult.runtimeResult?.queryText || queryText),
-        aiContextEnabled: graphResult.runtimeResult?.metrics?.aiContextEnabled || false,
-        analyticsContextEnabled: graphResult.runtimeResult?.metrics?.analyticsContextEnabled || false,
-        mainAgentToolCallCount: graphResult.runtimeResult?.metrics?.mainAgentToolCallCount || 0,
-        aiContextTimings: graphResult.runtimeResult?.metrics?.aiContextTimings || null,
-        streamMetrics,
-        totalMs: roundMs(nowMs() - startedAt),
-      });
-      return;
-    }
-
-    if (useDefectContext && !analyticsContext?.skipDefectContext) {
-      writeSseEvent(response, {
-        type: "status",
-        message: "正在检索 qgate 相关缺陷…",
-      });
-
-      aiContext = await resolveAiDefectContext({
-        runDuplicateBridge,
-        ensureDuplicateWarmup: () => duplicateWarmupManager.ensureWarm({ reason: "ai-chat-defect-context" }),
-        messages: body?.messages,
-        topK: 5,
-      });
-    }
-
-    const baseContext = [body?.context, analyticsContext?.contextText, aiContext?.contextText].filter(Boolean).join("\n\n");
-    if (useAnalyticsContext && !analyticsContext?.skipDefectContext && shouldPlanMainAgentTools(body?.messages)) {
-      writeSseEvent(response, {
-        type: "status",
-        message: "正在判断是否需要调用 dashboard 工具…",
-      });
-      try {
-        mainAgentToolContext = await resolveMainAgentToolContext({
-          messages: body?.messages,
-          model: body?.model,
-          context: baseContext,
-          toolDependencies: {
-            runDuplicateBridge,
-            ensureDuplicateWarmup: () => duplicateWarmupManager.ensureWarm({ reason: "main-agent-tool-search-duplicates" }),
-          },
-        });
-        if (mainAgentToolContext.toolCalls.length) {
-          writeSseEvent(response, {
-            type: "status",
-            message: `已调用 ${mainAgentToolContext.toolCalls.length} 个 dashboard 工具，正在生成回答…`,
-          });
-        }
-      } catch (error) {
-        console.warn("[ai-chat] main agent tool planning failed", error);
-        writeSseEvent(response, {
-          type: "status",
-          message: "dashboard 工具暂不可用，改用已检索上下文回答…",
-        });
-      }
-    }
-
-    const mergedContext = [baseContext, mainAgentToolContext?.contextText].filter(Boolean).join("\n\n");
-    const finalMessages = [
-      ...(Array.isArray(body?.messages) ? body.messages : []),
-      ...(mainAgentToolContext?.toolConversationMessages || []),
-    ];
-    await streamCompanyChatCompletion({
-      messages: finalMessages,
-      model: body?.model,
-      context: mergedContext,
+    const graphResult = await streamLangGraphChatResponse({
+      body,
       response,
-      prefaceEvents: [
-        ...(mainAgentToolContext?.toolEvents || []),
-        ...(aiContext?.duplicateSearchResult
-          ? [
-              {
-                type: "context",
-                context: aiContext.contextText,
-                result: aiContext.duplicateSearchResult,
-                timings: aiContext.timings,
-              },
-            ]
-          : []),
-      ],
-      onMetrics: (metrics) => {
-        streamMetrics = metrics;
+      runtime: langGraphChatRuntime,
+      toolDependencies: {
+        runDuplicateBridge,
+        ensureDuplicateWarmup: () => duplicateWarmupManager.ensureWarm({ reason: "langgraph-agent-tool" }),
+      },
+      onCompleted: async (completed) => {
+        await agentRuntimeStore.appendRunEvent({
+          runId: completed.runtimeResult?.runId || "",
+          threadId: completed.runtimeResult?.threadId || "",
+          actorScope: completed.runtimeResult?.actorScope || {},
+          type: "agent-stream-completed",
+          ...(Number.isFinite(Number(completed.streamMetrics?.streamTotalMs)) ? { latencyMs: Number(completed.streamMetrics.streamTotalMs) } : {}),
+          citationValidation: completed.answerValidation
+            ? completed.answerValidation.valid ? "pass" : "blocked"
+            : "not_required",
+          ...(completed.answerValidation?.violations?.length
+            ? { answerValidationViolations: completed.answerValidation.violations.map(String) }
+            : {}),
+        });
       },
     });
+    runtimeResult = graphResult.runtimeResult;
+    streamMetrics = graphResult.streamMetrics;
 
     logMetric("ai_chat_request", {
       requestId,
       runtime: runtimeMode,
       model: String(body?.model || ""),
-      query: summarizeQuery(aiContext?.queryText || queryText),
-      aiContextEnabled: useDefectContext,
-      analyticsContextEnabled: useAnalyticsContext,
-      mainAgentToolCallCount: mainAgentToolContext?.toolCalls?.length || 0,
-      aiContextTimings: aiContext?.timings || null,
+      query: summarizeQuery(runtimeResult?.queryText || queryText),
+      aiContextEnabled: runtimeResult?.metrics?.aiContextEnabled || false,
+      analyticsContextEnabled: runtimeResult?.metrics?.analyticsContextEnabled || false,
+      mainAgentToolCallCount: runtimeResult?.metrics?.mainAgentToolCallCount || 0,
+      aiContextTimings: runtimeResult?.metrics?.aiContextTimings || null,
       streamMetrics,
       totalMs: roundMs(nowMs() - startedAt),
     });
@@ -276,11 +176,11 @@ async function handleAuthenticatedAiChatRequest(body, response) {
       requestId,
       runtime: runtimeMode,
       model: String(body?.model || ""),
-      query: summarizeQuery(aiContext?.queryText || queryText),
-      aiContextEnabled: useDefectContext,
-      analyticsContextEnabled: useAnalyticsContext,
-      mainAgentToolCallCount: mainAgentToolContext?.toolCalls?.length || 0,
-      aiContextTimings: aiContext?.timings || null,
+      query: summarizeQuery(runtimeResult?.queryText || queryText),
+      aiContextEnabled: runtimeResult?.metrics?.aiContextEnabled || body?.useDefectContext === true,
+      analyticsContextEnabled: runtimeResult?.metrics?.analyticsContextEnabled || body?.useAnalyticsContext === true,
+      mainAgentToolCallCount: runtimeResult?.metrics?.mainAgentToolCallCount || 0,
+      aiContextTimings: runtimeResult?.metrics?.aiContextTimings || null,
       streamMetrics,
       totalMs: roundMs(nowMs() - startedAt),
       error: message,
