@@ -45,3 +45,4 @@ database/cold/parquet/**
 docs/qgate-reports/generated_runs/
 !database/**/.gitkeep
 .worktrees/
+ticket_embeddings.db
