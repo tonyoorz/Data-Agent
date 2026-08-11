@@ -4,7 +4,8 @@ import { resolveAiAnalyticsContext } from "../aiAnalyticsContext.mjs";
 import { extractLatestUserQuery, resolveAiDefectContext } from "../aiContext.mjs";
 import { buildCitationContractContext } from "../answerValidator.mjs";
 import { requestCompanyChatCompletion } from "../companyChat.mjs";
-import { classifyDirectMainAgentIntent } from "../mainAgentDirectIntent.mjs";
+import { isAnalyticsActorScopeConfigured } from "../internalActorScope.mjs";
+import { buildDataAccessUnavailableResponse, classifyDirectMainAgentIntent } from "../mainAgentDirectIntent.mjs";
 import {
   buildSemanticContinuationContext,
   evaluateSemanticEvidence,
@@ -21,6 +22,7 @@ import {
 } from "../mainAgentToolPlanning.mjs";
 import { createOntologyRegistry } from "../ontology/registry.mjs";
 import { validateGovernedAnalysisPlan } from "../ontology/analysisPlanner.mjs";
+import { fingerprintQueryPlanSteps, validatePlan } from "../ontology/queryPlanner.mjs";
 
 const SUPPORTED_RUNTIME_MODES = new Set(["langgraph"]);
 
@@ -39,6 +41,7 @@ const ChatState = Annotation.Root({
   defectContext: Annotation({ reducer: overwrite, default: () => null }),
   toolRouting: Annotation({ reducer: overwrite, default: () => null }),
   plannedToolCalls: Annotation({ reducer: overwrite, default: () => [] }),
+  toolExecutionMode: Annotation({ reducer: overwrite, default: () => "model" }),
   toolStepIndex: Annotation({ reducer: overwrite, default: () => 0 }),
   stoppedReason: Annotation({ reducer: overwrite, default: () => "" }),
   directResponse: Annotation({ reducer: overwrite, default: () => null }),
@@ -341,6 +344,32 @@ function buildMainAgentToolContextFromState(state) {
   };
 }
 
+function resolveDeterministicQueryPlan({ analyticsContext, actorScope, selectedToolset }) {
+  const candidate = analyticsContext?.semanticPlan;
+  if (!candidate || typeof candidate !== "object") return null;
+  try {
+    const plan = validatePlan(candidate);
+    const toolNames = new Set(selectedToolset?.toolNames || []);
+    if (plan.status !== "valid" || plan.actorScopeHash !== String(actorScope?.scopeHash || "")) return null;
+    if (plan.executionFingerprint !== fingerprintQueryPlanSteps(plan.steps)) return null;
+    if (!plan.steps.length || !plan.steps.every((step) => step.riskLevel === "R0" && toolNames.has(step.toolName))) return null;
+    return plan;
+  } catch {
+    return null;
+  }
+}
+
+function canonicalToolCalls(plan) {
+  return plan.steps.map((step) => ({
+    id: `${plan.planId}:${step.stepId}`,
+    type: "function",
+    function: {
+      name: step.toolName,
+      arguments: JSON.stringify(step.canonicalArgs),
+    },
+  }));
+}
+
 export function createLangGraphChatRuntime({
   resolveAnalyticsContext = resolveAiAnalyticsContext,
   resolveDefectContext = resolveAiDefectContext,
@@ -376,6 +405,7 @@ export function createLangGraphChatRuntime({
       queryText,
       model: String(body?.model || ""),
       plannedToolCalls: [],
+      toolExecutionMode: "model",
       toolStepIndex: 0,
       stoppedReason: "",
       turnToolCallStart: (state.toolCalls || []).length,
@@ -395,19 +425,27 @@ export function createLangGraphChatRuntime({
     const events = [];
 
     if (body?.useAnalyticsContext === true) {
-      events.push(emit(config, { type: "analytics-context-started", threadId: state.threadId }));
-      analyticsContext = await resolveAnalyticsContext({
-        messages: body?.messages,
-        ...(hasActorScope(state.actorScope) ? { actor: state.actorScope } : {}),
-        ...(hasActorScope(state.actorScope) && ontologyRegistry ? { ontologyRegistry } : {}),
-      });
-      const governedAnalysisPlan = governedAnalysisAuditFromContext(analyticsContext);
-      if (governedAnalysisPlan) {
-        events.push(emit(config, {
-          type: "governed-analysis-plan-ready",
-          threadId: state.threadId,
-          analysisPlan: governedAnalysisPlan,
-        }));
+      if (!isAnalyticsActorScopeConfigured(state.actorScope)) {
+        analyticsContext = {
+          contextText: "# Governed data access\nStatus: BLOCKED\nReason: a server-owned workspace, team, or project scope and allowed object types are required before data access.",
+          skipDefectContext: true,
+        };
+        events.push(emit(config, { type: "analytics-context-blocked", threadId: state.threadId }));
+      } else {
+        events.push(emit(config, { type: "analytics-context-started", threadId: state.threadId }));
+        analyticsContext = await resolveAnalyticsContext({
+          messages: body?.messages,
+          actor: state.actorScope,
+          ...(ontologyRegistry ? { ontologyRegistry } : {}),
+        });
+        const governedAnalysisPlan = governedAnalysisAuditFromContext(analyticsContext);
+        if (governedAnalysisPlan) {
+          events.push(emit(config, {
+            type: "governed-analysis-plan-ready",
+            threadId: state.threadId,
+            analysisPlan: governedAnalysisPlan,
+          }));
+        }
       }
     }
 
@@ -431,13 +469,16 @@ export function createLangGraphChatRuntime({
 
   async function routeTools(state, config) {
     const body = state.body || {};
-    const directResponse = classifyDirectMainAgentIntent(state.queryText || extractLatestUserQuery(body?.messages));
+    const actorScopeConfigured = isAnalyticsActorScopeConfigured(state.actorScope);
+    const needsDataTools = body?.useAnalyticsContext === true && shouldPlanTools(body?.messages);
+    const directResponse = classifyDirectMainAgentIntent(state.queryText || extractLatestUserQuery(body?.messages))
+      || (!actorScopeConfigured && needsDataTools ? buildDataAccessUnavailableResponse() : null);
     const selectedToolset = selectMainAgentToolset(body?.messages);
     const shouldUseTools =
       !directResponse &&
-      body?.useAnalyticsContext === true &&
-      !state.analyticsContext?.skipDefectContext &&
-      shouldPlanTools(body?.messages);
+      actorScopeConfigured &&
+      needsDataTools &&
+      !state.analyticsContext?.skipDefectContext;
     const toolRouting = { shouldUseTools, selectedToolset };
     const compact = compactToolRouting(toolRouting);
     const event = emit(config, {
@@ -468,6 +509,26 @@ export function createLangGraphChatRuntime({
     const events = Number(state.toolStepIndex || 0) === 0
       ? [emit(config, { type: "tool-planning-started", threadId: state.threadId })]
       : [];
+    const deterministicPlan = Number(state.toolStepIndex || 0) === 0
+      ? resolveDeterministicQueryPlan({ analyticsContext: state.analyticsContext, actorScope: state.actorScope, selectedToolset })
+      : null;
+    if (deterministicPlan) {
+      const plannedToolCalls = canonicalToolCalls(deterministicPlan);
+      events.push(emit(config, {
+        type: "deterministic-tool-plan-ready",
+        threadId: state.threadId,
+        planId: deterministicPlan.planId,
+        toolNames: plannedToolCalls.map((toolCall) => toolCall.function.name),
+      }));
+      return {
+        plannedToolCalls,
+        toolExecutionMode: "deterministic",
+        stoppedReason: "",
+        toolCalls: plannedToolCalls,
+        toolConversationMessages: [{ role: "assistant", content: "", tool_calls: plannedToolCalls }],
+        runtimeEvents: events,
+      };
+    }
     const planningResult = await requestToolCompletion({
       messages: [
         ...(Array.isArray(body?.messages) ? body.messages : []),
@@ -487,12 +548,14 @@ export function createLangGraphChatRuntime({
     if (!plannedToolCalls.length) {
       return {
         plannedToolCalls: [],
+        toolExecutionMode: "model",
         stoppedReason: "no_tool_calls",
         runtimeEvents: events,
       };
     }
     return {
       plannedToolCalls,
+      toolExecutionMode: "model",
       stoppedReason: "",
       toolCalls: plannedToolCalls,
       toolConversationMessages: [{ role: "assistant", content: "", tool_calls: plannedToolCalls }],
@@ -553,6 +616,9 @@ export function createLangGraphChatRuntime({
     }
 
     const nextStepIndex = Number(state.toolStepIndex || 0) + 1;
+    if (!stoppedReason && state.toolExecutionMode === "deterministic") {
+      stoppedReason = "deterministic_plan_complete";
+    }
     if (!stoppedReason && nextStepIndex >= Math.max(1, Math.min(10, Number(maxToolSteps || 4)))) {
       stoppedReason = "max_steps";
     }

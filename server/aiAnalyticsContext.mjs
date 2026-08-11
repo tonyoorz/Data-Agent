@@ -341,5 +341,6 @@ export async function resolveAiAnalyticsContext({
     skipDefectContext: Boolean(detectedMetric),
     shadowObservation,
     analysisPlan,
+    semanticPlan,
   };
 }

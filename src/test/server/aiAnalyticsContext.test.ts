@@ -62,6 +62,14 @@ describe("resolveAiAnalyticsContext", () => {
     expect(resolved.contextText).toContain("Plan status: valid");
     expect(resolved.contextText).toContain("# Governed analysis plan");
     expect(resolved.analysisPlan).toMatchObject({ operation: "ranked_comparison", visualization: "bar" });
+    expect(resolved.semanticPlan).toMatchObject({
+      status: "valid",
+      actorScopeHash: "scope-a",
+      steps: [expect.objectContaining({
+        toolName: "query_semantic_metrics",
+        canonicalArgs: expect.any(Object),
+      })],
+    });
     expect(resolved.contextText).toContain(`Analysis plan: ${resolved.analysisPlan.analysisPlanId}`);
     expect(resolved.contextText).toContain(`Ontology version: ${resolved.analysisPlan.ontologyVersion}`);
     expect(resolved.contextText).toContain(`Source plan fingerprint: ${resolved.analysisPlan.sourcePlanFingerprint}`);

@@ -1,15 +1,19 @@
 import { streamCompanyChatCompletion, writeSseEvent, writeSseResponse } from "../companyChat.mjs";
 import { createOntologyRegistry } from "../ontology/registry.mjs";
 
+const CLAIM_BEARING_SEMANTIC_TOOLS = new Set(["query_semantic_metrics", "query_semantic_records"]);
+
 function createAnswerValidation(runtimeResult) {
   const evidence = runtimeResult?.mainAgentToolContext?.evidence;
-  if (!Array.isArray(evidence) || !evidence.length) {
+  const semanticEvidence = (Array.isArray(evidence) ? evidence : []).filter((item) => CLAIM_BEARING_SEMANTIC_TOOLS.has(item?.tool));
+  if (!semanticEvidence.length) {
     return undefined;
   }
+  const evidenceGate = runtimeResult?.mainAgentToolContext?.evidenceGate;
   try {
-    return { evidence, registry: createOntologyRegistry() };
+    return { semanticEvidence, evidenceGate, registry: createOntologyRegistry() };
   } catch {
-    return { evidence };
+    return { semanticEvidence, evidenceGate };
   }
 }
 

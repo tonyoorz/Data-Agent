@@ -13,6 +13,7 @@ import { shouldPlanMainAgentTools } from "./mainAgentToolPlanning.mjs";
 import { createDuplicateWarmupManager } from "./duplicateWarmup.mjs";
 import { extractLatestUserQuery, resolveAiDefectContext } from "./aiContext.mjs";
 import { streamCompanyChatCompletion, writeSseEvent } from "./companyChat.mjs";
+import { createLocalHttpBoundary } from "./localHttpBoundary.mjs";
 import { resolveRequestUrl } from "./httpRequestUrl.mjs";
 import { withInternalActorScope } from "./internalActorScope.mjs";
 import { attachDuplicateSummary } from "./duplicateResultEnrichment.mjs";
@@ -31,6 +32,7 @@ const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "..");
 loadLocalEnv();
 const port = Number(process.env.VIZION_API_PORT || 3004);
+const localHttpBoundary = createLocalHttpBoundary(process.env);
 const staticDir = fs.existsSync(path.join(repoRoot, "dist")) ? path.join(repoRoot, "dist") : "";
 const duplicateWarmupManager = createDuplicateWarmupManager({
   runDuplicateBridge,
@@ -287,11 +289,20 @@ function serveStaticAsset(request, response, url) {
 }
 
 const server = http.createServer(async (request, response) => {
+  const admission = localHttpBoundary.evaluate({ method: request.method, headers: request.headers });
+  if (!admission.allowed) {
+    sendJson(response, admission.statusCode, { success: false, error: admission.code });
+    return;
+  }
+  if (admission.corsOrigin) {
+    response.setHeader("Access-Control-Allow-Origin", admission.corsOrigin);
+  }
+
   const url = resolveRequestUrl(request.url, request.headers.host);
 
   if (request.method === "OPTIONS") {
     response.writeHead(204, {
-      "Access-Control-Allow-Origin": "*",
+      ...(admission.corsOrigin ? { "Access-Control-Allow-Origin": admission.corsOrigin } : {}),
       "Access-Control-Allow-Headers": "content-type, authorization",
       "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
     });
@@ -461,8 +472,8 @@ const server = http.createServer(async (request, response) => {
   }
 });
 
-server.listen(port, () => {
-  console.log(`Vizion local API listening on http://127.0.0.1:${port}`);
+server.listen(port, localHttpBoundary.listenHost, () => {
+  console.log(`Vizion local API listening on http://${localHttpBoundary.listenHost}:${port}`);
   duplicateWarmupManager.triggerBackgroundWarmup({ reason: "startup" });
 });
 

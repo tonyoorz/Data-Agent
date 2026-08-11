@@ -24,6 +24,8 @@ export function buildToolEvidence({ toolCall, result, intent }) {
     sourceRevision: body?.sourceRevision,
     scope: body?.scope,
     summary: body?.summary,
+    data: Array.isArray(body?.data) ? body.data : undefined,
+    pagination: body?.pagination,
     quality: body?.quality,
     evidence: body?.evidence,
     limitations: body?.limitations,

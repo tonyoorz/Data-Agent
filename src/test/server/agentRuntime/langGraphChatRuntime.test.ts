@@ -4,6 +4,34 @@ import {
   createLangGraphChatRuntime,
   resolveAgentRuntimeMode,
 } from "../../../../server/agentRuntime/langGraphChatRuntime.mjs";
+import { fingerprintQueryPlanSteps } from "../../../../server/ontology/queryPlanner.mjs";
+
+function deterministicMetricPlan(actorScopeHash: string) {
+  const steps = [{
+    stepId: "s1",
+    operation: "semantic_metric_query",
+    toolName: "query_semantic_metrics",
+    metricIds: ["defect.count"],
+    dimensionIds: ["product.ecu"],
+    canonicalArgs: { query: { intent: "rank", metricIds: ["defect.count"] } },
+    dependsOn: [],
+    riskLevel: "R0",
+  }];
+  return {
+    schemaVersion: "1.0",
+    planId: "plan-direct-1",
+    version: 1,
+    status: "valid",
+    ontologyVersion: "v1",
+    schemaFingerprint: "f".repeat(64),
+    actorScopeHash,
+    sourceQueryFingerprint: "a".repeat(64),
+    executionFingerprint: fingerprintQueryPlanSteps(steps),
+    steps,
+    violations: [],
+    warnings: [],
+  };
+}
 
 describe("LangGraph chat runtime", () => {
   it("uses LangGraph as the default runtime mode", () => {
@@ -47,6 +75,14 @@ describe("LangGraph chat runtime", () => {
           model: "deepseek-v4-flash",
           useAnalyticsContext: true,
           useDefectContext: false,
+          actor: {
+            actorId: "u1",
+            scopeHash: "scope-1",
+            scopes: {
+              workspaceIds: ["DTSV"],
+              allowedObjectTypes: ["quality.defect"],
+            },
+          },
           context: "# User supplied context",
           messages: [{ role: "user", content: "DTSV 6月份提了多少bug？" }],
         },
@@ -74,7 +110,11 @@ describe("LangGraph chat runtime", () => {
       "agent.tool.completed",
     ]));
     expect(result.metrics.mainAgentToolCallCount).toBe(1);
-    expect(resolveAnalyticsContext).toHaveBeenCalledWith({ messages: result.body.messages });
+    expect(resolveAnalyticsContext).toHaveBeenCalledWith({
+      messages: result.body.messages,
+      actor: result.actorScope,
+      ontologyRegistry: expect.objectContaining({ version: "v1" }),
+    });
     expect(resolveDefectContext).not.toHaveBeenCalled();
     expect(requestToolCompletion).toHaveBeenCalledTimes(2);
     expect(requestToolCompletion).toHaveBeenCalledWith(
@@ -86,7 +126,10 @@ describe("LangGraph chat runtime", () => {
         toolChoice: "auto",
       }),
     );
-    expect(executeToolCall).toHaveBeenCalledWith(toolCalls[0], { runDuplicateBridge: "bridge" });
+    expect(executeToolCall).toHaveBeenCalledWith(toolCalls[0], {
+      runDuplicateBridge: "bridge",
+      actor: result.actorScope,
+    });
     expect(result.metrics.toolRouting).toEqual(expect.objectContaining({
       shouldUseTools: true,
       intent: "metric_query",
@@ -152,6 +195,94 @@ describe("LangGraph chat runtime", () => {
     expect(requestToolCompletion).not.toHaveBeenCalled();
   });
 
+  it("executes a valid canonical QueryPlan without asking the model to plan tools", async () => {
+    const actor = {
+      actorId: "u1",
+      scopeHash: "scope-direct",
+      scopes: {
+        workspaceIds: ["DTSV"],
+        allowedObjectTypes: ["quality.defect"],
+      },
+    };
+    const semanticPlan = deterministicMetricPlan(actor.scopeHash);
+    const requestToolCompletion = vi.fn();
+    const executeToolCall = vi.fn().mockResolvedValue({
+      contextText: "# Canonical metric result",
+      toolMessage: {
+        role: "tool",
+        tool_call_id: "plan-direct-1:s1",
+        name: "query_semantic_metrics",
+        content: "{}",
+      },
+    });
+    const runtime = createLangGraphChatRuntime({
+      resolveAnalyticsContext: vi.fn().mockResolvedValue({
+        contextText: "# Analytics",
+        skipDefectContext: false,
+        semanticPlan,
+      }),
+      resolveDefectContext: vi.fn(),
+      shouldPlanTools: vi.fn().mockReturnValue(true),
+      requestToolCompletion,
+      executeToolCall,
+      now: () => new Date("2026-08-04T08:00:00.000Z"),
+    });
+
+    const result = await runtime.invoke({
+      body: {
+        useAnalyticsContext: true,
+        actor,
+        messages: [{ role: "user", content: "DTSV 缺陷数按 ECU 排名" }],
+      },
+    });
+
+    expect(requestToolCompletion).not.toHaveBeenCalled();
+    expect(executeToolCall).toHaveBeenCalledWith({
+      id: "plan-direct-1:s1",
+      type: "function",
+      function: {
+        name: "query_semantic_metrics",
+        arguments: JSON.stringify(semanticPlan.steps[0].canonicalArgs),
+      },
+    }, expect.objectContaining({ actor }));
+    expect(result.mainAgentToolContext).toMatchObject({
+      stoppedReason: "deterministic_plan_complete",
+      toolCalls: [expect.objectContaining({ id: "plan-direct-1:s1" })],
+    });
+  });
+
+  it("falls back to model planning when a canonical QueryPlan scope does not match the actor", async () => {
+    const requestToolCompletion = vi.fn().mockResolvedValue({ content: "", toolCalls: [] });
+    const runtime = createLangGraphChatRuntime({
+      resolveAnalyticsContext: vi.fn().mockResolvedValue({
+        contextText: "# Analytics",
+        skipDefectContext: false,
+        semanticPlan: deterministicMetricPlan("another-scope"),
+      }),
+      resolveDefectContext: vi.fn(),
+      shouldPlanTools: vi.fn().mockReturnValue(true),
+      requestToolCompletion,
+      now: () => new Date("2026-08-04T08:00:00.000Z"),
+    });
+
+    await runtime.invoke({
+      body: {
+        useAnalyticsContext: true,
+        actor: {
+          actorId: "u1",
+          scopeHash: "scope-fallback",
+          scopes: {
+            workspaceIds: ["DTSV"],
+            allowedObjectTypes: ["quality.defect"],
+          },
+        },
+        messages: [{ role: "user", content: "DTSV 缺陷数按 ECU 排名" }],
+      },
+    });
+
+    expect(requestToolCompletion).toHaveBeenCalledTimes(1);
+  });
+
   it("returns a deterministic direct response for out-of-scope requests", async () => {
     const runtime = createLangGraphChatRuntime({
       resolveAnalyticsContext: vi.fn(),
@@ -172,6 +303,30 @@ describe("LangGraph chat runtime", () => {
     expect(result.directResponse).toEqual(expect.objectContaining({ intent: "out_of_scope" }));
     expect(result.directResponse.content).toContain("汽车测试质量");
     expect(result.metrics.toolRouting).toEqual(expect.objectContaining({ shouldUseTools: false, intent: "out_of_scope" }));
+  });
+
+  it("does not resolve data context or plan tools without a tenant-scoped actor", async () => {
+    const resolveAnalyticsContext = vi.fn().mockResolvedValue({ contextText: "# Analytics", skipDefectContext: false });
+    const requestToolCompletion = vi.fn().mockResolvedValue({ content: "", toolCalls: [] });
+    const runtime = createLangGraphChatRuntime({
+      resolveAnalyticsContext,
+      resolveDefectContext: vi.fn(),
+      shouldPlanTools: vi.fn().mockReturnValue(true),
+      requestToolCompletion,
+      now: () => new Date("2026-08-04T08:00:00.000Z"),
+    });
+
+    const result = await runtime.invoke({
+      body: {
+        useAnalyticsContext: true,
+        actor: { actorId: "internal", scopeHash: "scope" },
+        messages: [{ role: "user", content: "DTSV 有多少缺陷？" }],
+      },
+    });
+
+    expect(result.directResponse).toEqual(expect.objectContaining({ intent: "data_access_unavailable" }));
+    expect(resolveAnalyticsContext).not.toHaveBeenCalled();
+    expect(requestToolCompletion).not.toHaveBeenCalled();
   });
 
   it("persists actor scope, run events, checkpoint, and tool-call audit", async () => {
@@ -208,7 +363,11 @@ describe("LangGraph chat runtime", () => {
         actor: {
           actorId: "u1",
           scopeHash: "scope-1",
-          scopes: { projectIds: ["App"], teamIds: ["DTSV_China"] },
+          scopes: {
+            projectIds: ["App"],
+            teamIds: ["DTSV_China"],
+            allowedObjectTypes: ["quality.defect"],
+          },
         },
         messages: [{ role: "user", content: "DTSV 6月份提了多少bug？" }],
       },
@@ -219,7 +378,11 @@ describe("LangGraph chat runtime", () => {
     expect(result.actorScope).toEqual({
       actorId: "u1",
       scopeHash: "scope-1",
-      scopes: { projectIds: ["App"], teamIds: ["DTSV_China"] },
+      scopes: {
+        projectIds: ["App"],
+        teamIds: ["DTSV_China"],
+        allowedObjectTypes: ["quality.defect"],
+      },
     });
     expect(executeToolCall).toHaveBeenCalledWith(toolCall, expect.objectContaining({
       analyticsFetch: "fetch",
@@ -290,7 +453,14 @@ describe("LangGraph chat runtime", () => {
         runId: "run-analysis-1",
         threadId: "thread-analysis-1",
         useAnalyticsContext: true,
-        actor: { actorId: "u1", scopeHash: "scope-1" },
+        actor: {
+          actorId: "u1",
+          scopeHash: "scope-1",
+          scopes: {
+            workspaceIds: ["DTSV"],
+            allowedObjectTypes: ["quality.defect"],
+          },
+        },
         messages: [{ role: "user", content: "最近一周 DTSV 新增缺陷按 ECU Top 5" }],
       },
     });
@@ -325,7 +495,14 @@ describe("LangGraph chat runtime", () => {
         runId: "run-fail-1",
         threadId: "thread-fail-1",
         useAnalyticsContext: true,
-        actor: { actorId: "u1", scopeHash: "scope-1" },
+        actor: {
+          actorId: "u1",
+          scopeHash: "scope-1",
+          scopes: {
+            workspaceIds: ["DTSV"],
+            allowedObjectTypes: ["quality.defect"],
+          },
+        },
         messages: [{ role: "user", content: "DTSV 6月份提了多少bug？" }],
       },
     })).rejects.toThrow("analytics context unavailable");
@@ -333,7 +510,14 @@ describe("LangGraph chat runtime", () => {
     expect(runtimeStore.appendRunEvent).toHaveBeenCalledWith(expect.objectContaining({
       runId: "run-fail-1",
       threadId: "thread-fail-1",
-      actorScope: { actorId: "u1", scopeHash: "scope-1" },
+      actorScope: {
+        actorId: "u1",
+        scopeHash: "scope-1",
+        scopes: {
+          workspaceIds: ["DTSV"],
+          allowedObjectTypes: ["quality.defect"],
+        },
+      },
       type: "agent-runtime-failed",
       error: expect.objectContaining({ message: "analytics context unavailable" }),
     }));
@@ -372,7 +556,14 @@ describe("LangGraph chat runtime", () => {
       maxToolSteps: 2,
       now: () => new Date("2026-08-03T08:00:00.000Z"),
     });
-    const actor = { actorId: "alice", scopeHash: "scope-a", scopes: { workspaceIds: ["DTSV"] } };
+    const actor = {
+      actorId: "alice",
+      scopeHash: "scope-a",
+      scopes: {
+        workspaceIds: ["DTSV"],
+        allowedObjectTypes: ["quality.defect"],
+      },
+    };
 
     const first = await runtime.invoke({
       body: { threadId: "thread-continuation", useAnalyticsContext: true, actor, messages: [{ role: "user", content: "按 ECU 排名" }] },

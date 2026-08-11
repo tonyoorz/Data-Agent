@@ -58,6 +58,9 @@ The current migration makes the graph boundary the default runtime and keeps the
 - Explicit `runId` support from `body.runId`, with generated IDs when omitted.
 - Server-owned internal `actorScope` persistence; browser-supplied actor fields are not trusted by the gateway.
 - Runtime SSE events emitted as `agent-runtime-event`.
+- Governed semantic final answers are buffered up to 64 KiB and published only after server-side citation, numeric-value, record-identifier, causal-language, and evidence-gate validation. A rejected claim is replaced with a deterministic limitation response; rejected model values and record IDs are not echoed in SSE validation metadata.
+- Legacy tool results retain their existing informational citation audit and are not treated as governed semantic evidence until tool convergence moves them behind the Semantic Kernel.
+- A schema-valid, scope-matching QueryPlan with an intact execution fingerprint executes its canonical R0 steps directly through the existing tool executor and ends the tool phase. Plans with ambiguity, fingerprint drift, scope mismatch, or tools outside the selected intent retain the bounded model-planning fallback.
 - Tool routing state emitted as `tool-routing-completed` and included in runtime metrics.
 - Empty `query_analytics` aggregate results automatically invoke `diagnose_analytics_empty` when the selected toolset allows it.
 - File-backed runtime audit store under `logs/agent-runtime` by default.
@@ -74,7 +77,7 @@ $env:VIZION_AGENT_RUNTIME_STORE_DIR = "D:\vizion-agent-runtime"
 
 ## Internal Deployment Principal
 
-The current LAN deployment uses one server-owned principal rather than a user/RBAC subsystem. By default it can query the governed defect, testcase, test-run, and AIDA object types without adding a team or project restriction. Optional environment variables narrow that shared principal:
+The current LAN deployment uses one server-owned principal rather than a user/RBAC subsystem. Analytics access is fail-closed: configure `VIZION_INTERNAL_ALLOWED_OBJECT_TYPES` and at least one of workspace, project, or team scope before the runtime can resolve analytics context or expose data tools. Without that configuration, data questions return a deterministic access-unavailable response instead of querying unscoped data.
 
 ```powershell
 $env:VIZION_INTERNAL_ACTOR_ID = "vizion-internal"
@@ -86,6 +89,10 @@ $env:VIZION_INTERNAL_ALLOWED_PROPERTY_IDS = ""
 $env:VIZION_INTERNAL_ROW_POLICY_IDS = ""
 $env:VIZION_INTERNAL_SENSITIVE_FIELD_POLICY_IDS = ""
 ```
+
+`VIZION_INTERNAL_ROW_POLICY_IDS` is preserved in the actor-scope envelope, but it is not a row-policy executor. Do not treat it as row-level isolation until the Semantic Kernel applies those policy IDs to source rows.
+
+The Node API binds to `127.0.0.1` by default and rejects non-loopback `VIZION_API_HOST` values. It admits loopback Host and Origin values by default, requires `application/json` for POST requests, and never returns wildcard CORS. An authenticated reverse proxy can be configured explicitly with `VIZION_ALLOWED_HOSTS` and `VIZION_ALLOWED_ORIGINS`; the Node process itself remains loopback-only.
 
 The gateway derives `scopeHash` from this server configuration. A later authenticated multi-user deployment can replace this principal at the same actor-scope boundary without changing the Semantic Kernel or tool contracts.
 

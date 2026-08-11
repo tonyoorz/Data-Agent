@@ -311,6 +311,42 @@ def test_empty_result_is_zero_not_missing(catalog) -> None:
     assert result["quality"]["completeness"] == "complete"
 
 
+def test_grouping_rejects_rows_without_dimension_values(catalog) -> None:
+    payload = _payload(catalog)
+    payload["query"]["dimensionIds"] = ["product.ecu"]
+
+    with pytest.raises(SemanticQueryError, match="SEMANTIC_DIMENSION_VALUES_UNAVAILABLE:product.ecu") as exc_info:
+        execute_semantic_query(
+            payload,
+            catalog=catalog,
+            defect_provider=lambda _filters: {
+                "snapshot_version": "missing-ecu-1",
+                "generated_from": {},
+                "ticket_rows": [{"ticket_id": "D-1", "problem_finder_team": "DTSV_China", "assigned_ecu": ""}],
+            },
+        )
+
+    assert exc_info.value.status_code == 422
+
+
+def test_grouping_rejects_approved_dimension_without_executor_binding(catalog) -> None:
+    payload = _payload(catalog)
+    payload["query"]["dimensionIds"] = ["quality.solution_cluster"]
+
+    with pytest.raises(SemanticQueryError, match="SEMANTIC_DIMENSION_NOT_EXECUTABLE:quality.solution_cluster") as exc_info:
+        execute_semantic_query(
+            payload,
+            catalog=catalog,
+            defect_provider=lambda _filters: {
+                "snapshot_version": "unbound-dimension-1",
+                "generated_from": {},
+                "ticket_rows": [{"ticket_id": "D-1", "problem_finder_team": "DTSV_China"}],
+            },
+        )
+
+    assert exc_info.value.status_code == 422
+
+
 def test_comparison_values_are_union_filtered_and_grouped(catalog) -> None:
     payload = _payload(catalog)
     payload["query"].update({
