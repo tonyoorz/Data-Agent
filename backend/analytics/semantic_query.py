@@ -680,12 +680,36 @@ def _apply_time_scopes(
     return selected, effective_field_map
 
 
+def _has_source_value(value: Any) -> bool:
+    return value is not None and str(value).strip() != ""
+
+
+def _validate_grouping_dimensions(
+    rows: list[dict[str, Any]],
+    dimension_ids: list[str],
+    field_map: dict[str, str],
+) -> None:
+    for dimension_id in dimension_ids:
+        source_field = field_map.get(dimension_id)
+        if not source_field:
+            raise SemanticQueryError(f"SEMANTIC_DIMENSION_NOT_EXECUTABLE:{dimension_id}", status_code=422)
+        if any(not _has_source_value(row.get(source_field)) for row in rows):
+            raise SemanticQueryError(f"SEMANTIC_DIMENSION_VALUES_UNAVAILABLE:{dimension_id}", status_code=422)
+
+
 def _dimension_value(row: dict[str, Any], dimension_id: str, field_map: dict[str, str]) -> str:
-    value = row.get(field_map[dimension_id])
-    if dimension_id.startswith("time.") and field_map[dimension_id] != COMPARISON_PERIOD_FIELD:
+    source_field = field_map.get(dimension_id)
+    if not source_field:
+        raise SemanticQueryError(f"SEMANTIC_DIMENSION_NOT_EXECUTABLE:{dimension_id}", status_code=422)
+    value = row.get(source_field)
+    if not _has_source_value(value):
+        raise SemanticQueryError(f"SEMANTIC_DIMENSION_VALUES_UNAVAILABLE:{dimension_id}", status_code=422)
+    if dimension_id.startswith("time.") and source_field != COMPARISON_PERIOD_FIELD:
         normalized = _source_date(value)
-        return normalized.isoformat() if normalized else "(missing)"
-    return str(value or "(missing)")
+        if normalized is None:
+            raise SemanticQueryError(f"SEMANTIC_DIMENSION_VALUES_UNAVAILABLE:{dimension_id}", status_code=422)
+        return normalized.isoformat()
+    return str(value)
 
 
 def _aggregate_rows(
@@ -699,13 +723,7 @@ def _aggregate_rows(
     sort_items: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], dict[str, int], list[str]]:
     warnings: list[str] = []
-    missing_dimensions = [
-        dimension_id
-        for dimension_id in dimension_ids
-        if not any(str(row.get(field_map.get(dimension_id, "")) or "").strip() for row in rows)
-    ]
-    if missing_dimensions and rows:
-        warnings.append(f"DIMENSION_VALUES_MISSING:{','.join(missing_dimensions)}")
+    _validate_grouping_dimensions(rows, dimension_ids, field_map)
     distinct_rows = {str(row.get(identifier) or ""): row for row in rows if str(row.get(identifier) or "")}
     metric_values: dict[str, int] = {}
     for metric_id in metric_ids:

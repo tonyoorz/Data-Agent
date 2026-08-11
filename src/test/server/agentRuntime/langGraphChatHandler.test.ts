@@ -48,7 +48,10 @@ describe("LangGraph chat handler", () => {
           ],
           context: "# Tool context",
           prefaceEvents: [{ type: "tool-output-available", toolName: "query_semantic_metrics" }],
-          mainAgentToolContext: { evidence: [{ toolCallId: "call-1", tool: "query_semantic_metrics" }] },
+          mainAgentToolContext: {
+            evidence: [{ toolCallId: "call-1", tool: "query_semantic_metrics" }],
+            evidenceGate: { status: "pass", violations: [] },
+          },
           metrics: { mainAgentToolCallCount: 1 },
         };
       }),
@@ -94,7 +97,8 @@ describe("LangGraph chat handler", () => {
         response,
         prefaceEvents: [{ type: "tool-output-available", toolName: "query_semantic_metrics" }],
         answerValidation: expect.objectContaining({
-          evidence: [{ toolCallId: "call-1", tool: "query_semantic_metrics" }],
+          semanticEvidence: [{ toolCallId: "call-1", tool: "query_semantic_metrics" }],
+          evidenceGate: { status: "pass", violations: [] },
           registry: expect.objectContaining({ version: "v1" }),
         }),
       }),

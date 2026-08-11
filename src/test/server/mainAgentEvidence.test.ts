@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildToolEvidence,
   buildSemanticContinuationContext,
   evaluateSemanticEvidence,
   formatSemanticEvidenceGate,
@@ -72,5 +73,29 @@ describe("main agent semantic evidence", () => {
   it("exposes only a continuation from the same actor scope", () => {
     expect(buildSemanticContinuationContext([validEvidence], { scopeHash: "scope-a" })).toContain("analysis_ref: analysis-1");
     expect(buildSemanticContinuationContext([validEvidence], { scopeHash: "scope-b" })).toBe("");
+  });
+
+  it("retains semantic result rows for Claim validation", () => {
+    const evidence = buildToolEvidence({
+      toolCall: { id: "semantic-1", function: { name: "query_semantic_metrics" } },
+      result: {
+        toolMessage: {
+          tool_call_id: "semantic-1",
+          name: "query_semantic_metrics",
+          content: JSON.stringify({
+            ok: true,
+            tool: "query_semantic_metrics",
+            result: {
+              data: [{ defect_id: "D-1", "defect.count": 1 }],
+            },
+          }),
+        },
+      },
+      intent: "metric_query",
+    });
+
+    expect(evidence).toMatchObject({
+      data: [{ defect_id: "D-1", "defect.count": 1 }],
+    });
   });
 });

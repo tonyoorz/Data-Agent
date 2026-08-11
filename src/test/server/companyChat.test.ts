@@ -609,7 +609,43 @@ describe("streamCompanyChatCompletion", () => {
     expect(streamedText).toContain("SAM-HERE: 86");
   });
 
-  it("adds a deterministic citation footer before validating a tool-backed answer without citations", async () => {
+  it("adds a deterministic citation footer for legacy tool evidence", async () => {
+    const encoder = new TextEncoder();
+    const response = { writeHead: vi.fn(), write: vi.fn(), end: vi.fn() };
+    const registry = createOntologyRegistry();
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"缺陷数是 12"}}]}\n\n' + 'data: [DONE]\n\n'));
+          controller.close();
+        },
+      }),
+      text: async () => "",
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await streamCompanyChatCompletion({
+      messages: [{ role: "user", content: "缺陷数是多少？" }],
+      model: "deepseek-v4-flash",
+      context: "# Main agent tool result\nTool: query_analytics\nResult: 12",
+      response,
+      answerValidation: {
+        registry,
+        evidence: [{ toolCallId: "legacy-1", tool: "query_analytics" }],
+      },
+    });
+
+    const streamedText = response.write.mock.calls
+      .map(([chunk]) => Buffer.from(chunk).toString("utf8"))
+      .join("");
+    expect(streamedText).toContain("缺陷数是 12");
+    expect(streamedText).toContain('source=\\"legacy-1\\"');
+    expect(streamedText).not.toContain("ANSWER_CITATION_REQUIRED");
+    expect(streamedText.indexOf('"type":"answer-validation"')).toBeLessThan(streamedText.indexOf("data: [DONE]"));
+  });
+
+  it("blocks an unsupported governed numeric Claim before it reaches SSE", async () => {
     const encoder = new TextEncoder();
     const response = {
       writeHead: vi.fn(),
@@ -622,10 +658,7 @@ describe("streamCompanyChatCompletion", () => {
       body: new ReadableStream({
         start(controller) {
           controller.enqueue(
-            encoder.encode(
-              'data: {"choices":[{"delta":{"content":"缺陷数是 12"}}]}\n\n' +
-                'data: [DONE]\n\n',
-            ),
+            encoder.encode('data: {"choices":[{"delta":{"content":"<cite source=\\"call-1\\">缺陷数是 999999</cite>"}}]}\n\n' + 'data: [DONE]\n\n'),
           );
           controller.close();
         },
@@ -643,7 +676,15 @@ describe("streamCompanyChatCompletion", () => {
       response,
       answerValidation: {
         registry,
-        evidence: [{ toolCallId: "call-1", tool: "query_semantic_metrics", ontologyVersion: "v1", schemaFingerprint: registry.fingerprint }],
+        semanticEvidence: [{
+          toolCallId: "call-1",
+          tool: "query_semantic_metrics",
+          ontologyVersion: "v1",
+          schemaFingerprint: registry.fingerprint,
+          evidence: { kind: "semantic_metric_result", metricValues: { "defect.count": 1 } },
+          data: [{ defect_id: "D-1", "defect.count": 1 }],
+        }],
+        evidenceGate: { status: "pass" },
       },
       onAnswerValidation,
     });
@@ -652,44 +693,74 @@ describe("streamCompanyChatCompletion", () => {
       .map(([chunk]) => Buffer.from(chunk).toString("utf8"))
       .join("");
     expect(streamedText).toContain('"type":"answer-validation"');
-    expect(streamedText).toContain('source=\\"call-1\\"');
-    expect(streamedText).not.toContain("ANSWER_CITATION_REQUIRED");
-    expect(streamedText.indexOf('"type":"answer-validation"')).toBeLessThan(streamedText.indexOf("data: [DONE]"));
-    expect(onAnswerValidation).toHaveBeenCalledWith(expect.objectContaining({
-      valid: true,
-      violations: [],
-    }));
+    expect(streamedText).toContain("ANSWER_NUMERIC_CLAIM_UNSUPPORTED:call-1");
+    expect(streamedText).not.toContain("999999");
+    expect(streamedText).toContain("未发布未经证据验证的数据结论");
+    expect(streamedText.indexOf('"type":"answer-validation"')).toBeLessThan(streamedText.indexOf("未发布未经证据验证的数据结论"));
+    expect(streamedText.indexOf("未发布未经证据验证的数据结论")).toBeLessThan(streamedText.indexOf("data: [DONE]"));
   });
 
-  it("emits a causal-claim violation for cited observational analytics output", async () => {
+  it("releases a supported governed Claim only after validation", async () => {
     const encoder = new TextEncoder();
-    const response = {
-      writeHead: vi.fn(),
-      write: vi.fn(),
-      end: vi.fn(),
-    };
+    const response = { writeHead: vi.fn(), write: vi.fn(), end: vi.fn() };
     const registry = createOntologyRegistry();
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       body: new ReadableStream({
         start(controller) {
-          controller.enqueue(
-            encoder.encode(
-              'data: {"choices":[{"delta":{"content":"ECU A 导致缺陷数上升 <cite source=\\"call-1\\">evidence</cite>"}}]}\n\n' +
-                'data: [DONE]\n\n',
-            ),
-          );
+          controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"<cite source=\\"call-1\\">缺陷数是 1</cite>"}}]}\n\n' + 'data: [DONE]\n\n'));
           controller.close();
         },
       }),
       text: async () => "",
     });
+    vi.stubGlobal("fetch", fetchMock);
 
+    await streamCompanyChatCompletion({
+      messages: [{ role: "user", content: "缺陷数是多少？" }],
+      model: "deepseek-v4-flash",
+      context: "# Main agent semantic tool result",
+      response,
+      answerValidation: {
+        registry,
+        semanticEvidence: [{
+          toolCallId: "call-1",
+          tool: "query_semantic_metrics",
+          ontologyVersion: "v1",
+          schemaFingerprint: registry.fingerprint,
+          evidence: { kind: "semantic_metric_result", metricValues: { "defect.count": 1 } },
+          data: [{ defect_id: "D-1", "defect.count": 1 }],
+        }],
+        evidenceGate: { status: "pass" },
+      },
+    });
+
+    const streamedText = response.write.mock.calls
+      .map(([chunk]) => Buffer.from(chunk).toString("utf8"))
+      .join("");
+    expect(streamedText).toContain('<cite source=\\"call-1\\">缺陷数是 1</cite>');
+    expect(streamedText.indexOf('"type":"answer-validation"')).toBeLessThan(streamedText.indexOf("缺陷数是 1"));
+  });
+
+  it("emits a causal-claim violation for cited observational analytics output", async () => {
+    const encoder = new TextEncoder();
+    const response = { writeHead: vi.fn(), write: vi.fn(), end: vi.fn() };
+    const registry = createOntologyRegistry();
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"ECU A causes more defects <cite source=\\"call-1\\">evidence</cite>"}}]}\n\n' + 'data: [DONE]\n\n'));
+          controller.close();
+        },
+      }),
+      text: async () => "",
+    });
     vi.stubGlobal("fetch", fetchMock);
     const onAnswerValidation = vi.fn();
 
     await streamCompanyChatCompletion({
-      messages: [{ role: "user", content: "缺陷数为什么上升？" }],
+      messages: [{ role: "user", content: "Why did defects increase?" }],
       model: "deepseek-v4-flash",
       context: "# Main agent tool result\nTool: query_semantic_metrics\nResult: 12",
       response,

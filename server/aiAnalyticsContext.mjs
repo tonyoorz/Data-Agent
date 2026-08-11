@@ -358,5 +358,6 @@ export async function resolveAiAnalyticsContext({
     shadowObservation,
     analysisPlan,
     queryPlan: semanticPlan,
+    semanticPlan,
   };
 }

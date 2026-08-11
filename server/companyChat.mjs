@@ -153,6 +153,8 @@ async function fetchWithResilience(url, init, { env = process.env, resilience = 
 
 const PSEUDO_TOOL_FALLBACK_CONTENT = "工具调用阶段已结束；无法继续调用工具。我会基于已有工具结果说明数据限制。";
 const TOOL_FALLBACK_MAX_LINES = 12;
+const CLAIM_GATE_FALLBACK_CONTENT = "系统未发布未经证据验证的数据结论。请缩小查询范围后重试。";
+const MAX_GOVERNED_ANSWER_BYTES = 64 * 1024;
 
 const PSEUDO_TOOL_START_MARKERS = [
   { marker: "<｜DSML｜tool_calls", kind: "tool_calls" },
@@ -340,6 +342,48 @@ function sanitizeFinalAnswerContent(content, state) {
   return output;
 }
 
+function recordVisibleContent(state, content) {
+  const text = String(content || "");
+  if (!text) return;
+  state.emittedVisibleContent = true;
+  if (state.gateEnabled && state.visibleContentBytes + Buffer.byteLength(text, "utf8") > MAX_GOVERNED_ANSWER_BYTES) {
+    state.gateOverflow = true;
+    return;
+  }
+  state.visibleContentBytes += Buffer.byteLength(text, "utf8");
+  state.visibleContentParts?.push(text);
+}
+
+function emitFinalPayload(response, state, payload) {
+  if (!state.gateEnabled) {
+    writeSseEvent(response, payload);
+    return;
+  }
+  const bytes = Buffer.byteLength(JSON.stringify(payload), "utf8");
+  if (state.gateOverflow || state.bufferedPayloadBytes + bytes > MAX_GOVERNED_ANSWER_BYTES) {
+    state.gateOverflow = true;
+    state.bufferedPayloads = [];
+    return;
+  }
+  state.bufferedPayloadBytes += bytes;
+  state.bufferedPayloads.push({ payload });
+}
+
+function emitRawFinalData(response, state, data) {
+  if (!state.gateEnabled) {
+    response.write(`data: ${data}\n\n`);
+    return;
+  }
+  const bytes = Buffer.byteLength(String(data || ""), "utf8");
+  if (state.gateOverflow || state.bufferedPayloadBytes + bytes > MAX_GOVERNED_ANSWER_BYTES) {
+    state.gateOverflow = true;
+    state.bufferedPayloads = [];
+    return;
+  }
+  state.bufferedPayloadBytes += bytes;
+  state.bufferedPayloads.push({ rawData: data });
+}
+
 function flushPendingSanitizedContent(response, state) {
   const pending = state.pendingPseudoToolText || "";
   state.pendingPseudoToolText = "";
@@ -347,9 +391,8 @@ function flushPendingSanitizedContent(response, state) {
     if (looksLikePseudoToolPrefix(pending)) {
       state.suppressedPseudoToolCall = true;
     } else {
-      writeSseEvent(response, { choices: [{ delta: { content: pending } }] });
-      state.visibleContentParts?.push(pending);
-      state.emittedVisibleContent = true;
+      emitFinalPayload(response, state, { choices: [{ delta: { content: pending } }] });
+      recordVisibleContent(state, pending);
     }
   }
 
@@ -362,9 +405,8 @@ function flushPendingSanitizedContent(response, state) {
     state.droppedStopTokenFragment = true;
     return;
   }
-  writeSseEvent(response, { choices: [{ delta: { content: pendingStopToken } }] });
-  state.visibleContentParts?.push(pendingStopToken);
-  state.emittedVisibleContent = true;
+  emitFinalPayload(response, state, { choices: [{ delta: { content: pendingStopToken } }] });
+  recordVisibleContent(state, pendingStopToken);
 }
 
 function hasOnlyEmptyContentDelta(payload) {
@@ -384,9 +426,8 @@ function writePseudoToolFallbackIfNeeded(response, state) {
     return;
   }
   const fallbackContent = buildToolResultFallbackContent(state.context);
-  writeSseEvent(response, { choices: [{ delta: { content: fallbackContent } }] });
-  state.visibleContentParts?.push(fallbackContent);
-  state.emittedVisibleContent = true;
+  emitFinalPayload(response, state, { choices: [{ delta: { content: fallbackContent } }] });
+  recordVisibleContent(state, fallbackContent);
   state.fallbackEmitted = true;
 }
 
@@ -397,35 +438,74 @@ function citationFooter(answerValidation) {
   return toolCallId ? `\n\nEvidence source: <cite source="${toolCallId}">governed tool result</cite>` : "";
 }
 
-function writeAnswerValidationIfNeeded(response, state) {
-  if (!state.answerValidation || state.answerValidationEmitted) {
-    return;
-  }
+function validateAnswerIfNeeded(response, state) {
+  if (!state.answerValidation || state.answerValidationEmitted) return null;
   state.answerValidationEmitted = true;
+  const evidence = state.answerValidation.semanticEvidence || state.answerValidation.evidence;
   let validation = validateAnswerTextCitations({
     text: (state.visibleContentParts || []).join(""),
-    evidence: state.answerValidation.evidence,
+    evidence,
     registry: state.answerValidation.registry,
+    evidenceGate: state.answerValidation.evidenceGate,
   });
-  if (validation.violations.length === 1 && validation.violations[0] === "ANSWER_CITATION_REQUIRED") {
+  if (!state.gateEnabled && validation.violations.length === 1 && validation.violations[0] === "ANSWER_CITATION_REQUIRED") {
     const footer = citationFooter(state.answerValidation);
     if (footer) {
-      writeSseEvent(response, { choices: [{ delta: { content: footer } }] });
+      emitFinalPayload(response, state, { choices: [{ delta: { content: footer } }] });
       state.visibleContentParts?.push(footer);
       state.emittedVisibleContent = true;
       validation = validateAnswerTextCitations({
         text: state.visibleContentParts.join(""),
-        evidence: state.answerValidation.evidence,
+        evidence,
         registry: state.answerValidation.registry,
+        evidenceGate: state.answerValidation.evidenceGate,
       });
     }
   }
-  writeSseEvent(response, { type: "answer-validation", ...validation });
+  if (!state.gateOverflow) return validation;
+  return {
+    valid: false,
+    violations: [...new Set([...(validation.violations || []), "ANSWER_VALIDATION_BUFFER_LIMIT"])],
+  };
+}
+
+function notifyAnswerValidation(state, validation) {
   try {
     state.onAnswerValidation?.(validation);
   } catch {
     // Validation observers must not interrupt answer streaming.
   }
+}
+
+function publishBufferedPayloads(response, state) {
+  for (const item of state.bufferedPayloads || []) {
+    if (Object.hasOwn(item, "rawData")) {
+      response.write(`data: ${item.rawData}\n\n`);
+    } else {
+      writeSseEvent(response, item.payload);
+    }
+  }
+}
+
+function finalizeSanitizedStream(response, state) {
+  if (state.terminalPublished) return;
+  flushPendingSanitizedContent(response, state);
+  writePseudoToolFallbackIfNeeded(response, state);
+  const validation = validateAnswerIfNeeded(response, state);
+  if (state.gateEnabled) {
+    writeSseEvent(response, { type: "answer-validation", ...(validation || { valid: false, violations: ["ANSWER_VALIDATION_MISSING"] }) });
+    notifyAnswerValidation(state, validation || { valid: false, violations: ["ANSWER_VALIDATION_MISSING"] });
+    if (validation?.valid) {
+      publishBufferedPayloads(response, state);
+    } else {
+      writeSseEvent(response, { choices: [{ delta: { content: CLAIM_GATE_FALLBACK_CONTENT } }] });
+    }
+  } else if (validation) {
+    writeSseEvent(response, { type: "answer-validation", ...validation });
+    notifyAnswerValidation(state, validation);
+  }
+  response.write("data: [DONE]\n\n");
+  state.terminalPublished = true;
 }
 
 function writeSanitizedSseFrame(response, frame, state) {
@@ -442,10 +522,7 @@ function writeSanitizedSseFrame(response, frame, state) {
 
   const data = dataLines.join("\n");
   if (data === "[DONE]") {
-    flushPendingSanitizedContent(response, state);
-    writePseudoToolFallbackIfNeeded(response, state);
-    writeAnswerValidationIfNeeded(response, state);
-    response.write("data: [DONE]\n\n");
+    finalizeSanitizedStream(response, state);
     return;
   }
 
@@ -455,9 +532,8 @@ function writeSanitizedSseFrame(response, frame, state) {
   } catch {
     const sanitized = stripModelStopTokenFragments(sanitizeFinalAnswerContent(data, state), state);
     if (sanitized) {
-      response.write(`data: ${sanitized}\n\n`);
-      state.visibleContentParts?.push(sanitized);
-      state.emittedVisibleContent = true;
+      emitRawFinalData(response, state, sanitized);
+      recordVisibleContent(state, sanitized);
     }
     return;
   }
@@ -478,13 +554,12 @@ function writeSanitizedSseFrame(response, frame, state) {
     }
     choice.delta.content = sanitized;
     if (sanitized) {
-      state.visibleContentParts?.push(sanitized);
-      state.emittedVisibleContent = true;
+      recordVisibleContent(state, sanitized);
     }
   }
 
   if (!hasOnlyEmptyContentDelta(payload)) {
-    writeSseEvent(response, payload);
+    emitFinalPayload(response, state, payload);
   }
 }
 
@@ -619,12 +694,18 @@ export async function streamCompanyChatCompletion({
       pendingPseudoToolText: "",
       pendingStopTokenText: "",
       visibleContentParts: [],
+      visibleContentBytes: 0,
       answerValidation,
       answerValidationEmitted: false,
       onAnswerValidation,
       onTokenUsage: (usage) => {
         tokenUsage = usage;
       },
+      gateEnabled: Boolean(answerValidation?.semanticEvidence?.length),
+      gateOverflow: false,
+      bufferedPayloads: [],
+      bufferedPayloadBytes: 0,
+      terminalPublished: false,
     };
     let sseBuffer = "";
 
@@ -655,6 +736,8 @@ export async function streamCompanyChatCompletion({
     if (sseBuffer.trim()) {
       writeSanitizedSseFrame(response, sseBuffer.trimEnd(), sanitizerState);
     }
+
+    finalizeSanitizedStream(response, sanitizerState);
 
     response.end();
   } catch (error) {
