@@ -2,6 +2,7 @@ import { validateSemanticFrame } from "./semanticFrame.mjs";
 import { composeSourceQuery, fingerprintSourceQuery } from "./fingerprint.mjs";
 import { resolveTimeScopes } from "./timeResolver.mjs";
 import { mandatoryScopeFilters } from "./scopePolicy.mjs";
+import { expandAllowedDimensions } from "./graphPathfinder.mjs";
 
 function unique(values) {
   return [...new Set(values.filter(Boolean))];
@@ -353,14 +354,24 @@ export function createSemanticResolver({ registry, now = () => new Date().toISOS
       if ((intent === "trend" || comparison?.kind === "time_periods" || comparisonTrend) && defaultTimeDimension) {
         dimensionIds = unique([...dimensionIds, defaultTimeDimension]);
       }
+      // Graph-enhanced dimension resolution: auto-infer cross-entity JOIN paths
+      // so users can ask questions that span multiple entities (e.g. "defects by
+      // platform" requires defect→ecu→platform traversal).
+      const inferredJoinPaths = new Map(); // dimensionId → joinPath
       for (const metric of metrics) {
+        const { allowed, inferred } = expandAllowedDimensions(registry, metric, { maxHops: 3 });
+        for (const [dimId, info] of inferred) {
+          inferredJoinPaths.set(dimId, info.joinPath);
+        }
+        // Build a combined set for validation
+        const allUsable = new Set([...allowed, ...inferred.keys()]);
         for (const dimensionId of dimensionIds) {
-          if (!metric.allowedDimensions.includes(dimensionId)) {
+          if (!allUsable.has(dimensionId)) {
             throw new Error(`SEMANTIC_DIMENSION_NOT_ALLOWED:${metric.id}:${dimensionId}`);
           }
         }
         for (const filter of filters) {
-          if (!metric.allowedDimensions.includes(filter.dimensionId)) {
+          if (!allUsable.has(filter.dimensionId)) {
             const dimension = registry.getDimension(filter.dimensionId);
             ambiguitiesByCode.set(`FILTER_DIMENSION_NOT_AVAILABLE:${metric.id}:${filter.dimensionId}`, {
               code: "FILTER_DIMENSION_NOT_AVAILABLE",
@@ -408,6 +419,7 @@ export function createSemanticResolver({ registry, now = () => new Date().toISOS
         ambiguities: [...ambiguitiesByCode.values()],
         assumptions,
         confidence: Math.max(0, Math.min(1, 0.72 + Math.min(0.22, matchedTerms.length * 0.04) - (ambiguitiesByCode.size ? 0.25 : 0))),
+        inferredJoinPaths: inferredJoinPaths.size ? Object.fromEntries(inferredJoinPaths) : null,
       });
       // Ontology-evolution signal (FAOS-style learn-from-usage loop): when a metric-bearing
       // question matches zero governed vocabulary terms, surface it so stewards can decide

@@ -119,6 +119,28 @@ export const semanticFrameSchema = Object.freeze({
     },
     assumptions: stringArray,
     confidence: { type: "number", minimum: 0, maximum: 1 },
+    inferredJoinPaths: {
+      anyOf: [
+        { type: "null" },
+        {
+          type: "object",
+          additionalProperties: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: true,
+              properties: {
+                relationshipId: nonEmptyString,
+                predicate: nonEmptyString,
+                fromEntity: nonEmptyString,
+                toEntity: nonEmptyString,
+                direction: nonEmptyString,
+              },
+            },
+          },
+        },
+      ],
+    },
   },
 });
 
