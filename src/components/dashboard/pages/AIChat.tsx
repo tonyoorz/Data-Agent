@@ -563,9 +563,10 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
   };
 
   // ----- core send -----
-  const buildGatewayMessages = (history: Msg[]) =>
-    history.map((m) => {
-      if (m.role === "user" && m.attachments?.some((a) => a.dataUrl && (a.kind === "image" || a.mimeType === "application/pdf"))) {
+  const buildGatewayMessages = (history: Msg[]) => {
+    const latestUserIndex = history.findLastIndex((message) => message.role === "user");
+    return history.map((m, index) => {
+      if (index === latestUserIndex && m.role === "user" && m.attachments?.some((a) => a.dataUrl && (a.kind === "image" || a.mimeType === "application/pdf"))) {
         const parts: GatewayContentPart[] = [{ type: "text", text: m.content || "(附件)" }];
         for (const a of m.attachments) {
           if (a.kind === "image" && a.dataUrl) {
@@ -586,6 +587,7 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
       }
       return { role: m.role, content: m.content };
     });
+  };
 
   const buildDuplicateFallbackSummary = (result: DuplicateSearchResult) => {
     const normalizeText = (value: string | undefined, maxLength = 120) =>
@@ -683,10 +685,6 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
         updatedAt: Date.now(),
       }));
     }
-    const contextStr = moduleLabel
-      ? `User is currently viewing the "${moduleLabel}" module (key: ${moduleKey}). Reference this module in <cite> when relevant.`
-      : undefined;
-
     try {
       const url = "/api/ai/chat";
       const headers = await authenticatedJsonHeaders();
@@ -697,7 +695,6 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
           threadId: active.id,
           messages: buildGatewayMessages(history),
           model,
-          context: contextStr,
           useDefectContext: chatContextEnabled,
           useAnalyticsContext: true,
         }),

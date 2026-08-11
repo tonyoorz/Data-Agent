@@ -2,8 +2,8 @@
 
 [![Node](https://img.shields.io/badge/Node-24.x-339933?logo=node.js&logoColor=white)](#quick-start)
 [![React](https://img.shields.io/badge/React-18-61DAFB?logo=react&logoColor=black)](#technology-stack)
-[![Vite](https://img.shields.io/badge/Vite-5-646CFF?logo=vite&logoColor=white)](#technology-stack)
-[![Python](https://img.shields.io/badge/Python-3.9%2B-3776AB?logo=python&logoColor=white)](#quick-start)
+[![Vite](https://img.shields.io/badge/Vite-8-646CFF?logo=vite&logoColor=white)](#technology-stack)
+[![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](#quick-start)
 [![FastAPI](https://img.shields.io/badge/FastAPI-local%20analytics-009688?logo=fastapi&logoColor=white)](#technology-stack)
 
 Vizion Lab is a self-contained local analytics workspace for QGate / Octane defect intelligence, Main Dashboard reporting, duplicate issue search, AI-assisted defect context, and static KPI report generation.
@@ -57,7 +57,7 @@ flowchart LR
 
 | Layer | Technology |
 | --- | --- |
-| Frontend | React 18, Vite 5, TypeScript, Tailwind CSS, shadcn/Radix UI |
+| Frontend | React 18, Vite 8, TypeScript, Tailwind CSS, shadcn/Radix UI |
 | Local API | Node.js 24, native HTTP server, SSE streaming |
 | Analytics API | Python, FastAPI, Uvicorn |
 | Data | SQLite source DB, SQLite hot DB, optional DuckDB/Parquet cold archive |
@@ -77,13 +77,15 @@ nvm use 24.14.0
 ### 2. Install JavaScript Dependencies
 
 ```powershell
-npm install
+npm ci
 ```
 
 ### 3. Create Python Environment
 
+Use Python 3.12, which is the qualified runtime line for this repository.
+
 ```powershell
-python -m venv .venv
+py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
@@ -202,15 +204,36 @@ $env:DUPSEARCH_CHAT_API_KEY = "<api-key>"
 $env:DUPSEARCH_CHAT_API_BASE = "https://api.deepseek.com/v1"
 ```
 
+When both are configured, the company access code takes precedence. Without a company access code, the API key/base pair also applies to the default model selection. Explicit model endpoint maps fail closed when malformed or empty. Remote model origins require HTTPS and cannot contain credentials, query parameters, or fragments.
+
+Use the same comma-separated strict model allowlist in server-owned `DUPSEARCH_CHAT_MODEL_OPTIONS` and public UI `VITE_DUPSEARCH_CHAT_MODEL_OPTIONS`. When either variable is explicitly set, its list replaces the defaults instead of extending them; release configuration must keep the two values identical.
+
+Transcription credentials are separate from chat credentials. Configure either a company ASR access code or an explicit remote ASR provider:
+
+```powershell
+$env:DUPSEARCH_TRANSCRIBE_PROVIDER = "company"
+$env:DUPSEARCH_TRANSCRIBE_ACCESS_CODE = "<company-asr-access-code>"
+# or
+$env:DUPSEARCH_TRANSCRIBE_PROVIDER = "remote"
+$env:DUPSEARCH_TRANSCRIBE_URL = "https://asr.example.net/transcribe"
+$env:DUPSEARCH_TRANSCRIBE_API_KEY = "<asr-api-key>"
+```
+
+Always set `DUPSEARCH_TRANSCRIBE_PROVIDER=company` or `remote`; credentials alone never select a provider. Remote ASR also requires its dedicated API key. Remote ASR origins require HTTPS, reject URL credentials/query/fragment and redirects, use a finite 60-second default deadline, and never reuse chat credentials; `DUPSEARCH_TRANSCRIBE_TIMEOUT_MS` may be set from 1 to 300000 milliseconds.
+
+Remote OCR is opt-in and accepts only `data:image/...;base64,...` attachments. Set `DUPSEARCH_OCR_PROVIDER=remote`, `DUPSEARCH_OCR_URL`, and the dedicated `DUPSEARCH_OCR_API_KEY`; optional `DUPSEARCH_OCR_AUTH_SCHEME` defaults to `Bearer`, and `DUPSEARCH_OCR_TIMEOUT_MS` defaults to 60000 with a maximum of 300000. Remote OCR follows the same HTTPS, URL-component, redirect, bounded-timeout, and upstream-error redaction policy. Without these variables, OCR stays on the local RapidOCR adapter and never reads client-supplied filesystem paths.
+
 Default model order:
 
-- `deepseek-v4-pro`
+- `deepseek-v4-flash`
 - `qwen3.5-397b-a17b`
 - `glm-5`
 
 ## Governed Agent Deployment
 
 The dashboard can run locally with its trusted internal principal. A shared or production deployment must use OIDC and keep the analytics service private.
+
+Use the [pre-production Agent release runbook](docs/deployment/preproduction-agent-release.md) for immutable qualification, the gateway route matrix, server-owned configuration, network/OIDC smoke checks, canary rollout, and rollback.
 
 AI Chat has one production orchestration path: LangGraph. `VIZION_AGENT_RUNTIME=legacy`, empty values, and unknown values all normalize to `langgraph`; there is no legacy server-entry fallback. Keep rollback and migration changes inside the governed LangGraph path so actor scope, evidence release validation, and terminal audit cannot be bypassed.
 
@@ -267,6 +290,10 @@ Rotate the capability secret with a coordinated maintenance window:
 
 The current verifier accepts one secret at a time, so rolling one service before the other intentionally causes agent-only queries to fail closed. Keep FastAPI port `3003` bound to loopback or a private network; do not expose it directly to browsers. Place the Node API behind the authenticated reverse-proxy boundary for shared deployments.
 
+When FastAPI is not colocated with Node, set `VIZION_ANALYTICS_API_BASE` to its private HTTPS origin; use mTLS or an encrypted service mesh where required. Plain HTTP is accepted only for exact loopback hosts (`127.0.0.1`, `localhost`, or `::1`). The value must not contain credentials, a path, query, or fragment. Configuration precedence is `VIZION_ANALYTICS_API_BASE`, then `VIZION_ANALYTICS_PORT`, then `http://127.0.0.1:3003`; the Node proxy, Agent tools, governed analytics context, and Vite development proxies use the same resolved origin. `VIZION_ANALYTICS_PROXY_TIMEOUT_MS` bounds analytics proxy and default Agent analytics requests. Vite binds to `127.0.0.1` and is not a shared-environment ingress.
+
+Production routing is explicit: approved dashboard reads under `/api/full-picture/*`, `/api/testing/*`, `/api/metadata/*`, and `/api/correlation/*` go through the authenticated gateway to private FastAPI; Agent/chat, Agent Operations, static, and QGate-report routes go to the loopback Node service. Do not publish `/api/semantic/*`, `/api/agent/analytics/*`, or actor-capability routes. Because the Node local boundary accepts only loopback Host/Origin values, the colocated gateway must validate the public Origin, preserve the bearer token, rewrite the upstream Host to the configured loopback Node address, and remove the already-validated browser Origin. See the runbook for the complete route contract.
+
 Duplicate search and the legacy allowlisted fallback query do not yet have row-scope enforcement. They are available only in `internal` mode; scoped OIDC actors receive a safe denial from the associated tools and `/api/ai/context` or `/api/duplicate-search*` routes. The main Agent also refuses to release data claims from any legacy tool or implicit analytics/duplicate context without a complete evidence contract, including in internal mode. The dedicated duplicate-search UI remains separate. Do not re-enable these paths for OIDC users until their backend retrieval path enforces the same actor scope and evidence contract.
 
 ### Runtime Ontology Governance
@@ -313,7 +340,7 @@ The mandatory gates actually execute the deterministic Agent fixture suite and `
 npm run agent:qualification -- --full --build
 ```
 
-The command writes `artifacts/agent-qualification/latest.json` atomically and exits non-zero when any selected command fails, the checkout is dirty before or after the run, or repository state changes while the gates are running. The artifact records the Git commit and dirty state, Node version, Ontology fingerprint, runtime-ready/planned metric counts, every target JSONL fixture's case count and SHA-256, and each executed command's duration and exit code. It never records environment-variable values or credentials.
+The command writes `artifacts/agent-qualification/latest.json` atomically and exits non-zero when Node is not 24.x, any selected command fails, the checkout is dirty before or after the run, or repository/dependency state changes while the gates are running. Run `npm ci` in the exact candidate checkout first. Schema 1.2 records the Git commit and dirty state, Node version, `package-lock.json` hash, candidate-local installed dependency tree hash, Vite/Vitest versions and executed entrypoint hashes, Ontology fingerprint, runtime-ready/planned metric counts, every target JSONL fixture's case count and SHA-256, and each executed command's duration and exit code. With `--build`, it also records every `dist` file's size/SHA-256 and a canonical tree hash so verification detects deployment artifact drift. It never records environment-variable values or credentials.
 
 Verify the payload hash and compare the artifact with the current commit, Ontology fingerprint, runtime capability report, and fixture files:
 

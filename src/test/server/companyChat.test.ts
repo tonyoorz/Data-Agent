@@ -12,6 +12,12 @@ describe("streamCompanyChatCompletion", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     process.env.DUPSEARCH_CHAT_ACCESS_CODE = "test-access-code";
+    delete process.env.DUPSEARCH_CHAT_API_BASE;
+    delete process.env.DUPSEARCH_CHAT_API_KEY;
+    delete process.env.DUPSEARCH_CHAT_MODEL_OPTIONS;
+    delete process.env.DUPSEARCH_CHAT_MAX_ATTEMPTS;
+    delete process.env.DUPSEARCH_CHAT_RETRY_DELAY_MS;
+    delete process.env.DUPSEARCH_CHAT_TIMEOUT_MS;
     delete process.env.VIZION_ANSWER_RELEASE_MAX_BYTES;
     delete process.env.VIZION_ANSWER_RELEASE_TIMEOUT_MS;
   });
@@ -64,6 +70,7 @@ describe("streamCompanyChatCompletion", () => {
       expect.objectContaining({
         method: "POST",
         body: expect.stringContaining('"stream":true'),
+        redirect: "error",
       }),
     );
     expect(json).not.toHaveBeenCalled();
@@ -120,12 +127,15 @@ describe("streamCompanyChatCompletion", () => {
   });
 
   it("does not read or log an upstream response body while mapping a stable client code", async () => {
+    process.env.DUPSEARCH_CHAT_MAX_ATTEMPTS = "1";
     const secretBody = `authorization: Bearer top-secret-token api_key=private-key ${"x".repeat(5000)}`;
     const readBody = vi.fn(async () => secretBody);
+    const cancel = vi.fn(async () => undefined);
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: false,
       status: 502,
       statusText: "Bad Gateway",
+      body: { cancel },
       text: readBody,
     }));
 
@@ -146,6 +156,7 @@ describe("streamCompanyChatCompletion", () => {
     expect(String((observedError as Error)?.message)).toBe("CHAT_UPSTREAM_REQUEST_FAILED");
     const diagnostic = controlledChatErrorDiagnostic(observedError);
     expect(readBody).not.toHaveBeenCalled();
+    expect(cancel).toHaveBeenCalledTimes(1);
     expect(diagnostic).toBe(
       "error_code=CHAT_UPSTREAM_REQUEST_FAILED upstream_status=502 upstream_status_text=Bad Gateway",
     );
@@ -154,11 +165,47 @@ describe("streamCompanyChatCompletion", () => {
     expect(Buffer.byteLength(diagnostic, "utf8")).toBeLessThanOrEqual(2048);
   });
 
+  it("blocks an unapproved client model before any provider request", async () => {
+    process.env.DUPSEARCH_CHAT_ACCESS_CODE = "";
+    process.env.DUPSEARCH_CHAT_API_KEY = "model-key";
+    process.env.DUPSEARCH_CHAT_API_BASE = "https://model.example.test/v1";
+    process.env.DUPSEARCH_CHAT_MODEL_OPTIONS = "approved-model";
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    let observedError: unknown;
+    try {
+      await requestCompanyChatCompletion({
+        messages: [{ role: "user", content: "hello" }],
+        model: "unapproved-expensive-model",
+      });
+    } catch (error) {
+      observedError = error;
+    }
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(toSafeCompanyChatError(observedError)).toEqual({
+      statusCode: 400,
+      payload: { success: false, error: "CHAT_MODEL_NOT_ALLOWED" },
+    });
+  });
+
   it("does not include arbitrary unknown error messages in controlled diagnostics", () => {
     const error = new Error("Bearer secret-from-an-untrusted-error");
     expect(controlledChatErrorDiagnostic(error)).toBe(
       "error_code=AGENT_CHAT_REQUEST_FAILED error_name=Error",
     );
+  });
+
+  it("maps known OCR boundary failures to stable attachment-safe responses", () => {
+    expect(toSafeCompanyChatError({ code: "IMAGE_OCR_INPUT_INVALID" })).toEqual({
+      statusCode: 400,
+      payload: { success: false, error: "IMAGE_OCR_INPUT_INVALID" },
+    });
+    expect(toSafeCompanyChatError({ code: "IMAGE_OCR_UPSTREAM_TIMEOUT" })).toEqual({
+      statusCode: 504,
+      payload: { success: false, error: "IMAGE_OCR_UPSTREAM_TIMEOUT" },
+    });
   });
 
   it("keeps non-claim chat streaming while the upstream response is still open", async () => {
@@ -226,7 +273,7 @@ describe("streamCompanyChatCompletion", () => {
           role: "user",
           content: [
             { type: "text", text: "read this image" },
-            { type: "image_url", image_url: { url: "data:image/png;base64,aW1hZ2U=" } },
+            { type: "image_url", image_url: { url: "data:image/png;base64,iVBORw0KGgo=" } },
           ],
         },
       ],
@@ -237,7 +284,7 @@ describe("streamCompanyChatCompletion", () => {
 
     expect(imageOcrRunner).toHaveBeenCalledWith(
       expect.objectContaining({
-        imageUrl: "data:image/png;base64,aW1hZ2U=",
+        imageUrl: "data:image/png;base64,iVBORw0KGgo=",
         index: 1,
       }),
     );
@@ -1196,6 +1243,8 @@ describe("requestCompanyChatCompletion", () => {
     vi.restoreAllMocks();
     process.env.DUPSEARCH_CHAT_ACCESS_CODE = "test-access-code";
     process.env.DUPSEARCH_CHAT_RETRY_DELAY_MS = "0";
+    delete process.env.DUPSEARCH_CHAT_MAX_ATTEMPTS;
+    delete process.env.DUPSEARCH_CHAT_TIMEOUT_MS;
   });
 
   it("retries retryable upstream failures before returning a non-streaming completion", async () => {
@@ -1217,6 +1266,48 @@ describe("requestCompanyChatCompletion", () => {
 
     expect(result.content).toBe("recovered");
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the deadline active through response body parsing", async () => {
+    process.env.DUPSEARCH_CHAT_MAX_ATTEMPTS = "1";
+    process.env.DUPSEARCH_CHAT_TIMEOUT_MS = "10";
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => ({
+      ok: true,
+      status: 200,
+      json: () => new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          reject(Object.assign(new Error("private body timeout"), { name: "AbortError" }));
+        });
+      }),
+    })));
+
+    let observedError: unknown;
+    try {
+      await requestCompanyChatCompletion({
+        messages: [{ role: "user", content: "hello" }],
+        model: "deepseek-v4-flash",
+      });
+    } catch (error) {
+      observedError = error;
+    }
+
+    expect(toSafeCompanyChatError(observedError)).toEqual({
+      statusCode: 504,
+      payload: { success: false, error: "CHAT_UPSTREAM_TIMEOUT" },
+    });
+    expect(controlledChatErrorDiagnostic(observedError)).not.toContain("private body timeout");
+  });
+
+  it("maps terminal provider transport failures to a stable gateway error", async () => {
+    process.env.DUPSEARCH_CHAT_MAX_ATTEMPTS = "1";
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new Error("private provider host details");
+    }));
+
+    await expect(requestCompanyChatCompletion({
+      messages: [{ role: "user", content: "hello" }],
+      model: "deepseek-v4-flash",
+    })).rejects.toMatchObject({ code: "CHAT_UPSTREAM_REQUEST_FAILED", statusCode: 502 });
   });
 
   it("returns tool calls from non-streaming company chat responses", async () => {

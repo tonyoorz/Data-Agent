@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createDuplicateWarmupManager } from "../../../server/duplicateWarmup.mjs";
+import {
+  createDuplicateWarmupManager,
+  shouldWarmDuplicateSearch,
+} from "../../../server/duplicateWarmup.mjs";
 
 describe("createDuplicateWarmupManager", () => {
   beforeEach(() => {
@@ -75,5 +78,12 @@ describe("createDuplicateWarmupManager", () => {
       }),
     );
     expect(runDuplicateBridge).toHaveBeenCalledTimes(1);
+  });
+
+  it("warms duplicate search only for the trusted internal auth mode", () => {
+    expect(shouldWarmDuplicateSearch({ VIZION_AGENT_AUTH_MODE: "internal" })).toBe(true);
+    expect(shouldWarmDuplicateSearch({ VIZION_AGENT_AUTH_MODE: "oidc" })).toBe(false);
+    expect(shouldWarmDuplicateSearch({})).toBe(false);
+    expect(shouldWarmDuplicateSearch({ VIZION_AGENT_AUTH_MODE: "unknown" })).toBe(false);
   });
 });

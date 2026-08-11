@@ -490,6 +490,20 @@ def _compute_ticket_timespans(*, history_rows: list[sqlite3.Row], scoped_defect_
 
 def _build_html(*, payload: dict[str, Any]) -> str:
     payload_json = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    # The JSON is interpolated into a <script> block. json.dumps does not escape
+    # "<", ">" or "&", so a DB-sourced value containing "</script>" would break
+    # out of the element. Escape the script-block-terminating characters (and
+    # U+2028/U+2029, which are valid in JSON strings but terminate JS string
+    # literals). The browser decodes \uXXXX back to the original character, so
+    # QGATE_PAYLOAD is unchanged while the source can no longer host a breakout.
+    payload_json = (
+        payload_json
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+        .replace("&", "\\u0026")
+        .replace("\u2028", "\\u2028")
+        .replace("\u2029", "\\u2029")
+    )
     transition_snapshot = _rows_to_table(
         payload["transitions"][:80],
         [("transition", "Transition"), ("group", "Group"), ("sample_count", "Sample count"), ("avg_days", "Average days")],

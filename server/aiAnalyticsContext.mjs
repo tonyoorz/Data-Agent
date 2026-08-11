@@ -1,4 +1,6 @@
 import { extractLatestUserQuery } from "./aiContext.mjs";
+import { resolveAnalyticsApiBase } from "./analyticsApiConfig.mjs";
+import { boundDefaultAnalyticsFetch } from "./boundedAnalyticsFetch.mjs";
 import { requestCompanyChatCompletion } from "./companyChat.mjs";
 import { createGovernedAnalysisPlanner } from "./ontology/analysisPlanner.mjs";
 import { createQueryPlanner } from "./ontology/queryPlanner.mjs";
@@ -9,8 +11,6 @@ import {
   createSemanticCandidateSchema,
   parseSemanticCandidate,
 } from "./ontology/semanticCandidate.mjs";
-
-const ANALYTICS_API_BASE = process.env.VIZION_ANALYTICS_API_BASE || "http://127.0.0.1:3003";
 
 const ANALYTICS_CONTEXT = `# Analytics business context
 Data sources:
@@ -150,7 +150,7 @@ function detectOpenedDtsvMetric(queryText, now, semanticFrame) {
   return {
     ...window,
     team: "DTSV_China",
-    url: `${ANALYTICS_API_BASE}/api/full-picture/dashboard/summary?${searchParams.toString()}`,
+    url: `${resolveAnalyticsApiBase()}/api/full-picture/dashboard/summary?${searchParams.toString()}`,
   };
 }
 
@@ -308,6 +308,7 @@ export async function resolveAiAnalyticsContext({
   model,
   requestSemanticCandidate = requestCompanySemanticCandidate,
 }) {
+  analyticsFetch = boundDefaultAnalyticsFetch(analyticsFetch);
   const queryText = extractLatestUserQuery(messages);
   if (!queryText) {
     return { queryText: "", contextText: "" };

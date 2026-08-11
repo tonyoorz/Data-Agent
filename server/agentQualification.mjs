@@ -3,9 +3,9 @@ import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
-import { fileURLToPath } from "node:url";
 
 import { canonicalJson } from "./ontology/fingerprint.mjs";
+import { inspectCheckoutNodeDependencies } from "./nodeDependencyBoundary.mjs";
 
 const AGENT_EVAL_TEST_FILES = Object.freeze([
   "src/test/server/mainAgentGolden.test.ts",
@@ -18,6 +18,8 @@ const AGENT_EVAL_TEST_FILES = Object.freeze([
 ]);
 
 const mandatoryGateIds = Object.freeze(["agent_evals", "ontology_check"]);
+const QUALIFICATION_SCHEMA_VERSION = "1.2";
+const SUPPORTED_NODE_MAJOR = 24;
 
 export class AgentQualificationError extends Error {
   constructor(code, details = "") {
@@ -35,17 +37,13 @@ function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function normalizedRelativePath(root, filePath) {
-  return path.relative(root, filePath).split(path.sep).join("/");
+export function isSupportedQualificationNodeVersion(version) {
+  const match = String(version || "").trim().match(/^v?(\d+)\./u);
+  return Number(match?.[1]) === SUPPORTED_NODE_MAJOR;
 }
 
-function resolvePackageEntrypoint(packageName, relativeEntrypoint) {
-  try {
-    const packageJsonPath = fileURLToPath(import.meta.resolve(`${packageName}/package.json`));
-    return path.join(path.dirname(packageJsonPath), relativeEntrypoint);
-  } catch {
-    fail("AGENT_QUALIFICATION_NODE_PACKAGE_MISSING", packageName);
-  }
+function normalizedRelativePath(root, filePath) {
+  return path.relative(root, filePath).split(path.sep).join("/");
 }
 
 function readJson(filePath, code) {
@@ -139,6 +137,56 @@ export function inspectQualificationFixtures(root) {
   });
 }
 
+export function inspectQualificationBuildArtifact(root) {
+  const distRoot = path.join(root, "dist");
+  if (!fs.existsSync(distRoot)) {
+    fail("AGENT_QUALIFICATION_BUILD_ARTIFACT_MISSING");
+  }
+  const distStat = fs.lstatSync(distRoot);
+  if (distStat.isSymbolicLink() || !distStat.isDirectory()) {
+    fail("AGENT_QUALIFICATION_BUILD_ARTIFACT_INVALID", "dist");
+  }
+  const realRoot = fs.realpathSync(root);
+  const realDistRoot = fs.realpathSync(distRoot);
+  const realDistRelative = path.relative(realRoot, realDistRoot);
+  if (
+    !realDistRelative
+    || realDistRelative.startsWith(`..${path.sep}`)
+    || path.isAbsolute(realDistRelative)
+  ) {
+    fail("AGENT_QUALIFICATION_BUILD_ARTIFACT_OUTSIDE_CHECKOUT");
+  }
+
+  const files = [];
+  const visit = (directory) => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name))) {
+      const filePath = path.join(directory, entry.name);
+      if (entry.isSymbolicLink()) fail("AGENT_QUALIFICATION_BUILD_ARTIFACT_SYMLINK", entry.name);
+      if (entry.isDirectory()) {
+        visit(filePath);
+        continue;
+      }
+      if (!entry.isFile()) fail("AGENT_QUALIFICATION_BUILD_ARTIFACT_INVALID", entry.name);
+      const content = fs.readFileSync(filePath);
+      files.push({
+        path: normalizedRelativePath(root, filePath),
+        bytes: content.byteLength,
+        sha256: sha256(content),
+      });
+    }
+  };
+  visit(distRoot);
+  if (!files.length) fail("AGENT_QUALIFICATION_BUILD_ARTIFACT_EMPTY");
+
+  return {
+    path: "dist",
+    fileCount: files.length,
+    totalBytes: files.reduce((total, file) => total + file.bytes, 0),
+    treeSha256: sha256(canonicalJson(files)),
+    files,
+  };
+}
+
 export function readQualificationGitState(root) {
   const commitResult = spawnSync("git", ["rev-parse", "HEAD"], {
     cwd: root,
@@ -176,8 +224,18 @@ export function assertQualificationOutputPathSafe(root, outputPath) {
   }
 }
 
-export function buildAgentQualificationCommands({ includeFullTests = false, includeBuild = false } = {}) {
-  const vitestEntrypoint = resolvePackageEntrypoint("vitest", "vitest.mjs");
+export function buildAgentQualificationCommands({
+  root = process.cwd(),
+  nodeDependencies = inspectCheckoutNodeDependencies(root),
+  includeFullTests = false,
+  includeBuild = false,
+} = {}) {
+  const resolveEntrypoint = (packageName) => {
+    const dependency = nodeDependencies.packages.find((item) => item.name === packageName);
+    if (!dependency) fail("AGENT_QUALIFICATION_NODE_PACKAGE_MISSING", packageName);
+    return path.join(path.resolve(root), ...dependency.entrypointPath.split("/"));
+  };
+  const vitestEntrypoint = resolveEntrypoint("vitest");
   const commands = [
     {
       id: "agent_evals",
@@ -210,7 +268,7 @@ export function buildAgentQualificationCommands({ includeFullTests = false, incl
     });
   }
   if (includeBuild) {
-    const viteEntrypoint = resolvePackageEntrypoint("vite", "bin/vite.js");
+    const viteEntrypoint = resolveEntrypoint("vite");
     commands.push({
       id: "production_build",
       label: "Production frontend build",
@@ -322,13 +380,20 @@ export async function runAgentQualification({
   getGitState = readQualificationGitState,
   runCommand = executeQualificationCommand,
   now = () => new Date(),
+  nodeVersion = process.version,
 } = {}) {
   const resolvedRoot = path.resolve(root || process.cwd());
   const resolvedOutputPath = path.resolve(outputPath || path.join(resolvedRoot, "artifacts/agent-qualification/latest.json"));
   assertQualificationOutputPathSafe(resolvedRoot, resolvedOutputPath);
   const startedAt = now().toISOString();
   const gitBefore = await Promise.resolve(getGitState(resolvedRoot));
-  const commands = buildAgentQualificationCommands({ includeFullTests, includeBuild });
+  const nodeDependencies = inspectCheckoutNodeDependencies(resolvedRoot);
+  const commands = buildAgentQualificationCommands({
+    root: resolvedRoot,
+    nodeDependencies,
+    includeFullTests,
+    includeBuild,
+  });
   const gates = [];
   for (const command of commands) {
     let result;
@@ -339,18 +404,34 @@ export async function runAgentQualification({
     }
     gates.push(normalizeCommandResult(command, result));
   }
+  const nodeDependenciesAfter = inspectCheckoutNodeDependencies(resolvedRoot);
+  const nodeDependencyStateChanged = canonicalJson(nodeDependencies) !== canonicalJson(nodeDependenciesAfter);
   const gitAfter = await Promise.resolve(getGitState(resolvedRoot));
   const repositoryStateChanged = gitBefore.commit !== gitAfter.commit || gitBefore.dirty !== gitAfter.dirty;
   const ontology = readQualificationOntologyState(resolvedRoot);
   const fixtures = inspectQualificationFixtures(resolvedRoot);
+  const nodeVersionSupported = isSupportedQualificationNodeVersion(nodeVersion);
+  let buildArtifact;
+  let buildArtifactInspectionError = "";
+  const buildGatePassed = gates.some((gate) => gate.id === "production_build" && gate.exitCode === 0);
+  if (includeBuild && buildGatePassed) {
+    try {
+      buildArtifact = inspectQualificationBuildArtifact(resolvedRoot);
+    } catch (error) {
+      buildArtifactInspectionError = String(error?.code || "AGENT_QUALIFICATION_BUILD_ARTIFACT_INVALID");
+    }
+  }
   const passed = (
     gates.every((gate) => gate.exitCode === 0)
+    && nodeVersionSupported
+    && !nodeDependencyStateChanged
+    && !buildArtifactInspectionError
     && !gitBefore.dirty
     && !gitAfter.dirty
     && !repositoryStateChanged
   );
   const payload = {
-    schemaVersion: "1.0",
+    schemaVersion: QUALIFICATION_SCHEMA_VERSION,
     artifactType: "agent_qualification",
     status: passed ? "passed" : "failed",
     evidenceClass: "deterministic_fixture",
@@ -365,19 +446,25 @@ export async function runAgentQualification({
       stateChangedDuringQualification: repositoryStateChanged,
     },
     runtime: {
-      nodeVersion: process.version,
+      nodeVersion,
+      supportedNodeMajor: SUPPORTED_NODE_MAJOR,
+      nodeVersionSupported,
       nodeExecutable: process.execPath,
       platform: process.platform,
       architecture: process.arch,
       environmentValuesCaptured: false,
       secretValuesCaptured: false,
     },
+    nodeDependencies: nodeDependenciesAfter,
+    nodeDependencyStateChangedDuringQualification: nodeDependencyStateChanged,
     ontology,
     fixtureSummary: {
       fileCount: fixtures.length,
       caseCount: fixtures.reduce((total, fixture) => total + fixture.caseCount, 0),
     },
     fixtures,
+    ...(buildArtifact ? { buildArtifact } : {}),
+    ...(buildArtifactInspectionError ? { buildArtifactInspectionError } : {}),
     selectedGates: {
       fullNodeTests: Boolean(includeFullTests),
       productionBuild: Boolean(includeBuild),
@@ -393,13 +480,22 @@ export async function runAgentQualification({
   };
 }
 
-function assertArtifactGateContract(payload) {
+function assertArtifactGateContract(payload, { root, nodeDependencies }) {
   const selectedGates = payload?.selectedGates || {};
   const artifactNodeExecutable = payload?.runtime?.nodeExecutable;
   if (typeof artifactNodeExecutable !== "string" || !artifactNodeExecutable) {
     fail("AGENT_QUALIFICATION_NODE_EXECUTABLE_INVALID");
   }
+  if (
+    payload?.runtime?.supportedNodeMajor !== SUPPORTED_NODE_MAJOR
+    || payload?.runtime?.nodeVersionSupported !== true
+    || !isSupportedQualificationNodeVersion(payload?.runtime?.nodeVersion)
+  ) {
+    fail("AGENT_QUALIFICATION_NODE_VERSION_UNSUPPORTED");
+  }
   const expectedCommands = buildAgentQualificationCommands({
+    root,
+    nodeDependencies,
     includeFullTests: selectedGates.fullNodeTests === true,
     includeBuild: selectedGates.productionBuild === true,
   });
@@ -409,16 +505,14 @@ function assertArtifactGateContract(payload) {
   for (let index = 0; index < expectedCommands.length; index += 1) {
     const expected = expectedCommands[index];
     const actual = payload.gates[index];
-    const portableArgumentTail = expected.portableCommand.script
-      ? [expected.portableCommand.script, ...expected.portableCommand.args]
-      : expected.portableCommand.args;
     const actualArguments = Array.isArray(actual?.command?.args) ? actual.command.args : [];
     if (
       actual?.id !== expected.id
       || actual?.required !== true
-      || actual?.command?.executable !== artifactNodeExecutable
+      || actual?.command?.executable !== expected.executable
+      || artifactNodeExecutable !== expected.executable
       || canonicalJson(actual?.command?.portable) !== canonicalJson(expected.portableCommand)
-      || canonicalJson(actualArguments.slice(-portableArgumentTail.length)) !== canonicalJson(portableArgumentTail)
+      || canonicalJson(actualArguments) !== canonicalJson(expected.args)
       || actual?.command?.cwd !== "."
       || actual?.command?.shell !== false
     ) {
@@ -439,6 +533,9 @@ export function verifyAgentQualification({
   root,
   artifactPath,
   getGitState = readQualificationGitState,
+  currentNodeVersion = process.version,
+  requireFullTests = false,
+  requireBuild = false,
 } = {}) {
   const resolvedRoot = path.resolve(root || process.cwd());
   const resolvedArtifactPath = path.resolve(artifactPath || path.join(resolvedRoot, "artifacts/agent-qualification/latest.json"));
@@ -455,7 +552,7 @@ export function verifyAgentQualification({
     fail("AGENT_QUALIFICATION_PAYLOAD_HASH_MISMATCH");
   }
   const payload = document.payload;
-  if (payload?.schemaVersion !== "1.0" || payload?.artifactType !== "agent_qualification") {
+  if (payload?.schemaVersion !== QUALIFICATION_SCHEMA_VERSION || payload?.artifactType !== "agent_qualification") {
     fail("AGENT_QUALIFICATION_SCHEMA_INVALID");
   }
   if (payload.evidenceClass !== "deterministic_fixture" || payload.productionSnapshot !== false) {
@@ -464,13 +561,32 @@ export function verifyAgentQualification({
   if (payload.runtime?.environmentValuesCaptured !== false || payload.runtime?.secretValuesCaptured !== false) {
     fail("AGENT_QUALIFICATION_CAPTURE_POLICY_INVALID");
   }
+  if (payload.nodeDependencyStateChangedDuringQualification !== false) {
+    fail("AGENT_QUALIFICATION_NODE_DEPENDENCY_STATE_CHANGED");
+  }
   if (payload.repository?.dirtyBefore !== false || payload.repository?.dirty !== false) {
     fail("AGENT_QUALIFICATION_ARTIFACT_WORKTREE_DIRTY");
   }
   if (payload.status !== "passed" || payload.repository?.stateChangedDuringQualification !== false) {
     fail("AGENT_QUALIFICATION_NOT_PASSED");
   }
-  assertArtifactGateContract(payload);
+  if (requireFullTests && payload.selectedGates?.fullNodeTests !== true) {
+    fail("AGENT_QUALIFICATION_RELEASE_PROFILE_REQUIRED", "full_node_tests");
+  }
+  if (requireBuild && payload.selectedGates?.productionBuild !== true) {
+    fail("AGENT_QUALIFICATION_RELEASE_PROFILE_REQUIRED", "production_build");
+  }
+  const currentNodeDependencies = inspectCheckoutNodeDependencies(resolvedRoot);
+  if (canonicalJson(currentNodeDependencies) !== canonicalJson(payload.nodeDependencies)) {
+    fail("AGENT_QUALIFICATION_NODE_DEPENDENCY_DRIFT");
+  }
+  assertArtifactGateContract(payload, {
+    root: resolvedRoot,
+    nodeDependencies: currentNodeDependencies,
+  });
+  if (!isSupportedQualificationNodeVersion(currentNodeVersion)) {
+    fail("AGENT_QUALIFICATION_CURRENT_NODE_VERSION_UNSUPPORTED");
+  }
 
   const currentGit = getGitState(resolvedRoot);
   if (currentGit?.dirty !== false) {
@@ -497,6 +613,14 @@ export function verifyAgentQualification({
   };
   if (canonicalJson(currentFixtureSummary) !== canonicalJson(payload.fixtureSummary)) {
     fail("AGENT_QUALIFICATION_FIXTURE_SUMMARY_INVALID");
+  }
+  if (payload.selectedGates?.productionBuild === true) {
+    const currentBuildArtifact = inspectQualificationBuildArtifact(resolvedRoot);
+    if (canonicalJson(currentBuildArtifact) !== canonicalJson(payload.buildArtifact)) {
+      fail("AGENT_QUALIFICATION_BUILD_ARTIFACT_DRIFT");
+    }
+  } else if (payload.buildArtifact !== undefined) {
+    fail("AGENT_QUALIFICATION_BUILD_ARTIFACT_UNEXPECTED");
   }
   return {
     valid: true,

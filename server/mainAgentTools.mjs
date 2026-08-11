@@ -1,12 +1,12 @@
 import { semanticQuerySchema } from "./ontology/queryCompiler.mjs";
+import { resolveAnalyticsApiBase } from "./analyticsApiConfig.mjs";
+import { boundDefaultAnalyticsFetch } from "./boundedAnalyticsFetch.mjs";
 import { isOidcScopedActor } from "./agentAuth.mjs";
 import {
   ACTOR_CAPABILITY_HEADER,
   createActorCapability,
 } from "./agentActorCapability.mjs";
 import { mainAgentToolDataBoundary } from "./mainAgentToolDataBoundary.mjs";
-
-const DEFAULT_ANALYTICS_API_BASE = process.env.VIZION_ANALYTICS_API_BASE || "http://127.0.0.1:3003";
 
 const DASHBOARD_SUMMARY_FILTER_KEYS = new Set([
   "years",
@@ -2210,7 +2210,7 @@ function executeAskClarification(toolCall) {
 
 export async function executeMainAgentToolCall(toolCall, {
   analyticsFetch = globalThis.fetch,
-  analyticsApiBase = DEFAULT_ANALYTICS_API_BASE,
+  analyticsApiBase = resolveAnalyticsApiBase(),
   runDuplicateBridge,
   ensureDuplicateWarmup,
   actor,
@@ -2220,6 +2220,7 @@ export async function executeMainAgentToolCall(toolCall, {
   actorCapabilityEnv,
   now,
 } = {}) {
+  analyticsFetch = boundDefaultAnalyticsFetch(analyticsFetch);
   const agentAnalyticsDependencies = {
     analyticsFetch,
     analyticsApiBase,

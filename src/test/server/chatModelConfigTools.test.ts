@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildChatCompletionRequest } from "../../../server/chatModelConfig.mjs";
+import { buildChatCompletionRequest, resolveChatModelConfig } from "../../../server/chatModelConfig.mjs";
 
 const sampleTools = [
   {
@@ -57,9 +57,9 @@ describe("buildChatCompletionRequest tool calling options", () => {
       selectedModel: "deepseek-chat",
       messages: [{ role: "user", content: "Use the tool." }],
       env: {
-        DUPSEARCH_CHAT_MODEL_ENDPOINTS: "{}",
         DUPSEARCH_CHAT_API_KEY: "test-api-key",
         DUPSEARCH_CHAT_API_BASE: "https://example.test/v1",
+        DUPSEARCH_CHAT_MODEL_OPTIONS: "deepseek-chat",
       },
       tools: sampleTools,
       toolChoice: "auto",
@@ -81,5 +81,119 @@ describe("buildChatCompletionRequest tool calling options", () => {
 
     expect(request.body).not.toHaveProperty("tools");
     expect(request.body).not.toHaveProperty("tool_choice");
+  });
+
+  it.each([
+    {
+      DUPSEARCH_CHAT_API_KEY: "secret",
+      DUPSEARCH_CHAT_API_BASE: "http://model.example.test/v1",
+      DUPSEARCH_CHAT_MODEL_OPTIONS: "custom",
+    },
+    {
+      DUPSEARCH_CHAT_API_KEY: "secret",
+      DUPSEARCH_CHAT_API_BASE: "https://model.example.test/v1?token=secret",
+      DUPSEARCH_CHAT_MODEL_OPTIONS: "custom",
+    },
+    {
+      DUPSEARCH_CHAT_ACCESS_CODE: "secret",
+      DUPSEARCH_CHAT_MODEL_ENDPOINTS: JSON.stringify({ custom: "http://model.example.test/chat" }),
+      DUPSEARCH_CHAT_MODEL_OPTIONS: "custom",
+    },
+  ])("rejects remote plaintext model endpoints", (env) => {
+    expect(() => buildChatCompletionRequest({
+      selectedModel: "custom",
+      messages: [{ role: "user", content: "hello" }],
+      env,
+    })).toThrow("CHAT_MODEL_ENDPOINT_INVALID");
+  });
+
+  it("does not treat the generic API_KEY variable as a model credential", () => {
+    const request = buildChatCompletionRequest({
+      selectedModel: "custom",
+      messages: [{ role: "user", content: "hello" }],
+      env: {
+        API_KEY: "unrelated-secret",
+        DUPSEARCH_CHAT_API_BASE: "https://example.test/v1",
+        DUPSEARCH_CHAT_MODEL_OPTIONS: "custom",
+      },
+    });
+
+    expect(request.config.credential).toBe("");
+    expect(request.headers).not.toHaveProperty("Authorization");
+  });
+
+  it("uses the documented API-key fallback for the default model when no access code is set", () => {
+    const config = resolveChatModelConfig("deepseek-v4-flash", {
+      DUPSEARCH_CHAT_API_KEY: "test-api-key",
+      DUPSEARCH_CHAT_API_BASE: "https://example.test/v1",
+    });
+
+    expect(config).toMatchObject({
+      usesInternalEndpoint: false,
+      credential: "test-api-key",
+      baseUrl: "https://example.test/v1",
+    });
+  });
+
+  it("gives an explicit company access code precedence over the API-key fallback", () => {
+    const config = resolveChatModelConfig("deepseek-v4-flash", {
+      DUPSEARCH_CHAT_ACCESS_CODE: "company-access-code",
+      DUPSEARCH_CHAT_API_KEY: "external-api-key",
+      DUPSEARCH_CHAT_API_BASE: "https://example.test/v1",
+    });
+
+    expect(config).toMatchObject({
+      usesInternalEndpoint: true,
+      credential: "company-access-code",
+      baseUrl: "",
+    });
+  });
+
+  it.each([
+    "not-json",
+    "",
+    "   ",
+    "[]",
+    "{}",
+    JSON.stringify({ custom: "" }),
+  ])("rejects an explicitly invalid endpoint map instead of falling back (%s)", (endpointMap) => {
+    expect(() => resolveChatModelConfig("custom", {
+      DUPSEARCH_CHAT_MODEL_ENDPOINTS: endpointMap,
+      DUPSEARCH_CHAT_ACCESS_CODE: "test-access-code",
+      DUPSEARCH_CHAT_MODEL_OPTIONS: "custom",
+    })).toThrow("CHAT_MODEL_ENDPOINT_INVALID");
+  });
+
+  it("rejects a client-selected model outside the server allowlist", () => {
+    expect(() => buildChatCompletionRequest({
+      selectedModel: "high-cost-unapproved-model",
+      messages: [{ role: "user", content: "hello" }],
+      env: {
+        DUPSEARCH_CHAT_API_KEY: "test-api-key",
+        DUPSEARCH_CHAT_API_BASE: "https://example.test/v1",
+        DUPSEARCH_CHAT_MODEL_OPTIONS: "deepseek-v4-flash",
+      },
+    })).toThrow("CHAT_MODEL_NOT_ALLOWED");
+  });
+
+  it("treats an explicit model options list as a strict server allowlist", () => {
+    expect(resolveChatModelConfig("approved-model", {
+      DUPSEARCH_CHAT_API_KEY: "test-api-key",
+      DUPSEARCH_CHAT_API_BASE: "https://example.test/v1",
+      DUPSEARCH_CHAT_MODEL_OPTIONS: "approved-model",
+    }).model).toBe("approved-model");
+    expect(() => resolveChatModelConfig("deepseek-v4-flash", {
+      DUPSEARCH_CHAT_API_KEY: "test-api-key",
+      DUPSEARCH_CHAT_API_BASE: "https://example.test/v1",
+      DUPSEARCH_CHAT_MODEL_OPTIONS: "approved-model",
+    })).toThrow("CHAT_MODEL_NOT_ALLOWED");
+  });
+
+  it.each(["", "   ", ",", " , , "])("fails closed on an explicitly empty server model allowlist (%j)", (value) => {
+    expect(() => resolveChatModelConfig("", {
+      DUPSEARCH_CHAT_MODEL_OPTIONS: value,
+      DUPSEARCH_CHAT_API_KEY: "test-api-key",
+      DUPSEARCH_CHAT_API_BASE: "https://example.test/v1",
+    })).toThrow("CHAT_MODEL_OPTIONS_INVALID");
   });
 });

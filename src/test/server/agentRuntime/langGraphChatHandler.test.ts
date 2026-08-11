@@ -151,10 +151,10 @@ describe("LangGraph chat handler", () => {
     });
 
     expect(runtime.invoke).toHaveBeenCalledWith(
-      {
+      expect.objectContaining({
         body: expect.objectContaining({ threadId: "thread-1" }),
         toolDependencies: { runDuplicateBridge: "bridge" },
-      },
+      }),
       { onEvent: expect.any(Function) },
     );
     expect(writeEvent).toHaveBeenCalledWith(response, {

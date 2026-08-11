@@ -97,6 +97,32 @@ describe("request actor authentication", () => {
     expect(reusedSecondVerifier).toBe(secondVerifier);
   });
 
+  it("requires subject and expiry claims during OIDC verification", async () => {
+    const jwks = { resolver: "claims-required" };
+    const jwtVerify = vi.fn(async () => ({
+      payload: { sub: "alice", exp: 1_800_000_000 },
+    }));
+    const verifier = createOidcTokenVerifier(oidcVerifierEnv, {
+      createRemoteJWKSet: vi.fn(() => jwks),
+      jwtVerify,
+      verifierCache: new Map(),
+    });
+
+    await expect(verifier("verified-token")).resolves.toEqual({
+      sub: "alice",
+      exp: 1_800_000_000,
+    });
+    expect(jwtVerify).toHaveBeenCalledWith(
+      "verified-token",
+      jwks,
+      {
+        issuer: oidcVerifierEnv.VIZION_OIDC_ISSUER,
+        audience: oidcVerifierEnv.VIZION_OIDC_AUDIENCE,
+        requiredClaims: ["sub", "exp"],
+      },
+    );
+  });
+
   it("rejects non-HTTPS JWKS configuration before creating a remote resolver", () => {
     const createRemoteJWKSet = vi.fn();
     let error;

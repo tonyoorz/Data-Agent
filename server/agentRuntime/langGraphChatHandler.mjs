@@ -130,7 +130,11 @@ export async function streamLangGraphChatResponse({
     return result;
   };
   const runtimeResult = await runtime.invoke(
-    { body, toolDependencies },
+    {
+      body,
+      toolDependencies,
+      mediaDependencies: { imageOcrRunner, documentTextRunner },
+    },
     {
       onEvent: (event) => {
         try {

@@ -1,4 +1,7 @@
 import { buildChatCompletionRequest, resolveChatModelConfig } from "./chatModelConfig.mjs";
+import { readBoundedResponseJson } from "./boundedResponseBody.mjs";
+
+const DUPLICATE_SUMMARY_RESPONSE_MAX_BYTES = 1024 * 1024;
 
 function resolveSummaryTimeoutMs(env = process.env) {
   const raw = Number(env.DUPLICATE_SUMMARY_TIMEOUT_MS || 2500);
@@ -330,41 +333,49 @@ export async function summarizeDuplicateResults(query, result, selectedModel, op
   try {
     const abortController = new AbortController();
     const timeout = setTimeout(() => abortController.abort(), resolveSummaryTimeoutMs(process.env));
-    let response;
     try {
-      response = await fetch(requestConfig.url, {
+      const response = await fetch(requestConfig.url, {
         method: "POST",
         headers: requestConfig.headers,
         body: JSON.stringify(requestConfig.body),
+        redirect: "error",
         signal: abortController.signal,
       });
+
+      if (!response.ok) {
+        try {
+          response?.body?.cancel?.().catch?.(() => {});
+        } catch {
+          // The deterministic fallback remains available even if disposal fails.
+        }
+        throw new Error(`summary request failed with ${response.status}`);
+      }
+
+      const payload = await readBoundedResponseJson(response, {
+        maxBytes: DUPLICATE_SUMMARY_RESPONSE_MAX_BYTES,
+        errorCode: "DUPLICATE_SUMMARY_RESPONSE_TOO_LARGE",
+      });
+      const content = String(payload?.choices?.[0]?.message?.content || "").trim();
+      if (!content) {
+        throw new Error("summary model returned empty content");
+      }
+
+      const structured = extractStructuredSummary(content);
+      const summaryText = structured?.summaryText || content;
+      const anchoredSummary = anchorSummaryToTopCandidate(summaryText, result, language);
+      const candidateAnalyses = structured?.candidateAnalyses?.length
+        ? structured.candidateAnalyses
+        : fallbackCandidateAnalyses;
+
+      return {
+        summaryText: anchoredSummary,
+        answerModel: config.model,
+        summarySource: "llm",
+        candidateAnalyses,
+      };
     } finally {
       clearTimeout(timeout);
     }
-
-    if (!response.ok) {
-      throw new Error(`summary request failed with ${response.status}`);
-    }
-
-    const payload = await response.json();
-    const content = String(payload?.choices?.[0]?.message?.content || "").trim();
-    if (!content) {
-      throw new Error("summary model returned empty content");
-    }
-
-    const structured = extractStructuredSummary(content);
-    const summaryText = structured?.summaryText || content;
-    const anchoredSummary = anchorSummaryToTopCandidate(summaryText, result, language);
-    const candidateAnalyses = structured?.candidateAnalyses?.length
-      ? structured.candidateAnalyses
-      : fallbackCandidateAnalyses;
-
-    return {
-      summaryText: anchoredSummary,
-      answerModel: config.model,
-      summarySource: "llm",
-      candidateAnalyses,
-    };
   } catch {
     return {
       summaryText: fallbackSummary,

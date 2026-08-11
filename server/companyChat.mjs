@@ -2,8 +2,10 @@ import { buildChatCompletionRequest, resolveChatModelConfig } from "./chatModelC
 import { compactChatMessages } from "./chatMessageBudget.mjs";
 import { expandMessagesWithDocumentText } from "./documentText.mjs";
 import { expandImageMessagesWithOcr } from "./imageOcr.mjs";
+import { assertChatAttachmentLimits } from "./attachmentBoundary.mjs";
 import { validateAnswerTextCitations } from "./answerValidator.mjs";
 import { evaluateClaimEvidence } from "./mainAgentEvidence.mjs";
+import { readBoundedResponseJson } from "./boundedResponseBody.mjs";
 
 const SYSTEM_PROMPT = `You are DTSV Intelligence — a senior data analyst embedded in a quality engineering dashboard.
 
@@ -115,42 +117,114 @@ function waitForRetry(ms) {
   });
 }
 
+function isTimeoutLikeError(error, signal) {
+  return signal?.aborted === true
+    || error?.name === "AbortError"
+    || error?.name === "TimeoutError";
+}
+
+function normalizeUpstreamTransportError(error, signal) {
+  if (error instanceof CompanyChatBoundaryError) {
+    return error;
+  }
+  if (isTimeoutLikeError(error, signal)) {
+    return new CompanyChatBoundaryError(
+      "CHAT_UPSTREAM_TIMEOUT",
+      "error_code=CHAT_UPSTREAM_TIMEOUT",
+    );
+  }
+  return new CompanyChatBoundaryError(
+    "CHAT_UPSTREAM_REQUEST_FAILED",
+    `error_code=CHAT_UPSTREAM_REQUEST_FAILED error_name=${String(error?.name || "UnknownError")}`,
+  );
+}
+
 async function fetchWithResilience(url, init, { env = process.env } = {}) {
   const { maxAttempts, timeoutMs, retryDelayMs } = chatResilienceOptions(env);
   let lastError;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
     const timeout = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      if (timeout) clearTimeout(timeout);
+    };
     try {
-      const response = await fetch(url, { ...init, ...(controller ? { signal: controller.signal } : {}) });
-      if (response.ok || !isRetryableStatus(response.status) || attempt >= maxAttempts) return response;
+      const response = await fetch(url, {
+        ...init,
+        redirect: "error",
+        ...(controller ? { signal: controller.signal } : {}),
+      });
+      if (response.ok || !isRetryableStatus(response.status) || attempt >= maxAttempts) {
+        return {
+          response,
+          signal: controller?.signal,
+          release,
+        };
+      }
       // Upstream bodies are untrusted and may contain credentials or private data.
       // Retry decisions and diagnostics need only the protocol status metadata.
       lastError = upstreamFailure(response);
       lastError.retryable = true;
+      release();
     } catch (error) {
-      lastError = error;
-      if (!isRetryableFetchError(error) || attempt >= maxAttempts) throw error;
-    } finally {
-      if (timeout) clearTimeout(timeout);
+      release();
+      lastError = normalizeUpstreamTransportError(error, controller?.signal);
+      if (!isRetryableFetchError(error) || attempt >= maxAttempts) throw lastError;
     }
     await waitForRetry(retryDelayMs);
   }
-  throw lastError || new Error("Chat request failed after retries");
+  throw lastError || new CompanyChatBoundaryError(
+    "CHAT_UPSTREAM_REQUEST_FAILED",
+    "error_code=CHAT_UPSTREAM_REQUEST_FAILED retries_exhausted=true",
+  );
 }
 
 const PSEUDO_TOOL_FALLBACK_CONTENT = "工具调用阶段已结束；无法继续调用工具。我会基于已有工具结果说明数据限制。";
 export const GOVERNED_EVIDENCE_UNAVAILABLE_CONTENT = "受治理证据不可用，因此本次不会发布数据事实或结论。请重试或缩小查询范围。";
 const DEFAULT_ANSWER_RELEASE_MAX_BYTES = 256 * 1024;
 const DEFAULT_ANSWER_RELEASE_TIMEOUT_MS = 30_000;
+const DEFAULT_CHAT_RESPONSE_MAX_BYTES = 2 * 1024 * 1024;
+const DEFAULT_CHAT_STREAM_FRAME_MAX_BYTES = 512 * 1024;
 const ANSWER_RELEASE_CHUNK_CHARACTERS = 120;
 const TOOL_FALLBACK_MAX_LINES = 12;
 const CONTROLLED_CHAT_DIAGNOSTIC_MAX_BYTES = 2048;
 
 const SAFE_CHAT_ERROR_STATUS = Object.freeze({
   CHAT_MODEL_CONFIGURATION_UNAVAILABLE: 503,
+  CHAT_MODEL_ENDPOINT_INVALID: 503,
+  CHAT_MODEL_NOT_ALLOWED: 400,
+  CHAT_MODEL_OPTIONS_INVALID: 503,
   CHAT_UPSTREAM_REQUEST_FAILED: 502,
+  CHAT_UPSTREAM_TIMEOUT: 504,
+  CHAT_UPSTREAM_INVALID_RESPONSE: 502,
+  CHAT_UPSTREAM_RESPONSE_TOO_LARGE: 502,
   CHAT_UPSTREAM_EMPTY_RESPONSE: 502,
+  IMAGE_OCR_INPUT_INVALID: 400,
+  IMAGE_OCR_ATTACHMENT_LIMIT_EXCEEDED: 413,
+  IMAGE_OCR_TOTAL_BYTES_EXCEEDED: 413,
+  IMAGE_OCR_PROVIDER_INVALID: 503,
+  IMAGE_OCR_URL_INVALID: 503,
+  IMAGE_OCR_URL_REQUIRED: 503,
+  IMAGE_OCR_API_KEY_REQUIRED: 503,
+  IMAGE_OCR_AUTH_SCHEME_INVALID: 503,
+  IMAGE_OCR_LOCAL_TIMEOUT_INVALID: 503,
+  IMAGE_OCR_REMOTE_TIMEOUT_INVALID: 503,
+  IMAGE_OCR_UPSTREAM_TIMEOUT: 504,
+  IMAGE_OCR_UPSTREAM_UNAVAILABLE: 502,
+  IMAGE_OCR_UPSTREAM_HTTP_ERROR: 502,
+  IMAGE_OCR_UPSTREAM_INVALID_RESPONSE: 502,
+  IMAGE_OCR_UPSTREAM_EMPTY_RESPONSE: 502,
+  IMAGE_OCR_UPSTREAM_RESPONSE_TOO_LARGE: 502,
+  IMAGE_OCR_LOCAL_OUTPUT_LIMIT_EXCEEDED: 413,
+  IMAGE_OCR_TEXT_LIMIT_EXCEEDED: 413,
+  CHAT_ATTACHMENT_INPUT_INVALID: 400,
+  CHAT_ATTACHMENT_LIMIT_EXCEEDED: 413,
+  CHAT_ATTACHMENT_BYTES_EXCEEDED: 413,
+  CHAT_ATTACHMENT_WORKER_OUTPUT_EXCEEDED: 413,
+  CHAT_ATTACHMENT_TEXT_EXCEEDED: 413,
   AGENT_CHAT_REQUEST_FAILED: 500,
 });
 
@@ -184,6 +258,9 @@ export function controlledChatErrorDiagnostic(error) {
   if (error instanceof CompanyChatBoundaryError) {
     return error.diagnostic;
   }
+  if (Object.hasOwn(SAFE_CHAT_ERROR_STATUS, error?.code)) {
+    return controlledDiagnosticText(`error_code=${String(error.code)}`);
+  }
   const errorName = typeof error?.name === "string" ? error.name : "UnknownError";
   return controlledDiagnosticText(`error_code=AGENT_CHAT_REQUEST_FAILED error_name=${errorName}`);
 }
@@ -199,6 +276,11 @@ export function toSafeCompanyChatError(error) {
 }
 
 function upstreamFailure(response) {
+  try {
+    response?.body?.cancel?.().catch?.(() => {});
+  } catch {
+    // Ignore disposal errors; only stable protocol metadata crosses this boundary.
+  }
   const status = Number(response?.status || 0) || 502;
   const statusText = String(response?.statusText || "");
   return new CompanyChatBoundaryError(
@@ -616,6 +698,15 @@ function findSseFrameBoundary(buffer) {
   return candidates[0] || null;
 }
 
+export async function prepareCompanyChatMessages(
+  messages,
+  { imageOcrRunner, documentTextRunner, env = process.env } = {},
+) {
+  assertChatAttachmentLimits(messages);
+  const documentExpandedMessages = await expandMessagesWithDocumentText(messages, env, { documentTextRunner });
+  return await expandImageMessagesWithOcr(documentExpandedMessages, env, { imageOcrRunner });
+}
+
 export async function requestCompanyChatCompletion({
   messages,
   model,
@@ -633,8 +724,7 @@ export async function requestCompanyChatCompletion({
     );
   }
 
-  const documentExpandedMessages = await expandMessagesWithDocumentText(messages, process.env, { documentTextRunner });
-  const preparedMessages = await expandImageMessagesWithOcr(documentExpandedMessages, process.env, { imageOcrRunner });
+  const preparedMessages = await prepareCompanyChatMessages(messages, { imageOcrRunner, documentTextRunner });
   const mergedMessages = buildMergedMessages(compactChatMessages(preparedMessages), context);
 
   const requestConfig = buildChatCompletionRequest({
@@ -645,29 +735,54 @@ export async function requestCompanyChatCompletion({
     toolChoice,
   });
 
-  const response = await fetchWithResilience(requestConfig.url, {
-    method: "POST",
-    headers: requestConfig.headers,
-    body: JSON.stringify(requestConfig.body),
-  });
+  let upstream;
+  try {
+    upstream = await fetchWithResilience(requestConfig.url, {
+      method: "POST",
+      headers: requestConfig.headers,
+      body: JSON.stringify(requestConfig.body),
+    });
 
-  if (!response.ok) {
-    throw upstreamFailure(response);
+    if (!upstream.response.ok) {
+      throw upstreamFailure(upstream.response);
+    }
+
+    let payload;
+    try {
+      payload = await readBoundedResponseJson(upstream.response, {
+        maxBytes: positiveInteger(process.env.DUPSEARCH_CHAT_RESPONSE_MAX_BYTES, DEFAULT_CHAT_RESPONSE_MAX_BYTES),
+        errorCode: "CHAT_UPSTREAM_RESPONSE_TOO_LARGE",
+      });
+    } catch (error) {
+      if (isTimeoutLikeError(error, upstream.signal)) {
+        throw normalizeUpstreamTransportError(error, upstream.signal);
+      }
+      if (error?.code === "CHAT_UPSTREAM_RESPONSE_TOO_LARGE") {
+        throw new CompanyChatBoundaryError(
+          "CHAT_UPSTREAM_RESPONSE_TOO_LARGE",
+          "error_code=CHAT_UPSTREAM_RESPONSE_TOO_LARGE",
+        );
+      }
+      throw new CompanyChatBoundaryError(
+        "CHAT_UPSTREAM_INVALID_RESPONSE",
+        "error_code=CHAT_UPSTREAM_INVALID_RESPONSE",
+      );
+    }
+    const message = payload?.choices?.[0]?.message || {};
+    const content = normalizeAssistantContent(message.content);
+    const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+    if (!content && toolCalls.length === 0) {
+      throw new CompanyChatBoundaryError("CHAT_UPSTREAM_EMPTY_RESPONSE", "Chat model returned empty content");
+    }
+
+    return {
+      content,
+      toolCalls,
+      answerModel: config.model,
+    };
+  } finally {
+    upstream?.release();
   }
-
-  const payload = await response.json();
-  const message = payload?.choices?.[0]?.message || {};
-  const content = normalizeAssistantContent(message.content);
-  const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
-  if (!content && toolCalls.length === 0) {
-    throw new CompanyChatBoundaryError("CHAT_UPSTREAM_EMPTY_RESPONSE", "Chat model returned empty content");
-  }
-
-  return {
-    content,
-    toolCalls,
-    answerModel: config.model,
-  };
 }
 
 export async function streamCompanyChatCompletion({
@@ -691,8 +806,7 @@ export async function streamCompanyChatCompletion({
     );
   }
 
-  const documentExpandedMessages = await expandMessagesWithDocumentText(messages, process.env, { documentTextRunner });
-  const preparedMessages = await expandImageMessagesWithOcr(documentExpandedMessages, process.env, { imageOcrRunner });
+  const preparedMessages = await prepareCompanyChatMessages(messages, { imageOcrRunner, documentTextRunner });
   const mergedMessages = buildMergedMessages(compactChatMessages(preparedMessages), context);
   const requestConfig = buildChatCompletionRequest({
     selectedModel: config.model,
@@ -707,13 +821,15 @@ export async function streamCompanyChatCompletion({
   let byteCount = 0;
   let responseStatus = null;
   let streamError = null;
+  let upstream;
 
   try {
-    const upstreamResponse = await fetchWithResilience(requestConfig.url, {
+    upstream = await fetchWithResilience(requestConfig.url, {
       method: "POST",
       headers: requestConfig.headers,
       body: JSON.stringify(requestConfig.body),
     });
+    const upstreamResponse = upstream.response;
     responseStatus = upstreamResponse.status;
     upstreamConnectMs = roundMs(nowMs() - startedAt);
 
@@ -755,6 +871,14 @@ export async function streamCompanyChatCompletion({
       releaseRequired,
       releaseMaxBytes: positiveInteger(process.env.VIZION_ANSWER_RELEASE_MAX_BYTES, DEFAULT_ANSWER_RELEASE_MAX_BYTES),
       releaseFrameMaxBytes: positiveInteger(process.env.VIZION_ANSWER_RELEASE_MAX_BYTES, DEFAULT_ANSWER_RELEASE_MAX_BYTES) + 64 * 1024,
+      upstreamFrameMaxBytes: positiveInteger(
+        process.env.DUPSEARCH_CHAT_STREAM_FRAME_MAX_BYTES,
+        DEFAULT_CHAT_STREAM_FRAME_MAX_BYTES,
+      ),
+      upstreamResponseMaxBytes: positiveInteger(
+        process.env.DUPSEARCH_CHAT_RESPONSE_MAX_BYTES,
+        DEFAULT_CHAT_RESPONSE_MAX_BYTES,
+      ),
       releaseBytes: 0,
       releaseViolation: "",
       terminalEmitted: false,
@@ -799,10 +923,24 @@ export async function streamCompanyChatCompletion({
       if (value?.length) {
         chunkCount += 1;
         byteCount += value.length;
+        if (byteCount > sanitizerState.upstreamResponseMaxBytes) {
+          await reader.cancel().catch(() => {});
+          throw new CompanyChatBoundaryError(
+            "CHAT_UPSTREAM_RESPONSE_TOO_LARGE",
+            "error_code=CHAT_UPSTREAM_RESPONSE_TOO_LARGE stream_total_limit=true",
+          );
+        }
         if (firstChunkMs === null) {
           firstChunkMs = roundMs(nowMs() - startedAt);
         }
         sseBuffer += decoder.decode(value, { stream: true });
+        if (Buffer.byteLength(sseBuffer, "utf8") > sanitizerState.upstreamFrameMaxBytes) {
+          await reader.cancel().catch(() => {});
+          throw new CompanyChatBoundaryError(
+            "CHAT_UPSTREAM_RESPONSE_TOO_LARGE",
+            "error_code=CHAT_UPSTREAM_RESPONSE_TOO_LARGE stream_frame_limit=true",
+          );
+        }
         if (releaseRequired && Buffer.byteLength(sseBuffer, "utf8") > sanitizerState.releaseFrameMaxBytes) {
           sanitizerState.releaseViolation = "ANSWER_RELEASE_BUFFER_LIMIT_EXCEEDED";
           sseBuffer = "";
@@ -848,9 +986,11 @@ export async function streamCompanyChatCompletion({
 
     response.end();
   } catch (error) {
-    streamError = controlledChatErrorDiagnostic(error);
-    throw error;
+    const normalizedError = normalizeUpstreamTransportError(error, upstream?.signal);
+    streamError = controlledChatErrorDiagnostic(normalizedError);
+    throw normalizedError;
   } finally {
+    upstream?.release();
     onMetrics?.({
       model: config.model,
       status: responseStatus,

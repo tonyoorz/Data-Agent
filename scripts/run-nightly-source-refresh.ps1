@@ -1,6 +1,5 @@
 param(
-  [string]$PythonLauncher = "py",
-  [string]$PythonVersion = "-3.11",
+  [string]$PythonExecutable = "",
   [string]$Teams = "DTSV_China,[AT]CoC_EI_IuK,Plant-Tiexi FIT,[AT]FIT_LAENDER_CHINA,Plant-Dadong FIT,[AT]BBA_Basis-FIT,Spotlight_FIT",
   [string]$Years = "2025,2026",
   [string]$ManualRunYears = "",
@@ -21,6 +20,35 @@ $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $repoRoot
+
+if ([string]::IsNullOrWhiteSpace($PythonExecutable)) {
+  $PythonExecutable = Join-Path $repoRoot ".venv\Scripts\python.exe"
+}
+if (-not [System.IO.Path]::IsPathRooted($PythonExecutable)) {
+  throw "PYTHON_RUNTIME_OVERRIDE_INVALID"
+}
+if (-not (Test-Path -LiteralPath $PythonExecutable -PathType Leaf)) {
+  throw "PYTHON_RUNTIME_NOT_CONFIGURED"
+}
+$PythonExecutable = (Resolve-Path -LiteralPath $PythonExecutable).Path
+
+# The scheduled ingest process receives Octane/data refresh settings, not Agent,
+# model, ASR/OCR, or browser-public configuration from the parent service.
+$blockedEnvironmentPrefixes = @(
+  "DUPSEARCH_CHAT_",
+  "DUPSEARCH_OCR_",
+  "DUPSEARCH_TRANSCRIBE_",
+  "VITE_",
+  "VIZION_AGENT_",
+  "VIZION_INTERNAL_",
+  "VIZION_OIDC_"
+)
+Get-ChildItem Env: | ForEach-Object {
+  $environmentName = $_.Name
+  if ($blockedEnvironmentPrefixes | Where-Object { $environmentName.StartsWith($_, [System.StringComparison]::OrdinalIgnoreCase) }) {
+    Remove-Item ("Env:" + $environmentName) -ErrorAction SilentlyContinue
+  }
+}
 
 $latestLogPath = $null
 $logEncoding = New-Object System.Text.UTF8Encoding($false)
@@ -101,6 +129,11 @@ function Invoke-AnalyticsCli {
 
   $previousPythonUtf8 = $env:PYTHONUTF8
   $previousPythonIoEncoding = $env:PYTHONIOENCODING
+  $previousPythonNoUserSite = $env:PYTHONNOUSERSITE
+  $previousPythonHome = $env:PYTHONHOME
+  $previousPythonPath = $env:PYTHONPATH
+  $previousPythonStartup = $env:PYTHONSTARTUP
+  $previousPythonInspect = $env:PYTHONINSPECT
   $previousHttpProxy = $env:HTTP_PROXY
   $previousHttpsProxy = $env:HTTPS_PROXY
   $previousLowerHttpProxy = $env:http_proxy
@@ -110,6 +143,11 @@ function Invoke-AnalyticsCli {
 
   $env:PYTHONUTF8 = "1"
   $env:PYTHONIOENCODING = "utf-8"
+  $env:PYTHONNOUSERSITE = "1"
+  Remove-Item Env:PYTHONHOME -ErrorAction SilentlyContinue
+  Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
+  Remove-Item Env:PYTHONSTARTUP -ErrorAction SilentlyContinue
+  Remove-Item Env:PYTHONINSPECT -ErrorAction SilentlyContinue
   Remove-Item Env:HTTP_PROXY -ErrorAction SilentlyContinue
   Remove-Item Env:HTTPS_PROXY -ErrorAction SilentlyContinue
   Remove-Item Env:http_proxy -ErrorAction SilentlyContinue
@@ -117,9 +155,9 @@ function Invoke-AnalyticsCli {
   $ErrorActionPreference = "Continue"
   try {
     $started = Get-Date
-    Write-LogLine -Message ("[" + ($started.ToString("yyyy-MM-dd HH:mm:ss")) + "] Running " + $CommandId + ": " + ($PythonLauncher + " " + (($CliArguments | ForEach-Object { Format-CmdArgument $_ }) -join " ")))
+    Write-LogLine -Message ("[" + ($started.ToString("yyyy-MM-dd HH:mm:ss")) + "] Running " + $CommandId + ": " + ($PythonExecutable + " " + (($CliArguments | ForEach-Object { Format-CmdArgument $_ }) -join " ")))
     try {
-      & $PythonLauncher @CliArguments 2>&1 | ForEach-Object {
+      & $PythonExecutable @CliArguments 2>&1 | ForEach-Object {
         if ($_ -is [System.Management.Automation.ErrorRecord]) {
           $line = $_.Exception.Message
         }
@@ -170,6 +208,12 @@ function Invoke-AnalyticsCli {
       $env:PYTHONIOENCODING = $previousPythonIoEncoding
     }
 
+    if ($null -eq $previousPythonNoUserSite) { Remove-Item Env:PYTHONNOUSERSITE -ErrorAction SilentlyContinue } else { $env:PYTHONNOUSERSITE = $previousPythonNoUserSite }
+    if ($null -eq $previousPythonHome) { Remove-Item Env:PYTHONHOME -ErrorAction SilentlyContinue } else { $env:PYTHONHOME = $previousPythonHome }
+    if ($null -eq $previousPythonPath) { Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue } else { $env:PYTHONPATH = $previousPythonPath }
+    if ($null -eq $previousPythonStartup) { Remove-Item Env:PYTHONSTARTUP -ErrorAction SilentlyContinue } else { $env:PYTHONSTARTUP = $previousPythonStartup }
+    if ($null -eq $previousPythonInspect) { Remove-Item Env:PYTHONINSPECT -ErrorAction SilentlyContinue } else { $env:PYTHONINSPECT = $previousPythonInspect }
+
     if ($null -eq $previousHttpProxy) { Remove-Item Env:HTTP_PROXY -ErrorAction SilentlyContinue } else { $env:HTTP_PROXY = $previousHttpProxy }
     if ($null -eq $previousHttpsProxy) { Remove-Item Env:HTTPS_PROXY -ErrorAction SilentlyContinue } else { $env:HTTPS_PROXY = $previousHttpsProxy }
     if ($null -eq $previousLowerHttpProxy) { Remove-Item Env:http_proxy -ErrorAction SilentlyContinue } else { $env:http_proxy = $previousLowerHttpProxy }
@@ -180,6 +224,14 @@ function Invoke-AnalyticsCli {
     ExitCode = $commandExitCode
     OutputLines = $outputLines.ToArray()
   }
+}
+
+$preflightResult = Invoke-AnalyticsCli -CliArguments @(
+  "-c",
+  "import sys; assert sys.version_info[:2] == (3, 12); import backend.analytics_cli"
+) -CommandId "python-preflight"
+if ($preflightResult.ExitCode -ne 0) {
+  exit $preflightResult.ExitCode
 }
 
 function Test-AuthFailure {
@@ -195,7 +247,6 @@ function Test-AuthFailure {
 }
 
 $refreshArguments = @(
-  $PythonVersion,
   "-m",
   "backend.analytics_cli",
   "refresh-all-sources",
@@ -232,7 +283,6 @@ if ($refreshResult.ExitCode -ne 0 -and $AutoRefreshCookieOnAuthFailure -and (Tes
   Write-LogLine -Message "[$retryAt] Detected auth failure, refreshing Octane cookie and retrying refresh-all-sources once"
 
   $cookieArguments = @(
-    $PythonVersion,
     "-m",
     "backend.analytics_cli",
     "refresh-octane-cookie"

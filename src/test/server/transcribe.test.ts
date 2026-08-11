@@ -2,7 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 
-import { createLocalAsrWorker, handleTranscribeRequest, transcribeAudio } from "../../../server/transcribe.mjs";
+import {
+  createLocalAsrWorker,
+  handleTranscribeRequest,
+  toSafeTranscriptionError,
+  transcribeAudio,
+} from "../../../server/transcribe.mjs";
 
 describe("transcribeAudio", () => {
   beforeEach(() => {
@@ -10,6 +15,8 @@ describe("transcribeAudio", () => {
     delete process.env.DUPSEARCH_TRANSCRIBE_URL;
     delete process.env.DUPSEARCH_TRANSCRIBE_API_KEY;
     delete process.env.DUPSEARCH_TRANSCRIBE_ACCESS_CODE;
+    delete process.env.DUPSEARCH_TRANSCRIBE_ENDPOINT;
+    delete process.env.DUPSEARCH_TRANSCRIBE_TIMEOUT_MS;
     delete process.env.DUPSEARCH_CHAT_ACCESS_CODE;
     delete process.env.DUPSEARCH_TRANSCRIBE_PROVIDER;
     delete process.env.DUPSEARCH_LOCAL_ASR_MODEL;
@@ -19,7 +26,7 @@ describe("transcribeAudio", () => {
   it("rejects when no transcription provider is configured", async () => {
     await expect(
       transcribeAudio({ audioBase64: "Zm9v", mimeType: "audio/webm" }),
-    ).rejects.toThrow(/not configured/i);
+    ).rejects.toThrow("TRANSCRIPTION_PROVIDER_NOT_CONFIGURED");
   });
 
   it("posts audio to the configured provider and returns trimmed text", async () => {
@@ -33,6 +40,7 @@ describe("transcribeAudio", () => {
 
     process.env.DUPSEARCH_TRANSCRIBE_URL = "https://example.test/transcribe";
     process.env.DUPSEARCH_TRANSCRIBE_API_KEY = "test-key";
+    process.env.DUPSEARCH_TRANSCRIBE_PROVIDER = "remote";
 
     await expect(
       transcribeAudio({ audioBase64: "Zm9v", mimeType: "audio/webm" }),
@@ -47,6 +55,7 @@ describe("transcribeAudio", () => {
           "Content-Type": "application/json",
         }),
         body: JSON.stringify({ audio: "Zm9v", mime: "audio/webm" }),
+        redirect: "error",
       }),
     );
   });
@@ -63,6 +72,7 @@ describe("transcribeAudio", () => {
 
     vi.stubGlobal("fetch", fetchMock);
     process.env.DUPSEARCH_TRANSCRIBE_ACCESS_CODE = "internal-access-code";
+    process.env.DUPSEARCH_TRANSCRIBE_PROVIDER = "company";
 
     await expect(
       transcribeAudio({ audioBase64: "Zm9v", mimeType: "audio/webm" }),
@@ -73,12 +83,212 @@ describe("transcribeAudio", () => {
       expect.objectContaining({
         method: "POST",
         body: expect.any(FormData),
+        redirect: "error",
       }),
     );
 
     const requestOptions = fetchMock.mock.calls[0][1] as { body: FormData };
     const audioFile = requestOptions.body.get("audio_file");
     expect(audioFile).toBeInstanceOf(Blob);
+  });
+
+  it("lets an explicit remote transcription URL take precedence over company credentials", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ text: "remote provider" }),
+      headers: { get: () => "application/json" },
+    });
+
+    await expect(transcribeAudio(
+      { audioBase64: "Zm9v", mimeType: "audio/webm" },
+      {
+        DUPSEARCH_TRANSCRIBE_URL: "https://asr.example.test/transcribe",
+        DUPSEARCH_TRANSCRIBE_API_KEY: "asr-key",
+        DUPSEARCH_TRANSCRIBE_ACCESS_CODE: "company-asr-code",
+        DUPSEARCH_CHAT_ACCESS_CODE: "unrelated-chat-code",
+        DUPSEARCH_TRANSCRIBE_PROVIDER: "remote",
+      },
+      { fetchImpl: fetchMock },
+    )).resolves.toEqual({ text: "remote provider" });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://asr.example.test/transcribe",
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: "Bearer asr-key" }),
+        redirect: "error",
+      }),
+    );
+  });
+
+  it.each([
+    "http://asr.example.test/transcribe",
+    "https://user:password@asr.example.test/transcribe",
+    "https://asr.example.test/transcribe?token=secret",
+  ])("rejects unsafe remote transcription URLs (%s)", async (url) => {
+    const fetchMock = vi.fn();
+
+    await expect(transcribeAudio(
+      { audioBase64: "Zm9v", mimeType: "audio/webm" },
+      {
+        DUPSEARCH_TRANSCRIBE_PROVIDER: "remote",
+        DUPSEARCH_TRANSCRIBE_URL: url,
+        DUPSEARCH_TRANSCRIBE_API_KEY: "asr-key",
+      },
+      { fetchImpl: fetchMock },
+    )).rejects.toThrow("TRANSCRIPTION_ENDPOINT_INVALID");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unsafe company transcription endpoint template", async () => {
+    await expect(transcribeAudio(
+      { audioBase64: "Zm9v", mimeType: "audio/webm" },
+      {
+        DUPSEARCH_TRANSCRIBE_ACCESS_CODE: "company-code",
+        DUPSEARCH_TRANSCRIBE_ENDPOINT: "http://asr.example.test/{accessCode}/transcribe",
+        DUPSEARCH_TRANSCRIBE_PROVIDER: "company",
+      },
+      { fetchImpl: vi.fn() },
+    )).rejects.toThrow("TRANSCRIPTION_ENDPOINT_INVALID");
+  });
+
+  it.each(["0", "300001", "invalid"])('rejects invalid remote timeout "%s"', async (timeoutMs) => {
+    await expect(transcribeAudio(
+      { audioBase64: "Zm9v", mimeType: "audio/webm" },
+      {
+        DUPSEARCH_TRANSCRIBE_URL: "https://asr.example.test/transcribe",
+        DUPSEARCH_TRANSCRIBE_PROVIDER: "remote",
+        DUPSEARCH_TRANSCRIBE_API_KEY: "asr-key",
+        DUPSEARCH_TRANSCRIBE_TIMEOUT_MS: timeoutMs,
+      },
+      { fetchImpl: vi.fn() },
+    )).rejects.toThrow("TRANSCRIPTION_TIMEOUT_INVALID");
+  });
+
+  it("rejects a transcription auth scheme that could inject headers", async () => {
+    await expect(transcribeAudio(
+      { audioBase64: "Zm9v", mimeType: "audio/webm" },
+      {
+        DUPSEARCH_TRANSCRIBE_URL: "https://asr.example.test/transcribe",
+        DUPSEARCH_TRANSCRIBE_PROVIDER: "remote",
+        DUPSEARCH_TRANSCRIBE_API_KEY: "asr-key",
+        DUPSEARCH_TRANSCRIBE_AUTH_SCHEME: "Bearer\r\nX-Leak",
+      },
+      { fetchImpl: vi.fn() },
+    )).rejects.toThrow("TRANSCRIPTION_AUTH_SCHEME_INVALID");
+  });
+
+  it("does not read or expose an upstream error body", async () => {
+    const readBody = vi.fn().mockResolvedValue("provider secret and transcript");
+    const cancel = vi.fn().mockResolvedValue(undefined);
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      statusText: "Internal Server Error",
+      body: { cancel },
+      text: readBody,
+      json: readBody,
+    });
+
+    await expect(transcribeAudio(
+      { audioBase64: "Zm9v", mimeType: "audio/webm" },
+      {
+        DUPSEARCH_TRANSCRIBE_PROVIDER: "remote",
+        DUPSEARCH_TRANSCRIBE_URL: "https://asr.example.test/transcribe",
+        DUPSEARCH_TRANSCRIBE_API_KEY: "asr-key",
+      },
+      { fetchImpl: fetchMock },
+    )).rejects.toThrow("TRANSCRIPTION_UPSTREAM_HTTP_ERROR");
+    expect(readBody).not.toHaveBeenCalled();
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("maps remote timeouts to a stable error code", async () => {
+    const timeoutError = Object.assign(new Error("provider details"), { name: "TimeoutError" });
+    const fetchMock = vi.fn().mockRejectedValue(timeoutError);
+
+    await expect(transcribeAudio(
+      { audioBase64: "Zm9v", mimeType: "audio/webm" },
+      {
+        DUPSEARCH_TRANSCRIBE_PROVIDER: "remote",
+        DUPSEARCH_TRANSCRIBE_URL: "https://asr.example.test/transcribe",
+        DUPSEARCH_TRANSCRIBE_API_KEY: "asr-key",
+      },
+      { fetchImpl: fetchMock },
+    )).rejects.toThrow("TRANSCRIPTION_UPSTREAM_TIMEOUT");
+  });
+
+  it("keeps the deadline active while an upstream response body is still pending", async () => {
+    let requestSignal: AbortSignal | undefined;
+    const fetchImpl = vi.fn(async (_url, init) => {
+      requestSignal = init.signal;
+      return {
+        ok: true,
+        headers: { get: () => "application/json" },
+        json: () => new Promise((_resolve, reject) => {
+          requestSignal?.addEventListener("abort", () => {
+            reject(Object.assign(new Error("body aborted"), { name: "AbortError" }));
+          }, { once: true });
+        }),
+      };
+    });
+
+    await expect(transcribeAudio(
+      { audioBase64: "Zm9v", mimeType: "audio/webm" },
+      {
+        DUPSEARCH_TRANSCRIBE_PROVIDER: "remote",
+        DUPSEARCH_TRANSCRIBE_URL: "https://asr.example.test/transcribe",
+        DUPSEARCH_TRANSCRIBE_API_KEY: "asr-key",
+        DUPSEARCH_TRANSCRIBE_TIMEOUT_MS: "5",
+      },
+      { fetchImpl },
+    )).rejects.toThrow("TRANSCRIPTION_UPSTREAM_TIMEOUT");
+    expect(requestSignal?.aborted).toBe(true);
+  });
+
+  it("never reuses chat credentials as transcription credentials", async () => {
+    const fetchMock = vi.fn();
+
+    await expect(transcribeAudio(
+      { audioBase64: "Zm9v", mimeType: "audio/webm" },
+      { DUPSEARCH_CHAT_ACCESS_CODE: "chat-only-secret" },
+      { fetchImpl: fetchMock },
+    )).rejects.toThrow("TRANSCRIPTION_PROVIDER_NOT_CONFIGURED");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("requires an explicit remote provider and dedicated key before audio can leave the process", async () => {
+    const fetchImpl = vi.fn();
+    const baseConfig = {
+      DUPSEARCH_TRANSCRIBE_URL: "https://asr.example.test/transcribe",
+      DUPSEARCH_TRANSCRIBE_API_KEY: "asr-key",
+    };
+
+    await expect(transcribeAudio(
+      { audioBase64: "Zm9v", mimeType: "audio/webm" },
+      baseConfig,
+      { fetchImpl },
+    )).rejects.toThrow("TRANSCRIPTION_PROVIDER_NOT_CONFIGURED");
+    await expect(transcribeAudio(
+      { audioBase64: "Zm9v", mimeType: "audio/webm" },
+      { ...baseConfig, DUPSEARCH_TRANSCRIBE_PROVIDER: "remote", DUPSEARCH_TRANSCRIBE_API_KEY: "" },
+      { fetchImpl },
+    )).rejects.toThrow("TRANSCRIPTION_API_KEY_REQUIRED");
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("requires an explicit provider when company and remote credentials are both configured", async () => {
+    const fetchImpl = vi.fn();
+
+    await expect(transcribeAudio(
+      { audioBase64: "Zm9v", mimeType: "audio/webm" },
+      {
+        DUPSEARCH_TRANSCRIBE_ACCESS_CODE: "company-code",
+        DUPSEARCH_TRANSCRIBE_URL: "https://asr.example.test/transcribe",
+        DUPSEARCH_TRANSCRIBE_API_KEY: "asr-key",
+      },
+      { fetchImpl },
+    )).rejects.toThrow("TRANSCRIPTION_PROVIDER_NOT_CONFIGURED");
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it("uses the local FunASR provider when configured", async () => {
@@ -115,8 +325,10 @@ describe("transcribeAudio", () => {
 
   it("validates request payload and wraps the transcript for the local API", async () => {
     process.env.DUPSEARCH_TRANSCRIBE_URL = "https://example.test/transcribe";
+    process.env.DUPSEARCH_TRANSCRIBE_API_KEY = "test-key";
+    process.env.DUPSEARCH_TRANSCRIBE_PROVIDER = "remote";
 
-    await expect(handleTranscribeRequest({})).rejects.toThrow(/audio is required/i);
+    await expect(handleTranscribeRequest({})).rejects.toThrow("TRANSCRIPTION_AUDIO_REQUIRED");
 
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -169,5 +381,18 @@ describe("transcribeAudio", () => {
     expect(spawnProcess).toHaveBeenCalledTimes(1);
     worker.dispose();
     expect(fakeChild.kill).toHaveBeenCalled();
+  });
+
+  it("maps only allowlisted transcription failures to typed client responses", () => {
+    expect(toSafeTranscriptionError(Object.assign(new Error("provider body"), {
+      code: "TRANSCRIPTION_UPSTREAM_TIMEOUT",
+    }))).toEqual({
+      statusCode: 504,
+      payload: { success: false, error: "TRANSCRIPTION_UPSTREAM_TIMEOUT" },
+    });
+    expect(toSafeTranscriptionError(new Error("provider body"))).toEqual({
+      statusCode: 500,
+      payload: { success: false, error: "TRANSCRIPTION_REQUEST_FAILED" },
+    });
   });
 });

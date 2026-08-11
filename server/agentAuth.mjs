@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 
 import { resolveInternalActorScope } from "./internalActorScope.mjs";
+import { sanitizeAuthenticatedChatBody } from "./clientChatBoundary.mjs";
 
 const AUTHENTICATED_ACTOR_REQUIRED = "AUTHENTICATED_ACTOR_REQUIRED";
 const AGENT_AUTH_MODE_INVALID = "AGENT_AUTH_MODE_INVALID";
@@ -261,7 +262,11 @@ export function createOidcTokenVerifier(env = process.env, dependencies = {}) {
     const jwks = createJWKSet(jwksUrl);
 
     const verifyToken = async (token) => {
-      const { payload } = await verifyJwt(token, jwks, { issuer, audience });
+      const { payload } = await verifyJwt(token, jwks, {
+        issuer,
+        audience,
+        requiredClaims: ["sub", "exp"],
+      });
       return payload;
     };
     verifierCache.set(cacheKey, verifyToken);
@@ -398,6 +403,7 @@ export async function runAuthenticatedAgentRequest(request = {}, options = {}) {
 export async function runAuthenticatedChatRequest(request = {}, options = {}) {
   return runAuthenticatedAgentRequest(request, {
     ...options,
+    readBody: async (...args) => sanitizeAuthenticatedChatBody(await options.readBody(...args)),
     invalidBodyError: "INVALID_CHAT_REQUEST_BODY",
     runRequest: options.runChat,
   });

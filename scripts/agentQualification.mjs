@@ -13,6 +13,8 @@ export function parseAgentQualificationArgs(argv) {
   const options = {
     includeFullTests: false,
     includeBuild: false,
+    requireFullTests: false,
+    requireBuild: false,
     verify: false,
     help: false,
     output: "",
@@ -25,6 +27,10 @@ export function parseAgentQualificationArgs(argv) {
       options.includeBuild = true;
     } else if (value === "--verify") {
       options.verify = true;
+    } else if (value === "--require-full" || value === "--require-full-tests") {
+      options.requireFullTests = true;
+    } else if (value === "--require-build" || value === "--require-production-build") {
+      options.requireBuild = true;
     } else if (value === "--help" || value === "-h") {
       options.help = true;
     } else if (value === "--output") {
@@ -42,6 +48,9 @@ export function parseAgentQualificationArgs(argv) {
   if (options.verify && (options.includeFullTests || options.includeBuild)) {
     throw new AgentQualificationError("AGENT_QUALIFICATION_VERIFY_FLAGS_INVALID");
   }
+  if (!options.verify && (options.requireFullTests || options.requireBuild)) {
+    throw new AgentQualificationError("AGENT_QUALIFICATION_RELEASE_VERIFY_FLAGS_INVALID");
+  }
   return options;
 }
 
@@ -49,7 +58,7 @@ function usage() {
   return [
     "Usage:",
     "  npm run agent:qualification -- [--full] [--build] [--output <path>]",
-    "  npm run agent:qualification:verify -- [--output <path>]",
+    "  npm run agent:qualification:verify -- [--require-full] [--require-build] [--output <path>]",
     "",
     "The default artifact path is artifacts/agent-qualification/latest.json.",
     "Python is not invoked implicitly; this qualification runs Node gates only.",
@@ -64,7 +73,12 @@ export async function main(argv = process.argv.slice(2), { root = defaultRoot } 
   }
   const outputPath = path.resolve(root, options.output || "artifacts/agent-qualification/latest.json");
   if (options.verify) {
-    const result = verifyAgentQualification({ root, artifactPath: outputPath });
+    const result = verifyAgentQualification({
+      root,
+      artifactPath: outputPath,
+      requireFullTests: options.requireFullTests,
+      requireBuild: options.requireBuild,
+    });
     process.stdout.write(`${JSON.stringify({
       status: "verified",
       artifactPath: result.artifactPath,

@@ -267,12 +267,45 @@ describe("summarizeDuplicateResults", () => {
         }),
       );
       expect(fetchMock.mock.calls[0][1]?.signal).toBeTruthy();
+      expect(fetchMock.mock.calls[0][1]?.redirect).toBe("error");
     } finally {
       if (previousTimeout == null) {
         delete process.env.DUPLICATE_SUMMARY_TIMEOUT_MS;
       } else {
         process.env.DUPLICATE_SUMMARY_TIMEOUT_MS = previousTimeout;
       }
+    }
+  });
+
+  it("keeps the summary deadline active while the response body is parsed", async () => {
+    const previousTimeout = process.env.DUPLICATE_SUMMARY_TIMEOUT_MS;
+    process.env.DUPLICATE_SUMMARY_TIMEOUT_MS = "10";
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => ({
+      ok: true,
+      json: () => new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          reject(Object.assign(new Error("body aborted"), { name: "AbortError" }));
+        });
+      }),
+    })));
+
+    try {
+      const summary = await summarizeDuplicateResults(
+        "导航黄屏",
+        {
+          candidates: [],
+          modelPhase: "click_boost",
+          feedbackCount: 0,
+        },
+        "mock-model",
+      );
+      expect(summary).toEqual(expect.objectContaining({
+        summarySource: "fallback",
+        answerModel: "Duplicate Search Agent",
+      }));
+    } finally {
+      if (previousTimeout == null) delete process.env.DUPLICATE_SUMMARY_TIMEOUT_MS;
+      else process.env.DUPLICATE_SUMMARY_TIMEOUT_MS = previousTimeout;
     }
   });
 

@@ -24,6 +24,19 @@ function normalizedPort(value) {
   return Number.isInteger(port) && port > 0 && port <= 65535 ? port : null;
 }
 
+export function resolveLocalApiPort(value, fallback, name) {
+  const configured = String(value ?? "").trim();
+  const candidate = configured || String(fallback ?? "").trim();
+  if (!/^\d+$/u.test(candidate)) {
+    throw new Error(`${name}_INVALID`);
+  }
+  const port = normalizedPort(candidate);
+  if (!port) {
+    throw new Error(`${name}_INVALID`);
+  }
+  return port;
+}
+
 function parseLoopbackHost(value) {
   const match = /^(localhost|127\.0\.0\.1):([0-9]{1,5})$/i.exec(String(value || ""));
   if (!match) {

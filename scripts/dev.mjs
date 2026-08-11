@@ -1,28 +1,33 @@
-import fs from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { loadLocalEnv } from "../server/loadLocalEnv.mjs";
+import { resolveCheckoutPackageEntrypoint } from "../server/nodeDependencyBoundary.mjs";
 
 import {
   getTerminationCommand,
   hasHealthyServiceOnPort,
   hasTcpServiceOnPort,
   hasViteDevServerOnPort,
+  resolveAnalyticsChildEnvironment,
+  resolveDevelopmentPort,
   resolveLocalApiEnvironment,
+  resolveViteChildEnvironment,
   waitForHealthyService,
 } from "./devHelpers.mjs";
 import { assertSupportedNodeVersion } from "./nodeVersion.mjs";
+import { assertSupportedPythonCommand, resolvePythonCommand } from "./pythonRuntime.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "..");
+const viteEntrypoint = resolveCheckoutPackageEntrypoint(repoRoot, "vite", "bin/vite.js");
 loadLocalEnv();
 Object.assign(process.env, resolveLocalApiEnvironment(process.env));
-const analyticsPort = Number(process.env.VIZION_ANALYTICS_PORT || "3003");
-const apiPort = Number(process.env.VIZION_API_PORT || "3004");
-const webPort = Number(process.env.VIZION_WEB_PORT || "8080");
+const analyticsPort = resolveDevelopmentPort(process.env.VIZION_ANALYTICS_PORT, 3003, "VIZION_ANALYTICS_PORT");
+const apiPort = resolveDevelopmentPort(process.env.VIZION_API_PORT, 3004, "VIZION_API_PORT");
+const webPort = resolveDevelopmentPort(process.env.VIZION_WEB_PORT, 8080, "VIZION_WEB_PORT");
 
 assertSupportedNodeVersion();
 
@@ -48,30 +53,10 @@ function terminateChild(child, signal = "SIGTERM") {
   child.kill(termination.args[0]);
 }
 
-function resolvePythonCommand() {
-  const candidates = [
-    process.env.VIZION_ANALYTICS_PYTHON,
-    process.env.DUPSEARCH_AGENT_PYTHON,
-    path.join(repoRoot, ".venv", "Scripts", "python.exe"),
-    "python",
-  ];
-
-  for (const candidate of candidates) {
-    if (!candidate) {
-      continue;
-    }
-    if (candidate === "python" || fs.existsSync(candidate)) {
-      return candidate;
-    }
-  }
-
-  return "python";
-}
-
-function launch(command, args, name, isHealthy) {
+function launch(command, args, name, isHealthy, childEnvironment = process.env) {
   const child = spawn(command, args, {
     cwd: repoRoot,
-    env: process.env,
+    env: childEnvironment,
     stdio: "inherit",
   });
 
@@ -100,7 +85,16 @@ function launch(command, args, name, isHealthy) {
   console.log(`[vizion-dev] started ${name}`);
 }
 
-async function launchIfNeeded({ name, command, args, port, expectedService, isHealthy: checkHealth }) {
+async function launchIfNeeded({
+  name,
+  command,
+  args,
+  port,
+  expectedService,
+  isHealthy: checkHealth,
+  beforeLaunch,
+  childEnvironment,
+}) {
   const isHealthy = checkHealth || (() => hasHealthyServiceOnPort({ port, expectedService }));
 
   if (await isHealthy()) {
@@ -123,12 +117,15 @@ async function launchIfNeeded({ name, command, args, port, expectedService, isHe
     process.exit(1);
   }
 
-  launch(command, args, name, isHealthy);
+  beforeLaunch?.();
+  launch(command, args, name, isHealthy, childEnvironment);
 }
 
+const analyticsPython = resolvePythonCommand({ root: repoRoot, env: process.env });
+const analyticsChildEnvironment = resolveAnalyticsChildEnvironment(process.env);
 await launchIfNeeded({
   name: "analytics-api",
-  command: resolvePythonCommand(),
+  command: analyticsPython,
   args: [
     "-m",
     "uvicorn",
@@ -140,6 +137,8 @@ await launchIfNeeded({
   ],
   port: analyticsPort,
   expectedService: "analytics",
+  beforeLaunch: () => assertSupportedPythonCommand(analyticsPython, { env: analyticsChildEnvironment }),
+  childEnvironment: analyticsChildEnvironment,
 });
 await launchIfNeeded({
   name: "local-api",
@@ -150,9 +149,10 @@ await launchIfNeeded({
 await launchIfNeeded({
   name: "vite",
   command: process.execPath,
-  args: [path.join(repoRoot, "node_modules", "vite", "bin", "vite.js"), "--port", String(webPort)],
+  args: [viteEntrypoint, "--port", String(webPort)],
   port: webPort,
   isHealthy: () => hasViteDevServerOnPort({ port: webPort }),
+  childEnvironment: resolveViteChildEnvironment(process.env),
 });
 
 function shutdown(signal) {

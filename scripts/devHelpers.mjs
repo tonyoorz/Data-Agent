@@ -7,6 +7,154 @@ const LOCAL_INTERNAL_ROW_SCOPE_KEYS = [
   "VIZION_INTERNAL_WORKSPACE_IDS",
 ];
 const LOCAL_INTERNAL_ROW_POLICY = "agent.operations.read";
+const ANALYTICS_API_ENV_KEYS = [
+  "VIZION_AGENT_ACTOR_CAPABILITY_SECRET",
+  "VIZION_ANALYTICS_DB_PATH",
+  "VIZION_ANALYTICS_PORT",
+  "VIZION_DATABASE_ROOT",
+  "VIZION_FULL_PICTURE_DEFECT_DB_PATH",
+  "VIZION_FULL_PICTURE_HISTORY_DB_PATH",
+  "VIZION_FULL_PICTURE_HOT_DB_PATH",
+  "VIZION_FULL_PICTURE_SOURCE_DB_PATH",
+  "VIZION_OCTANE_FIELD_CATALOG_PATH",
+  "VIZION_ONTOLOGY_FINGERPRINT",
+  "VIZION_ONTOLOGY_ROOT",
+  "VIZION_REPO_ROOT_OVERRIDE",
+  "VIZION_SEMANTIC_ANALYSIS_DB_PATH",
+];
+const ANALYTICS_CLI_ENV_KEYS = [
+  ...ANALYTICS_API_ENV_KEYS.filter((key) => key !== "VIZION_AGENT_ACTOR_CAPABILITY_SECRET"),
+  "PLAYWRIGHT_BROWSERS_PATH",
+  "VIZION_FULL_PICTURE_COLD_DB_PATH",
+  "VIZION_FULL_PICTURE_COLD_PARQUET_DIR",
+  "VIZION_NODE_EXE",
+  "VIZION_OCTANE_BASE_URL",
+  "VIZION_OCTANE_BROWSER_PROFILE",
+  "VIZION_OCTANE_COOKIE_FILE",
+  "VIZION_OCTANE_LOGIN_FILE",
+  "VIZION_OCTANE_SHARED_SPACE_ID",
+  "VIZION_OCTANE_WORKSPACE_ID",
+  "VIZION_WINDOWS_HELLO_PIN",
+];
+const ANALYTICS_TASK_ENV_KEYS = [
+  ...ANALYTICS_API_ENV_KEYS.filter((key) => key !== "VIZION_AGENT_ACTOR_CAPABILITY_SECRET"),
+  "VIZION_FULL_PICTURE_COLD_DB_PATH",
+  "VIZION_FULL_PICTURE_COLD_PARQUET_DIR",
+  "VIZION_NODE_EXE",
+];
+const CHILD_PROCESS_BASE_ENV_KEYS = new Set([
+  "CI",
+  "COMSPEC",
+  "DYLD_LIBRARY_PATH",
+  "FORCE_COLOR",
+  "HOME",
+  "HOMEDRIVE",
+  "HOMEPATH",
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "LANG",
+  "LC_ALL",
+  "LD_LIBRARY_PATH",
+  "LOCALAPPDATA",
+  "LOGNAME",
+  "NO_COLOR",
+  "NO_PROXY",
+  "PATH",
+  "PATHEXT",
+  "Path",
+  "REQUESTS_CA_BUNDLE",
+  "SHELL",
+  "SSL_CERT_DIR",
+  "SSL_CERT_FILE",
+  "SYSTEMROOT",
+  "TEMP",
+  "TERM",
+  "TMP",
+  "TMPDIR",
+  "USER",
+  "USERPROFILE",
+  "http_proxy",
+  "https_proxy",
+  "no_proxy",
+]);
+
+function selectChildEnvironment(env, { keys = [], prefixes = [] } = {}) {
+  const allowedKeys = new Set([...CHILD_PROCESS_BASE_ENV_KEYS, ...keys]);
+  return Object.fromEntries(Object.entries(env || {}).filter(([key]) => (
+    allowedKeys.has(key) || prefixes.some((prefix) => key.startsWith(prefix))
+  )));
+}
+
+export function resolveDevelopmentPort(value, fallback, name) {
+  const configured = String(value || "").trim();
+  if (!configured) return fallback;
+  if (!/^\d+$/u.test(configured)) throw new Error(`${name}_INVALID`);
+  const port = Number(configured);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`${name}_INVALID`);
+  return port;
+}
+
+export function resolveAnalyticsChildEnvironment(env = process.env) {
+  return {
+    ...selectChildEnvironment(env, {
+    keys: [
+      "PYTHONIOENCODING",
+      "PYTHONNOUSERSITE",
+      "PYTHONUTF8",
+      ...ANALYTICS_API_ENV_KEYS,
+    ],
+    }),
+    PYTHONIOENCODING: "utf-8",
+    PYTHONNOUSERSITE: "1",
+    PYTHONUTF8: "1",
+  };
+}
+
+export function resolveAnalyticsCliEnvironment(env = process.env) {
+  return {
+    ...selectChildEnvironment(env, {
+    keys: [
+      "PYTHONIOENCODING",
+      "PYTHONNOUSERSITE",
+      "PYTHONUTF8",
+      ...ANALYTICS_CLI_ENV_KEYS,
+    ],
+    }),
+    PYTHONIOENCODING: "utf-8",
+    PYTHONNOUSERSITE: "1",
+    PYTHONUTF8: "1",
+  };
+}
+
+export function resolveAnalyticsTaskEnvironment(env = process.env) {
+  return {
+    ...selectChildEnvironment(env, {
+      keys: [
+        "PYTHONIOENCODING",
+        "PYTHONNOUSERSITE",
+        "PYTHONUTF8",
+        ...ANALYTICS_TASK_ENV_KEYS,
+      ],
+    }),
+    PYTHONIOENCODING: "utf-8",
+    PYTHONNOUSERSITE: "1",
+    PYTHONUTF8: "1",
+  };
+}
+
+export function resolveViteChildEnvironment(env = process.env) {
+  return selectChildEnvironment(env, {
+    prefixes: ["VITE_"],
+    keys: [
+      "NODE_ENV",
+      "NODE_EXTRA_CA_CERTS",
+      "VIZION_ANALYTICS_API_BASE",
+      "VIZION_ANALYTICS_PORT",
+      "VIZION_API_PORT",
+      "VIZION_WEB_PORT",
+    ],
+  });
+}
 
 export function resolveLocalApiEnvironment(env = process.env) {
   const authMode = String(env?.VIZION_AGENT_AUTH_MODE || "").trim();

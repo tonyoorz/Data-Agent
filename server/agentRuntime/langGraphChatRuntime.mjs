@@ -6,7 +6,7 @@ import { isOidcScopedActor } from "../agentAuth.mjs";
 import { resolveAiAnalyticsContext } from "../aiAnalyticsContext.mjs";
 import { extractLatestUserQuery, resolveAiDefectContext } from "../aiContext.mjs";
 import { buildCitationContractContext } from "../answerValidator.mjs";
-import { requestCompanyChatCompletion } from "../companyChat.mjs";
+import { prepareCompanyChatMessages, requestCompanyChatCompletion } from "../companyChat.mjs";
 import { classifyDirectMainAgentIntent } from "../mainAgentDirectIntent.mjs";
 import {
   buildSemanticContinuationContext,
@@ -42,6 +42,7 @@ const append = (left, right) => [...(Array.isArray(left) ? left : []), ...(Array
 const ChatState = Annotation.Root({
   body: Annotation({ reducer: overwrite, default: () => ({}) }),
   toolDependencies: Annotation({ reducer: overwrite, default: () => ({}) }),
+  mediaDependencies: Annotation({ reducer: overwrite, default: () => ({}) }),
   runId: Annotation({ reducer: overwrite, default: () => "" }),
   threadId: Annotation({ reducer: overwrite, default: () => "" }),
   threadPersistenceKey: Annotation({ reducer: overwrite, default: () => "" }),
@@ -642,6 +643,7 @@ export function createLangGraphChatRuntime({
   ontologyRegistry = createDefaultOntologyRegistry(),
   shouldPlanTools = shouldPlanMainAgentTools,
   requestToolCompletion = requestCompanyChatCompletion,
+  prepareMessages = prepareCompanyChatMessages,
   executeToolCall,
   maxToolSteps = 4,
   checkpointer = new MemorySaver(),
@@ -651,7 +653,11 @@ export function createLangGraphChatRuntime({
   ensureAbortSignalCompatibility();
 
   async function initialize(state, config) {
-    const body = state.body && typeof state.body === "object" ? state.body : {};
+    const rawBody = state.body && typeof state.body === "object" ? state.body : {};
+    const preparedMessages = await prepareMessages(rawBody?.messages, state.mediaDependencies || {});
+    const body = preparedMessages === rawBody?.messages
+      ? rawBody
+      : { ...rawBody, messages: preparedMessages };
     const runId = isNonEmptyString(state.runId) ? String(state.runId).trim() : normalizeRunId(body, now);
     const threadId = isNonEmptyString(state.threadId) ? String(state.threadId).trim() : normalizeThreadId(body, now);
     const actorScope = hasActorScope(state.actorScope) ? state.actorScope : normalizeActorScope(body);
@@ -1064,7 +1070,7 @@ export function createLangGraphChatRuntime({
   return {
     kind: "langgraph",
     graph,
-    async invoke({ body = {}, toolDependencies = {} } = {}, { onEvent } = {}) {
+    async invoke({ body = {}, toolDependencies = {}, mediaDependencies = {} } = {}, { onEvent } = {}) {
       const runId = normalizeRunId(body, now);
       const threadId = normalizeThreadId(body, now);
       const actorScope = normalizeActorScope(body);
@@ -1072,7 +1078,7 @@ export function createLangGraphChatRuntime({
       let state;
       try {
         state = await graph.invoke(
-          { body, runId, threadId, threadPersistenceKey, actorScope, toolDependencies },
+          { body, runId, threadId, threadPersistenceKey, actorScope, toolDependencies, mediaDependencies },
           {
             signal: createRunnableSignal(),
             configurable: {

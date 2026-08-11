@@ -44,10 +44,10 @@ The current migration makes the graph boundary the default runtime and keeps the
 - LangGraph `StateGraph` for orchestration.
 - Explicit graph nodes: `initialize`, `resolve_context`, `route_tools`, `plan_tool_calls`, `execute_tool_calls`, `finalize`.
 - Conditional graph edges skip tool planning when routing says tools are not needed, stop when the model produces no tool calls, continue after tool execution, and finalize on `max_steps`, policy blocks, or clarification requests.
-- In-process `MemorySaver` checkpointing.
-- Explicit `threadId` support from `body.threadId`, `body.conversationId`, or `body.sessionId`; AI Chat sends its persisted conversation ID so semantic continuations remain in one graph thread.
-- Explicit `runId` support from `body.runId`, with generated IDs when omitted.
-- Server-owned internal `actorScope` persistence; browser-supplied actor fields are not trusted by the gateway.
+- In-process `MemorySaver` checkpointing with an actor/scope-bound internal thread key.
+- Explicit client conversation identifiers from `body.threadId`, `body.conversationId`, or `body.sessionId`; raw values are not used as cross-actor checkpoint keys or persisted audit identifiers.
+- Explicit `runId` support from `body.runId`, with generated IDs when omitted; the audit store persists only a scope-bound opaque run reference.
+- Server-resolved actor scope from the internal local principal or verified OIDC identity; browser-supplied actor fields are removed by the gateway.
 - Runtime SSE events emitted as `agent-runtime-event`.
 - Tool routing state emitted as `tool-routing-completed` and included in runtime metrics.
 - Empty `query_analytics` aggregate results automatically invoke `diagnose_analytics_empty` when the selected toolset allows it.
@@ -63,9 +63,9 @@ The store location can be overridden:
 $env:VIZION_AGENT_RUNTIME_STORE_DIR = "D:\vizion-agent-runtime"
 ```
 
-## Internal Deployment Principal
+## Authentication and Actor Scope
 
-The current LAN deployment uses one server-owned principal rather than a user/RBAC subsystem. Agent-only defect routes require this principal to carry at least one team, project, or workspace row scope. `npm run dev` supplies `DTSV_China` plus the read-only `agent.operations.read` policy only for its trusted local bootstrap; shared deployments must configure both scopes explicitly. Environment variables define that principal:
+`internal` mode is limited to local development or a trusted single-user machine. Agent-only defect routes require this principal to carry at least one team, project, or workspace row scope. `npm run dev` supplies `DTSV_China` plus the read-only `agent.operations.read` policy for this local bootstrap. Environment variables can override that local principal:
 
 ```powershell
 $env:VIZION_INTERNAL_ACTOR_ID = "vizion-internal"
@@ -78,17 +78,19 @@ $env:VIZION_INTERNAL_ROW_POLICY_IDS = "agent.operations.read"
 $env:VIZION_INTERNAL_SENSITIVE_FIELD_POLICY_IDS = ""
 ```
 
-The gateway derives `scopeHash` from this server configuration. A later authenticated multi-user deployment can replace this principal at the same actor-scope boundary without changing the Semantic Kernel or tool contracts.
+Shared and production deployments use `VIZION_AGENT_AUTH_MODE=oidc`. Node requires `sub` and `exp`, then verifies issuer, audience, signature, and temporal validity through the configured HTTPS JWKS endpoint before mapping `sub` and `groups[]` to one unambiguous server-owned scope grant. It strips all client-supplied actor fields, signs a short-lived actor capability for Agent-only FastAPI calls, and derives actor-scoped thread/run references. Missing identity, ambiguous grants, cross-scope continuation, missing capability, and internal-only tools fail closed.
+
+See [README.md](../../README.md#governed-agent-deployment) for the contract and the [pre-production release runbook](../deployment/preproduction-agent-release.md) for gateway routing, identity validation, and rollout gates.
 
 ## Production Follow-Up
 
-For multi-user intranet production, the next hardening step is to replace the in-process checkpointer and file-backed audit store with database-backed persistence:
+Remaining production engineering and operational work must preserve OIDC actor scope rather than return to a shared principal:
 
 - durable LangGraph checkpoint backend instead of in-process `MemorySaver`
 - indexed thread/run/tool audit tables
-- evidence references
-- actor scope from authenticated user identity instead of the shared internal principal
-- cancel/retry state
-- retention and cleanup policy for audit records
+- encrypted centralized evidence/audit retention with the existing scope-bound identifiers
+- deployment-specific sign-in/session bootstrap and IdP lifecycle validation
+- OpenTelemetry/SLO integration and live production-snapshot evaluation
+- durable cancel/retry state and compatibility-tested migrations
 
 Keep the ontology layer as the business semantic contract; LangGraph should orchestrate tools, not redefine metrics or policies.

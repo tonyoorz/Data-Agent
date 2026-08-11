@@ -4,8 +4,29 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
+import { resolveLocalWorkerEnvironment } from "./localWorkerEnvironment.mjs";
+
 const DEFAULT_COMPANY_TRANSCRIBE_ENDPOINT =
   "https://aistudio.bmwbrill.cn/api/service/49/{accessCode}/asr";
+const DEFAULT_REMOTE_TRANSCRIBE_TIMEOUT_MS = 60000;
+const MAX_REMOTE_TRANSCRIBE_TIMEOUT_MS = 300000;
+const LOOPBACK_TRANSCRIBE_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
+const COMPANY_TRANSCRIBE_PROVIDERS = new Set(["company", "company-whisper", "internal", "whisper"]);
+const REMOTE_TRANSCRIBE_PROVIDERS = new Set(["external", "openai-compatible", "remote"]);
+const SAFE_TRANSCRIPTION_STATUS = Object.freeze({
+  TRANSCRIPTION_AUDIO_REQUIRED: 400,
+  TRANSCRIPTION_API_KEY_REQUIRED: 503,
+  TRANSCRIPTION_AUTH_SCHEME_INVALID: 503,
+  TRANSCRIPTION_ENDPOINT_INVALID: 503,
+  TRANSCRIPTION_PROVIDER_INVALID: 503,
+  TRANSCRIPTION_PROVIDER_NOT_CONFIGURED: 503,
+  TRANSCRIPTION_TIMEOUT_INVALID: 503,
+  TRANSCRIPTION_UPSTREAM_EMPTY_RESPONSE: 502,
+  TRANSCRIPTION_UPSTREAM_HTTP_ERROR: 502,
+  TRANSCRIPTION_UPSTREAM_INVALID_RESPONSE: 502,
+  TRANSCRIPTION_UPSTREAM_TIMEOUT: 504,
+  TRANSCRIPTION_UPSTREAM_UNAVAILABLE: 502,
+});
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -20,6 +41,75 @@ function readFirst(env, keys) {
   }
 
   return "";
+}
+
+export class TranscriptionBoundaryError extends Error {
+  constructor(code) {
+    super(code);
+    this.name = "TranscriptionBoundaryError";
+    this.code = code;
+  }
+}
+
+function transcribeFail(code) {
+  throw new TranscriptionBoundaryError(code);
+}
+
+export function toSafeTranscriptionError(error) {
+  const code = Object.hasOwn(SAFE_TRANSCRIPTION_STATUS, error?.code)
+    ? String(error.code)
+    : "TRANSCRIPTION_REQUEST_FAILED";
+  return {
+    statusCode: SAFE_TRANSCRIPTION_STATUS[code] || 500,
+    payload: { success: false, error: code },
+  };
+}
+
+function secureTranscribeUrl(value) {
+  let url;
+  try {
+    url = new URL(String(value || "").trim());
+  } catch {
+    transcribeFail("TRANSCRIPTION_ENDPOINT_INVALID");
+  }
+  if (
+    !["http:", "https:"].includes(url.protocol)
+    || (url.protocol === "http:" && !LOOPBACK_TRANSCRIBE_HOSTS.has(url.hostname.toLowerCase()))
+    || Boolean(url.username)
+    || Boolean(url.password)
+    || Boolean(url.search)
+    || Boolean(url.hash)
+  ) {
+    transcribeFail("TRANSCRIPTION_ENDPOINT_INVALID");
+  }
+  return url.toString();
+}
+
+function secureCompanyEndpointTemplate(value) {
+  const template = String(value || "").trim();
+  if (template.split("{accessCode}").length !== 2) {
+    transcribeFail("TRANSCRIPTION_ENDPOINT_INVALID");
+  }
+  secureTranscribeUrl(template.replace("{accessCode}", "validated-access-code"));
+  return template;
+}
+
+function resolveRemoteTimeoutMs(env) {
+  const raw = readFirst(env, ["DUPSEARCH_TRANSCRIBE_TIMEOUT_MS", "TRANSCRIBE_TIMEOUT_MS"]);
+  if (!raw) return DEFAULT_REMOTE_TRANSCRIBE_TIMEOUT_MS;
+  const timeoutMs = Number(raw);
+  if (!Number.isInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > MAX_REMOTE_TRANSCRIBE_TIMEOUT_MS) {
+    transcribeFail("TRANSCRIPTION_TIMEOUT_INVALID");
+  }
+  return timeoutMs;
+}
+
+function normalizeAuthScheme(value) {
+  const scheme = String(value || "Bearer").trim() || "Bearer";
+  if (!/^[A-Za-z][A-Za-z0-9._-]{0,31}$/u.test(scheme)) {
+    transcribeFail("TRANSCRIPTION_AUTH_SCHEME_INVALID");
+  }
+  return scheme;
 }
 
 function normalizeText(payload) {
@@ -51,28 +141,45 @@ export function resolveTranscribeConfig(env = process.env) {
   const companyAccessCode = readFirst(env, [
     "DUPSEARCH_TRANSCRIBE_ACCESS_CODE",
     "TRANSCRIBE_ACCESS_CODE",
-    "DUPSEARCH_CHAT_ACCESS_CODE",
-    "ACCESS_CODE",
-    "DEEPSEEK_ACCESS_CODE",
   ]);
-  const companyEndpointTemplate = readFirst(env, [
+  const configuredCompanyEndpoint = readFirst(env, [
     "DUPSEARCH_TRANSCRIBE_ENDPOINT",
     "TRANSCRIBE_ENDPOINT",
-  ]) || (companyAccessCode ? DEFAULT_COMPANY_TRANSCRIBE_ENDPOINT : "");
+  ]);
+  const companyEndpointTemplate = configuredCompanyEndpoint || (companyAccessCode ? DEFAULT_COMPANY_TRANSCRIBE_ENDPOINT : "");
+  const configuredUrl = readFirst(env, ["DUPSEARCH_TRANSCRIBE_URL", "TRANSCRIBE_URL"]);
 
   return {
     provider,
-    url: readFirst(env, ["DUPSEARCH_TRANSCRIBE_URL", "TRANSCRIBE_URL"]),
+    url: configuredUrl ? secureTranscribeUrl(configuredUrl) : "",
     apiKey: readFirst(env, ["DUPSEARCH_TRANSCRIBE_API_KEY", "TRANSCRIBE_API_KEY"]),
-    authScheme: readFirst(env, ["DUPSEARCH_TRANSCRIBE_AUTH_SCHEME", "TRANSCRIBE_AUTH_SCHEME"]) || "Bearer",
+    authScheme: normalizeAuthScheme(readFirst(env, ["DUPSEARCH_TRANSCRIBE_AUTH_SCHEME", "TRANSCRIBE_AUTH_SCHEME"])),
     companyAccessCode,
-    companyEndpointTemplate,
+    companyEndpointTemplate: companyEndpointTemplate ? secureCompanyEndpointTemplate(companyEndpointTemplate) : "",
+    remoteTimeoutMs: resolveRemoteTimeoutMs(env),
     localPython: readFirst(env, ["DUPSEARCH_LOCAL_ASR_PYTHON", "LOCAL_ASR_PYTHON"]) || defaultLocalAsrPython(env),
     localScript: readFirst(env, ["DUPSEARCH_LOCAL_ASR_SCRIPT", "LOCAL_ASR_SCRIPT"]) || path.join(repoRoot, "backend", "local_asr.py"),
     localModel: readFirst(env, ["DUPSEARCH_LOCAL_ASR_MODEL", "LOCAL_ASR_MODEL"]) || defaultLocalAsrModel(),
     localDevice: readFirst(env, ["DUPSEARCH_LOCAL_ASR_DEVICE", "LOCAL_ASR_DEVICE"]) || "cuda:0",
     localTimeoutMs: Number(readFirst(env, ["DUPSEARCH_LOCAL_ASR_TIMEOUT_MS", "LOCAL_ASR_TIMEOUT_MS"]) || 180000),
   };
+}
+
+function resolveTranscribeMode(config) {
+  if (isLocalAsrProvider(config.provider)) return "local";
+  if (COMPANY_TRANSCRIBE_PROVIDERS.has(config.provider)) {
+    if (!config.companyAccessCode || !config.companyEndpointTemplate) {
+      transcribeFail("TRANSCRIPTION_PROVIDER_NOT_CONFIGURED");
+    }
+    return "company";
+  }
+  if (REMOTE_TRANSCRIBE_PROVIDERS.has(config.provider)) {
+    if (!config.url) transcribeFail("TRANSCRIPTION_PROVIDER_NOT_CONFIGURED");
+    if (!config.apiKey) transcribeFail("TRANSCRIPTION_API_KEY_REQUIRED");
+    return "remote";
+  }
+  if (config.provider) transcribeFail("TRANSCRIPTION_PROVIDER_INVALID");
+  transcribeFail("TRANSCRIPTION_PROVIDER_NOT_CONFIGURED");
 }
 
 function getFileExtension(mimeType) {
@@ -96,10 +203,7 @@ export function createLocalAsrWorker(config, dependencies = {}) {
   const spawnProcess = dependencies.spawnProcess || spawn;
   const child = spawnProcess(config.localPython, [config.localScript, "--server"], {
     cwd: repoRoot,
-    env: {
-      ...process.env,
-      PYTHONIOENCODING: "utf-8",
-    },
+    env: resolveLocalWorkerEnvironment(process.env),
     stdio: ["pipe", "pipe", "pipe"],
   });
   const pending = new Map();
@@ -218,10 +322,57 @@ async function parseTranscriptionResponse(response) {
   return normalizeText(await response.text());
 }
 
+function isTimeoutError(error, signal) {
+  return signal?.aborted === true
+    || error?.name === "AbortError"
+    || error?.name === "TimeoutError"
+    || error?.code === "ABORT_ERR";
+}
+
+function createRemoteTimeoutSignal(timeoutMs, dependencies) {
+  if (dependencies.signal) return dependencies.signal;
+  const timeoutSignal = dependencies.timeoutSignal || ((durationMs) => AbortSignal.timeout(durationMs));
+  return timeoutSignal(timeoutMs);
+}
+
+async function requestTranscription(fetchImpl, url, options, signal) {
+  let response;
+  try {
+    response = await fetchImpl(url, {
+      ...options,
+      redirect: "error",
+      signal,
+    });
+  } catch (error) {
+    if (isTimeoutError(error, signal)) transcribeFail("TRANSCRIPTION_UPSTREAM_TIMEOUT");
+    transcribeFail("TRANSCRIPTION_UPSTREAM_UNAVAILABLE");
+  }
+
+  if (!response?.ok) {
+    try {
+      response?.body?.cancel?.().catch?.(() => {});
+    } catch {
+      // Ignore disposal errors while preserving the stable boundary error.
+    }
+    transcribeFail("TRANSCRIPTION_UPSTREAM_HTTP_ERROR");
+  }
+
+  try {
+    const text = await parseTranscriptionResponse(response);
+    if (!text) transcribeFail("TRANSCRIPTION_UPSTREAM_EMPTY_RESPONSE");
+    return text;
+  } catch (error) {
+    if (error instanceof TranscriptionBoundaryError) throw error;
+    if (isTimeoutError(error, signal)) transcribeFail("TRANSCRIPTION_UPSTREAM_TIMEOUT");
+    transcribeFail("TRANSCRIPTION_UPSTREAM_INVALID_RESPONSE");
+  }
+}
+
 export async function transcribeAudio({ audioBase64, mimeType }, env = process.env, dependencies = {}) {
   const config = resolveTranscribeConfig(env);
+  const mode = resolveTranscribeMode(config);
 
-  if (isLocalAsrProvider(config.provider)) {
+  if (mode === "local") {
     const result = await (dependencies.localAsrRunner || runLocalAsrTranscription)({
       audioBase64,
       mimeType,
@@ -235,8 +386,15 @@ export async function transcribeAudio({ audioBase64, mimeType }, env = process.e
     return { text };
   }
 
-  if (config.companyEndpointTemplate && config.companyAccessCode) {
-    const url = `${config.companyEndpointTemplate.replace("{accessCode}", config.companyAccessCode)}?task=transcribe`;
+  const fetchImpl = dependencies.fetchImpl || globalThis.fetch;
+  if (typeof fetchImpl !== "function") transcribeFail("TRANSCRIPTION_UPSTREAM_UNAVAILABLE");
+  const signal = createRemoteTimeoutSignal(config.remoteTimeoutMs, dependencies);
+
+  if (mode === "company") {
+    const companyUrl = new URL(secureTranscribeUrl(
+      config.companyEndpointTemplate.replace("{accessCode}", encodeURIComponent(config.companyAccessCode)),
+    ));
+    companyUrl.searchParams.set("task", "transcribe");
     const formData = new FormData();
     const normalizedMimeType = String(mimeType || "audio/webm");
     const extension = getFileExtension(normalizedMimeType);
@@ -246,32 +404,18 @@ export async function transcribeAudio({ audioBase64, mimeType }, env = process.e
       `recording.${extension}`,
     );
 
-    const response = await fetch(url, {
+    const text = await requestTranscription(fetchImpl, companyUrl.toString(), {
       method: "POST",
       body: formData,
       headers: {
         Accept: "text/plain",
       },
-    });
-
-    if (!response.ok) {
-      const message = await response.text().catch(() => "");
-      throw new Error(`Transcription request failed (${response.status}): ${message || response.statusText}`);
-    }
-
-    const text = await parseTranscriptionResponse(response);
-    if (!text) {
-      throw new Error("Transcription provider returned empty text");
-    }
+    }, signal);
 
     return { text };
   }
 
-  if (!config.url) {
-    throw new Error("Transcription provider is not configured");
-  }
-
-  const response = await fetch(config.url, {
+  const text = await requestTranscription(fetchImpl, config.url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -285,18 +429,7 @@ export async function transcribeAudio({ audioBase64, mimeType }, env = process.e
       audio: String(audioBase64 || ""),
       mime: String(mimeType || "audio/webm"),
     }),
-  });
-
-  if (!response.ok) {
-    const message = await response.text().catch(() => "");
-    throw new Error(`Transcription request failed (${response.status}): ${message || response.statusText}`);
-  }
-
-  const text = await parseTranscriptionResponse(response);
-
-  if (!text) {
-    throw new Error("Transcription provider returned empty text");
-  }
+  }, signal);
 
   return { text };
 }
@@ -306,7 +439,7 @@ export async function handleTranscribeRequest(body, env = process.env) {
   const mimeType = String(body?.mime ?? "audio/webm").trim() || "audio/webm";
 
   if (!audioBase64) {
-    throw new Error("audio is required");
+    transcribeFail("TRANSCRIPTION_AUDIO_REQUIRED");
   }
 
   const result = await transcribeAudio({ audioBase64, mimeType }, env);

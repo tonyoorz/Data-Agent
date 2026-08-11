@@ -9,7 +9,10 @@ import { createLangGraphChatRuntime, resolveAgentRuntimeMode } from "./agentRunt
 import { createFileAgentRuntimeStore } from "./agentRuntime/runtimeAuditStore.mjs";
 import { buildAgentStreamAuditEvent } from "./agentRuntime/streamAudit.mjs";
 import { resolveAgentOperationsResponse } from "./agentOperations.mjs";
-import { createDuplicateWarmupManager } from "./duplicateWarmup.mjs";
+import {
+  createDuplicateWarmupManager,
+  shouldWarmDuplicateSearch,
+} from "./duplicateWarmup.mjs";
 import { extractLatestUserQuery, resolveAiDefectContext } from "./aiContext.mjs";
 import {
   controlledChatErrorDiagnostic,
@@ -24,7 +27,13 @@ import {
   toSafeAgentAuthResponse,
 } from "./agentAuth.mjs";
 import { attachDuplicateSummary } from "./duplicateResultEnrichment.mjs";
+import { assertSupportedNodeVersion } from "../scripts/nodeVersion.mjs";
 import { loadLocalEnv } from "./loadLocalEnv.mjs";
+import {
+  resolveAnalyticsApiBase,
+  resolveAnalyticsProxyTimeoutMs,
+} from "./analyticsApiConfig.mjs";
+import { proxyAnalyticsJson } from "./analyticsProxy.mjs";
 import {
   buildLocalCorsHeaders,
   isJsonApiRequest,
@@ -32,23 +41,30 @@ import {
   listenLocalApiServer,
   readBoundedJsonBody,
   resolveJsonBodyLimit,
+  resolveLocalApiPort,
   toSafeLocalApiBodyResponse,
 } from "./localApiBinding.mjs";
 import {
+  buildQGateDashboardCsp,
+  createQGateDashboardNonce,
   defaultQGateReportsRoot,
   findLatestQGateDashboardReport,
   resolveQGateDashboardHtmlPath,
+  stampQGateScriptNonce,
 } from "./qgateReports.mjs";
-import { handleTranscribeRequest } from "./transcribe.mjs";
+import { handleTranscribeRequest, toSafeTranscriptionError } from "./transcribe.mjs";
 
 const { runDuplicateBridge, stopDuplicateBridgeRuntime } = duplicateBridgeRuntime;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "..");
+assertSupportedNodeVersion();
 loadLocalEnv();
-const port = Number(process.env.VIZION_API_PORT || 3004);
-const webPort = Number(process.env.VIZION_WEB_PORT || 8080);
+const analyticsApiBase = resolveAnalyticsApiBase();
+const analyticsProxyTimeoutMs = resolveAnalyticsProxyTimeoutMs();
+const port = resolveLocalApiPort(process.env.VIZION_API_PORT, 3004, "VIZION_API_PORT");
+const webPort = resolveLocalApiPort(process.env.VIZION_WEB_PORT, 8080, "VIZION_WEB_PORT");
 const jsonBodyLimitBytes = resolveJsonBodyLimit(process.env);
 const staticDir = fs.existsSync(path.join(repoRoot, "dist")) ? path.join(repoRoot, "dist") : "";
 const duplicateWarmupManager = createDuplicateWarmupManager({
@@ -102,8 +118,13 @@ export async function handleAiTranscribeRequest(request, response) {
     env: process.env,
     readBody: () => readBoundedJsonBody(request, { maxBytes: jsonBodyLimitBytes }),
     runRequest: async (body) => {
-      const result = await handleTranscribeRequest(body);
-      sendJson(response, 200, result);
+      try {
+        const result = await handleTranscribeRequest(body);
+        sendJson(response, 200, result);
+      } catch (error) {
+        const safeError = toSafeTranscriptionError(error);
+        sendJson(response, safeError.statusCode, safeError.payload);
+      }
     },
     invalidBodyError: "INVALID_TRANSCRIBE_REQUEST_BODY",
     sendAuthResponse: (authResponse) => sendJson(response, authResponse.statusCode, authResponse.payload),
@@ -199,17 +220,6 @@ function sendJson(response, statusCode, payload) {
   response.end(JSON.stringify(payload));
 }
 
-async function proxyAnalyticsJson(pathname, searchParams, response) {
-  const analyticsUrl = new URL(pathname, "http://127.0.0.1:3003");
-  searchParams.forEach((value, key) => analyticsUrl.searchParams.append(key, value));
-  const analyticsResponse = await fetch(analyticsUrl);
-  const payload = await analyticsResponse.text();
-  response.writeHead(analyticsResponse.status, {
-    "Content-Type": analyticsResponse.headers.get("content-type") || "application/json; charset=utf-8",
-  });
-  response.end(payload);
-}
-
 function serveStaticAsset(request, response, url) {
   if (!staticDir || request.method !== "GET") {
     return false;
@@ -299,7 +309,13 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (request.method === "GET" && url.pathname === "/api/qgate-reports/weekly-report") {
-      await proxyAnalyticsJson(url.pathname, url.searchParams, response);
+      await proxyAnalyticsJson({
+        pathname: url.pathname,
+        searchParams: url.searchParams,
+        response,
+        analyticsApiBase,
+        timeoutMs: analyticsProxyTimeoutMs,
+      });
       return;
     }
 
@@ -309,10 +325,14 @@ const server = http.createServer(async (request, response) => {
         url.searchParams.get("run"),
         url.searchParams.get("file"),
       );
+      const nonce = createQGateDashboardNonce();
+      const body = stampQGateScriptNonce(fs.readFileSync(filePath, "utf8"), nonce);
       response.writeHead(200, {
         "Content-Type": "text/html; charset=utf-8",
+        "Content-Security-Policy": buildQGateDashboardCsp(nonce),
+        "X-Content-Type-Options": "nosniff",
       });
-      response.end(fs.readFileSync(filePath));
+      response.end(body);
       return;
     }
 
@@ -457,7 +477,9 @@ const server = http.createServer(async (request, response) => {
 
 listenLocalApiServer(server, port, () => {
   console.log(`Vizion local API listening on http://127.0.0.1:${port}`);
-  duplicateWarmupManager.triggerBackgroundWarmup({ reason: "startup" });
+  if (shouldWarmDuplicateSearch(process.env)) {
+    duplicateWarmupManager.triggerBackgroundWarmup({ reason: "startup" });
+  }
 });
 
 function shutdown() {

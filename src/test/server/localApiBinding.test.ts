@@ -12,6 +12,7 @@ import {
   listenLocalApiServer,
   readBoundedJsonBody,
   resolveJsonBodyLimit,
+  resolveLocalApiPort,
   toSafeLocalApiBodyResponse,
 } from "../../../server/localApiBinding.mjs";
 
@@ -22,6 +23,16 @@ function requestBody(chunks: Array<string | Buffer>, headers: Record<string, str
 }
 
 describe("local API network boundary", () => {
+  it("fails closed on invalid production API and web ports", () => {
+    expect(resolveLocalApiPort(undefined, 3004, "VIZION_API_PORT")).toBe(3004);
+    expect(resolveLocalApiPort("3104", 3004, "VIZION_API_PORT")).toBe(3104);
+    for (const value of ["0", "65536", "3.5", "invalid"]) {
+      expect(() => resolveLocalApiPort(value, 3004, "VIZION_API_PORT")).toThrow(
+        "VIZION_API_PORT_INVALID",
+      );
+    }
+  });
+
   it("uses a finite configurable JSON body limit", () => {
     expect(resolveJsonBodyLimit({})).toBe(DEFAULT_JSON_BODY_LIMIT_BYTES);
     expect(resolveJsonBodyLimit({ VIZION_API_JSON_BODY_LIMIT_BYTES: "2048" })).toBe(2048);
