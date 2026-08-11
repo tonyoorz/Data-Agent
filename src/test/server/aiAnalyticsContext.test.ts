@@ -4,6 +4,10 @@ import { resolveAiAnalyticsContext } from "../../../server/aiAnalyticsContext.mj
 import { createOntologyRegistry } from "../../../server/ontology/registry.mjs";
 
 describe("resolveAiAnalyticsContext", () => {
+  it("loads the governed semantic-candidate integration", () => {
+    expect(resolveAiAnalyticsContext).toBeTypeOf("function");
+  });
+
   it("builds compact business context for analytics questions", async () => {
     const resolved = await resolveAiAnalyticsContext({
       messages: [{ role: "user", content: "Speech 最近测试覆盖率和缺陷 outcome 怎么样？" }],
@@ -42,6 +46,7 @@ describe("resolveAiAnalyticsContext", () => {
     expect(resolved.contextText).toContain("Result: 12 defects");
     expect(resolved.contextText).toContain("Do not invent modules such as ai-chat, user-auth, payment, or data-pipeline");
     expect(resolved.skipDefectContext).toBe(true);
+    expect(resolved.claimRelease).toEqual({ status: "unreleased", contextId: "resolved_analytics_query" });
   });
 
   it("stays silent for empty questions", async () => {
@@ -61,6 +66,11 @@ describe("resolveAiAnalyticsContext", () => {
     expect(resolved.contextText).toContain("defect.created_count");
     expect(resolved.contextText).toContain("Plan status: valid");
     expect(resolved.contextText).toContain("# Governed analysis plan");
+    expect(resolved.semanticFrame).toMatchObject({
+      intent: "rank",
+      ontologyVersion: resolved.queryPlan.ontologyVersion,
+      schemaFingerprint: resolved.queryPlan.schemaFingerprint,
+    });
     expect(resolved.analysisPlan).toMatchObject({ operation: "ranked_comparison", visualization: "bar" });
     expect(resolved.contextText).toContain(`Analysis plan: ${resolved.analysisPlan.analysisPlanId}`);
     expect(resolved.contextText).toContain(`Ontology version: ${resolved.analysisPlan.ontologyVersion}`);
@@ -84,6 +94,25 @@ describe("resolveAiAnalyticsContext", () => {
     });
   });
 
+  it("does not execute the legacy metric fetch when a governed plan is runtime-ready", async () => {
+    const analyticsFetch = vi.fn();
+    const resolved = await resolveAiAnalyticsContext({
+      messages: [{ role: "user", content: "DTSV 6月份提了多少bug" }],
+      analyticsFetch,
+      now: new Date("2026-07-15T04:00:00.000Z"),
+      actor: { actorId: "alice", scopeHash: "scope-a", scopes: { workspaceIds: ["DTSV"], teamIds: ["DTSV"] } },
+      ontologyRegistry: createOntologyRegistry(),
+      requestSemanticCandidate: vi.fn().mockResolvedValue(null),
+    });
+
+    expect(resolved.queryPlan).toMatchObject({ status: "valid" });
+    expect(resolved.analysisPlan).toMatchObject({ status: "ready" });
+    expect(analyticsFetch).not.toHaveBeenCalled();
+    expect(resolved.contextText).not.toContain("# Resolved analytics query");
+    expect(resolved.skipDefectContext).toBe(false);
+    expect(resolved.claimRelease).toBeUndefined();
+  });
+
   it("passes an LLM semantic candidate into the ontology resolver", async () => {
     const requestSemanticCandidate = vi.fn().mockResolvedValue({
       intent: "aggregate",
@@ -105,5 +134,28 @@ describe("resolveAiAnalyticsContext", () => {
     );
     expect(resolved.contextText).toContain("testing.run_count");
     expect(resolved.contextText).not.toContain("defect.count@1.0.0");
+  });
+
+  it("keeps an ungrounded full-catalog guess behind clarification", async () => {
+    const resolved = await resolveAiAnalyticsContext({
+      messages: [{ role: "user", content: "各楼层工位利用率" }],
+      now: new Date("2026-07-15T04:00:00.000Z"),
+      actor: { actorId: "alice", scopeHash: "scope-a", scopes: { workspaceIds: ["DTSV"], teamIds: ["DTSV"] } },
+      ontologyRegistry: createOntologyRegistry(),
+      requestSemanticCandidate: vi.fn().mockResolvedValue({
+        intent: "aggregate",
+        entityIds: ["testing.test_run"],
+        metricIds: ["testing.run_count"],
+        dimensionIds: [],
+        catalogSelection: { mode: "full_catalog", matchedTermIds: [] },
+      }),
+    });
+
+    expect(resolved.queryPlan).toMatchObject({
+      status: "needs_clarification",
+      steps: [],
+      violations: expect.arrayContaining(["METRIC_REQUIRED"]),
+    });
+    expect(resolved.contextText).not.toContain("testing.run_count@1.0.0");
   });
 });

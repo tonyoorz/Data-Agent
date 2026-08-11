@@ -189,7 +189,7 @@ for (const tc of sequential) sequentialResults.push(await executeOne(tc));
 | **多 agent 拆分**(linking→生成→校验→修订) | 你单链 LangGraph + bounded recovery 已覆盖大部分场景;多 agent 成本 2-3 周 + 运行时复杂度 + 调试难度。收益不确定。 | scorecard 证明某类问题(如歧义多路径)单链准确率 < 阈值 → 借鉴 CHASE-SQL 多路径**仅对低置信触发** |
 | **沙箱执行**(code interpreter) | 你的可视化走 constrained renderer(⑦),不需要任意 Python。沙箱引入安全面 + 复杂度。 | 出现"constrained renderer 表达不了"的真实需求(如自定义复杂变换) |
 | **多源联邦** | 你目前单源 Octane(7d-gap-analysis 确认)。无第二源,联邦是抽象平台能力,无实际收益。 | 出现第二数据源(如 Jira/SAP)且先定义 source-adapter 契约(schema/freshness/lineage/row-policy) |
-| **WrenAI 嵌入** | 自研 graphPathfinder/answerValidator/agentAuth 已覆盖 wren-core 核心;WrenAI OSS 不含 RLS(你自研反而避开付费墙)。 | 需 22+ 连接器多源联邦(与"多源联邦"同条件) |
+| **WrenAI 嵌入** | 已有 answerValidator/agentAuth/受治理计划基础，但 graphPathfinder 仅做拓扑发现，尚未覆盖 wren-core 的可执行 join/多源能力。 | 需 22+ 连接器多源联邦，或 scorecard 证明必须引入完整 join engine |
 | **CI(GitHub Actions)** | 重要但不是"智能/效率"本身,是 scorecard 的载体。 | scorecard(①)做完后立刻接 CI——那时 CI 有东西可跑 |
 
 ---

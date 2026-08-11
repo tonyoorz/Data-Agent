@@ -284,7 +284,10 @@ async function requestCompanySemanticCandidate({ registry, query, priorSemanticC
     messages: createSemanticCandidateMessages({ registry, query, priorSemanticContext, catalog }),
     model,
   });
-  return parseSemanticCandidate(completion.content, schema);
+  return {
+    ...parseSemanticCandidate(completion.content, schema),
+    catalogSelection: catalog.selection,
+  };
 }
 
 async function bestEffortSemanticCandidate({ requestSemanticCandidate, registry, query, priorSemanticContext, model }) {
@@ -337,15 +340,20 @@ export async function resolveAiAnalyticsContext({
       semanticContext = `# Governed Ontology interpretation\nStatus: ${safeErrorCode(error, "SEMANTIC_CONTEXT_UNAVAILABLE")}\nDo not answer analytics questions without governed evidence.`;
     }
   }
-  const detectedMetric = governanceFailed ? null : detectOpenedDtsvMetric(recentUserText, now, semanticFrame);
+  const hasGovernedExecutablePlan = semanticPlan?.status === "valid" && analysisPlan?.status === "ready";
+  const detectedMetric = governanceFailed || hasGovernedExecutablePlan
+    ? null
+    : detectOpenedDtsvMetric(recentUserText, now, semanticFrame);
   const detectedMetricContext = await resolveDetectedMetricContext(detectedMetric, analyticsFetch);
 
   return {
     queryText,
     contextText: [ANALYTICS_CONTEXT, semanticContext, detectedMetricContext].filter(Boolean).join("\n\n"),
     skipDefectContext: Boolean(detectedMetric),
+    ...(detectedMetric ? { claimRelease: { status: "unreleased", contextId: "resolved_analytics_query" } } : {}),
     shadowObservation,
     analysisPlan,
     queryPlan: semanticPlan,
+    semanticFrame,
   };
 }

@@ -14,6 +14,7 @@ const SAFE_KEYS = new Set([
   "failureCode",
   "sourceRevisionIds",
   "citationValidation",
+  "terminalStatus",
   "latencyMs",
   "recordedAt",
   "type",
@@ -62,6 +63,7 @@ const SAFE_TIMELINE_TYPES = new Set([
   "agent-runtime-failed",
   "agent-stream-completed",
 ]);
+const TERMINAL_OUTCOMES = new Set(["completed", "blocked", "failed"]);
 
 function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -90,6 +92,17 @@ function outcomeFromStoppedReason(stoppedReason) {
   if (/denied|not_allowed/i.test(String(stoppedReason || ""))) return "denied";
   if (/recovery_(?:exhausted|stopped|catalog)/i.test(String(stoppedReason || ""))) return "failed";
   return "completed";
+}
+
+function operationalOutcome(rawSummary, stream) {
+  const terminalStatus = String(stream?.terminalStatus || "");
+  const runtimeOutcome = String(rawSummary?.outcome || "completed");
+  if (!TERMINAL_OUTCOMES.has(terminalStatus)) return runtimeOutcome;
+  // A successfully delivered policy denial is still a denied run. Blocked and
+  // failed terminal states, however, must override any pre-stream "completed" summary.
+  return terminalStatus === "completed" && runtimeOutcome !== "completed"
+    ? runtimeOutcome
+    : terminalStatus;
 }
 
 export function redactAuditPayload(value) {
@@ -135,6 +148,8 @@ function publicTimelineItem(rawItem) {
     type,
     ...(Number.isFinite(Number(rawItem?.latencyMs)) ? { latencyMs: Number(rawItem.latencyMs) } : {}),
     ...(rawItem?.citationValidation ? { citationValidation: String(rawItem.citationValidation) } : {}),
+    ...(rawItem?.terminalStatus ? { terminalStatus: String(rawItem.terminalStatus) } : {}),
+    ...(rawItem?.failureCode ? { failureCode: String(rawItem.failureCode) } : {}),
     ...(rawItem?.stoppedReason ? { stoppedReason: String(rawItem.stoppedReason) } : {}),
     ...(rawItem?.recovery ? { recovery: publicRecovery(rawItem.recovery) } : {}),
   };
@@ -193,12 +208,14 @@ export function summarizeRuns({ summaries = [], events = [] } = {}) {
     const stream = streamByRun.get(String(rawSummary?.runId || ""));
     const citation = String(stream?.citationValidation || rawSummary?.citationValidation || "pending");
     const latencyMs = Number(stream?.latencyMs);
+    const outcome = operationalOutcome(rawSummary, stream);
+    const failureCode = String(stream?.failureCode || rawSummary?.failureCode || "");
     const run = publicRun(rawSummary, stream);
-    increment(byOutcome, String(rawSummary?.outcome || "completed"));
+    increment(byOutcome, outcome);
     increment(byEvidenceStatus, String(rawSummary?.evidenceStatus || "not_required"));
     increment(citationValidation, citation);
     for (const outcome of rawSummary?.recoveryOutcomes || []) increment(recoveryOutcomes, String(outcome));
-    increment(failures, String(rawSummary?.failureCode || ""));
+    increment(failures, failureCode);
     if (Number.isFinite(latencyMs) && latencyMs >= 0) latencies.push(latencyMs);
     return run;
   });
@@ -261,15 +278,17 @@ function opaqueRunRef(runId) {
 
 function publicRun(rawSummary, stream) {
   const latencyMs = Number(stream?.latencyMs);
+  const outcome = operationalOutcome(rawSummary, stream);
+  const failureCode = String(stream?.failureCode || rawSummary?.failureCode || "");
   return {
     runRef: opaqueRunRef(rawSummary?.runId),
     intent: String(rawSummary?.intent || "general"),
-    outcome: String(rawSummary?.outcome || "completed"),
+    outcome,
     evidenceStatus: String(rawSummary?.evidenceStatus || "not_required"),
     citationValidation: String(stream?.citationValidation || rawSummary?.citationValidation || "pending"),
     toolNames: unique(rawSummary?.toolNames).filter((name) => SAFE_TOOL_NAMES.has(name)),
     ...(Number.isFinite(latencyMs) && latencyMs >= 0 ? { latencyMs } : {}),
-    ...(rawSummary?.failureCode ? { failureCode: String(rawSummary.failureCode) } : {}),
+    ...(failureCode ? { failureCode } : {}),
     ...(Array.isArray(rawSummary?.businessRuleCodes) ? { businessRuleCodes: unique(rawSummary.businessRuleCodes) } : {}),
   };
 }

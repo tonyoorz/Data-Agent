@@ -117,15 +117,11 @@ describe("Ontology semantic resolver", () => {
     expect(frame.dimensionIds).toEqual(expect.arrayContaining(["product.project", "quality.status"]));
   });
 
-  it("auto-resolves cross-entity OS filter via graph path traversal", () => {
-    // Previously this surfaced a FILTER_DIMENSION_NOT_AVAILABLE ambiguity because
-    // product.os was not in testing.failed_run_count's allowedDimensions.
-    // Now the graph pathfinder auto-resolves the path.
+  it("clarifies a governed metric when its source lacks the requested filter", () => {
     const frame = resolver.resolve({ query: "OS9 最近四周失败 Run 数量是多少？", actor, requestAnchorAt: anchorAt });
+
     expect(frame.metricIds).toEqual(["testing.failed_run_count"]);
-    // The OS filter should now be accepted via graph inference (no ambiguity)
-    const osAmbiguity = frame.ambiguities.find((a) => a.code === "FILTER_DIMENSION_NOT_AVAILABLE");
-    expect(osAmbiguity).toBeUndefined();
+    expect(frame.ambiguities).toContainEqual(expect.objectContaining({ code: "FILTER_DIMENSION_NOT_AVAILABLE", dimensionId: "product.os", options: ["补充其他明确口径", "取消本次查询"] }));
   });
 
   it("recognizes natural-language rank limits and resolution-speed ambiguity", () => {
@@ -210,14 +206,8 @@ describe("Ontology semantic resolver", () => {
     expect(frame.ambiguities).toContainEqual(expect.objectContaining({ code: "DEFECT_DENSITY_DENOMINATOR_REQUIRED", kind: "metric_definition" }));
   });
 
-  it("auto-resolves a cross-entity dimension via graph path traversal", () => {
-    // Previously this threw SEMANTIC_DIMENSION_NOT_ALLOWED because product.ecu
-    // was not in testing.run_count's allowedDimensions. Now the graph pathfinder
-    // auto-resolves the JOIN path test_run → executes → test_case → ... → ecu.
-    const frame = resolver.resolve({ query: "测试执行数按 ECU", actor, requestAnchorAt: anchorAt });
-    expect(frame.metricIds).toContain("testing.run_count");
-    // The dimension should now be accepted (graph-inferred)
-    expect(frame.dimensionIds).toContain("product.ecu");
+  it("rejects a dimension that the governed metric does not allow", () => {
+    expect(() => resolver.resolve({ query: "测试执行数按 ECU", actor, requestAnchorAt: anchorAt })).toThrow("SEMANTIC_DIMENSION_NOT_ALLOWED");
   });
 
   it("maps DTSV to the executable team dimension for test-run questions", () => {
@@ -293,9 +283,29 @@ describe("Ontology semantic resolver", () => {
     const frame = spyingResolver.resolve({ query: "各楼层工位利用率", actor, requestAnchorAt: anchorAt });
 
     expect(frame.intent).toBe("aggregate");
+    expect(frame.metricIds).toEqual([]);
+    expect(frame.ambiguities).toContainEqual(expect.objectContaining({ code: "METRIC_REQUIRED" }));
     expect(calls).toHaveLength(1);
-    expect(calls[0]).toMatchObject({ intent: "aggregate", heuristicMetric: "defect.count" });
+    expect(calls[0]).toMatchObject({ intent: "aggregate", heuristicMetric: null });
     expect(calls[0].query).toBe("各楼层工位利用率");
+  });
+
+  it("does not accept an ungrounded full-catalog model guess", () => {
+    const frame = resolver.resolve({
+      query: "各楼层工位利用率",
+      actor,
+      requestAnchorAt: anchorAt,
+      candidate: {
+        intent: "aggregate",
+        metricIds: ["testing.run_count"],
+        dimensionIds: [],
+        entityIds: ["testing.test_run"],
+        catalogSelection: { mode: "full_catalog", matchedTermIds: [] },
+      },
+    });
+
+    expect(frame.metricIds).toEqual([]);
+    expect(frame.ambiguities).toContainEqual(expect.objectContaining({ code: "METRIC_REQUIRED" }));
   });
 
   it("does not surface an unmatched signal for a query that matches a governed term", () => {

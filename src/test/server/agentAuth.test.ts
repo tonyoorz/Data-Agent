@@ -446,6 +446,67 @@ describe("request actor authentication", () => {
     expect(runChat).not.toHaveBeenCalled();
   });
 
+  it("preserves a bounded body parser's 413 response after authentication", async () => {
+    const bodyError = Object.assign(new Error("request body too large"), {
+      code: "REQUEST_BODY_TOO_LARGE",
+      statusCode: 413,
+    });
+    const readBody = vi.fn(async () => { throw bodyError; });
+    const runChat = vi.fn();
+    const sendBadRequestResponse = vi.fn();
+
+    await agentAuth.runAuthenticatedChatRequest(
+      { headers: { authorization: "Bearer verified-token" } },
+      {
+        env: oidcEnv,
+        verifyToken: async () => ({ sub: "alice", groups: ["quality-readers"] }),
+        scopePolicy: qualityReaderPolicy,
+        readBody,
+        runChat,
+        sendBadRequestResponse,
+      },
+    );
+
+    expect(sendBadRequestResponse).toHaveBeenCalledWith({
+      statusCode: 413,
+      payload: { success: false, error: "REQUEST_BODY_TOO_LARGE" },
+    });
+    expect(runChat).not.toHaveBeenCalled();
+  });
+
+  it("runs another authenticated AI route with a server-derived actor and no client actor fields", async () => {
+    const runRequest = vi.fn((body) => body);
+    const clientBody = {
+      audio: "encoded-audio",
+      actor: { actorId: "browser-admin" },
+      actorScope: { allowedObjectTypes: ["*"] },
+      actorId: "browser-admin",
+      userId: "browser-admin",
+    };
+
+    const result = await agentAuth.runAuthenticatedAgentRequest(
+      { headers: { authorization: "Bearer verified-token" } },
+      {
+        env: oidcEnv,
+        verifyToken: async () => ({ sub: "alice", groups: ["quality-readers"] }),
+        scopePolicy: qualityReaderPolicy,
+        readBody: async () => clientBody,
+        runRequest,
+        invalidBodyError: "INVALID_TRANSCRIBE_REQUEST_BODY",
+      },
+    );
+
+    expect(agentAuth.runAuthenticatedAgentRequest).toBeTypeOf("function");
+    expect(runRequest).toHaveBeenCalledWith({
+      audio: "encoded-audio",
+      actor: expect.objectContaining({
+        actorId: "alice",
+        scopes: expect.objectContaining({ allowedObjectTypes: ["quality.defect"] }),
+      }),
+    });
+    expect(result).toEqual(runRequest.mock.results[0].value);
+  });
+
   it("defaults to fail-closed OIDC when no identity is supplied", async () => {
     const verifyToken = vi.fn();
 

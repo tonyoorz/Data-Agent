@@ -2,7 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import Ajv2020 from "ajv/dist/2020.js";
-import { canonicalize, fingerprintOntology } from "../server/ontology/fingerprint.mjs";
+import { canonicalJson, canonicalize, fingerprintOntology } from "../server/ontology/fingerprint.mjs";
+import { buildRuntimeCapabilityReport } from "../server/ontology/runtimePublication.mjs";
 import { validateOntologyBundle } from "../server/ontology/validator.mjs";
 
 const compilerVersion = "ontology-compiler-v1";
@@ -111,18 +112,28 @@ export function compileOntology({
   const fingerprint = fingerprintOntology(bundle);
   const compiledPath = path.join(outputDir, "ontology.compiled.json");
   const fingerprintPath = path.join(outputDir, "fingerprint.txt");
+  const runtimeCapabilityReportPath = path.join(outputDir, "runtime-capabilities.json");
   const compiledText = `${JSON.stringify(bundle, null, 2)}\n`;
+  const runtimeCapabilityReport = buildRuntimeCapabilityReport(bundle, fingerprint);
+  const runtimeCapabilityReportText = `${JSON.stringify(runtimeCapabilityReport, null, 2)}\n`;
 
   if (check) {
-    if (!fs.existsSync(compiledPath) || !fs.existsSync(fingerprintPath)) throw new Error("ONTOLOGY_GENERATED_OUTPUT_MISSING");
+    if (!fs.existsSync(compiledPath) || !fs.existsSync(fingerprintPath) || !fs.existsSync(runtimeCapabilityReportPath)) {
+      throw new Error("ONTOLOGY_GENERATED_OUTPUT_MISSING");
+    }
     const existingBundle = readJson(compiledPath);
     const existingFingerprint = fs.readFileSync(fingerprintPath, "utf8").trim();
     if (fingerprintOntology(existingBundle) !== fingerprint || existingFingerprint !== fingerprint) {
       throw new Error("ONTOLOGY_GENERATED_OUTPUT_STALE");
     }
+    const existingRuntimeCapabilityReport = readJson(runtimeCapabilityReportPath);
+    if (canonicalJson(existingRuntimeCapabilityReport) !== canonicalJson(runtimeCapabilityReport)) {
+      throw new Error("ONTOLOGY_RUNTIME_CAPABILITY_REPORT_STALE");
+    }
   } else {
     atomicWrite(compiledPath, compiledText);
     atomicWrite(fingerprintPath, `${fingerprint}\n`);
+    atomicWrite(runtimeCapabilityReportPath, runtimeCapabilityReportText);
   }
 
   let graphOutputPath;
@@ -133,7 +144,17 @@ export function compileOntology({
     atomicWrite(graphOutputPath, graphBody);
   }
 
-  return { bundle, fingerprint, counts, compiledPath, fingerprintPath, check, graphOutputPath };
+  return {
+    bundle,
+    fingerprint,
+    counts,
+    compiledPath,
+    fingerprintPath,
+    runtimeCapabilityReport,
+    runtimeCapabilityReportPath,
+    check,
+    graphOutputPath,
+  };
 }
 
 function parseArgs(argv) {
@@ -170,6 +191,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
       fingerprint: result.fingerprint,
       counts: result.counts,
       check: result.check,
+      runtimeCapabilityReportPath: result.runtimeCapabilityReportPath,
       graphOutputPath: result.graphOutputPath,
     })}\n`);
   } catch (error) {

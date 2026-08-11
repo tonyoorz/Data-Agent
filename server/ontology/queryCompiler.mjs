@@ -73,15 +73,6 @@ export const semanticQuerySchema = Object.freeze({
       },
     },
     limit: { type: "integer", minimum: 1, maximum: 200 },
-    inferredJoinPaths: {
-      anyOf: [
-        { type: "null" },
-        {
-          type: "object",
-          additionalProperties: { type: "array", items: { type: "object", additionalProperties: true } },
-        },
-      ],
-    },
   },
 });
 
@@ -109,6 +100,5 @@ export function compileSemanticQuery(frame) {
     comparison: frame.comparison,
     sort: frame.sort,
     limit: frame.limit,
-    ...(frame.inferredJoinPaths ? { inferredJoinPaths: frame.inferredJoinPaths } : {}),
   }));
 }

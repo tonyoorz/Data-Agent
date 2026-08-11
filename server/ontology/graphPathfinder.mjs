@@ -1,11 +1,12 @@
 /**
- * Graph Pathfinder — BFS relationship traversal engine.
+ * Graph Pathfinder — topology discovery only.
  *
- * Given the ontology relationships and a starting entity, finds the shortest
- * path (fewest hops) to every other reachable entity. Used by the resolver to
- * auto-infer cross-entity JOIN paths so users can ask questions that span
- * multiple entities (e.g. "show defects by platform" when defect→ecu→platform
- * requires 2 hops through the relationship graph).
+ * Given ontology relationships and a starting entity, this module finds graph
+ * reachability. Reachability is not authorization and is not proof that a join
+ * is executable. Runtime planners must continue to use published metric
+ * allowedDimensions until a versioned join capability supplies adapters, join
+ * keys, grain/cardinality, fanout policy, scope propagation and source-revision
+ * compatibility.
  *
  * Architecture: pure functions, no side effects, no I/O.
  */
@@ -167,47 +168,4 @@ export function resolveDimensionReachability(registry, metricEntityId, targetDim
     joinPath: descriptor.path,
     viaEntity: targetEntityId,
   };
-}
-
-/**
- * Expand a metric's allowedDimensions with graph-reachable dimensions.
- *
- * Returns a Set of dimension IDs that the metric can be queried with,
- * including both:
- *   1. Directly allowed dimensions (governance-approved)
- *   2. Dimensions reachable via relationship traversal (auto-inferred)
- *
- * For type 2, the result includes the join path so the compiler can use it.
- *
- * @param {object} registry
- * @param {object} metric
- * @param {object} [options]
- * @param {number} [options.maxHops=3]
- * @returns {{ allowed: Set<string>, inferred: Map<string, {hops: number, joinPath: Array}> }}
- */
-export function expandAllowedDimensions(registry, metric, { maxHops = 3 } = {}) {
-  const allowed = new Set(metric.allowedDimensions || []);
-  const inferred = new Map();
-
-  const reachable = findReachableDimensions(registry, metric.entityId, { maxHops });
-
-  for (const [entityId, descriptor] of reachable) {
-    if (entityId === metric.entityId) continue; // same entity, already in allowedDimensions
-    for (const dimId of descriptor.dimensionIds) {
-      if (!allowed.has(dimId)) {
-        // Only infer if the dimension itself is approved (governance)
-        let dim;
-        try {
-          dim = registry.getDimension(dimId);
-        } catch {
-          continue;
-        }
-        if (dim.governance?.status === "approved") {
-          inferred.set(dimId, { hops: descriptor.hops, joinPath: descriptor.path });
-        }
-      }
-    }
-  }
-
-  return { allowed, inferred };
 }

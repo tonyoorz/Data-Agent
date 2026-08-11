@@ -1,7 +1,7 @@
 # Data-Agent Competitive Positioning: Fact-Checked Review
 
 **Date:** 2026-08-10
-**Scope:** Current `feature/2026-08-04-semantic-analysis-closure-integration` checkout, its listed worktrees, current product documentation, and official vendor documentation fetched on this date.
+**Scope:** Current `codex/industry-capability-integration` branch after integrating the governed graph experiment and full hardening chain, plus current product documentation and the official vendor documentation fetched for the 2026-08-10 review.
 
 ## Executive Verdict
 
@@ -24,7 +24,7 @@ The system should not be placed in the upper-right of an `NL2SQL accuracy x insi
 
 | Original assertion | Verdict | Evidence and corrected wording |
 | --- | --- | --- |
-| 10 ontology schema types and 10,707 schema lines | Partially true, materially inaccurate in size | `ontology/schema` contains 11 JSON files and 557 lines; `ontology/v1` contains 10 JSON files and 7,031 lines in the checked working tree. A claim of 10,707 schema lines is not reproducible from these directories. Say "10 v1 ontology source artifacts plus shared schema contracts" rather than use an unsupported line-count claim. |
+| 10 ontology schema types and 10,707 schema lines | Partially true, materially inaccurate in size | `ontology/schema` contains 11 JSON files and 575 lines; `ontology/v1` contains 10 JSON files and 7,005 lines in the checked working tree. A claim of 10,707 schema lines is not reproducible from these directories. Say "10 v1 ontology source artifacts plus shared schema contracts" rather than use an unsupported line-count claim. |
 | OntologyGraph with BFS | Verified | `backend/analytics/ontology.py` implements approved relationship-path traversal. It is useful for traceability, but it is not a general GraphRAG retrieval system. |
 | OntologyGuardrail blocks illegal queries | Verified with different naming and scope | `server/ontology/analysisPlanner.mjs`, `queryPlanner.mjs`, and compiled constraints enforce read-only, no-arbitrary-SQL/code, row budgets, business-rule effects, and evidence requirements. Call this governed semantic planning, not an unverified class name. |
 | SchemaDriftDetector automatically detects DB-versus-ontology drift | Partial only | The resolver has schema-fingerprint compatibility checks. No continuous detector, drift classification, proposal generator, or remediation workflow was found. |
@@ -37,7 +37,7 @@ The system should not be placed in the upper-right of an `NL2SQL accuracy x insi
 | QueryMemory with SQLite, embedding, TF-IDF, and Jaccard | Not implemented | Duplicate-search embeddings and a short-lived context cache exist, but no unified query-memory component, TF-IDF/Jaccard matching, or SQLite query-memory store was found. |
 | ConversationContext and SessionManager | Partial only | LangGraph carries a thread ID and uses a checkpointer. It is not the claimed typed five-turn classifier or a 30-minute isolated SessionManager. |
 | CodeInterpreter is already a 450-line module | Not supported in this checkout | The roadmap explicitly states that agent sandbox/code execution is absent. A declarative visualization plan exists, but no executable code-interpreter service or natural-language chart-editing path was found. |
-| 6 domain object types, 8-dimensional 200-point risk algorithm, 7 tools, 25+ business rules | Mostly inaccurate | The current ontology has about 27 entity definitions, 22 main-agent tools, 3 executable business rules, and 12 documentation-style business rules. No 8-dimension/200-point risk model was found. The 50/200 values in duplicate-search feedback describe training thresholds, not a risk score. |
+| 6 domain object types, 8-dimensional 200-point risk algorithm, 7 tools, 25+ business rules | Mostly inaccurate | The current ontology has 28 entity definitions, 22 main-agent tools, 3 executable business rules, and 12 documentation-style business rules. No 8-dimension/200-point risk model was found. The 50/200 values in duplicate-search feedback describe training thresholds, not a risk score. |
 
 ## What Is Actually Strong Today
 
@@ -72,7 +72,7 @@ The product already has meaningful safeguards that many demo SQL agents omit:
 - Empty-result diagnosis and catalog-backed alias/value recovery.
 - Tool allowlists and policy gates.
 - Read-only structured semantic queries and forced limits.
-- Citation/evidence validation in the streamed response path.
+- Pre-release citation/evidence validation for claim-bearing answers; invalid model text is discarded before any answer token is released.
 - Runtime audit events and operator-summary work already underway.
 
 This should be framed as a safety and operability advantage, not as an unproven accuracy advantage.
@@ -81,20 +81,22 @@ This should be framed as a safety and operability advantage, not as an unproven 
 
 ### Authorization and RBAC
 
-The statement "there is no RBAC" is too broad. There are actor-scope, signed capability, backend scope-validation, and sensitive-field-policy components. The real gap is end-to-end multi-user deployment:
+The statement "there is no RBAC" is too broad. The hardening branch now closes the application-layer actor boundary:
 
-- The live development path still bootstraps a configured internal actor for chat.
-- The production-upgrade plan says OIDC actor resolution and consistent signed capability propagation are P0 work.
-- The plan records P0/P1 work as implemented and verified in an isolated worktree, but uncommitted and unmerged at the time it was written.
+- OIDC identities are mapped to a server-owned actor; browser-supplied actor fields are removed.
+- Semantic metrics, traceability, and records use a short-lived signed actor capability, and FastAPI reconstructs `actorScope` from the verified capability rather than trusting the body.
+- All 22 tools are classified as metadata, scope-aware data, or internal-only. Scoped OIDC users are denied before execution for internal-only or future unclassified tools.
+- LangGraph and file checkpoints use an actor/scope-derived opaque persistence key, so a reused client thread ID cannot cross actor boundaries.
 
-The accurate status is **partial RLS/field-policy infrastructure; no proven deployed per-user end-to-end authorization boundary in this checkout**. This is a higher priority than adding another reasoning pattern.
+The remaining gap is deployment-level proof: the real IdP mapping, authenticated gateway, data-platform row/column enforcement, external retention, and adversarial cross-scope tests must pass in the target environment. The accurate status is **application-layer RLS closure implemented and tested; production multi-user deployment not yet qualified**.
 
 ### Evaluation
 
-The repository has routing, semantic, execution, and citation golden fixtures. That is a good start, but it is not yet an accuracy program:
+The repository has routing, semantic, execution, policy, quality, and citation golden fixtures plus a commit-bound qualification artifact. That is a good engineering gate, but it is not yet an accuracy program:
 
 - There is no reported execution-accuracy baseline, trend line, or regression gate against a stable production-like snapshot.
-- Existing tests verify intended routing, policies, and fixtures more than user-task correctness at scale.
+- Existing tests verify intended routing, policies, evidence release, and fixtures more than user-task correctness at scale.
+- The qualification payload deliberately declares `evidenceClass=deterministic_fixture` and `productionSnapshot=false`; dirty checkouts, failed gates, or commit/Ontology/fixture drift cannot verify.
 - The production plan itself calls for execution and policy scorecards as a P0 requirement.
 
 The correct goal is **task evaluation**, not only exact SQL evaluation. For a system intentionally designed not to generate arbitrary SQL, compare expected semantic plan, allowed tool sequence, result set or invariant, evidence/provenance, and policy decision. Exact SQL can remain a secondary measure for any eventual raw-SQL capability.
@@ -208,21 +210,21 @@ Avoid a two-axis chart that labels a product as highly accurate before it has a 
 | Dimension | Current assessed level | Reason |
 | --- | --- | --- |
 | DTSV/Q-Gate domain semantics | High | Curated ontology, rules, traceability, coverage and defect-history assets |
-| Query safety and provenance | Medium-high | Bounded plans, toolsets, audits, citation gate, but multi-user authorization deployment remains incomplete |
+| Query safety and provenance | High at application layer | Bounded plans, runtime publication, signed scope, pre-release evidence gate and audits; target deployment qualification remains incomplete |
 | Generic NL2SQL breadth | Low by design | Structured semantic providers rather than arbitrary SQL generation |
 | Measured task accuracy | Unknown | Golden fixtures exist but no authoritative benchmark trend or execution scorecard |
 | Consumer visualization UX | Low | Visualization plans exist; rendering and conversational edits do not |
 | Proactive intelligence | Low | No connected anomaly/root-cause loop or controlled notification program |
 | Federation | Low | One governed source family and hot snapshots; no source-adapter contract |
-| Enterprise multi-user operability | Partial | Capability/RLS infrastructure exists; per-user production boundary remains a release gate |
+| Enterprise multi-user operability | Medium | Application actor/RLS/thread isolation is implemented; IdP, gateway, data-platform and operational deployment remain release gates |
 
 This is a credible foundation, but it is not yet the upper-right product in the original diagram. The target state can be upper-right after it demonstrates task accuracy and produces evidence-backed, useful actions repeatedly in the DTSV workflow.
 
 ## Recommended Priority Order
 
-### P0.0: Complete and deploy the authenticated actor boundary
+### P0.0: Deploy and independently qualify the authenticated actor boundary
 
-Merge and qualify the P0 authorization work before claiming enterprise RBAC. Confirm that every agent tool uses a server-derived actor, a signed capability, row filters, sensitive-field policy, and a complete audit record. This is more strategically important than a second model or a chart renderer because it determines whether the product can safely serve multiple users.
+The application-layer P0 work is implemented in the hardening branch. Before claiming enterprise RBAC, deploy it behind the target authenticated gateway and confirm the real IdP mapping, data-source row/column policies, cross-scope denial, audit retention, rate/concurrency limits, and rollback procedure. This is more strategically important than a second model or a chart renderer because it determines whether the product can safely serve multiple users.
 
 ### P0.1: Build a task-and-policy scorecard
 

@@ -1,0 +1,603 @@
+{
+  "schemaVersion": "1.0",
+  "ontologyVersion": "v1",
+  "ontologyFingerprint": "7867a37a7a928d8c37ce61dde78eef3b1e01f0b0ef0d324d9752f6d3a815d611",
+  "summary": {
+    "approvedMetricCount": 17,
+    "runtimeReadyMetricCount": 9,
+    "approvedPlannedMetricCount": 8
+  },
+  "runtimeReadyMetricIds": [
+    "defect.count",
+    "defect.created_count",
+    "defect.severe_count",
+    "team.defect_discovery_count",
+    "team.execution_count",
+    "testing.failed_run_count",
+    "testing.passed_run_count",
+    "testing.run_count",
+    "testing.testcase_count"
+  ],
+  "approvedPlannedMetricIds": [
+    "defect.showstopper_count",
+    "defect.top_issue_count",
+    "kpi.config_coverage_models",
+    "kpi.config_coverage_variants",
+    "kpi.defect_detection_ratio",
+    "kpi.defect_rejection_rate",
+    "kpi.function_coverage",
+    "kpi.regression_coverage"
+  ],
+  "adapters": [
+    {
+      "adapterId": "python.semantic.defects",
+      "adapterVersion": "1.0.0",
+      "metricIds": [
+        "defect.count",
+        "defect.created_count",
+        "defect.severe_count",
+        "team.defect_discovery_count"
+      ],
+      "dimensionBindings": {
+        "time.defect_creation_date": "creation_time",
+        "org.problem_finder_team": "problem_finder_team",
+        "product.project": "project",
+        "product.service_pack": "service_pack",
+        "product.pu": "pu",
+        "product.i_step": "i_step",
+        "product.os": "os",
+        "product.platform": "platform",
+        "product.ecu": "assigned_ecu",
+        "vehicle.model_series": "model_series",
+        "requirements.aida": "aida",
+        "quality.phase": "phase",
+        "quality.severity": "problem_severity",
+        "quality.business_impact": "problem_severity",
+        "quality.reporting_class": "classification",
+        "quality.status": "status",
+        "quality.china_scope": "china_scope"
+      }
+    },
+    {
+      "adapterId": "python.semantic.test_runs",
+      "adapterVersion": "1.0.0",
+      "metricIds": [
+        "testing.run_count",
+        "testing.passed_run_count",
+        "testing.failed_run_count",
+        "team.execution_count"
+      ],
+      "dimensionBindings": {
+        "time.test_finished_date": "finished",
+        "org.tester": "tester",
+        "org.team": "team",
+        "product.project": "project",
+        "product.pu": "pu",
+        "requirements.aida": "aida",
+        "testing.run_status": "status",
+        "time.test_week": "test_week"
+      }
+    },
+    {
+      "adapterId": "python.semantic.testcases",
+      "adapterVersion": "1.0.0",
+      "metricIds": [
+        "testing.testcase_count"
+      ],
+      "dimensionBindings": {
+        "product.project": "project",
+        "product.pu": "pu",
+        "requirements.aida": "aida"
+      }
+    }
+  ],
+  "metrics": [
+    {
+      "metricId": "defect.age_days",
+      "governanceStatus": "draft",
+      "runtimeStatus": "planned",
+      "allowedDimensions": [
+        "time.defect_creation_date",
+        "org.problem_finder_team",
+        "product.project",
+        "product.pu",
+        "product.ecu",
+        "quality.status",
+        "quality.severity",
+        "quality.solution_cluster",
+        "quality.defect_category",
+        "quality.reporting_class",
+        "quality.user_tags",
+        "quality.market",
+        "quality.blocking_reason",
+        "quality.detected_in_release",
+        "quality.parent_child_type",
+        "vehicle.lead_model",
+        "time.defect_last_modified"
+      ]
+    },
+    {
+      "metricId": "defect.count",
+      "governanceStatus": "approved",
+      "runtimeStatus": "ready",
+      "adapterId": "python.semantic.defects",
+      "adapterVersion": "1.0.0",
+      "allowedDimensions": [
+        "time.defect_creation_date",
+        "org.problem_finder_team",
+        "product.project",
+        "product.service_pack",
+        "product.pu",
+        "product.i_step",
+        "product.os",
+        "product.platform",
+        "product.ecu",
+        "vehicle.model_series",
+        "requirements.aida",
+        "quality.phase",
+        "quality.severity",
+        "quality.business_impact",
+        "quality.status",
+        "quality.china_scope",
+        "quality.reporting_class"
+      ]
+    },
+    {
+      "metricId": "defect.created_count",
+      "governanceStatus": "approved",
+      "runtimeStatus": "ready",
+      "adapterId": "python.semantic.defects",
+      "adapterVersion": "1.0.0",
+      "allowedDimensions": [
+        "time.defect_creation_date",
+        "org.problem_finder_team",
+        "product.project",
+        "product.pu",
+        "product.os",
+        "product.ecu",
+        "requirements.aida",
+        "quality.phase",
+        "quality.severity",
+        "quality.business_impact",
+        "quality.china_scope",
+        "quality.reporting_class"
+      ]
+    },
+    {
+      "metricId": "defect.long_runner_count",
+      "governanceStatus": "draft",
+      "runtimeStatus": "planned",
+      "allowedDimensions": [
+        "time.defect_creation_date",
+        "org.problem_finder_team",
+        "product.project",
+        "product.pu",
+        "product.ecu",
+        "quality.status",
+        "quality.severity",
+        "quality.solution_cluster",
+        "quality.defect_category",
+        "quality.reporting_class",
+        "quality.user_tags",
+        "quality.market",
+        "quality.blocking_reason",
+        "quality.detected_in_release",
+        "quality.parent_child_type",
+        "vehicle.lead_model",
+        "time.defect_last_modified"
+      ]
+    },
+    {
+      "metricId": "defect.open_count",
+      "governanceStatus": "draft",
+      "runtimeStatus": "planned",
+      "allowedDimensions": [
+        "time.defect_creation_date",
+        "org.problem_finder_team",
+        "product.project",
+        "product.pu",
+        "product.ecu",
+        "quality.phase",
+        "quality.status",
+        "quality.solution_cluster",
+        "quality.defect_category",
+        "quality.reporting_class",
+        "quality.user_tags",
+        "quality.market",
+        "quality.blocking_reason",
+        "quality.detected_in_release",
+        "quality.parent_child_type",
+        "vehicle.lead_model",
+        "time.defect_last_modified"
+      ]
+    },
+    {
+      "metricId": "defect.rejected_count",
+      "governanceStatus": "draft",
+      "runtimeStatus": "planned",
+      "allowedDimensions": [
+        "time.defect_creation_date",
+        "org.problem_finder_team",
+        "product.project",
+        "product.pu",
+        "quality.phase",
+        "quality.status",
+        "quality.solution_cluster",
+        "quality.defect_category",
+        "quality.reporting_class",
+        "quality.user_tags",
+        "quality.market",
+        "quality.blocking_reason",
+        "quality.detected_in_release",
+        "quality.parent_child_type",
+        "vehicle.lead_model",
+        "time.defect_last_modified"
+      ]
+    },
+    {
+      "metricId": "defect.rejection_rate",
+      "governanceStatus": "draft",
+      "runtimeStatus": "planned",
+      "allowedDimensions": [
+        "time.defect_creation_date",
+        "org.problem_finder_team",
+        "product.project",
+        "product.pu",
+        "product.ecu",
+        "quality.solution_cluster",
+        "quality.defect_category",
+        "quality.reporting_class",
+        "quality.user_tags",
+        "quality.market",
+        "quality.blocking_reason",
+        "quality.detected_in_release",
+        "quality.parent_child_type",
+        "vehicle.lead_model",
+        "time.defect_last_modified"
+      ]
+    },
+    {
+      "metricId": "defect.repeat_rate",
+      "governanceStatus": "draft",
+      "runtimeStatus": "planned",
+      "allowedDimensions": [
+        "time.defect_creation_date",
+        "org.problem_finder_team",
+        "product.project",
+        "product.pu",
+        "product.ecu",
+        "quality.solution_cluster",
+        "quality.defect_category",
+        "quality.reporting_class",
+        "quality.user_tags",
+        "quality.market",
+        "quality.blocking_reason",
+        "quality.detected_in_release",
+        "quality.parent_child_type",
+        "vehicle.lead_model",
+        "time.defect_last_modified"
+      ]
+    },
+    {
+      "metricId": "defect.resolve_rate",
+      "governanceStatus": "draft",
+      "runtimeStatus": "planned",
+      "allowedDimensions": [
+        "time.defect_creation_date",
+        "org.problem_finder_team",
+        "product.project",
+        "product.pu",
+        "product.ecu",
+        "quality.solution_cluster",
+        "quality.defect_category",
+        "quality.reporting_class",
+        "quality.user_tags",
+        "quality.market",
+        "quality.blocking_reason",
+        "quality.detected_in_release",
+        "quality.parent_child_type",
+        "vehicle.lead_model",
+        "time.defect_last_modified"
+      ]
+    },
+    {
+      "metricId": "defect.resolved_count",
+      "governanceStatus": "draft",
+      "runtimeStatus": "planned",
+      "allowedDimensions": [
+        "time.defect_resolution_date",
+        "org.problem_finder_team",
+        "product.project",
+        "product.pu",
+        "product.ecu",
+        "quality.phase",
+        "quality.status",
+        "quality.solution_cluster",
+        "quality.defect_category",
+        "quality.reporting_class",
+        "quality.user_tags",
+        "quality.market",
+        "quality.blocking_reason",
+        "quality.detected_in_release",
+        "quality.parent_child_type",
+        "vehicle.lead_model",
+        "time.defect_last_modified"
+      ]
+    },
+    {
+      "metricId": "defect.severe_count",
+      "governanceStatus": "approved",
+      "runtimeStatus": "ready",
+      "adapterId": "python.semantic.defects",
+      "adapterVersion": "1.0.0",
+      "allowedDimensions": [
+        "time.defect_creation_date",
+        "org.problem_finder_team",
+        "product.project",
+        "product.pu",
+        "product.ecu",
+        "quality.phase",
+        "quality.business_impact",
+        "quality.reporting_class",
+        "quality.status"
+      ]
+    },
+    {
+      "metricId": "defect.showstopper_count",
+      "governanceStatus": "approved",
+      "runtimeStatus": "planned",
+      "allowedDimensions": [
+        "time.defect_creation_date"
+      ]
+    },
+    {
+      "metricId": "defect.top_issue_count",
+      "governanceStatus": "approved",
+      "runtimeStatus": "planned",
+      "allowedDimensions": [
+        "time.defect_creation_date"
+      ]
+    },
+    {
+      "metricId": "kpi.config_coverage_models",
+      "governanceStatus": "approved",
+      "runtimeStatus": "planned",
+      "allowedDimensions": [
+        "time.defect_creation_date"
+      ]
+    },
+    {
+      "metricId": "kpi.config_coverage_variants",
+      "governanceStatus": "approved",
+      "runtimeStatus": "planned",
+      "allowedDimensions": [
+        "time.defect_creation_date"
+      ]
+    },
+    {
+      "metricId": "kpi.defect_detection_ratio",
+      "governanceStatus": "approved",
+      "runtimeStatus": "planned",
+      "allowedDimensions": [
+        "time.defect_creation_date"
+      ]
+    },
+    {
+      "metricId": "kpi.defect_rejection_rate",
+      "governanceStatus": "approved",
+      "runtimeStatus": "planned",
+      "allowedDimensions": [
+        "time.defect_creation_date"
+      ]
+    },
+    {
+      "metricId": "kpi.function_coverage",
+      "governanceStatus": "approved",
+      "runtimeStatus": "planned",
+      "allowedDimensions": [
+        "time.defect_creation_date"
+      ]
+    },
+    {
+      "metricId": "kpi.regression_coverage",
+      "governanceStatus": "approved",
+      "runtimeStatus": "planned",
+      "allowedDimensions": [
+        "time.defect_creation_date"
+      ]
+    },
+    {
+      "metricId": "quality.defect_density",
+      "governanceStatus": "draft",
+      "runtimeStatus": "planned",
+      "allowedDimensions": [
+        "time.defect_creation_date",
+        "org.problem_finder_team",
+        "product.project",
+        "product.service_pack",
+        "product.pu",
+        "product.ecu",
+        "quality.solution_cluster",
+        "quality.defect_category",
+        "quality.reporting_class",
+        "quality.user_tags",
+        "quality.market",
+        "quality.blocking_reason",
+        "quality.detected_in_release",
+        "quality.parent_child_type",
+        "vehicle.lead_model",
+        "time.defect_last_modified"
+      ]
+    },
+    {
+      "metricId": "team.defect_discovery_count",
+      "governanceStatus": "approved",
+      "runtimeStatus": "ready",
+      "adapterId": "python.semantic.defects",
+      "adapterVersion": "1.0.0",
+      "allowedDimensions": [
+        "time.defect_creation_date",
+        "org.problem_finder_team",
+        "product.project",
+        "product.pu",
+        "product.ecu",
+        "quality.severity",
+        "quality.reporting_class"
+      ]
+    },
+    {
+      "metricId": "team.discovery_efficiency",
+      "governanceStatus": "draft",
+      "runtimeStatus": "planned",
+      "allowedDimensions": [
+        "time.defect_creation_date",
+        "org.problem_finder_team",
+        "product.project",
+        "product.pu"
+      ]
+    },
+    {
+      "metricId": "team.execution_count",
+      "governanceStatus": "approved",
+      "runtimeStatus": "ready",
+      "adapterId": "python.semantic.test_runs",
+      "adapterVersion": "1.0.0",
+      "allowedDimensions": [
+        "time.test_finished_date",
+        "time.test_week",
+        "org.tester",
+        "org.team",
+        "product.project",
+        "product.pu",
+        "requirements.aida"
+      ]
+    },
+    {
+      "metricId": "testing.fail_rate",
+      "governanceStatus": "draft",
+      "runtimeStatus": "planned",
+      "allowedDimensions": [
+        "time.test_finished_date",
+        "time.test_week",
+        "org.tester",
+        "org.team",
+        "product.project",
+        "product.pu",
+        "requirements.aida",
+        "testing.domain",
+        "testing.test_phase",
+        "testing.testing_tool_type",
+        "product.release",
+        "time.run_started"
+      ]
+    },
+    {
+      "metricId": "testing.failed_run_count",
+      "governanceStatus": "approved",
+      "runtimeStatus": "ready",
+      "adapterId": "python.semantic.test_runs",
+      "adapterVersion": "1.0.0",
+      "allowedDimensions": [
+        "time.test_finished_date",
+        "time.test_week",
+        "org.tester",
+        "org.team",
+        "product.project",
+        "product.pu",
+        "requirements.aida"
+      ]
+    },
+    {
+      "metricId": "testing.pass_rate",
+      "governanceStatus": "draft",
+      "runtimeStatus": "planned",
+      "allowedDimensions": [
+        "time.test_finished_date",
+        "time.test_week",
+        "org.tester",
+        "org.team",
+        "product.project",
+        "product.pu",
+        "requirements.aida",
+        "testing.domain",
+        "testing.test_phase",
+        "testing.testing_tool_type",
+        "product.release",
+        "time.run_started"
+      ]
+    },
+    {
+      "metricId": "testing.passed_run_count",
+      "governanceStatus": "approved",
+      "runtimeStatus": "ready",
+      "adapterId": "python.semantic.test_runs",
+      "adapterVersion": "1.0.0",
+      "allowedDimensions": [
+        "time.test_finished_date",
+        "time.test_week",
+        "org.tester",
+        "org.team",
+        "product.project",
+        "product.pu",
+        "requirements.aida"
+      ]
+    },
+    {
+      "metricId": "testing.requirement_coverage_rate",
+      "governanceStatus": "draft",
+      "runtimeStatus": "planned",
+      "allowedDimensions": [
+        "product.project",
+        "product.pu",
+        "requirements.aida"
+      ]
+    },
+    {
+      "metricId": "testing.run_count",
+      "governanceStatus": "approved",
+      "runtimeStatus": "ready",
+      "adapterId": "python.semantic.test_runs",
+      "adapterVersion": "1.0.0",
+      "allowedDimensions": [
+        "time.test_finished_date",
+        "time.test_week",
+        "org.tester",
+        "org.team",
+        "product.project",
+        "product.pu",
+        "requirements.aida",
+        "testing.run_status"
+      ]
+    },
+    {
+      "metricId": "testing.testcase_count",
+      "governanceStatus": "approved",
+      "runtimeStatus": "ready",
+      "adapterId": "python.semantic.testcases",
+      "adapterVersion": "1.0.0",
+      "allowedDimensions": [
+        "product.project",
+        "product.pu",
+        "requirements.aida"
+      ]
+    },
+    {
+      "metricId": "testing.traceability_rate",
+      "governanceStatus": "draft",
+      "runtimeStatus": "planned",
+      "allowedDimensions": [
+        "time.test_finished_date",
+        "time.test_week",
+        "org.team",
+        "product.project",
+        "product.pu",
+        "requirements.aida",
+        "testing.domain",
+        "testing.test_phase",
+        "testing.testing_tool_type",
+        "product.release",
+        "time.run_started"
+      ]
+    }
+  ]
+}

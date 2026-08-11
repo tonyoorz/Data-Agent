@@ -9,6 +9,8 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+import backend.analytics.api as analytics_api
+from backend.analytics.agent_actor_capability import ACTOR_CAPABILITY_HEADER, create_actor_capability
 from backend.analytics.api import app
 from backend.analytics.ontology import OntologyCatalog, load_ontology, ontology_fingerprint
 from backend.analytics.semantic_analysis_store import SemanticAnalysisStore
@@ -16,6 +18,7 @@ from backend.analytics.semantic_query import SemanticQueryError, execute_semanti
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+API_CAPABILITY_SECRET = "semantic-api-capability-secret"
 
 
 @pytest.fixture(scope="module")
@@ -58,6 +61,28 @@ def _payload(catalog, *, metric_id: str = "defect.count", entity_id: str = "qual
     }
 
 
+def _capability_actor(catalog) -> dict[str, Any]:
+    actor_scope = _payload(catalog)["actorScope"]
+    return {
+        "actorId": actor_scope["actorId"],
+        "scopeHash": actor_scope["scopeHash"],
+        "scopes": {
+            key: values
+            for key, values in actor_scope.items()
+            if key not in {"actorId", "scopeHash"} and values
+        },
+    }
+
+
+def _capability_headers(catalog, *, token: str | None = None) -> dict[str, str]:
+    capability = token or create_actor_capability(
+        _capability_actor(catalog),
+        secret=API_CAPABILITY_SECRET,
+        nonce="semantic-api-capability-nonce",
+    )
+    return {ACTOR_CAPABILITY_HEADER: capability}
+
+
 def _catalog_with_deny_rule(catalog: OntologyCatalog, *, metric_id: str, intents: list[str]) -> OntologyCatalog:
     bundle = deepcopy(catalog.bundle)
     rule_id = "business.test.no_metric_execution"
@@ -92,10 +117,34 @@ def _catalog_with_derived_project_rule(catalog: OntologyCatalog, *, intents: lis
     return OntologyCatalog(version=catalog.version, fingerprint=ontology_fingerprint(bundle), bundle=bundle)
 
 
-def test_semantic_query_api_reads_json_body_and_returns_safe_error() -> None:
+def _catalog_with_derived_dimension_rule(
+    catalog: OntologyCatalog,
+    *,
+    metric_id: str,
+    dimension_id: str,
+    intents: list[str],
+) -> OntologyCatalog:
+    bundle = deepcopy(catalog.bundle)
+    rule_id = "business.test.derived_dimension"
+    bundle["businessRules"].append({
+        "id": rule_id,
+        "version": "1.0.0",
+        "kind": "derive",
+        "appliesTo": {"metricIds": [metric_id], "intents": intents},
+        "effect": {
+            "derivedFilter": {"dimensionId": dimension_id, "operator": "in", "values": ["Linux"]},
+            "message": "Test-only derived dimension.",
+        },
+        "governance": {"status": "approved", "owner": "Quality Analytics"},
+    })
+    return OntologyCatalog(version=catalog.version, fingerprint=ontology_fingerprint(bundle), bundle=bundle)
+
+
+def test_semantic_query_api_reads_json_body_and_returns_safe_error(catalog, monkeypatch) -> None:
+    monkeypatch.setenv("VIZION_AGENT_ACTOR_CAPABILITY_SECRET", API_CAPABILITY_SECRET)
     client = TestClient(app)
 
-    response = client.post("/api/semantic/query", json={})
+    response = client.post("/api/semantic/query", json={}, headers=_capability_headers(catalog))
 
     assert response.status_code == 400
     payload = response.json()
@@ -104,16 +153,94 @@ def test_semantic_query_api_reads_json_body_and_returns_safe_error() -> None:
     assert payload["retryable"] is False
 
 
-def test_semantic_records_api_reads_json_body_and_returns_safe_error() -> None:
+def test_semantic_records_api_reads_json_body_and_returns_safe_error(catalog, monkeypatch) -> None:
+    monkeypatch.setenv("VIZION_AGENT_ACTOR_CAPABILITY_SECRET", API_CAPABILITY_SECRET)
     client = TestClient(app)
 
-    response = client.post("/api/semantic/records", json={})
+    response = client.post("/api/semantic/records", json={}, headers=_capability_headers(catalog))
 
     assert response.status_code == 400
     payload = response.json()
     assert str(payload["code"]).startswith("SEMANTIC_RECORD_REQUEST_MISSING:")
     assert payload["safeMessage"] == "semantic records query rejected"
     assert payload["retryable"] is False
+
+
+@pytest.mark.parametrize("path", ["/api/semantic/query", "/api/semantic/records"])
+@pytest.mark.parametrize("capability_kind", ["missing", "tampered", "expired"])
+def test_semantic_apis_reject_missing_tampered_and_expired_capabilities(
+    path: str,
+    capability_kind: str,
+    catalog,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("VIZION_AGENT_ACTOR_CAPABILITY_SECRET", API_CAPABILITY_SECRET)
+    headers: dict[str, str] = {}
+    expected_code = "ACTOR_CAPABILITY_INVALID"
+    expected_status = 403
+    if capability_kind == "missing":
+        expected_code = "ACTOR_CAPABILITY_MISSING"
+        expected_status = 401
+    if capability_kind == "tampered":
+        token = _capability_headers(catalog)[ACTOR_CAPABILITY_HEADER]
+        altered = f"{token[:-1]}{'B' if token.endswith('A') else 'A'}"
+        headers = {ACTOR_CAPABILITY_HEADER: altered}
+    elif capability_kind == "expired":
+        expired = create_actor_capability(
+            _capability_actor(catalog),
+            secret=API_CAPABILITY_SECRET,
+            now=1_700_000_000,
+            ttl_seconds=1,
+            nonce="expired-semantic-capability",
+        )
+        headers = {ACTOR_CAPABILITY_HEADER: expired}
+        expected_code = "ACTOR_CAPABILITY_EXPIRED"
+
+    response = TestClient(app).post(path, json=_payload(catalog), headers=headers)
+
+    assert response.status_code == expected_status
+    assert response.json() == {
+        "code": expected_code,
+        "safeMessage": "agent capability rejected",
+        "retryable": False,
+    }
+
+
+def test_semantic_api_overwrites_untrusted_body_actor_scope_from_verified_capability(catalog, monkeypatch) -> None:
+    monkeypatch.setenv("VIZION_AGENT_ACTOR_CAPABILITY_SECRET", API_CAPABILITY_SECRET)
+    captured: dict[str, Any] = {}
+
+    def fake_execute(payload, **_kwargs):
+        captured.update(payload)
+        return {"ok": True}
+
+    monkeypatch.setattr(analytics_api, "execute_semantic_query", fake_execute)
+    payload = _payload(catalog)
+    payload["actorScope"] = {
+        "actorId": "mallory",
+        "scopeHash": "scope-admin",
+        "workspaceIds": ["*"],
+        "projectIds": ["*"],
+        "teamIds": ["Other Team"],
+        "allowedObjectTypes": ["*"],
+        "allowedPropertyIds": ["*"],
+        "rowPolicyIds": ["admin"],
+        "sensitiveFieldPolicyIds": ["unredacted"],
+    }
+
+    response = TestClient(app).post(
+        "/api/semantic/query",
+        json=payload,
+        headers=_capability_headers(catalog),
+    )
+
+    assert response.status_code == 200
+    expected_scope = _payload(catalog)["actorScope"]
+    expected_scope = {
+        key: sorted(value) if isinstance(value, list) else value
+        for key, value in expected_scope.items()
+    }
+    assert captured["actorScope"] == expected_scope
 
 
 def _records_payload(catalog, *, analysis_ref: str | None, query: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -173,6 +300,65 @@ def test_metric_result_issues_durable_analysis_ref_and_evidence(catalog, tmp_pat
     stored = store.load(result["analysisRef"], actor_scope_hash="scope-a")
     assert stored["query"] == payload["query"]
     assert stored["source_revision"]["revisionId"] == "snap-analysis-1"
+
+
+def test_approved_but_unpublished_metric_fails_before_provider_execution(catalog) -> None:
+    payload = _payload(catalog, metric_id="kpi.defect_detection_ratio")
+
+    with pytest.raises(SemanticQueryError, match="SEMANTIC_METRIC_NOT_RUNTIME_READY:kpi.defect_detection_ratio") as exc_info:
+        execute_semantic_query(
+            payload,
+            catalog=catalog,
+            defect_provider=lambda _filters: pytest.fail("planned metrics must not reach a provider"),
+        )
+
+    assert exc_info.value.status_code == 422
+
+
+def test_grouping_dimension_with_no_source_values_fails_closed(catalog) -> None:
+    payload = _payload(catalog)
+    payload["query"]["dimensionIds"] = ["product.ecu"]
+
+    with pytest.raises(SemanticQueryError, match="SEMANTIC_SOURCE_FIELD_UNAVAILABLE:product.ecu") as exc_info:
+        execute_semantic_query(
+            payload,
+            catalog=catalog,
+            defect_provider=lambda _filters: {
+                "snapshot_version": "missing-ecu-1",
+                "generated_from": {},
+                "ticket_rows": [
+                    {"ticket_id": "D-1", "problem_finder_team": "DTSV_China"},
+                    {"ticket_id": "D-2", "problem_finder_team": "DTSV_China", "assigned_ecu": None},
+                ],
+            },
+        )
+
+    assert exc_info.value.status_code == 422
+
+
+def test_grouping_dimension_with_partial_source_values_is_disclosed(catalog) -> None:
+    payload = _payload(catalog)
+    payload["query"]["dimensionIds"] = ["product.ecu"]
+
+    result = execute_semantic_query(
+        payload,
+        catalog=catalog,
+        defect_provider=lambda _filters: {
+            "snapshot_version": "partial-ecu-1",
+            "generated_from": {},
+            "ticket_rows": [
+                {"ticket_id": "D-1", "problem_finder_team": "DTSV_China", "assigned_ecu": "HU"},
+                {"ticket_id": "D-2", "problem_finder_team": "DTSV_China"},
+            ],
+        },
+    )
+
+    assert result["data"] == [
+        {"product.ecu": "(missing)", "defect.count": 1},
+        {"product.ecu": "HU", "defect.count": 1},
+    ]
+    assert result["quality"]["completeness"] == "partial"
+    assert result["quality"]["warnings"] == ["DIMENSION_VALUES_PARTIALLY_MISSING:product.ecu"]
 
 
 def test_records_continuation_returns_allowlisted_raw_rows_from_same_revision(catalog, tmp_path: Path) -> None:
@@ -315,6 +501,138 @@ def test_defect_metric_is_grouped_with_scope_and_revision(catalog) -> None:
     assert result["quality"]["completeness"] == "partial"
 
 
+def test_multi_metric_dimension_and_filter_allowlists_use_intersection_for_query_and_records(catalog, tmp_path: Path) -> None:
+    dimension_query = _payload(catalog)
+    dimension_query["query"]["metricIds"] = ["defect.count", "defect.created_count"]
+    dimension_query["query"]["dimensionIds"] = ["product.service_pack"]
+
+    with pytest.raises(
+        SemanticQueryError,
+        match="SEMANTIC_DIMENSION_NOT_ALLOWED:defect.created_count:product.service_pack",
+    ):
+        execute_semantic_query(dimension_query, catalog=catalog)
+
+    filter_query = _payload(catalog)
+    filter_query["query"]["metricIds"] = ["defect.count", "defect.created_count"]
+    filter_query["query"]["filters"].append({
+        "dimensionId": "product.service_pack",
+        "operator": "in",
+        "values": ["SP25"],
+        "source": "user",
+    })
+    with pytest.raises(
+        SemanticQueryError,
+        match="SEMANTIC_DIMENSION_NOT_ALLOWED:defect.created_count:product.service_pack",
+    ):
+        execute_semantic_query(filter_query, catalog=catalog)
+
+    record_query = deepcopy(dimension_query["query"])
+    record_query["intent"] = "list"
+    record_request = _records_payload(catalog, analysis_ref=None, query=record_query)
+    record_request["selections"] = []
+    with pytest.raises(
+        SemanticQueryError,
+        match="SEMANTIC_DIMENSION_NOT_ALLOWED:defect.created_count:product.service_pack",
+    ):
+        execute_semantic_records(
+            record_request,
+            catalog=catalog,
+            analysis_store=SemanticAnalysisStore(tmp_path / "metric-intersection-records.db"),
+        )
+
+
+def test_multi_metric_time_scope_uses_intersection_after_business_requirements(catalog) -> None:
+    bundle = deepcopy(catalog.bundle)
+    created_count = next(item for item in bundle["metrics"] if item["id"] == "defect.created_count")
+    created_count["allowedDimensions"].remove("time.defect_creation_date")
+    restricted_catalog = OntologyCatalog(
+        version=catalog.version,
+        fingerprint=ontology_fingerprint(bundle),
+        bundle=bundle,
+    )
+    payload = _payload(restricted_catalog)
+    payload["query"]["metricIds"] = ["defect.count", "defect.created_count"]
+    payload["query"]["timeScopes"] = [{
+        "role": "primary",
+        "fieldId": "time.defect_creation_date",
+        "start": "2026-07-01",
+        "end": "2026-07-15",
+        "timezone": "Asia/Shanghai",
+        "anchorAt": "2026-07-15T04:00:00.000Z",
+    }]
+
+    with pytest.raises(
+        SemanticQueryError,
+        match="SEMANTIC_DIMENSION_NOT_ALLOWED:defect.created_count:time.defect_creation_date",
+    ):
+        execute_semantic_query(payload, catalog=restricted_catalog)
+
+
+def test_business_rule_derived_dimensions_are_revalidated_for_query_and_records(catalog, tmp_path: Path) -> None:
+    derived_catalog = _catalog_with_derived_dimension_rule(
+        catalog,
+        metric_id="defect.severe_count",
+        dimension_id="product.os",
+        intents=["aggregate", "drilldown"],
+    )
+    payload = _payload(derived_catalog, metric_id="defect.severe_count")
+    with pytest.raises(
+        SemanticQueryError,
+        match="SEMANTIC_DIMENSION_NOT_ALLOWED:defect.severe_count:product.os",
+    ):
+        execute_semantic_query(payload, catalog=derived_catalog)
+
+    record_query = deepcopy(payload["query"])
+    record_query["intent"] = "list"
+    record_request = _records_payload(derived_catalog, analysis_ref=None, query=record_query)
+    record_request["selections"] = []
+    with pytest.raises(
+        SemanticQueryError,
+        match="SEMANTIC_DIMENSION_NOT_ALLOWED:defect.severe_count:product.os",
+    ):
+        execute_semantic_records(
+            record_request,
+            catalog=derived_catalog,
+            analysis_store=SemanticAnalysisStore(tmp_path / "derived-intersection-records.db"),
+        )
+
+
+def test_business_rule_derivation_can_satisfy_a_metric_required_filter(catalog) -> None:
+    bundle = deepcopy(catalog.bundle)
+    metric = next(item for item in bundle["metrics"] if item["id"] == "defect.count")
+    metric["requiredFilters"] = [*metric.get("requiredFilters", []), "product.os"]
+    bundle["businessRules"].append({
+        "id": "business.test.required_os_scope",
+        "version": "1.0.0",
+        "kind": "derive",
+        "appliesTo": {"metricIds": ["defect.count"], "intents": ["aggregate"]},
+        "effect": {
+            "derivedFilter": {"dimensionId": "product.os", "operator": "in", "values": ["Linux"]},
+            "message": "Test-only required OS scope.",
+        },
+        "governance": {"status": "approved", "owner": "Quality Analytics"},
+    })
+    derived_catalog = OntologyCatalog(
+        version=catalog.version,
+        fingerprint=ontology_fingerprint(bundle),
+        bundle=bundle,
+    )
+    payload = _payload(derived_catalog)
+
+    result = execute_semantic_query(
+        payload,
+        catalog=derived_catalog,
+        defect_provider=lambda _filters: {
+            "snapshot_version": "derived-required-filter-1",
+            "generated_from": {},
+            "ticket_rows": [{"ticket_id": "D-1", "problem_finder_team": "DTSV_China", "os": "Linux"}],
+        },
+    )
+
+    assert result["summary"]["metrics"]["defect.count"] == 1
+    assert "BUSINESS_RULE_DERIVE:business.test.required_os_scope" in result["businessRules"]["applied"]
+
+
 def test_approved_team_discovery_metric_is_executable(catalog) -> None:
     payload = _payload(catalog, metric_id="team.defect_discovery_count")
     payload["query"]["dimensionIds"] = ["org.problem_finder_team"]
@@ -404,7 +722,8 @@ def test_approved_required_time_rule_blocks_direct_semantic_metric_execution(cat
     assert exc_info.value.status_code == 400
 
 
-def test_semantic_api_returns_safe_business_rule_code_for_required_time_rejection(catalog) -> None:
+def test_semantic_api_returns_safe_business_rule_code_for_required_time_rejection(catalog, monkeypatch) -> None:
+    monkeypatch.setenv("VIZION_AGENT_ACTOR_CAPABILITY_SECRET", API_CAPABILITY_SECRET)
     payload = _payload(catalog, metric_id="defect.created_count")
     payload["query"]["timeScopes"] = [{
         "role": "primary",
@@ -415,7 +734,11 @@ def test_semantic_api_returns_safe_business_rule_code_for_required_time_rejectio
         "anchorAt": "2026-07-15T04:00:00.000Z",
     }]
 
-    response = TestClient(app).post("/api/semantic/query", json=payload)
+    response = TestClient(app).post(
+        "/api/semantic/query",
+        json=payload,
+        headers=_capability_headers(catalog),
+    )
 
     assert response.status_code == 400
     assert response.json() == {
@@ -820,6 +1143,89 @@ def test_traceability_passes_and_rechecks_team_scope(catalog) -> None:
                 "quality.defect.detected_in.test_run",
             ],
         },
+    }
+
+
+def test_traceability_returns_scope_bound_lineage_evidence(catalog, tmp_path: Path) -> None:
+    payload = _trace_payload(catalog)
+    store = SemanticAnalysisStore(tmp_path / "trace-evidence.db")
+    relationship_ids = [
+        "testing.test_case.validates.aida_node",
+        "testing.test_run.executes.test_case",
+        "quality.defect.detected_in.test_run",
+    ]
+    result = execute_semantic_query(
+        payload,
+        catalog=catalog,
+        analysis_store=store,
+        trace_provider=lambda _params: {
+            "summary": {"total_runs": 1},
+            "traceability_chain_rows": [{"run_id": "MR-1", "scope_team": "DTSV_China"}],
+        },
+    )
+
+    assert result["analysisRef"].startswith("analysis-")
+    assert result["evidence"] == {
+        "kind": "semantic_lineage_result",
+        "analysisRef": result["analysisRef"],
+        "sourceRevisionId": result["sourceRevision"]["revisionId"],
+        "rowCount": 1,
+        "relationshipIds": relationship_ids,
+    }
+    stored = store.load(result["analysisRef"], actor_scope_hash="scope-a")
+    assert stored["evidence"]["kind"] == "semantic_lineage_result"
+    assert stored["query"]["intent"] == "trace"
+
+    same_scope = _records_payload(catalog, analysis_ref=result["analysisRef"])
+    with pytest.raises(SemanticQueryError, match="SEMANTIC_RECORD_ANALYSIS_REF_KIND_INVALID") as exc_info:
+        execute_semantic_records(same_scope, catalog=catalog, analysis_store=store)
+    assert exc_info.value.status_code == 422
+
+    wrong_scope = _records_payload(catalog, analysis_ref=result["analysisRef"])
+    wrong_scope["actorScope"]["scopeHash"] = "scope-b"
+    with pytest.raises(SemanticQueryError, match="SEMANTIC_ANALYSIS_SCOPE_DENIED") as exc_info:
+        execute_semantic_records(wrong_scope, catalog=catalog, analysis_store=store)
+    assert exc_info.value.status_code == 403
+
+
+def test_traceability_api_publishes_the_lineage_evidence_envelope(catalog, tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("VIZION_AGENT_ACTOR_CAPABILITY_SECRET", API_CAPABILITY_SECRET)
+    store = SemanticAnalysisStore(tmp_path / "trace-api-evidence.db")
+
+    def execute_with_trace_provider(payload, **_kwargs):
+        return execute_semantic_query(
+            payload,
+            catalog=catalog,
+            analysis_store=store,
+            trace_provider=lambda _params: {
+                "summary": {"total_runs": 1},
+                "traceability_chain_rows": [{"run_id": "MR-1", "scope_team": "DTSV_China"}],
+            },
+        )
+
+    monkeypatch.setattr(analytics_api, "execute_semantic_query", execute_with_trace_provider)
+    payload = _trace_payload(catalog)
+    payload.pop("actorScope")
+
+    response = TestClient(app).post(
+        "/api/semantic/query",
+        json=payload,
+        headers=_capability_headers(catalog),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["scope"]["actorScopeHash"] == "scope-a"
+    assert body["evidence"] == {
+        "kind": "semantic_lineage_result",
+        "analysisRef": body["analysisRef"],
+        "sourceRevisionId": body["sourceRevision"]["revisionId"],
+        "rowCount": 1,
+        "relationshipIds": [
+            "testing.test_case.validates.aida_node",
+            "testing.test_run.executes.test_case",
+            "quality.defect.detected_in.test_run",
+        ],
     }
 
 

@@ -45,7 +45,13 @@ describe("agent run summary", () => {
       ],
       events: [
         { runId: "run-1", type: "agent-stream-completed", latencyMs: 100, citationValidation: "pass" },
-        { runId: "run-2", type: "agent-stream-completed", latencyMs: 200, citationValidation: "blocked" },
+        {
+          runId: "run-2",
+          type: "agent-stream-completed",
+          terminalStatus: "completed",
+          latencyMs: 200,
+          citationValidation: "blocked",
+        },
         { runId: "run-3", type: "agent-stream-completed", latencyMs: 300, citationValidation: "pass" },
       ],
     });
@@ -128,6 +134,55 @@ describe("agent run summary", () => {
     expect(text).not.toContain("run-safe-1");
     expect(text).not.toContain("thread-safe-1");
     expect(text).toContain("aaaaaaaaaaaaaaaaaaaaaaaa");
+  });
+
+  it("promotes a typed stream terminal failure into the operational outcome", () => {
+    const summary = summarizeRuns({
+      summaries: [{
+        runId: "run-stream-failed",
+        outcome: "completed",
+        evidenceStatus: "not_required",
+        toolNames: [],
+      }],
+      events: [{
+        runId: "run-stream-failed",
+        type: "agent-stream-completed",
+        terminalStatus: "failed",
+        failureCode: "FINAL_STREAM_FAILED",
+        citationValidation: "blocked",
+      }],
+    });
+
+    expect(summary).toMatchObject({
+      byOutcome: { failed: 1 },
+      citationValidation: { blocked: 1 },
+      topFailureCodes: [{ code: "FINAL_STREAM_FAILED", count: 1 }],
+      runs: [{ outcome: "failed", failureCode: "FINAL_STREAM_FAILED" }],
+    });
+  });
+
+  it("reports an evidence-blocked terminal decision as blocked rather than completed", () => {
+    const summary = summarizeRuns({
+      summaries: [{
+        runId: "run-evidence-blocked",
+        outcome: "completed",
+        evidenceStatus: "blocked",
+        toolNames: ["query_semantic_metrics"],
+      }],
+      events: [{
+        runId: "run-evidence-blocked",
+        type: "agent-stream-completed",
+        terminalStatus: "blocked",
+        citationValidation: "blocked",
+      }],
+    });
+
+    expect(summary).toMatchObject({
+      byOutcome: { blocked: 1 },
+      byEvidenceStatus: { blocked: 1 },
+      citationValidation: { blocked: 1 },
+      runs: [{ outcome: "blocked", citationValidation: "blocked" }],
+    });
   });
 
   it("does not expose caller-controlled run IDs, thread IDs, or unapproved tool names", () => {

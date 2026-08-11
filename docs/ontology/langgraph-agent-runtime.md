@@ -1,6 +1,6 @@
 # LangGraph Agent Runtime
 
-Vizion Lab uses the LangGraph runtime as the default internal AI Chat path. The legacy tool loop is still available as an explicit fallback, but new agent orchestration should be added through the LangGraph graph boundary.
+Vizion Lab uses one LangGraph runtime for the internal AI Chat path. New agent orchestration must be added through this graph boundary so actor scope, evidence validation, and terminal audit share one production contract.
 
 ## Runtime Mode
 
@@ -8,19 +8,10 @@ Vizion Lab uses the LangGraph runtime as the default internal AI Chat path. The 
 npm run dev:server
 ```
 
-Supported values:
+Supported value:
 
 - `langgraph`: default; uses `server/agentRuntime/langGraphChatRuntime.mjs` to orchestrate context resolution, tool routing, tool planning, and final streaming inputs.
-- `legacy`: explicit fallback; uses the existing `mainAgentToolLoop` directly from `server/index.mjs`.
-
-Unknown or empty values fall back to `langgraph`.
-
-To force the legacy path during rollback testing:
-
-```powershell
-$env:VIZION_AGENT_RUNTIME = "legacy"
-npm run dev:server
-```
+`legacy`, unknown, and empty values normalize to `langgraph`. `server/index.mjs` contains no alternate legacy chat branch; rollback changes must preserve the same governed runtime boundary.
 
 ## Architecture
 
@@ -41,7 +32,7 @@ The runtime intentionally reuses the existing tool/data layer:
 
 - `server/mainAgentTools.mjs` remains the tool registry and executor.
 - `server/mainAgentToolPlanning.mjs` owns shared tool selection, planning prompt context, policy-gated execution helpers, and empty-result diagnosis helpers used by LangGraph and the compatibility adapter.
-- `server/mainAgentToolLoop.mjs` remains only as the legacy compatibility bounded tool-planning loop used by the explicit `VIZION_AGENT_RUNTIME=legacy` fallback.
+- `server/mainAgentToolLoop.mjs` remains a direct test/development harness adapter and is not a server-entry runtime.
 - `server/mainAgentIntentRouter.mjs` and `server/mainAgentToolsets.mjs` define compact intent profiles and allowed toolsets used by the LangGraph routing node.
 - `/api/semantic/query` remains the ontology-governed semantic data plane.
 - `/api/ontology/context` remains the testcase-context path.
@@ -64,7 +55,7 @@ The current migration makes the graph boundary the default runtime and keeps the
 - JSON thread snapshots in `threads/<thread>.json`; these are audit/resume hints, not LangGraph-compatible durable checkpoints.
 - JSONL run event audit in `run-events.jsonl`.
 - JSONL tool-call audit in `tool-calls.jsonl`.
-- Explicit feature-flag fallback to the legacy compatibility runtime.
+- One server-entry runtime; unsupported or historical runtime flags normalize to LangGraph.
 
 The store location can be overridden:
 

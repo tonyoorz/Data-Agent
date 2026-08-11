@@ -107,6 +107,8 @@ The dev command starts three local services:
 | Local Node API | `http://127.0.0.1:3004` | AI chat, duplicate search, transcription |
 | Analytics API | `http://127.0.0.1:3003` | full-picture and analytics endpoints |
 
+The Node API binds to `127.0.0.1` and accepts only `localhost`/`127.0.0.1` Host and Origin values on the configured `VIZION_API_PORT` and `VIZION_WEB_PORT`. API POST bodies must use `application/json` and are capped at 16 MiB by default; set `VIZION_API_JSON_BODY_LIMIT_BYTES` to a positive byte count when a controlled local transcription workflow needs a different finite limit. Remote access requires an authenticated gateway rather than exposing the local listener directly.
+
 ### 5. Verify Services
 
 ```powershell
@@ -210,6 +212,8 @@ Default model order:
 
 The dashboard can run locally with its trusted internal principal. A shared or production deployment must use OIDC and keep the analytics service private.
 
+AI Chat has one production orchestration path: LangGraph. `VIZION_AGENT_RUNTIME=legacy`, empty values, and unknown values all normalize to `langgraph`; there is no legacy server-entry fallback. Keep rollback and migration changes inside the governed LangGraph path so actor scope, evidence release validation, and terminal audit cannot be bypassed.
+
 ### Authentication Modes
 
 | Mode | Intended use | Behavior |
@@ -226,7 +230,9 @@ $env:VIZION_OIDC_AUDIENCE = "vizion-lab"
 $env:VIZION_OIDC_JWKS_URI = "https://issuer.example.com/.well-known/jwks.json"
 ```
 
-`VIZION_OIDC_ISSUER` and `VIZION_OIDC_JWKS_URI` must use HTTPS. The browser sends its current Supabase/OIDC session token only in the `Authorization: Bearer` header for AI Chat; identity and scopes in the JSON request body are ignored.
+`VIZION_OIDC_ISSUER` and `VIZION_OIDC_JWKS_URI` must use HTTPS. The browser sends its current Supabase/OIDC session token only in the `Authorization: Bearer` header for AI Chat and transcription; identity and scopes in either JSON request body are ignored.
+
+AI Chat persistence is also actor-scoped. Authenticated conversations use an opaque actor-derived browser-storage namespace, switching actors immediately switches the visible conversation set, and the old origin-wide `dtsv.chat.v2` key is removed rather than migrated across accounts. Anonymous conversations are not persisted.
 
 Map verified subjects/groups to complete server-owned grants with `VIZION_AGENT_OIDC_SCOPE_POLICY_JSON`. A grant must include non-empty `allowedObjectTypes`; a user matching multiple different grants is denied rather than receiving a field-wise union.
 
@@ -261,7 +267,7 @@ Rotate the capability secret with a coordinated maintenance window:
 
 The current verifier accepts one secret at a time, so rolling one service before the other intentionally causes agent-only queries to fail closed. Keep FastAPI port `3003` bound to loopback or a private network; do not expose it directly to browsers. Place the Node API behind the authenticated reverse-proxy boundary for shared deployments.
 
-Duplicate search and the legacy allowlisted fallback query do not yet have row-scope enforcement. They are available only in `internal` mode; scoped OIDC actors receive a safe denial from the associated tools and `/api/ai/context` or `/api/duplicate-search*` routes. Do not re-enable them for OIDC users until their backend retrieval path enforces the same actor scope contract.
+Duplicate search and the legacy allowlisted fallback query do not yet have row-scope enforcement. They are available only in `internal` mode; scoped OIDC actors receive a safe denial from the associated tools and `/api/ai/context` or `/api/duplicate-search*` routes. The main Agent also refuses to release data claims from any legacy tool or implicit analytics/duplicate context without a complete evidence contract, including in internal mode. The dedicated duplicate-search UI remains separate. Do not re-enable these paths for OIDC users until their backend retrieval path enforces the same actor scope and evidence contract.
 
 ### Runtime Ontology Governance
 
@@ -291,34 +297,46 @@ Agent recovery never generates SQL, code, or a broader scope. A failed read is r
 
 Each recovery audit stores the original and revised query fingerprints, source tool call, applicable source plan, reason, and outcome. Filter relaxation, ambiguous catalog matches, policy denials, sensitivity denials, and multiple matching plan steps are never retried automatically.
 
-Semantic quality checks reject unsupported trace joins and unbounded many-to-many paths before source reads. Source freshness warnings, including `SOURCE_STALE`, appear in semantic tool context. The answer stream is instructed not to turn observational analytics into causality; cited unsupported causal claims emit `ANSWER_CAUSAL_CLAIM_UNSUPPORTED` in the answer-validation event.
+Semantic quality checks reject unsupported trace joins and unbounded many-to-many paths before source reads. Source freshness warnings, including `SOURCE_STALE`, appear in semantic tool context. Claim-bearing answers are buffered until every factual segment is citation-bound to a unique executed tool/evidence pair; citation markup does not bypass the causal check. Invalid answer text is discarded before release and emits machine-readable violations such as `ANSWER_CAUSAL_CLAIM_UNSUPPORTED`.
 
-### Qualification Baseline
+### Auditable Agent Qualification
 
-The following non-production qualification was recorded on 2026-08-04 after two consecutive clean runs:
+Generate a qualification artifact from the current checkout:
 
-| Check | Run 1 | Run 2 |
-| --- | ---: | ---: |
-| Agent scorecard | 6 files / 13 tests passed | 6 files / 13 tests passed |
-| Golden fixture cases | 134 defined cases | 134 defined cases |
-| P0 integrated Node suite | 18 files / 200 tests passed | 18 files / 200 tests passed |
-| Python capability/scope suite | 99 passed | 99 passed |
-| Production build | passed | passed |
+```powershell
+npm run agent:qualification
+```
 
-The 134 fixture cases comprise 12 routing, 113 semantic, 3 execution, and 6 policy scenarios. The synthetic non-production operations snapshot used for the qualification reported 2 completed runs, 1 correctly denied run, P50 `200 ms`, P95 `300 ms`, 2 citation passes, 1 citation block, and 1 bounded recovery. Those latency values validate aggregation only; they are not a production latency SLO.
+The mandatory gates actually execute the deterministic Agent fixture suite and `ontology:check`. Add the complete Node test suite and production build when qualifying a release:
+
+```powershell
+npm run agent:qualification -- --full --build
+```
+
+The command writes `artifacts/agent-qualification/latest.json` atomically and exits non-zero when any selected command fails, the checkout is dirty before or after the run, or repository state changes while the gates are running. The artifact records the Git commit and dirty state, Node version, Ontology fingerprint, runtime-ready/planned metric counts, every target JSONL fixture's case count and SHA-256, and each executed command's duration and exit code. It never records environment-variable values or credentials.
+
+Verify the payload hash and compare the artifact with the current commit, Ontology fingerprint, runtime capability report, and fixture files:
+
+```powershell
+npm run agent:qualification:verify
+```
+
+Use `--output <path>` with either command for a CI artifact location. A generated path inside the checkout must be Git-ignored so the artifact cannot make its own checkout dirty; an output path outside the checkout is also accepted. Verification rejects modified payloads, a different or dirty checkout, Ontology fingerprint drift, runtime capability drift, fixture drift, failed/missing gates, or an artifact whose evidence classification was changed. The payload SHA-256 is an integrity checksum, not a cryptographic signature or independent provenance attestation.
+
+`evidenceClass` is always `deterministic_fixture` and `productionSnapshot` is always `false`. A pass means only that the checked-in deterministic fixtures and selected repository gates passed; it is not a production-data result, model accuracy measurement, latency SLO, or proof of business effectiveness. Python is not invoked implicitly. Run an explicitly selected virtual-environment interpreter separately when a release policy also requires Python tests.
 
 Repeat the full qualification twice after any OIDC policy, actor-capability, agent route, tool recovery, Ontology, or model-streaming change.
 
 ### Operations Audit and Retention
 
-LangGraph writes append-only runtime artifacts below `logs/agent-runtime/` by default:
+LangGraph writes append-only runtime artifacts below `logs/agent-runtime/` by default. The root/subdirectories are forced to mode `0700` and files to `0600` on supported hosts:
 
 - `run-summaries.jsonl`: normalized summary records
 - `run-events.jsonl`: lifecycle and stream-completion events
 - `tool-calls.jsonl`: tool audit records
 - `threads/`: checkpoints
 
-The Agent Operations page requires the server-resolved `agent.operations.read` row policy. Its API returns opaque run references and sanitized timeline fields only. Raw audit files still require filesystem access control because they are operational logs. Configure external retention and backup jobs; a recommended starting policy is 30 days for raw events/tool audits, 90 days for summaries, and no backup of thread checkpoints unless an approved incident process requires it.
+The file store uses an explicit allowlist: it derives scope-bound opaque run/thread references and retains only scope hashes, plan/fingerprint identifiers, tool/recovery outcomes, evidence status, terminal status and stable failure codes. It drops raw query text, client-provided run/thread IDs, actor identity/grants, tool input/output and stacks; process metrics retain query length only, never a query preview. The Agent Operations page still requires the server-resolved `agent.operations.read` row policy, and external storage must enforce equivalent access control and encryption. Configure retention and backup jobs; a recommended starting policy is 30 days for events/tool audits, 90 days for summaries, and no backup of thread checkpoints unless an approved incident process requires it.
 
 ### Emergency Rollback
 
@@ -342,7 +360,15 @@ npm test
 .\.venv\Scripts\python.exe -m pytest backend\tests -q
 ```
 
-Agent qualification scorecard:
+Auditable Agent qualification artifact:
+
+```powershell
+npm run agent:qualification
+npm run agent:qualification -- --full --build
+npm run agent:qualification:verify
+```
+
+Run only the deterministic fixture suite without generating an artifact:
 
 ```powershell
 npm run test:agent-evals

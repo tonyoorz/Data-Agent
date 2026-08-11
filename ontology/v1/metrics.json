@@ -5,6 +5,7 @@
     {
       "id": "defect.count",
       "definitionVersion": "1.0.0",
+      "runtime": { "status": "ready", "adapterId": "python.semantic.defects", "adapterVersion": "1.0.0" },
       "labels": {
         "zh-CN": "缺陷数",
         "en-US": "Defect Count"
@@ -32,16 +33,7 @@
         "quality.business_impact",
         "quality.status",
         "quality.china_scope",
-        "quality.solution_cluster",
-        "quality.defect_category",
-        "quality.reporting_class",
-        "quality.user_tags",
-        "quality.market",
-        "quality.blocking_reason",
-        "quality.detected_in_release",
-        "quality.parent_child_type",
-        "vehicle.lead_model",
-        "time.defect_last_modified"
+        "quality.reporting_class"
       ],
       "requiredFilters": [],
       "missingDataPolicy": "zero_when_empty_result",
@@ -60,6 +52,7 @@
     {
       "id": "defect.created_count",
       "definitionVersion": "1.0.0",
+      "runtime": { "status": "ready", "adapterId": "python.semantic.defects", "adapterVersion": "1.0.0" },
       "labels": {
         "zh-CN": "新建缺陷数",
         "en-US": "Created Defect Count"
@@ -82,16 +75,7 @@
         "quality.severity",
         "quality.business_impact",
         "quality.china_scope",
-        "quality.solution_cluster",
-        "quality.defect_category",
-        "quality.reporting_class",
-        "quality.user_tags",
-        "quality.market",
-        "quality.blocking_reason",
-        "quality.detected_in_release",
-        "quality.parent_child_type",
-        "vehicle.lead_model",
-        "time.defect_last_modified"
+        "quality.reporting_class"
       ],
       "requiredFilters": [],
       "missingDataPolicy": "zero_when_empty_result",
@@ -110,6 +94,7 @@
     {
       "id": "defect.resolved_count",
       "definitionVersion": "1.0.0",
+      "runtime": { "status": "planned" },
       "labels": {
         "zh-CN": "解决缺陷数",
         "en-US": "Resolved Defect Count"
@@ -157,6 +142,7 @@
     {
       "id": "defect.rejected_count",
       "definitionVersion": "1.0.0",
+      "runtime": { "status": "planned" },
       "labels": {
         "zh-CN": "拒绝缺陷数",
         "en-US": "Rejected Defect Count"
@@ -203,6 +189,7 @@
     {
       "id": "defect.open_count",
       "definitionVersion": "1.0.0",
+      "runtime": { "status": "planned" },
       "labels": {
         "zh-CN": "未关闭缺陷数",
         "en-US": "Open Defect Count"
@@ -250,6 +237,7 @@
     {
       "id": "defect.resolve_rate",
       "definitionVersion": "1.0.0",
+      "runtime": { "status": "planned" },
       "labels": {
         "zh-CN": "缺陷解决率",
         "en-US": "Defect Resolution Rate"
@@ -296,6 +284,7 @@
     {
       "id": "defect.rejection_rate",
       "definitionVersion": "1.0.0",
+      "runtime": { "status": "planned" },
       "labels": {
         "zh-CN": "缺陷拒绝率",
         "en-US": "Defect Rejection Rate"
@@ -342,6 +331,7 @@
     {
       "id": "defect.age_days",
       "definitionVersion": "1.0.0",
+      "runtime": { "status": "planned" },
       "labels": {
         "zh-CN": "缺陷年龄",
         "en-US": "Defect Age"
@@ -389,6 +379,7 @@
     {
       "id": "defect.long_runner_count",
       "definitionVersion": "1.0.0",
+      "runtime": { "status": "planned" },
       "labels": {
         "zh-CN": "长期未解决缺陷数",
         "en-US": "Long-running Defect Count"
@@ -436,6 +427,7 @@
     {
       "id": "defect.repeat_rate",
       "definitionVersion": "1.0.0",
+      "runtime": { "status": "planned" },
       "labels": {
         "zh-CN": "重复缺陷率",
         "en-US": "Repeated Defect Rate"
@@ -482,6 +474,7 @@
     {
       "id": "testing.run_count",
       "definitionVersion": "1.0.0",
+      "runtime": { "status": "ready", "adapterId": "python.semantic.test_runs", "adapterVersion": "1.0.0" },
       "labels": {
         "zh-CN": "测试执行数",
         "en-US": "Test Run Count"
@@ -500,12 +493,7 @@
         "product.project",
         "product.pu",
         "requirements.aida",
-        "testing.run_status",
-        "testing.domain",
-        "testing.test_phase",
-        "testing.testing_tool_type",
-        "product.release",
-        "time.run_started"
+        "testing.run_status"
       ],
       "requiredFilters": [],
       "missingDataPolicy": "zero_when_empty_result",
@@ -524,6 +512,7 @@
     {
       "id": "testing.testcase_count",
       "definitionVersion": "1.0.0",
+      "runtime": { "status": "ready", "adapterId": "python.semantic.testcases", "adapterVersion": "1.0.0" },
       "labels": {
         "zh-CN": "测试用例数",
         "en-US": "Test Case Count"
@@ -556,6 +545,7 @@
     {
       "id": "testing.passed_run_count",
       "definitionVersion": "1.0.0",
+      "runtime": { "status": "ready", "adapterId": "python.semantic.test_runs", "adapterVersion": "1.0.0" },
       "labels": {
         "zh-CN": "通过测试执行数",
         "en-US": "Passed Test Run Count"
@@ -573,12 +563,7 @@
         "org.team",
         "product.project",
         "product.pu",
-        "requirements.aida",
-        "testing.domain",
-        "testing.test_phase",
-        "testing.testing_tool_type",
-        "product.release",
-        "time.run_started"
+        "requirements.aida"
       ],
       "requiredFilters": [],
       "missingDataPolicy": "zero_when_empty_result",
@@ -597,6 +582,7 @@
     {
       "id": "testing.failed_run_count",
       "definitionVersion": "1.0.0",
+      "runtime": { "status": "ready", "adapterId": "python.semantic.test_runs", "adapterVersion": "1.0.0" },
       "labels": {
         "zh-CN": "失败测试执行数",
         "en-US": "Failed Test Run Count"
@@ -614,12 +600,7 @@
         "org.team",
         "product.project",
         "product.pu",
-        "requirements.aida",
-        "testing.domain",
-        "testing.test_phase",
-        "testing.testing_tool_type",
-        "product.release",
-        "time.run_started"
+        "requirements.aida"
       ],
       "requiredFilters": [],
       "missingDataPolicy": "zero_when_empty_result",
@@ -638,6 +619,7 @@
     {
       "id": "testing.pass_rate",
       "definitionVersion": "1.0.0",
+      "runtime": { "status": "planned" },
       "labels": {
         "zh-CN": "测试通过率",
         "en-US": "Test Pass Rate"
@@ -681,6 +663,7 @@
     {
       "id": "testing.fail_rate",
       "definitionVersion": "1.0.0",
+      "runtime": { "status": "planned" },
       "labels": {
         "zh-CN": "测试失败率",
         "en-US": "Test Fail Rate"
@@ -724,6 +707,7 @@
     {
       "id": "testing.requirement_coverage_rate",
       "definitionVersion": "1.0.0",
+      "runtime": { "status": "planned" },
       "labels": {
         "zh-CN": "需求覆盖率",
         "en-US": "Requirement Coverage Rate"
@@ -758,6 +742,7 @@
     {
       "id": "testing.traceability_rate",
       "definitionVersion": "1.0.0",
+      "runtime": { "status": "planned" },
       "labels": {
         "zh-CN": "可追溯率",
         "en-US": "Traceability Rate"
@@ -800,6 +785,7 @@
     {
       "id": "quality.defect_density",
       "definitionVersion": "1.0.0",
+      "runtime": { "status": "planned" },
       "labels": {
         "zh-CN": "缺陷密度",
         "en-US": "Defect Density"
@@ -847,6 +833,7 @@
     {
       "id": "team.execution_count",
       "definitionVersion": "1.0.0",
+      "runtime": { "status": "ready", "adapterId": "python.semantic.test_runs", "adapterVersion": "1.0.0" },
       "labels": {
         "zh-CN": "团队测试执行数",
         "en-US": "Team Execution Count"
@@ -864,12 +851,7 @@
         "org.team",
         "product.project",
         "product.pu",
-        "requirements.aida",
-        "testing.domain",
-        "testing.test_phase",
-        "testing.testing_tool_type",
-        "product.release",
-        "time.run_started"
+        "requirements.aida"
       ],
       "requiredFilters": [],
       "missingDataPolicy": "zero_when_empty_result",
@@ -888,6 +870,7 @@
     {
       "id": "team.defect_discovery_count",
       "definitionVersion": "1.0.0",
+      "runtime": { "status": "ready", "adapterId": "python.semantic.defects", "adapterVersion": "1.0.0" },
       "labels": {
         "zh-CN": "团队发现缺陷数",
         "en-US": "Team Defect Discovery Count"
@@ -905,16 +888,7 @@
         "product.pu",
         "product.ecu",
         "quality.severity",
-        "quality.solution_cluster",
-        "quality.defect_category",
-        "quality.reporting_class",
-        "quality.user_tags",
-        "quality.market",
-        "quality.blocking_reason",
-        "quality.detected_in_release",
-        "quality.parent_child_type",
-        "vehicle.lead_model",
-        "time.defect_last_modified"
+        "quality.reporting_class"
       ],
       "requiredFilters": [
         "org.problem_finder_team"
@@ -935,6 +909,7 @@
     {
       "id": "team.discovery_efficiency",
       "definitionVersion": "1.0.0",
+      "runtime": { "status": "planned" },
       "labels": {
         "zh-CN": "团队缺陷发现效率",
         "en-US": "Team Discovery Efficiency"
@@ -972,6 +947,7 @@
     {
       "id": "kpi.defect_detection_ratio",
       "definitionVersion": "1.0.0",
+      "runtime": { "status": "planned" },
       "labels": {
         "zh-CN": "缺陷检测率(DDP)",
         "en-US": "Defect Detection Ratio"
@@ -1002,6 +978,7 @@
     {
       "id": "kpi.regression_coverage",
       "definitionVersion": "1.0.0",
+      "runtime": { "status": "planned" },
       "labels": {
         "zh-CN": "回归测试覆盖率",
         "en-US": "Regression Test Coverage"
@@ -1032,6 +1009,7 @@
     {
       "id": "kpi.config_coverage_models",
       "definitionVersion": "1.0.0",
+      "runtime": { "status": "planned" },
       "labels": {
         "zh-CN": "配置覆盖率(车型)",
         "en-US": "Configuration Coverage - Car Models"
@@ -1062,6 +1040,7 @@
     {
       "id": "kpi.config_coverage_variants",
       "definitionVersion": "1.0.0",
+      "runtime": { "status": "planned" },
       "labels": {
         "zh-CN": "配置覆盖率(硬件变体)",
         "en-US": "Configuration Coverage - Hardware Variants"
@@ -1092,6 +1071,7 @@
     {
       "id": "kpi.defect_rejection_rate",
       "definitionVersion": "1.0.0",
+      "runtime": { "status": "planned" },
       "labels": {
         "zh-CN": "缺陷拒收率(CWA)",
         "en-US": "Defect Rejection Rate (CWA)"
@@ -1122,6 +1102,7 @@
     {
       "id": "kpi.function_coverage",
       "definitionVersion": "1.0.0",
+      "runtime": { "status": "planned" },
       "labels": {
         "zh-CN": "功能(AIDA)覆盖率",
         "en-US": "Function (AIDA) Coverage"
@@ -1152,6 +1133,7 @@
     {
       "id": "defect.top_issue_count",
       "definitionVersion": "1.0.0",
+      "runtime": { "status": "planned" },
       "labels": {
         "zh-CN": "Top Issue缺陷数",
         "en-US": "Top Issue Defect Count"
@@ -1182,6 +1164,7 @@
     {
       "id": "defect.showstopper_count",
       "definitionVersion": "1.0.0",
+      "runtime": { "status": "planned" },
       "labels": {
         "zh-CN": "Showstopper缺陷数",
         "en-US": "Showstopper Defect Count"
@@ -1212,6 +1195,7 @@
     {
       "id": "defect.severe_count",
       "definitionVersion": "1.0.0",
+      "runtime": { "status": "ready", "adapterId": "python.semantic.defects", "adapterVersion": "1.0.0" },
       "labels": {
         "zh-CN": "严重缺陷数",
         "en-US": "Severe Defect Count"
@@ -1235,10 +1219,7 @@
         "quality.phase",
         "quality.business_impact",
         "quality.reporting_class",
-        "quality.status",
-        "quality.solution_cluster",
-        "quality.defect_category",
-        "vehicle.lead_model"
+        "quality.status"
       ],
       "requiredFilters": [],
       "missingDataPolicy": "zero_when_empty_result",

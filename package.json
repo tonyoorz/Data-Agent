@@ -16,6 +16,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:agent-evals": "vitest run src/test/server/mainAgentGolden.test.ts src/test/server/ontology/semanticGolden.test.ts src/test/server/ontology/semanticQualityGolden.test.ts src/test/server/mainAgentExecutionGolden.test.ts src/test/server/mainAgentPolicyGolden.test.ts src/test/server/mainAgentToolRecovery.test.ts src/test/server/answerValidator.test.ts",
+    "agent:qualification": "node ./scripts/agentQualification.mjs",
+    "agent:qualification:verify": "node ./scripts/agentQualification.mjs --verify",
     "report:qgate-kpi": "python -m backend.analytics_cli generate-qgate-kpi-reports",
     "ontology:compile": "node scripts/compileOntology.mjs --emit-graph",
     "ontology:graph": "node scripts/compileOntology.mjs --emit-graph",

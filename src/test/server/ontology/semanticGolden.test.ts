@@ -9,12 +9,12 @@ const registry = createOntologyRegistry();
 const resolver = createSemanticResolver({ registry });
 
 describe("Semantic golden suite", () => {
-  it("repeats 113 governed semantic resolutions exactly", () => {
+  it("repeats 114 governed semantic resolutions exactly", () => {
     const cases = fs.readFileSync("evals/main-agent/target/semantic-golden.jsonl", "utf8")
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line));
-    expect(cases).toHaveLength(113);
+    expect(cases).toHaveLength(114);
 
     for (const item of cases) {
       const frame = resolver.resolve({ query: item.query, actor, requestAnchorAt: item.anchorAt });
