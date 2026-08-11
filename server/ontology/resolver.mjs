@@ -83,7 +83,7 @@ function defaultMetricId(query, intent) {
   if (/测试用例|用例数量|testcase/i.test(query)) return "testing.testcase_count";
   if (/通过的测试|passed runs?/i.test(query)) return "testing.passed_run_count";
   if (/失败的测试|failed runs?/i.test(query)) return "testing.failed_run_count";
-  if (/新增|新建|提交|创建|高频|created/i.test(query)) return "defect.created_count";
+  if (/新增|新建|提交|创建|提票|报票|提了|高频|created/i.test(query)) return "defect.created_count";
   return "defect.count";
 }
 

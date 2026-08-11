@@ -72,6 +72,16 @@ The store location can be overridden:
 $env:VIZION_AGENT_RUNTIME_STORE_DIR = "D:\vizion-agent-runtime"
 ```
 
+## Semantic Candidate Budget
+
+The optional LLM semantic-candidate classifier is an auxiliary step, not the final answer path. It makes one request with a five-second timeout by default, then falls back to deterministic ontology resolution when the request fails or returns invalid output. Override the timeout only when needed:
+
+```powershell
+$env:DUPSEARCH_SEMANTIC_CANDIDATE_TIMEOUT_MS = "5000"
+```
+
+This keeps a candidate-classification outage from consuming the normal chat completion retry budget.
+
 ## Internal Deployment Principal
 
 The current LAN deployment uses one server-owned principal rather than a user/RBAC subsystem. Agent-only defect routes require this principal to carry at least one team, project, or workspace row scope. `npm run dev` supplies `DTSV_China` plus the read-only `agent.operations.read` policy only for its trusted local bootstrap; shared deployments must configure both scopes explicitly. Environment variables define that principal:

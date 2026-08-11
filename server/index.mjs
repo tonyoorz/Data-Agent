@@ -129,6 +129,7 @@ async function handleAuthenticatedAiChatRequest(body, response) {
             actorScope: completed.runtimeResult?.actorScope || {},
             type: "agent-stream-completed",
             ...(Number.isFinite(Number(completed.streamMetrics?.streamTotalMs)) ? { latencyMs: Number(completed.streamMetrics.streamTotalMs) } : {}),
+            ...(completed.streamMetrics?.tokenUsage ? { tokenUsage: completed.streamMetrics.tokenUsage } : {}),
             citationValidation: completed.answerValidation
               ? completed.answerValidation.valid ? "pass" : "blocked"
               : "not_required",

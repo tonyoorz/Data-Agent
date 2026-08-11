@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildChatCompletionRequest } from "../../../server/chatModelConfig.mjs";
+import { buildChatCompletionRequest, getChatModelOptions } from "../../../server/chatModelConfig.mjs";
 
 const sampleTools = [
   {
@@ -23,6 +23,31 @@ const sampleToolChoice = {
 };
 
 describe("buildChatCompletionRequest tool calling options", () => {
+  it("routes supported GoLive chat models through the local GLM proxy", () => {
+    const env = {
+      GLM_PROXY_API_KEY: "glm-proxy-test-key",
+    };
+
+    expect(getChatModelOptions(env)).toEqual([
+      "deepseek-v4-pro",
+      "deepseek-v4-flash",
+      "qwen3.7-max",
+      "qwen3.7-flash",
+      "glm-5.1",
+    ]);
+
+    const request = buildChatCompletionRequest({
+      selectedModel: "qwen3.7-flash",
+      messages: [{ role: "user", content: "Reply with OK only." }],
+      env,
+    });
+
+    expect(request.config.usesInternalEndpoint).toBe(false);
+    expect(request.url).toBe("http://127.0.0.1:8001/v1/chat/completions");
+    expect(request.headers.Authorization).toBe("Bearer glm-proxy-test-key");
+    expect(request.body.model).toBe("qwen3.7-flash");
+  });
+
   it("requests streamed usage metadata for OpenAI-compatible chat streams", () => {
     const request = buildChatCompletionRequest({
       selectedModel: "deepseek-v4-flash",

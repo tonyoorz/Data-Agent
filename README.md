@@ -203,8 +203,52 @@ $env:DUPSEARCH_CHAT_API_BASE = "https://api.deepseek.com/v1"
 Default model order:
 
 - `deepseek-v4-pro`
-- `qwen3.5-397b-a17b`
-- `glm-5`
+- `deepseek-v4-flash`
+- `qwen3.7-max`
+- `qwen3.7-flash`
+- `glm-5.1`
+
+### Speech Transcription
+
+AI Chat records in the browser and sends completed audio only to the local Node API. The default provider is local FunASR `SenseVoiceSmall`; it does not send recordings or credentials to Beacon.
+
+To run a Beacon Doubao batch-ASR pilot, set these server-only values in `.env.local` or the Node service environment. Do not use a `VITE_` prefix and do not place the credential in browser storage:
+
+```env
+DUPSEARCH_TRANSCRIBE_PROVIDER=beacon-doubao
+DUPSEARCH_BEACON_DOUBAO_ASR_URL=https://<beacon-asr-adapter-endpoint>
+DUPSEARCH_BEACON_DOUBAO_ASR_API_KEY=<beacon-project-token>
+DUPSEARCH_BEACON_DOUBAO_ASR_MODEL=Doubao-ASR-Async
+DUPSEARCH_BEACON_DOUBAO_ASR_FALLBACK_TO_LOCAL=true
+```
+
+The configured endpoint receives a server-to-server JSON payload with `model`, Base64 `audio`, and `mime`, and must return a JSON `text` or `subtitles` field. `Doubao-ASR-Async` is the appropriate pilot model for the current record-then-transcribe UI. If Beacon rejects the request or the endpoint is unavailable, the Node API falls back to local `SenseVoiceSmall` unless `DUPSEARCH_BEACON_DOUBAO_ASR_FALLBACK_TO_LOCAL=false`.
+
+The Beacon model directory does not publish this ASR endpoint contract through its service token, so the endpoint value must come from the model-service integration page or a team-owned Beacon adapter. `Doubao-ASR-RealTime` and `Doubao-ASR-Stream` are intentionally deferred until the UI and backend implement streaming audio and interim transcripts.
+
+To compare providers, create a private JSON manifest with 30 to 50 audio samples. Each sample requires an `id`, an `audioPath` relative to the manifest, a human `reference`, one or more `categories` such as `chinese`, `person-name`, `ecu-acronym`, `mixed-language`, or `noise`, and optional per-provider `costCny` values. The report contains only metrics, not audio or transcript text:
+
+```json
+{
+  "samples": [
+    {
+      "id": "sample-001",
+      "audioPath": "audio/sample-001.webm",
+      "reference": "请查询 IDCEVO 的测试覆盖率",
+      "categories": ["chinese", "ecu-acronym", "mixed-language"],
+      "costCny": { "local-funasr": 0, "beacon-doubao": 0.01 }
+    }
+  ]
+}
+```
+
+Run the comparison with a real 30–50 sample manifest:
+
+```powershell
+npm run benchmark:asr -- --manifest C:\private\asr-eval\manifest.json --output logs\asr-benchmark\report.json
+```
+
+The benchmark reports CER, successful-request P50/P95 latency, failure rate, category breakdown, and optional estimated cost. Beacon fallback is disabled during this comparison so an unavailable Beacon request counts as a failure instead of appearing as a local success.
 
 ## Governed Agent Deployment
 

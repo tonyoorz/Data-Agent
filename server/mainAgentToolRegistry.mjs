@@ -11,6 +11,10 @@ export const MAIN_AGENT_INTENT_PROFILES = Object.freeze({
     ...DIRECT_MAIN_AGENT_INTENT_PROFILES.out_of_scope,
     toolNames: [],
   },
+  clarification: {
+    ...DIRECT_MAIN_AGENT_INTENT_PROFILES.clarification,
+    toolNames: [],
+  },
   metric_query: {
     confidence: 0.88,
     reason: "metric/trend/rank wording matched",
@@ -171,6 +175,7 @@ export function createMainAgentToolRegistry(allTools = MAIN_AGENT_TOOLS) {
 
   function shouldPlanTools(messages) {
     const queryText = extractLatestUserQuery(messages);
+    if (classifyDirectMainAgentIntent(queryText)) return false;
     return routeToolIntent(queryText) !== "general" || PLANNING_QUERY_RE.test(queryText);
   }
 

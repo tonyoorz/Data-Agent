@@ -1,13 +1,17 @@
 const DEFAULT_COMPANY_MODEL_IDS = [
+  "deepseek-v4-pro",
   "deepseek-v4-flash",
-  "qwen3.5-397b-a17b",
-  "glm-5",
+  "qwen3.7-max",
+  "qwen3.7-flash",
+  "glm-5.1",
 ] as const;
 
 const MODEL_LABELS: Record<string, string> = {
+  "deepseek-v4-pro": "deepseek-v4-pro",
   "deepseek-v4-flash": "deepseek-v4-flash",
-  "qwen3.5-397b-a17b": "qwen3.5-397b-a17b",
-  "glm-5": "glm-5",
+  "qwen3.7-max": "qwen3.7-max",
+  "qwen3.7-flash": "qwen3.7-flash",
+  "glm-5.1": "glm-5.1",
 };
 
 function parseModelIds(raw: string | undefined) {
@@ -24,7 +28,7 @@ export const COMPANY_CHAT_MODELS = [...parseModelIds(import.meta.env.VITE_DUPSEA
     label: MODEL_LABELS[modelId] || modelId,
   }));
 
-export const DEFAULT_COMPANY_CHAT_MODEL = COMPANY_CHAT_MODELS[0]?.id || "deepseek-v4-flash";
+export const DEFAULT_COMPANY_CHAT_MODEL = COMPANY_CHAT_MODELS[0]?.id || "deepseek-v4-pro";
 
 export function normalizeCompanyChatModel(modelId?: string) {
   const normalized = String(modelId || "").trim().toLowerCase();

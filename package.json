@@ -14,6 +14,7 @@
     "preview": "vite preview",
     "start": "node ./server/index.mjs",
     "test": "vitest run",
+    "benchmark:asr": "node ./scripts/benchmarkTranscription.mjs",
     "test:watch": "vitest",
     "test:agent-evals": "vitest run src/test/server/mainAgentGolden.test.ts src/test/server/ontology/semanticGolden.test.ts src/test/server/ontology/semanticQualityGolden.test.ts src/test/server/mainAgentExecutionGolden.test.ts src/test/server/mainAgentPolicyGolden.test.ts src/test/server/mainAgentToolRecovery.test.ts src/test/server/answerValidator.test.ts",
     "report:qgate-kpi": "python -m backend.analytics_cli generate-qgate-kpi-reports",

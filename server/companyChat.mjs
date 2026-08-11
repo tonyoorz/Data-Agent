@@ -91,11 +91,24 @@ function nonNegativeInteger(value, fallback) {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
-function chatResilienceOptions(env = process.env) {
+function tokenCount(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric >= 0 ? Math.round(numeric) : 0;
+}
+
+function normalizeTokenUsage(usage) {
+  if (!usage || typeof usage !== "object") return null;
+  const inputTokens = tokenCount(usage.prompt_tokens ?? usage.input_tokens);
+  const outputTokens = tokenCount(usage.completion_tokens ?? usage.output_tokens);
+  const totalTokens = tokenCount(usage.total_tokens) || inputTokens + outputTokens;
+  return totalTokens > 0 ? { inputTokens, outputTokens, totalTokens } : null;
+}
+
+function chatResilienceOptions(env = process.env, overrides = {}) {
   return {
-    maxAttempts: positiveInteger(env.DUPSEARCH_CHAT_MAX_ATTEMPTS, 2),
-    timeoutMs: positiveInteger(env.DUPSEARCH_CHAT_TIMEOUT_MS, 30000),
-    retryDelayMs: nonNegativeInteger(env.DUPSEARCH_CHAT_RETRY_DELAY_MS, 250),
+    maxAttempts: positiveInteger(overrides.maxAttempts, positiveInteger(env.DUPSEARCH_CHAT_MAX_ATTEMPTS, 2)),
+    timeoutMs: positiveInteger(overrides.timeoutMs, positiveInteger(env.DUPSEARCH_CHAT_TIMEOUT_MS, 30000)),
+    retryDelayMs: nonNegativeInteger(overrides.retryDelayMs, nonNegativeInteger(env.DUPSEARCH_CHAT_RETRY_DELAY_MS, 250)),
   };
 }
 
@@ -114,8 +127,8 @@ function waitForRetry(ms) {
   });
 }
 
-async function fetchWithResilience(url, init, { env = process.env } = {}) {
-  const { maxAttempts, timeoutMs, retryDelayMs } = chatResilienceOptions(env);
+async function fetchWithResilience(url, init, { env = process.env, resilience = {} } = {}) {
+  const { maxAttempts, timeoutMs, retryDelayMs } = chatResilienceOptions(env, resilience);
   let lastError;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
@@ -449,6 +462,11 @@ function writeSanitizedSseFrame(response, frame, state) {
     return;
   }
 
+  const tokenUsage = normalizeTokenUsage(payload?.usage);
+  if (tokenUsage) {
+    state.onTokenUsage?.(tokenUsage);
+  }
+
   for (const choice of Array.isArray(payload?.choices) ? payload.choices : []) {
     if (typeof choice?.delta?.content !== "string") {
       continue;
@@ -476,6 +494,7 @@ export async function requestCompanyChatCompletion({
   context,
   tools,
   toolChoice,
+  resilience,
   imageOcrRunner,
   documentTextRunner,
 }) {
@@ -502,7 +521,7 @@ export async function requestCompanyChatCompletion({
     method: "POST",
     headers: requestConfig.headers,
     body: JSON.stringify(requestConfig.body),
-  });
+  }, { resilience });
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
@@ -560,6 +579,7 @@ export async function streamCompanyChatCompletion({
   let byteCount = 0;
   let responseStatus = null;
   let streamError = null;
+  let tokenUsage = null;
 
   try {
     const upstreamResponse = await fetchWithResilience(requestConfig.url, {
@@ -602,6 +622,9 @@ export async function streamCompanyChatCompletion({
       answerValidation,
       answerValidationEmitted: false,
       onAnswerValidation,
+      onTokenUsage: (usage) => {
+        tokenUsage = usage;
+      },
     };
     let sseBuffer = "";
 
@@ -647,6 +670,7 @@ export async function streamCompanyChatCompletion({
       chunkCount,
       byteCount,
       error: streamError,
+      ...(tokenUsage ? { tokenUsage } : {}),
     });
   }
 }

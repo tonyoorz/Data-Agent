@@ -86,6 +86,22 @@ describe("agent run summary", () => {
     });
   });
 
+  it("aggregates sanitized token usage from completed model streams", () => {
+    const summary = summarizeRuns({
+      summaries: [
+        { runId: "run-1", intent: "metric_query", outcome: "completed", evidenceStatus: "pass", toolNames: [] },
+        { runId: "run-2", intent: "coverage_query", outcome: "completed", evidenceStatus: "pass", toolNames: [] },
+      ],
+      events: [
+        { runId: "run-1", type: "agent-stream-completed", tokenUsage: { inputTokens: 100, outputTokens: 20, totalTokens: 120 } },
+        { runId: "run-2", type: "agent-stream-completed", tokenUsage: { inputTokens: 40, outputTokens: 10, totalTokens: 50 } },
+      ],
+    });
+
+    expect(summary.tokenUsage).toEqual({ inputTokens: 140, outputTokens: 30, totalTokens: 170 });
+    expect(summary.runs[0]).toMatchObject({ tokenUsage: { inputTokens: 100, outputTokens: 20, totalTokens: 120 } });
+  });
+
   it("loads sanitized summary and run detail from append-only audit files", async () => {
     const rootDir = await mkdtemp(path.join(tmpdir(), "vizion-operations-"));
     await writeFile(path.join(rootDir, "run-summaries.jsonl"), `${JSON.stringify({

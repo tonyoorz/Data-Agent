@@ -31,6 +31,7 @@ describe("streamCompanyChatCompletion", () => {
           controller.enqueue(
             encoder.encode(
               'data: {"choices":[{"delta":{"content":"hello"}}]}\n\n' +
+                'data: {"model":"deepseek-v4-flash","choices":[],"usage":{"prompt_tokens":100,"completion_tokens":20,"total_tokens":120}}\n\n' +
                 'data: [DONE]\n\n',
             ),
           );
@@ -79,6 +80,7 @@ describe("streamCompanyChatCompletion", () => {
         upstreamConnectMs: expect.any(Number),
         firstChunkMs: expect.any(Number),
         streamTotalMs: expect.any(Number),
+        tokenUsage: { inputTokens: 100, outputTokens: 20, totalTokens: 120 },
       }),
     );
   });
@@ -735,6 +737,25 @@ describe("requestCompanyChatCompletion", () => {
 
     expect(result.content).toBe("recovered");
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("honors a call-specific one-attempt resilience budget", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      statusText: "Server Error",
+      text: async () => "upstream failed",
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(requestCompanyChatCompletion({
+      messages: [{ role: "user", content: "classify this analytics question" }],
+      model: "deepseek-v4-flash",
+      resilience: { maxAttempts: 1, timeoutMs: 1500, retryDelayMs: 0 },
+    })).rejects.toThrow("Chat request failed (500)");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("returns tool calls from non-streaming company chat responses", async () => {

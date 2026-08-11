@@ -97,6 +97,207 @@ describe("LangGraph chat runtime", () => {
     ]);
   });
 
+  it("resolves a named defect reporter before model-planned aggregation", async () => {
+    const requestToolCompletion = vi.fn().mockResolvedValue({ content: "", toolCalls: [] });
+    const executeToolCall = vi.fn(async (toolCall) => {
+      if (toolCall.function.name === "search_analytics_filter_values") {
+        return {
+          contextText: "# Main agent tool result\nTool: search_analytics_filter_values\nCandidate values: Xumiao: 3",
+          toolMessage: {
+            role: "tool",
+            tool_call_id: toolCall.id,
+            name: "search_analytics_filter_values",
+            content: JSON.stringify({
+              ok: true,
+              tool: "search_analytics_filter_values",
+              result: { values: [{ value: "Xumiao", count: 3 }] },
+            }),
+          },
+        };
+      }
+      return {
+        contextText: "# Main agent tool result\nTool: query_analytics\nAggregate rows: 1",
+        toolMessage: {
+          role: "tool",
+          tool_call_id: toolCall.id,
+          name: "query_analytics",
+          content: JSON.stringify({
+            ok: true,
+            tool: "query_analytics",
+            result: { rows: [{ defect_count: 3 }], returned_groups: 1 },
+          }),
+        },
+      };
+    });
+    const runtime = createLangGraphChatRuntime({
+      resolveAnalyticsContext: vi.fn().mockResolvedValue({ contextText: "# Analytics", skipDefectContext: false }),
+      resolveDefectContext: vi.fn(),
+      shouldPlanTools: vi.fn().mockReturnValue(true),
+      requestToolCompletion,
+      executeToolCall,
+      now: () => new Date("2026-08-11T08:00:00.000Z"),
+    });
+
+    const result = await runtime.invoke({
+      body: {
+        threadId: "thread-defect-reporter-lookup",
+        useAnalyticsContext: true,
+        messages: [{ role: "user", content: "xumiao 提票情况" }],
+      },
+    });
+
+    expect(executeToolCall).toHaveBeenCalledTimes(2);
+    expect(executeToolCall.mock.calls[0][0]).toMatchObject({
+      id: "defect-reporter-xumiao-filter-values",
+      function: { name: "search_analytics_filter_values" },
+    });
+    expect(JSON.parse(executeToolCall.mock.calls[0][0].function.arguments)).toEqual({
+      dataset: "defects",
+      field: "detected_by",
+      query: "Xumiao",
+      limit: 5,
+    });
+    expect(executeToolCall.mock.calls[1][0]).toMatchObject({
+      id: "defect-reporter-xumiao-aggregate",
+      function: { name: "query_analytics" },
+    });
+    expect(JSON.parse(executeToolCall.mock.calls[1][0].function.arguments)).toMatchObject({
+      dataset: "defects",
+      intent: "aggregate",
+      metrics: ["defect_count"],
+      dimensions: [],
+      filters: { detected_by: ["Xumiao"] },
+      time: { field: "creation_time", current: ["2026-01-01", "2026-08-11"], timezone: "Asia/Shanghai" },
+    });
+    expect(result.mainAgentToolContext.toolCalls.map((toolCall) => toolCall.function.name)).toEqual([
+      "search_analytics_filter_values",
+      "query_analytics",
+    ]);
+    expect(requestToolCompletion).not.toHaveBeenCalled();
+  });
+
+  it("asks for clarification instead of model-planned fallback when a named reporter has no candidate", async () => {
+    const requestToolCompletion = vi.fn().mockResolvedValue({ content: "", toolCalls: [] });
+    const executeToolCall = vi.fn(async (toolCall) => {
+      if (toolCall.function.name === "search_analytics_filter_values") {
+        return {
+          contextText: "# Main agent tool result\nTool: search_analytics_filter_values\nCandidate values: none",
+          toolMessage: {
+            role: "tool",
+            tool_call_id: toolCall.id,
+            name: "search_analytics_filter_values",
+            content: JSON.stringify({
+              ok: true,
+              tool: "search_analytics_filter_values",
+              result: { values: [] },
+            }),
+          },
+        };
+      }
+      return {
+        requiresUserInput: true,
+        contextText: "# Main agent tool result\nTool: ask_clarification\nQuestion: provide the Octane name",
+        toolMessage: {
+          role: "tool",
+          tool_call_id: toolCall.id,
+          name: "ask_clarification",
+          content: JSON.stringify({ question: "Provide the Octane name" }),
+        },
+      };
+    });
+    const runtime = createLangGraphChatRuntime({
+      resolveAnalyticsContext: vi.fn().mockResolvedValue({ contextText: "# Analytics", skipDefectContext: false }),
+      resolveDefectContext: vi.fn(),
+      shouldPlanTools: vi.fn().mockReturnValue(true),
+      requestToolCompletion,
+      executeToolCall,
+      now: () => new Date("2026-08-11T08:00:00.000Z"),
+    });
+
+    const result = await runtime.invoke({
+      body: {
+        threadId: "thread-defect-reporter-no-candidate",
+        useAnalyticsContext: true,
+        messages: [{ role: "user", content: "xumiao 提票情况" }],
+      },
+    });
+
+    expect(executeToolCall).toHaveBeenCalledTimes(2);
+    expect(executeToolCall.mock.calls[1][0]).toMatchObject({
+      id: "defect-reporter-xumiao-clarification",
+      function: { name: "ask_clarification" },
+    });
+    expect(result.mainAgentToolContext.toolCalls.map((toolCall) => toolCall.function.name)).toEqual([
+      "search_analytics_filter_values",
+      "ask_clarification",
+    ]);
+    expect(result.mainAgentToolContext.stoppedReason).toBe("clarification_requested");
+    expect(requestToolCompletion).not.toHaveBeenCalled();
+  });
+
+  it("resolves a name-only clarification reply and continuation command through a reversed defect reporter alias", async () => {
+    const requestToolCompletion = vi.fn().mockResolvedValue({ content: "", toolCalls: [] });
+    const executeToolCall = vi.fn(async (toolCall) => {
+      if (toolCall.function.name === "search_analytics_filter_values") {
+        const input = JSON.parse(toolCall.function.arguments);
+        const values = input.query === "Miao Xu" ? [{ value: "Miao Xu", count: 41 }] : [];
+        return {
+          contextText: "# Main agent tool result\nTool: search_analytics_filter_values",
+          toolMessage: {
+            role: "tool",
+            tool_call_id: toolCall.id,
+            name: "search_analytics_filter_values",
+            content: JSON.stringify({ ok: true, tool: "search_analytics_filter_values", result: { values } }),
+          },
+        };
+      }
+      return {
+        contextText: "# Main agent tool result\nTool: query_analytics\nAggregate rows: 1",
+        toolMessage: {
+          role: "tool",
+          tool_call_id: toolCall.id,
+          name: "query_analytics",
+          content: JSON.stringify({ ok: true, tool: "query_analytics", result: { rows: [{ defect_count: 41 }], returned_groups: 1 } }),
+        },
+      };
+    });
+    const runtime = createLangGraphChatRuntime({
+      resolveAnalyticsContext: vi.fn().mockResolvedValue({ contextText: "# Analytics", skipDefectContext: false }),
+      resolveDefectContext: vi.fn(),
+      shouldPlanTools: vi.fn().mockReturnValue(true),
+      requestToolCompletion,
+      executeToolCall,
+      now: () => new Date("2026-08-11T08:00:00.000Z"),
+    });
+
+    const result = await runtime.invoke({
+      body: {
+        threadId: "thread-defect-reporter-name-reply",
+        useAnalyticsContext: true,
+        messages: [
+          { role: "user", content: "xumiao 提票情况" },
+          { role: "assistant", content: "请提供 Octane 中显示的姓名。" },
+          { role: "user", content: "xu miao" },
+          { role: "assistant", content: "未找到完全匹配的候选。" },
+          { role: "user", content: "继续未完成" },
+        ],
+      },
+    });
+
+    expect(executeToolCall.mock.calls.map(([toolCall]) => toolCall.function.name)).toEqual([
+      "search_analytics_filter_values",
+      "search_analytics_filter_values",
+      "query_analytics",
+    ]);
+    expect(JSON.parse(executeToolCall.mock.calls[0][0].function.arguments)).toMatchObject({ query: "Xu Miao" });
+    expect(JSON.parse(executeToolCall.mock.calls[1][0].function.arguments)).toMatchObject({ query: "Miao Xu" });
+    expect(JSON.parse(executeToolCall.mock.calls[2][0].function.arguments)).toMatchObject({
+      filters: { detected_by: ["Miao Xu"] },
+    });
+    expect(requestToolCompletion).not.toHaveBeenCalled();
+    expect(result.mainAgentToolContext.stoppedReason).toBe("no_tool_calls");
+  });
+
   it("stops before executing an identical planned analytics query twice", async () => {
     const firstToolCall = {
       id: "analytics-1",
@@ -298,6 +499,31 @@ describe("LangGraph chat runtime", () => {
     expect(result.directResponse).toEqual(expect.objectContaining({ intent: "chitchat" }));
     expect(result.directResponse.content).toContain("测试质量");
     expect(result.metrics.toolRouting).toEqual(expect.objectContaining({ shouldUseTools: false, intent: "chitchat" }));
+    expect(requestToolCompletion).not.toHaveBeenCalled();
+  });
+
+  it("returns direct clarification for vague testing status without resolving analytics context", async () => {
+    const resolveAnalyticsContext = vi.fn();
+    const requestToolCompletion = vi.fn();
+    const runtime = createLangGraphChatRuntime({
+      resolveAnalyticsContext,
+      resolveDefectContext: vi.fn(),
+      shouldPlanTools: vi.fn().mockReturnValue(false),
+      requestToolCompletion,
+      now: () => new Date("2026-08-11T08:00:00.000Z"),
+    });
+
+    const result = await runtime.invoke({
+      body: {
+        threadId: "thread-vague-test-status",
+        useAnalyticsContext: true,
+        messages: [{ role: "user", content: "测试怎么样" }],
+      },
+    });
+
+    expect(result.directResponse).toEqual(expect.objectContaining({ intent: "clarification" }));
+    expect(result.metrics.toolRouting).toEqual(expect.objectContaining({ shouldUseTools: false, intent: "clarification" }));
+    expect(resolveAnalyticsContext).not.toHaveBeenCalled();
     expect(requestToolCompletion).not.toHaveBeenCalled();
   });
 

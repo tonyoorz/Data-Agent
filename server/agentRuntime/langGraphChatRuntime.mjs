@@ -13,7 +13,12 @@ import {
 } from "../mainAgentEvidence.mjs";
 import { buildRuntimeRunSummary } from "./runSummary.mjs";
 import {
+  buildDefectReporterAggregateToolCall,
+  buildDefectReporterAliasLookupToolCall,
+  buildDefectReporterClarificationToolCall,
+  buildDefectReporterLookupToolCall,
   buildEmptyDiagnosisToolCall,
+  buildSelectedToolsetContext,
   buildToolPlanningContext,
   executeMainAgentPlannedToolCall,
   hasEmptyAnalyticsResult,
@@ -496,11 +501,6 @@ function compactToolRouting(toolRouting) {
   };
 }
 
-function buildSelectedToolsetContext(selectedToolset) {
-  const toolNames = (selectedToolset?.tools || []).map((tool) => tool.function?.name).filter(Boolean).join(", ");
-  return `# Selected toolset\nIntent: ${selectedToolset?.intent || "general"}. Tools: ${toolNames}.`;
-}
-
 function buildMainAgentToolContextFromState(state) {
   const toolCalls = (state.toolCalls || []).slice(Number(state.turnToolCallStart || 0));
   const toolMessages = (state.toolMessages || []).slice(Number(state.turnToolMessageStart || 0));
@@ -570,6 +570,14 @@ export function createLangGraphChatRuntime({
 
   async function resolveContext(state, config) {
     const body = state.body || {};
+    if (classifyDirectMainAgentIntent(state.queryText || extractLatestUserQuery(body?.messages))) {
+      return {
+        analyticsContext: null,
+        defectContext: null,
+        baseContext: "",
+        runtimeEvents: [],
+      };
+    }
     let analyticsContext = null;
     let defectContext = null;
     const events = [];
@@ -612,14 +620,14 @@ export function createLangGraphChatRuntime({
   async function routeTools(state, config) {
     const body = state.body || {};
     const directResponse = classifyDirectMainAgentIntent(state.queryText || extractLatestUserQuery(body?.messages));
-    const selectedToolset = selectMainAgentToolset(body?.messages);
+    const selectedToolset = selectMainAgentToolset(body?.messages, state.toolCalls);
     const governedPlanDenied = state.analyticsContext?.analysisPlan?.status === "denied";
     const shouldUseTools =
       !directResponse &&
       !governedPlanDenied &&
       body?.useAnalyticsContext === true &&
       !state.analyticsContext?.skipDefectContext &&
-      shouldPlanTools(body?.messages);
+      (shouldPlanTools(body?.messages) || selectedToolset.policyHints?.includes("resolve_defect_reporter_before_aggregate"));
     const toolRouting = { shouldUseTools, selectedToolset };
     const compact = compactToolRouting(toolRouting);
     const event = emit(config, {
@@ -653,6 +661,55 @@ export function createLangGraphChatRuntime({
     const events = Number(state.toolStepIndex || 0) === 0
       ? [emit(config, { type: "tool-planning-started", threadId: state.threadId })]
       : [];
+    const defectReporterLookup = buildDefectReporterLookupToolCall(body?.messages, state.toolCalls);
+    if (defectReporterLookup) {
+      return {
+        plannedToolCalls: [defectReporterLookup],
+        plannedToolCallSource: "defect_reporter_lookup",
+        stoppedReason: "",
+        runtimeEvents: events,
+      };
+    }
+    const defectReporterAliasLookup = buildDefectReporterAliasLookupToolCall({
+      messages: body?.messages,
+      toolMessages: state.toolMessages,
+      priorToolCalls: state.toolCalls,
+    });
+    if (defectReporterAliasLookup) {
+      return {
+        plannedToolCalls: [defectReporterAliasLookup],
+        plannedToolCallSource: "defect_reporter_alias_lookup",
+        stoppedReason: "",
+        runtimeEvents: events,
+      };
+    }
+    const defectReporterAggregate = buildDefectReporterAggregateToolCall({
+      messages: body?.messages,
+      toolMessages: state.toolMessages,
+      priorToolCalls: state.toolCalls,
+      now: now(),
+    });
+    if (defectReporterAggregate) {
+      return {
+        plannedToolCalls: [defectReporterAggregate],
+        plannedToolCallSource: "defect_reporter_aggregate",
+        stoppedReason: "",
+        runtimeEvents: events,
+      };
+    }
+    const defectReporterClarification = buildDefectReporterClarificationToolCall({
+      messages: body?.messages,
+      toolMessages: state.toolMessages,
+      priorToolCalls: state.toolCalls,
+    });
+    if (defectReporterClarification) {
+      return {
+        plannedToolCalls: [defectReporterClarification],
+        plannedToolCallSource: "defect_reporter_clarification",
+        stoppedReason: "",
+        runtimeEvents: events,
+      };
+    }
     const governedPlanToolCalls = buildReadySemanticPlanToolCalls({
       analyticsContext: state.analyticsContext,
       actorScope: state.actorScope,
@@ -885,7 +942,7 @@ export function createLangGraphChatRuntime({
   }
 
   function routeAfterToolExecution(state) {
-    if (state.plannedToolCallSource === "governed_semantic_plan") {
+    if (["governed_semantic_plan", "defect_reporter_aggregate"].includes(state.plannedToolCallSource)) {
       return "finalize";
     }
     return state.stoppedReason ? "finalize" : "plan_tool_calls";

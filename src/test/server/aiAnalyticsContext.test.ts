@@ -49,13 +49,22 @@ describe("resolveAiAnalyticsContext", () => {
   });
 
   it("adds governed ontology interpretation when registry and actor are provided", async () => {
+    const requestSemanticCandidate = vi.fn().mockResolvedValue({
+      intent: "rank",
+      entityIds: ["quality.defect"],
+      metricIds: ["defect.created_count"],
+      dimensionIds: ["product.ecu"],
+    });
+
     const resolved = await resolveAiAnalyticsContext({
       messages: [{ role: "user", content: "最近一周 DTSV 新增缺陷按 ECU Top 5" }],
       now: new Date("2026-07-15T04:00:00.000Z"),
       actor: { actorId: "alice", scopeHash: "scope-a", scopes: { workspaceIds: ["DTSV"], teamIds: ["DTSV"] } },
       ontologyRegistry: createOntologyRegistry(),
+      requestSemanticCandidate,
     });
 
+    expect(requestSemanticCandidate).toHaveBeenCalledOnce();
     expect(resolved.contextText).toContain("# Governed Ontology interpretation");
     expect(resolved.contextText).toContain("Intent: rank");
     expect(resolved.contextText).toContain("defect.created_count");
@@ -82,6 +91,37 @@ describe("resolveAiAnalyticsContext", () => {
         ruleEffects: [expect.objectContaining({ code: "BUSINESS_RULE_REQUIRE:business.defect_created_count.creation_time" })],
       }),
     });
+  });
+
+  it("falls back after one failed semantic candidate request", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      statusText: "Server Error",
+      text: async () => "upstream failed",
+    });
+    const previousAccessCode = process.env.DUPSEARCH_CHAT_ACCESS_CODE;
+    process.env.DUPSEARCH_CHAT_ACCESS_CODE = "test-access-code";
+    vi.stubGlobal("fetch", fetchMock);
+
+    try {
+      const resolved = await resolveAiAnalyticsContext({
+        messages: [{ role: "user", content: "最近一周 DTSV 新增缺陷按 ECU Top 5" }],
+        now: new Date("2026-07-15T04:00:00.000Z"),
+        actor: { actorId: "alice", scopeHash: "scope-a", scopes: { workspaceIds: ["DTSV"], teamIds: ["DTSV"] } },
+        ontologyRegistry: createOntologyRegistry(),
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(resolved.analysisPlan).toMatchObject({ operation: "ranked_comparison", visualization: "bar" });
+    } finally {
+      vi.unstubAllGlobals();
+      if (previousAccessCode === undefined) {
+        delete process.env.DUPSEARCH_CHAT_ACCESS_CODE;
+      } else {
+        process.env.DUPSEARCH_CHAT_ACCESS_CODE = previousAccessCode;
+      }
+    }
   });
 
   it("passes an LLM semantic candidate into the ontology resolver", async () => {

@@ -26,6 +26,10 @@ const SAFE_KEYS = new Set([
   "stoppedReason",
   "violations",
   "businessRuleCodes",
+  "tokenUsage",
+  "inputTokens",
+  "outputTokens",
+  "totalTokens",
 ]);
 const SAFE_TOOL_NAMES = new Set([
   "get_data_catalog",
@@ -65,6 +69,19 @@ const SAFE_TIMELINE_TYPES = new Set([
 
 function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function tokenCount(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric >= 0 ? Math.round(numeric) : 0;
+}
+
+function normalizedTokenUsage(value) {
+  if (!isRecord(value)) return null;
+  const inputTokens = tokenCount(value.inputTokens);
+  const outputTokens = tokenCount(value.outputTokens);
+  const totalTokens = tokenCount(value.totalTokens) || inputTokens + outputTokens;
+  return totalTokens > 0 ? { inputTokens, outputTokens, totalTokens } : null;
 }
 
 function unique(values) {
@@ -131,12 +148,14 @@ function publicTimelineItem(rawItem) {
   const type = SAFE_TIMELINE_TYPES.has(String(rawItem?.type || ""))
     ? String(rawItem.type)
     : "agent-event";
+  const tokenUsage = normalizedTokenUsage(rawItem?.tokenUsage);
   const item = {
     type,
     ...(Number.isFinite(Number(rawItem?.latencyMs)) ? { latencyMs: Number(rawItem.latencyMs) } : {}),
     ...(rawItem?.citationValidation ? { citationValidation: String(rawItem.citationValidation) } : {}),
     ...(rawItem?.stoppedReason ? { stoppedReason: String(rawItem.stoppedReason) } : {}),
     ...(rawItem?.recovery ? { recovery: publicRecovery(rawItem.recovery) } : {}),
+    ...(tokenUsage ? { tokenUsage } : {}),
   };
   if (SAFE_TOOL_NAMES.has(String(rawItem?.toolName || ""))) {
     item.toolName = String(rawItem.toolName);
@@ -189,10 +208,12 @@ export function summarizeRuns({ summaries = [], events = [] } = {}) {
   const recoveryOutcomes = {};
   const failures = {};
   const latencies = [];
+  const tokenUsage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
   const runs = summaries.map((rawSummary) => {
     const stream = streamByRun.get(String(rawSummary?.runId || ""));
     const citation = String(stream?.citationValidation || rawSummary?.citationValidation || "pending");
     const latencyMs = Number(stream?.latencyMs);
+    const streamTokenUsage = normalizedTokenUsage(stream?.tokenUsage);
     const run = publicRun(rawSummary, stream);
     increment(byOutcome, String(rawSummary?.outcome || "completed"));
     increment(byEvidenceStatus, String(rawSummary?.evidenceStatus || "not_required"));
@@ -200,6 +221,11 @@ export function summarizeRuns({ summaries = [], events = [] } = {}) {
     for (const outcome of rawSummary?.recoveryOutcomes || []) increment(recoveryOutcomes, String(outcome));
     increment(failures, String(rawSummary?.failureCode || ""));
     if (Number.isFinite(latencyMs) && latencyMs >= 0) latencies.push(latencyMs);
+    if (streamTokenUsage) {
+      tokenUsage.inputTokens += streamTokenUsage.inputTokens;
+      tokenUsage.outputTokens += streamTokenUsage.outputTokens;
+      tokenUsage.totalTokens += streamTokenUsage.totalTokens;
+    }
     return run;
   });
   const topFailureCodes = Object.entries(failures)
@@ -210,6 +236,7 @@ export function summarizeRuns({ summaries = [], events = [] } = {}) {
     byOutcome: count(byOutcome),
     byEvidenceStatus: count(byEvidenceStatus),
     latency: { p50Ms: percentile(latencies, 0.5), p95Ms: percentile(latencies, 0.95) },
+    tokenUsage: tokenUsage.totalTokens > 0 ? tokenUsage : null,
     citationValidation: count(citationValidation),
     topFailureCodes,
     recoveryOutcomes: count(recoveryOutcomes),
@@ -261,6 +288,7 @@ function opaqueRunRef(runId) {
 
 function publicRun(rawSummary, stream) {
   const latencyMs = Number(stream?.latencyMs);
+  const tokenUsage = normalizedTokenUsage(stream?.tokenUsage);
   return {
     runRef: opaqueRunRef(rawSummary?.runId),
     intent: String(rawSummary?.intent || "general"),
@@ -269,6 +297,7 @@ function publicRun(rawSummary, stream) {
     citationValidation: String(stream?.citationValidation || rawSummary?.citationValidation || "pending"),
     toolNames: unique(rawSummary?.toolNames).filter((name) => SAFE_TOOL_NAMES.has(name)),
     ...(Number.isFinite(latencyMs) && latencyMs >= 0 ? { latencyMs } : {}),
+    ...(tokenUsage ? { tokenUsage } : {}),
     ...(rawSummary?.failureCode ? { failureCode: String(rawSummary.failureCode) } : {}),
     ...(Array.isArray(rawSummary?.businessRuleCodes) ? { businessRuleCodes: unique(rawSummary.businessRuleCodes) } : {}),
   };

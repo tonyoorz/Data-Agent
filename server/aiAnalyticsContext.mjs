@@ -11,6 +11,12 @@ import {
 } from "./ontology/semanticCandidate.mjs";
 
 const ANALYTICS_API_BASE = process.env.VIZION_ANALYTICS_API_BASE || "http://127.0.0.1:3003";
+const SEMANTIC_CANDIDATE_DEFAULT_TIMEOUT_MS = 5000;
+
+function positiveInteger(value, fallback) {
+  const parsed = Number.parseInt(String(value || ""), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
 
 const ANALYTICS_CONTEXT = `# Analytics business context
 Data sources:
@@ -283,6 +289,11 @@ async function requestCompanySemanticCandidate({ registry, query, priorSemanticC
   const completion = await requestCompanyChatCompletion({
     messages: createSemanticCandidateMessages({ registry, query, priorSemanticContext, catalog }),
     model,
+    resilience: {
+      maxAttempts: 1,
+      timeoutMs: positiveInteger(process.env.DUPSEARCH_SEMANTIC_CANDIDATE_TIMEOUT_MS, SEMANTIC_CANDIDATE_DEFAULT_TIMEOUT_MS),
+      retryDelayMs: 0,
+    },
   });
   return parseSemanticCandidate(completion.content, schema);
 }

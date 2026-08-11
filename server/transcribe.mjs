@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const DEFAULT_COMPANY_TRANSCRIBE_ENDPOINT =
   "https://aistudio.bmwbrill.cn/api/service/49/{accessCode}/asr";
+const DEFAULT_BEACON_DOUBAO_ASR_MODEL = "Doubao-ASR-Async";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -43,6 +44,13 @@ function normalizeText(payload) {
   return "";
 }
 
+function readBoolean(env, keys, fallback) {
+  const value = readFirst(env, keys).toLowerCase();
+  if (["1", "true", "yes", "on"].includes(value)) return true;
+  if (["0", "false", "no", "off"].includes(value)) return false;
+  return fallback;
+}
+
 export function resolveTranscribeConfig(env = process.env) {
   const provider = readFirst(env, [
     "DUPSEARCH_TRANSCRIBE_PROVIDER",
@@ -67,6 +75,28 @@ export function resolveTranscribeConfig(env = process.env) {
     authScheme: readFirst(env, ["DUPSEARCH_TRANSCRIBE_AUTH_SCHEME", "TRANSCRIBE_AUTH_SCHEME"]) || "Bearer",
     companyAccessCode,
     companyEndpointTemplate,
+    beaconDoubaoUrl: readFirst(env, [
+      "DUPSEARCH_BEACON_DOUBAO_ASR_URL",
+      "BEACON_DOUBAO_ASR_URL",
+    ]),
+    beaconDoubaoApiKey: readFirst(env, [
+      "DUPSEARCH_BEACON_DOUBAO_ASR_API_KEY",
+      "BEACON_DOUBAO_ASR_API_KEY",
+      "DUPSEARCH_BEACON_API_KEY",
+      "BEACON_API_KEY",
+    ]),
+    beaconDoubaoAuthScheme: readFirst(env, [
+      "DUPSEARCH_BEACON_DOUBAO_ASR_AUTH_SCHEME",
+      "BEACON_DOUBAO_ASR_AUTH_SCHEME",
+    ]) || "Bearer",
+    beaconDoubaoModel: readFirst(env, [
+      "DUPSEARCH_BEACON_DOUBAO_ASR_MODEL",
+      "BEACON_DOUBAO_ASR_MODEL",
+    ]) || DEFAULT_BEACON_DOUBAO_ASR_MODEL,
+    beaconDoubaoFallbackToLocal: readBoolean(env, [
+      "DUPSEARCH_BEACON_DOUBAO_ASR_FALLBACK_TO_LOCAL",
+      "BEACON_DOUBAO_ASR_FALLBACK_TO_LOCAL",
+    ], true),
     localPython: readFirst(env, ["DUPSEARCH_LOCAL_ASR_PYTHON", "LOCAL_ASR_PYTHON"]) || defaultLocalAsrPython(env),
     localScript: readFirst(env, ["DUPSEARCH_LOCAL_ASR_SCRIPT", "LOCAL_ASR_SCRIPT"]) || path.join(repoRoot, "backend", "local_asr.py"),
     localModel: readFirst(env, ["DUPSEARCH_LOCAL_ASR_MODEL", "LOCAL_ASR_MODEL"]) || defaultLocalAsrModel(),
@@ -208,6 +238,55 @@ export async function runLocalAsrTranscription({ audioBase64, mimeType, config }
   return await getLocalAsrWorker(config).transcribe({ audioBase64, mimeType });
 }
 
+async function transcribeWithLocalAsr({ audioBase64, mimeType, config, dependencies }) {
+  const result = await (dependencies.localAsrRunner || runLocalAsrTranscription)({
+    audioBase64,
+    mimeType,
+    config,
+  });
+  const text = normalizeText(result);
+  if (!text) {
+    throw new Error("Local ASR returned empty text");
+  }
+
+  return { text };
+}
+
+async function transcribeWithBeaconDoubao({ audioBase64, mimeType, config }) {
+  if (!config.beaconDoubaoUrl) {
+    throw new Error("Beacon Doubao ASR endpoint is not configured");
+  }
+  if (!config.beaconDoubaoApiKey) {
+    throw new Error("Beacon Doubao ASR API key is not configured");
+  }
+
+  const response = await fetch(config.beaconDoubaoUrl, {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      Authorization: `${config.beaconDoubaoAuthScheme} ${config.beaconDoubaoApiKey}`.trim(),
+    },
+    body: JSON.stringify({
+      model: config.beaconDoubaoModel,
+      audio: String(audioBase64 || ""),
+      mime: String(mimeType || "audio/webm"),
+    }),
+  });
+
+  if (!response.ok) {
+    const message = await response.text().catch(() => "");
+    throw new Error(`Beacon Doubao transcription failed (${response.status}): ${message || response.statusText}`);
+  }
+
+  const text = await parseTranscriptionResponse(response);
+  if (!text) {
+    throw new Error("Beacon Doubao ASR returned empty text");
+  }
+
+  return { text, provider: "beacon-doubao", fallback: false };
+}
+
 async function parseTranscriptionResponse(response) {
   const contentType = String(response.headers?.get?.("content-type") || "").toLowerCase();
 
@@ -222,17 +301,26 @@ export async function transcribeAudio({ audioBase64, mimeType }, env = process.e
   const config = resolveTranscribeConfig(env);
 
   if (isLocalAsrProvider(config.provider)) {
-    const result = await (dependencies.localAsrRunner || runLocalAsrTranscription)({
-      audioBase64,
-      mimeType,
-      config,
-    });
-    const text = normalizeText(result);
-    if (!text) {
-      throw new Error("Local ASR returned empty text");
-    }
+    return await transcribeWithLocalAsr({ audioBase64, mimeType, config, dependencies });
+  }
 
-    return { text };
+  if (isBeaconDoubaoProvider(config.provider)) {
+    try {
+      return await transcribeWithBeaconDoubao({ audioBase64, mimeType, config });
+    } catch (beaconError) {
+      if (!config.beaconDoubaoFallbackToLocal) {
+        throw beaconError;
+      }
+
+      try {
+        const fallback = await transcribeWithLocalAsr({ audioBase64, mimeType, config, dependencies });
+        return { ...fallback, provider: "local-funasr", fallback: true };
+      } catch (localError) {
+        const beaconMessage = beaconError instanceof Error ? beaconError.message : "Unknown Beacon Doubao error";
+        const localMessage = localError instanceof Error ? localError.message : "Unknown local ASR error";
+        throw new Error(`${beaconMessage}; local fallback failed: ${localMessage}`);
+      }
+    }
   }
 
   if (config.companyEndpointTemplate && config.companyAccessCode) {
@@ -340,4 +428,8 @@ function defaultLocalAsrModel() {
 
 function isLocalAsrProvider(provider) {
   return ["local", "local-funasr", "funasr", "sensevoice"].includes(String(provider || "").toLowerCase());
+}
+
+function isBeaconDoubaoProvider(provider) {
+  return String(provider || "").toLowerCase() === "beacon-doubao";
 }
