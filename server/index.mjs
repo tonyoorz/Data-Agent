@@ -25,8 +25,11 @@ import {
   resolveQGateDashboardHtmlPath,
 } from "./qgateReports.mjs";
 import { handleTranscribeRequest } from "./transcribe.mjs";
+import { resolveChatModelConfig } from "./chatModelConfig.mjs";
+import testcaseBridgeRuntime from "./testcaseBridgeRuntime.cjs";
 
 const { runDuplicateBridge, stopDuplicateBridgeRuntime } = duplicateBridgeRuntime;
+const { runTestCaseBridge, stopTestCaseBridgeRuntime } = testcaseBridgeRuntime;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -292,6 +295,85 @@ async function proxyAnalyticsJson(pathname, searchParams, response) {
   response.end(payload);
 }
 
+async function generateTestCaseContent(defectInfo, fewShotText, chatConfig) {
+  const { buildChatCompletionRequest } = await import("./chatModelConfig.mjs");
+
+  if (!chatConfig.credential) {
+    throw new Error("LLM credentials not configured — set DUPSEARCH_CHAT_ACCESS_CODE or DUPSEARCH_CHAT_API_KEY");
+  }
+
+  const systemPrompt = [
+    "You are a test case generator for BMW ALM Octane (workspace 1002/2001).",
+    "Generate a structured manual test case (test_manual) from a defect's reproduction information.",
+    "",
+    "Output format — return a JSON object with exactly these fields:",
+    '{"testName": "[project][SW] Regression - short summary (D<defect_id>)", "descriptionHtml": "<html><body>...</body></html>", "stepsText": "- [PreCon] ...\\n- action step\\n- ? checkpoint"}',
+    "",
+    "Description HTML sections: Objective, Reference (defect link), Preconditions, baseline/regression tables (if quantitative data), pass/fail criteria.",
+    "Steps text format: one step per line, prefixed by kind: '- [PreCon] <text>' (precondition), '- <text>' (action step), '- ? <text>' (checkpoint/expected result).",
+    "Do NOT put the procedure in the description — it goes in stepsText only.",
+    "Checkpoints must have specific values/thresholds (numbers, percentages), not vague 'check it works'.",
+  ].join("\n");
+
+  const userPrompt = [
+    `Defect ID: ${defectInfo.defect_id}`,
+    `Name: ${defectInfo.name}`,
+    `Severity: ${defectInfo.severity}`,
+    `Software: ${defectInfo.software_version}`,
+    `ECU: ${defectInfo.assigned_ecu}`,
+    `Lead model: ${defectInfo.lead_model}`,
+    `Project: ${defectInfo.project}`,
+    "",
+    "Defect description:",
+    defectInfo.description?.slice(0, 3000) || "(no description)",
+    "",
+    fewShotText ? `Reference test cases (style/structure examples):\n${fewShotText}\n` : "",
+    "Generate the test case now. Return ONLY the JSON object, no markdown code fence.",
+  ].join("\n");
+
+  const requestConfig = buildChatCompletionRequest({
+    selectedModel: chatConfig.model,
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ],
+    env: process.env,
+  });
+
+  const abortController = new AbortController();
+  const timeout = setTimeout(() => abortController.abort(), 120000);
+  let response;
+  try {
+    response = await fetch(requestConfig.url, {
+      method: "POST",
+      headers: requestConfig.headers,
+      body: JSON.stringify(requestConfig.body),
+      signal: abortController.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (!response.ok) {
+    throw new Error(`LLM request failed: ${response.status} ${response.statusText}`);
+  }
+
+  const data = await response.json();
+  const content = data?.choices?.[0]?.message?.content || "";
+  // Parse JSON from the LLM response (it may be wrapped in code fences)
+  const jsonMatch = content.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    throw new Error("LLM did not return a JSON object");
+  }
+  const parsed = JSON.parse(jsonMatch[0]);
+
+  return {
+    testName: String(parsed.testName || `[${defectInfo.project}] Regression - ${defectInfo.name?.slice(0, 60)} (D${defectInfo.defect_id})`),
+    descriptionHtml: String(parsed.descriptionHtml || ""),
+    stepsText: String(parsed.stepsText || ""),
+  };
+}
+
 function serveStaticAsset(request, response, url) {
   if (!staticDir || request.method !== "GET") {
     return false;
@@ -524,6 +606,100 @@ const server = http.createServer(async (request, response) => {
       });
 
       sendJson(response, result?.success ? 200 : 500, result);
+      return;
+    }
+
+    // --- Create Test Case (slash command /create-testcase) ---
+
+    if (request.method === "POST" && url.pathname === "/api/create-testcase/warmup") {
+      if (!await requireInternalAuxiliaryActor(request, response)) return;
+      try {
+        const result = await runTestCaseBridge({ action: "warmup" });
+        sendJson(response, result?.success ? 200 : 500, result);
+      } catch (error) {
+        sendJson(response, 500, { success: false, error: String(error?.message || error) });
+      }
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/create-testcase") {
+      if (!await requireInternalAuxiliaryActor(request, response)) return;
+      const body = await readJsonBody(request);
+      const defectId = typeof body?.defect_id === "string" ? body.defect_id.trim() : "";
+
+      if (!defectId) {
+        sendJson(response, 400, { success: false, error: "defect_id is required" });
+        return;
+      }
+
+      try {
+        // Step 1: Python bridge — read defect + RAG retrieve similar test cases
+        const prepared = await runTestCaseBridge({ action: "prepare", defect_id: defectId });
+        if (!prepared?.success || !prepared?.defect_info) {
+          sendJson(response, 500, { success: false, error: prepared?.error || "failed to prepare defect" });
+          return;
+        }
+
+        const defectInfo = prepared.defect_info;
+        const similarCases = prepared.similar_cases || [];
+        const fewShotText = prepared.few_shot_text || "";
+
+        // Step 2: LLM generation — build description HTML + steps text
+        const chatConfig = resolveChatModelConfig(undefined, process.env);
+        const llmResult = await generateTestCaseContent(defectInfo, fewShotText, chatConfig);
+
+        // Step 3: Python bridge — verify quality
+        const verified = await runTestCaseBridge({
+          action: "verify",
+          defect_info: defectInfo,
+          description_html: llmResult.descriptionHtml,
+          steps_text: llmResult.stepsText,
+        });
+
+        const result = {
+          defectId: defectInfo.defect_id,
+          defectName: defectInfo.name,
+          defectSeverity: defectInfo.severity,
+          defectSoftwareVersion: defectInfo.software_version,
+          defectAssignedEcu: defectInfo.assigned_ecu,
+          defectLeadModel: defectInfo.lead_model,
+          descriptionHtml: llmResult.descriptionHtml,
+          stepsText: llmResult.stepsText,
+          name: llmResult.testName,
+          verification: verified?.verification || { passed: false, criteria: [], feedback: "verification skipped" },
+          similarCases,
+          generatedAt: new Date().toISOString(),
+        };
+
+        sendJson(response, 200, { success: true, result });
+      } catch (error) {
+        sendJson(response, 500, { success: false, error: String(error?.message || error) });
+      }
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/create-testcase/commit") {
+      if (!await requireInternalAuxiliaryActor(request, response)) return;
+      const body = await readJsonBody(request);
+      const testCaseData = body?.test_case_data;
+      const featureId = typeof body?.feature_id === "string" ? body.feature_id.trim() : "";
+      const ownerId = typeof body?.owner_workspace_user_id === "string" ? body.owner_workspace_user_id.trim() : "";
+
+      if (!testCaseData) {
+        sendJson(response, 400, { success: false, error: "test_case_data is required" });
+        return;
+      }
+
+      try {
+        const result = await runTestCaseBridge({
+          action: "commit",
+          test_case_data: { ...testCaseData, owner_workspace_user_id: ownerId },
+          feature_id: featureId,
+        });
+        sendJson(response, result?.success ? 200 : 500, result);
+      } catch (error) {
+        sendJson(response, 500, { success: false, error: String(error?.message || error) });
+      }
       return;
     }
 

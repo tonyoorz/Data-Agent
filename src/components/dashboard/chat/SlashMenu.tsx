@@ -5,6 +5,7 @@ import {
   Bug,
   Compass,
   FileBarChart,
+  FlaskConical,
   GaugeCircle,
   LineChart,
   TrendingUp,
@@ -16,6 +17,8 @@ export interface SlashCommand {
   hint: string;
   prompt: string;
   icon: LucideIcon;
+  action?: string;
+  argHint?: string;
 }
 
 export const SLASH_COMMANDS: SlashCommand[] = [
@@ -67,6 +70,15 @@ export const SLASH_COMMANDS: SlashCommand[] = [
     hint: "总结当前页可视化的关键洞察",
     prompt: "请总结我当前所在页面图表的关键洞察，3 条以内。",
     icon: BarChart3,
+  },
+  {
+    id: "create-testcase",
+    label: "/创建测试用例",
+    hint: "从缺陷生成测试用例（RAG + AI 生成 + 确认写入 Octane）",
+    prompt: "",
+    icon: FlaskConical,
+    action: "create-testcase",
+    argHint: "输入缺陷 ID，如 2804379",
   },
 ];
 

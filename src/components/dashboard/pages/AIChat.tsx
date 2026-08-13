@@ -25,6 +25,7 @@ import MessageRenderer from "../chat/MessageRenderer";
 import SlashMenu, { SLASH_COMMANDS, SlashCommand } from "../chat/SlashMenu";
 import { segmentsToPlainText, parseAgentStream } from "../chat/agentParser";
 import DuplicateSearchResults from "../chat/DuplicateSearchResults";
+import TestCasePreviewCard from "../chat/TestCasePreviewCard";
 import { createStreamTextAnimator, type StreamTextAnimator } from "../chat/streamTextAnimator";
 import {
   COMPANY_CHAT_MODELS,
@@ -32,6 +33,7 @@ import {
   normalizeCompanyChatModel,
 } from "../chat/companyModels";
 import type { DuplicateSearchResult } from "../chat/duplicateSearchTypes";
+import type { TestCaseResult } from "../chat/testCaseTypes";
 import { Switch } from "@/components/ui/switch";
 import { supabase } from "@/integrations/supabase/client";
 
@@ -60,6 +62,7 @@ interface Msg {
   content: string;
   mode?: ChatMode;
   duplicateResult?: DuplicateSearchResult;
+  testcaseResult?: TestCaseResult;
   attachments?: Attachment[];
   meta?: MessageMeta;
 }
@@ -301,6 +304,15 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
     }).catch(() => undefined);
   }, [interactionMode]);
 
+  // Warmup test case RAG index on mount (pre-builds 16K embedding index)
+  useEffect(() => {
+    void fetch("/api/create-testcase/warmup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ reason: "ai-chat-mount" }),
+    }).catch(() => undefined);
+  }, []);
+
   const sortedConvos = useMemo(() => {
     return [...conversations].sort((a, b) => {
       if (!!b.pinned !== !!a.pinned) return (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0);
@@ -481,6 +493,12 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
   };
 
   const pickSlash = (c: SlashCommand) => {
+    if (c.action === "create-testcase") {
+      setInput("/创建测试用例 ");
+      setSlashOpen(false);
+      setTimeout(() => taRef.current?.focus(), 0);
+      return;
+    }
     setInput(c.prompt);
     setSlashOpen(false);
     setTimeout(() => taRef.current?.focus(), 0);
@@ -784,6 +802,70 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
     }
   };
 
+  const runCreateTestcase = async (defectId: string, assistantMsgId: string) => {
+    setStreaming(true);
+    const controller = new AbortController();
+    activeRequestRef.current = newId();
+    abortRef.current = controller;
+    streamAnimatorRef.current?.stop();
+    updateActive((c) => ({
+      ...c,
+      messages: c.messages.map((message) =>
+        message.id === assistantMsgId
+          ? { ...message, content: "正在生成测试用例…", mode: "chat" as ChatMode }
+          : message,
+      ),
+      updatedAt: Date.now(),
+    }));
+
+    try {
+      const response = await fetch("/api/create-testcase", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ defect_id: defectId }),
+        signal: controller.signal,
+      });
+
+      const payload = (await response.json().catch(() => ({}))) as {
+        success?: boolean;
+        error?: string;
+        result?: TestCaseResult;
+      };
+
+      if (!response.ok || !payload.success || !payload.result) {
+        throw new Error(payload.error || "测试用例生成失败");
+      }
+
+      updateActive((c) => ({
+        ...c,
+        messages: c.messages.map((message) =>
+          message.id === assistantMsgId
+            ? {
+                ...message,
+                content: "测试用例已生成，请审查后确认创建。",
+                testcaseResult: payload.result,
+              }
+            : message,
+        ),
+        updatedAt: Date.now(),
+      }));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      updateActive((c) => ({
+        ...c,
+        messages: c.messages.map((message) =>
+          message.id === assistantMsgId
+            ? { ...message, content: `生成失败：${msg}` }
+            : message,
+        ),
+        updatedAt: Date.now(),
+      }));
+    } finally {
+      setStreaming(false);
+      abortRef.current = null;
+    }
+  };
+
   const runDuplicateSearch = async (queryText: string, assistantMsgId: string) => {
     setStreaming(true);
     const controller = new AbortController();
@@ -926,6 +1008,31 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
     setInput("");
     setAttachments([]);
     setSlashOpen(false);
+
+    // detect /创建测试用例 <defect_id> — extract the first numeric id from the
+    // argument text so natural-language phrasings like "基于 ticket 2804379 创建" work.
+    // Octane defect_id in the local SQLite store is purely numeric (e.g. "2804379"),
+    // so a D-prefixed id (D2804379) is stripped to its digits.
+    if (/^\/创建测试用例\s+/.test(content)) {
+      const idMatch = content.match(/\b(?:D|DEF-)?(\d{4,})\b/i);
+      if (idMatch) {
+        await runCreateTestcase(idMatch[1], assistantMsg.id);
+      } else {
+        updateActive((c) => ({
+          ...c,
+          messages: c.messages.map((message) =>
+            message.id === assistantMsgId
+              ? { ...message, content: "请在「/创建测试用例」后附带缺陷 ID（数字），例如：/创建测试用例 2804379" }
+              : message,
+          ),
+          updatedAt: Date.now(),
+        }));
+        setStreaming(false);
+        abortRef.current = null;
+      }
+      return;
+    }
+
     if (interactionMode === "duplicate-search") {
       await runDuplicateSearch(content, assistantMsg.id);
       return;
@@ -1222,6 +1329,7 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
                   const isLastAsst =
                     m.role === "assistant" && i === active.messages.length - 1;
                   const showDuplicateResults = m.mode === "duplicate-search" && Boolean(m.duplicateResult);
+                  const showTestcaseResult = Boolean(m.testcaseResult);
                   return (
                     <motion.div
                       key={m.id}
@@ -1320,6 +1428,9 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
                                 result={m.duplicateResult}
                                 allowFeedback
                               />
+                            ) : null}
+                            {showTestcaseResult && m.testcaseResult ? (
+                              <TestCasePreviewCard result={m.testcaseResult} />
                             ) : null}
                           </div>
                         ) : (
