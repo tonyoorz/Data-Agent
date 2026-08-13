@@ -1,3 +1,5 @@
+import { checkRuleValidations, checkNumericGuardrails, buildBusinessKnowledgeContext } from "./answerGuardrails.mjs";
+
 function approvedClaimEvidenceConstraint(registry) {
   try {
     return registry?.getConstraint?.("answer.claim_evidence_binding");
@@ -184,10 +186,14 @@ export function validateAnswerTextCitations({ text, evidence = [], registry } = 
     evidence,
     registry,
   });
+  const ruleViolations = checkRuleValidations({ text, registry });
+  const numericViolations = checkNumericGuardrails({ text, parsed, evidence });
   const violations = [
     ...contract.violations,
     ...parsed.violations,
     ...claimCoverageViolations(text, parsed.tokens, evidence),
+    ...ruleViolations,
+    ...numericViolations,
   ];
   return { valid: violations.length === 0, violations: [...new Set(violations)] };
 }
@@ -201,7 +207,7 @@ export function buildCitationContractContext({ evidence = [], registry } = {}) {
   if (!rows.length) {
     return "";
   }
-  return [
+  const citationLines = [
     "# Citation contract",
     `Constraint: ${constraint.id}`,
     `Allowed toolCallIds: ${rows.map((item) => item.toolCallId).join(", ")}`,
@@ -214,5 +220,8 @@ export function buildCitationContractContext({ evidence = [], registry } = {}) {
     ].filter(Boolean).join("; ")),
     `Format every numeric or factual data claim as <cite source="${rows[0].toolCallId}">claim</cite> using one of these toolCallIds. Use a separate citation token for each claim-bearing sentence or block; do not invent, duplicate, or fake citation tokens.`,
     "Do not state causal conclusions unless supplied evidence explicitly supports causality; describe associations and limitations instead.",
-  ].join("\n");
+  ];
+  const citationBlock = citationLines.join("\n");
+  const knowledgeBlock = buildBusinessKnowledgeContext(registry);
+  return knowledgeBlock ? `${knowledgeBlock}\n\n${citationBlock}` : citationBlock;
 }

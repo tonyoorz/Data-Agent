@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import MessageRenderer from "../chat/MessageRenderer";
+import AnalysisResultChart, { type AnalysisResultPayload } from "../chat/AnalysisResultChart";
 import SlashMenu, { SLASH_COMMANDS, SlashCommand } from "../chat/SlashMenu";
 import { segmentsToPlainText, parseAgentStream } from "../chat/agentParser";
 import DuplicateSearchResults from "../chat/DuplicateSearchResults";
@@ -73,6 +74,7 @@ interface Msg {
   content: string;
   mode?: ChatMode;
   duplicateResult?: DuplicateSearchResult;
+  analysisResult?: AnalysisResultPayload;
   attachments?: Attachment[];
   meta?: MessageMeta;
 }
@@ -797,6 +799,32 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
               continue;
             }
 
+            if (parsed?.type === "agent-runtime-event" && parsed?.event) {
+              const inner = parsed.event;
+              if (inner.type === "analysis-result" && inner.visualization) {
+                const analysisResult: AnalysisResultPayload = {
+                  visualization: inner.visualization,
+                  columns: Array.isArray(inner.columns) ? inner.columns : [],
+                  rows: Array.isArray(inner.rows) ? inner.rows : [],
+                  metrics:
+                    inner.metrics && typeof inner.metrics === "object"
+                      ? (inner.metrics as Record<string, number>)
+                      : {},
+                  ...(typeof inner.analysisRef === "string" && inner.analysisRef
+                    ? { analysisRef: inner.analysisRef }
+                    : {}),
+                };
+                updateActive((c) => ({
+                  ...c,
+                  messages: c.messages.map((m) =>
+                    m.id === assistantMsgId ? { ...m, analysisResult } : m,
+                  ),
+                  updatedAt: Date.now(),
+                }));
+              }
+              continue;
+            }
+
             const usage = parseTokenUsage(parsed?.usage);
             if (usage) {
               updateActive((c) => ({
@@ -1381,6 +1409,9 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
                         ) : m.role === "assistant" ? (
                           <div className="space-y-3">
                             <MessageRenderer content={m.content} streaming={streaming && isLastAsst} />
+                            {m.analysisResult ? (
+                              <AnalysisResultChart result={m.analysisResult} />
+                            ) : null}
                             {showDuplicateResults ? (
                               <DuplicateSearchResults
                                 result={m.duplicateResult}

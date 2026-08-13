@@ -55,6 +55,18 @@ export function createOntologyRegistry({
   const metrics = new Map(bundle.metrics.map((item) => [item.id, Object.freeze(item)]));
   const relationships = new Map(bundle.relationships.map((item) => [item.id, Object.freeze(item)]));
   const businessRules = new Map((bundle.businessRules || []).map((item) => [item.id, Object.freeze(item)]));
+
+  // The 12 doc-level business rules (br.*) live in business_rules.json alongside
+  // the structured businessRules, but are free-form domain knowledge rather than
+  // executable effects. They are read as a non-fingerprinted sidecar so adding/
+  // editing them does NOT change the ontology fingerprint (and therefore does not
+  // invalidate existing queryPlan schemaFingerprint assertions or golden tests).
+  const businessKnowledgeRulesPath = path.join(root, "ontology/v1/business_rules.json");
+  const businessKnowledgeRules = fs.existsSync(businessKnowledgeRulesPath)
+    ? Object.freeze((JSON.parse(fs.readFileSync(businessKnowledgeRulesPath, "utf8")).rules || [])
+      .filter((item) => item && typeof item === "object")
+      .map((item) => Object.freeze(item)))
+    : Object.freeze([]);
   const policies = new Map(bundle.policies.map((item) => [item.id, Object.freeze(item)]));
   const constraints = new Map(bundle.constraints.map((item) => [item.id, Object.freeze(item)]));
   const terms = bundle.terms.flatMap((term) => term.phrases.map((phrase) => ({ term, phrase, normalized: phrase.toLocaleLowerCase("zh-CN") })))
@@ -124,6 +136,9 @@ export function createOntologyRegistry({
     },
     listBusinessRules({ status, kind } = {}) {
       return [...businessRules.values()].filter((rule) => (!status || rule.governance.status === status) && (!kind || rule.kind === kind));
+    },
+    listBusinessKnowledgeRules() {
+      return businessKnowledgeRules;
     },
     matchTerms(query) {
       const normalizedQuery = String(query || "").toLocaleLowerCase("zh-CN");

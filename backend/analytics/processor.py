@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Sequence
 
 from backend.analytics.asset_loader import load_mapping_assets
+from backend.analytics.db import ensure_wal_pragmas
 
 
 def _normalize_text(value: object) -> str:
@@ -328,7 +329,7 @@ def run_processor_pipeline(
     aida_map = _aida_dimension_map(assets.aida_rows)
     vin_market_map = _vin_market_map(assets.vin_project_rows)
 
-    conn = sqlite3.connect(db_path)
+    conn = ensure_wal_pragmas(sqlite3.connect(db_path))
     conn.row_factory = sqlite3.Row
     try:
         defect_columns = _table_columns(conn, "octane_defects")
@@ -585,7 +586,7 @@ def backfill_defect_projects(
     apply: bool = False,
     only_unknown: bool = True,
 ) -> dict[str, object]:
-    conn = sqlite3.connect(db_path)
+    conn = ensure_wal_pragmas(sqlite3.connect(db_path))
     try:
         columns = _table_columns(conn, "octane_defects")
         required_columns = {"defect_id", "project", "top_aida", "assigned_ecu", "software_version", "lead_model"}
@@ -693,7 +694,7 @@ def sync_dimension_fields(
     defect_dimension_rows: list[dict],
     run_dimension_rows: list[dict],
 ) -> dict[str, int]:
-    conn = sqlite3.connect(db_path)
+    conn = ensure_wal_pragmas(sqlite3.connect(db_path))
     try:
         defect_payload = [
             (

@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import duplicateBridgeRuntime from "./duplicateBridgeRuntime.cjs";
 import { streamLangGraphChatResponse } from "./agentRuntime/langGraphChatHandler.mjs";
 import { createLangGraphChatRuntime, resolveAgentRuntimeMode } from "./agentRuntime/langGraphChatRuntime.mjs";
+import { MemorySaver } from "@langchain/langgraph";
 import { createFileAgentRuntimeStore } from "./agentRuntime/runtimeAuditStore.mjs";
 import { buildAgentStreamAuditEvent } from "./agentRuntime/streamAudit.mjs";
 import { resolveAgentOperationsResponse } from "./agentOperations.mjs";
@@ -72,8 +73,28 @@ const duplicateWarmupManager = createDuplicateWarmupManager({
   logger: console,
 });
 const agentRuntimeStore = createFileAgentRuntimeStore();
+
+// Persistent checkpointer so conversations survive process restarts (the default
+// MemorySaver is in-process only and loses state on restart). SqliteSaver needs
+// @langchain/langgraph-checkpoint-sqlite3 + better-sqlite3; if either is missing
+// or the API differs we fall back to MemorySaver so the server still boots.
+let agentCheckpointer;
+try {
+  const checkpointDbPath = process.env.VIZION_AGENT_CHECKPOINT_DB
+    || path.join(repoRoot, "data", "agent-checkpoints.db");
+  fs.mkdirSync(path.dirname(checkpointDbPath), { recursive: true });
+  const sqliteModule = await import("@langchain/langgraph-checkpoint-sqlite3");
+  const SqliteSaver = sqliteModule.SqliteSaver;
+  agentCheckpointer = await SqliteSaver.fromConnString(checkpointDbPath);
+  console.info(`[vizion] agent checkpointer: SqliteSaver @ ${checkpointDbPath}`);
+} catch (error) {
+  agentCheckpointer = new MemorySaver();
+  console.warn(`[vizion] SqliteSaver unavailable, using in-process MemorySaver: ${error?.message || error}`);
+}
+
 const langGraphChatRuntime = createLangGraphChatRuntime({
   runtimeStore: agentRuntimeStore,
+  checkpointer: agentCheckpointer,
 });
 
 function nowMs() {

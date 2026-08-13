@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 import concurrent.futures
+import os
 from typing import Any
 
 import requests
@@ -14,6 +15,7 @@ from backend.analytics.config import (
     resolve_octane_cookie_file_path,
 )
 from backend.analytics.ingest.auth import build_cookie_session
+from backend.analytics.circuit_breaker import CircuitBreaker, is_http_failure
 
 
 DEFECT_FIELDS: tuple[str, ...] = (
@@ -141,11 +143,55 @@ def _session_cookie_value(session: requests.Session, name: str) -> str:
     return _cookie_value_from_header(str(session.headers.get("Cookie") or ""), name)
 
 
+def _env_positive_float(name: str, fallback: float) -> float:
+    raw = os.getenv(name)
+    try:
+        value = float(raw) if raw else None
+    except (TypeError, ValueError):
+        return fallback
+    return value if value is not None and value > 0 else fallback
+
+
+class _BreakerSessionProxy:
+    """Forward get/post/put through the Octane circuit breaker; everything else
+    (cookies, headers, ...) delegates to the underlying requests.Session so
+    existing helpers like _session_cookie_value keep working unchanged."""
+
+    def __init__(self, session: "requests.Session", breaker: CircuitBreaker) -> None:
+        self._session = session
+        self._breaker = breaker
+
+    def get(self, url, **kwargs):
+        return self._request("GET", url, **kwargs)
+
+    def post(self, url, **kwargs):
+        return self._request("POST", url, **kwargs)
+
+    def put(self, url, **kwargs):
+        return self._request("PUT", url, **kwargs)
+
+    def _request(self, method, url, **kwargs):
+        return self._breaker.call(lambda: self._session.request(method, url, **kwargs))
+
+    def __getattr__(self, name):
+        # Only forward public attributes; underscored names raise to avoid
+        # recursion during construction and unwanted leakage of session internals.
+        if name.startswith("_"):
+            raise AttributeError(name)
+        return getattr(self._session, name)
+
+
 class OctaneApiClient:
     def __init__(self, *, base_url: str, shared_space_id: str, workspace_id: str, session: requests.Session):
         self._base_url = base_url.rstrip("/")
         self._api_base = f"{self._base_url}/api/shared_spaces/{shared_space_id}/workspaces/{workspace_id}"
-        self._session = session
+        self._octane_breaker = CircuitBreaker(
+            service="octane",
+            failure_threshold=int(_env_positive_float("VIZION_OCTANE_BREAKER_THRESHOLD", 5)),
+            reset_timeout_s=_env_positive_float("VIZION_OCTANE_BREAKER_RESET_S", 30.0),
+            is_failure=is_http_failure,
+        )
+        self._session = _BreakerSessionProxy(session, self._octane_breaker)
         self._team_name_cache: dict[str, str] = {}
 
     def fetch_rows(

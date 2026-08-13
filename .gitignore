@@ -44,6 +44,7 @@ database/**/*.duckdb
 database/cold/parquet/**
 docs/qgate-reports/generated_runs/
 artifacts/agent-qualification/
+evals/scorecard/output/
 !database/**/.gitkeep
 .worktrees/
 

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from backend.analytics.schema import ensure_schema
+from backend.analytics.db import ensure_wal_pragmas
 
 
 SQLITE_MAX_QUERY_VARIABLES = 32000
@@ -343,7 +344,7 @@ class OctaneSourceStore:
     def __init__(self, db_path: Path | str):
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(self.db_path)
+        self._conn = ensure_wal_pragmas(sqlite3.connect(self.db_path))
         self._conn.row_factory = sqlite3.Row
 
     def close(self) -> None:

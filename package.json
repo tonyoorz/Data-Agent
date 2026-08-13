@@ -23,6 +23,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:agent-evals": "vitest run src/test/server/mainAgentGolden.test.ts src/test/server/ontology/semanticGolden.test.ts src/test/server/ontology/semanticQualityGolden.test.ts src/test/server/mainAgentExecutionGolden.test.ts src/test/server/mainAgentPolicyGolden.test.ts src/test/server/mainAgentToolRecovery.test.ts src/test/server/answerValidator.test.ts",
+    "eval:scorecard": "node ./scripts/runScorecard.mjs",
     "agent:qualification": "node ./scripts/agentQualification.mjs",
     "agent:qualification:verify": "node ./scripts/agentQualification.mjs --verify --require-full --require-build",
     "report:qgate-kpi": "node ./scripts/runPython.mjs -m backend.analytics_cli generate-qgate-kpi-reports",
@@ -94,7 +95,8 @@
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",
     "vaul": "^0.9.9",
-    "zod": "^3.25.76"
+    "zod": "^3.25.76",
+    "@langchain/langgraph-checkpoint-sqlite3": "^2.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.32.0",

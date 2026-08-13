@@ -482,6 +482,60 @@ function governedAnalysisAuditFromContext(analyticsContext) {
   }
 }
 
+const ANALYSIS_RESULT_SEMANTIC_TOOLS = new Set(["query_semantic_metrics", "query_semantic_records"]);
+
+function deriveVisualizationFromRows(rows, metricKeys) {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return Array.isArray(metricKeys) && metricKeys.length ? "kpi" : "none";
+  }
+  if (rows.length === 1 && metricKeys.length) return "kpi";
+  return "table";
+}
+
+// Build a structured analysis-result event from the governed semantic tool payload so
+// the front end can render a chart matched to analysisPlanner.visualization instead of
+// parsing the truncated text summary. Emits only when a governed semantic metric/records
+// tool produced structured rows or summary metrics, so non-semantic turns are unaffected.
+export function buildAnalysisResultEvent(mainAgentToolContext, analyticsContext) {
+  const plan = governedAnalysisAuditFromContext(analyticsContext);
+  const toolMessages = mainAgentToolContext?.toolMessages || [];
+  for (const message of toolMessages) {
+    if (!message || message.role !== "tool") continue;
+    let parsed;
+    try {
+      parsed = JSON.parse(message.content || "");
+    } catch {
+      continue;
+    }
+    if (!parsed || parsed.ok !== true || !ANALYSIS_RESULT_SEMANTIC_TOOLS.has(parsed.tool)) continue;
+    const payload = parsed.result;
+    if (!payload || typeof payload !== "object") continue;
+    const data = Array.isArray(payload.data) ? payload.data : [];
+    const metrics = payload.summary && typeof payload.summary.metrics === "object" ? payload.summary.metrics : {};
+    const metricKeys = Object.keys(metrics);
+    if (data.length === 0 && metricKeys.length === 0) continue;
+    const rowKeys = data.length ? [...new Set(data.flatMap((row) => Object.keys(row || {})))] : [];
+    const columnIds = [...rowKeys, ...metricKeys.filter((key) => !rowKeys.includes(key))];
+    const columns = columnIds.map((id) => ({ id, label: id }));
+    const visualization = plan?.visualization || deriveVisualizationFromRows(data, metricKeys);
+    if (visualization === "none") continue;
+    const maxRows = Number.isInteger(plan?.maxRows) && plan.maxRows > 0 ? plan.maxRows : 100;
+    return {
+      type: "analysis-result",
+      analysisPlanId: plan?.analysisPlanId || "",
+      visualization,
+      columns,
+      rows: data.slice(0, maxRows),
+      metrics,
+      ontologyVersion: String(payload.ontologyVersion || ""),
+      schemaFingerprint: String(payload.schemaFingerprint || ""),
+      analysisRef: String(payload.analysisRef || ""),
+      sourceRevisionId: String(payload.sourceRevision?.revisionId || ""),
+    };
+  }
+  return null;
+}
+
 async function persistRuntimeState(runtimeStore, state) {
   if (!runtimeStore) {
     return;
@@ -1025,6 +1079,11 @@ export function createLangGraphChatRuntime({
       aiContextTimings: state.defectContext?.timings || null,
     };
     const event = emit(config, { type: "agent-runtime-ready", runId: state.runId, threadId: state.threadId });
+    const runtimeEvents = [event];
+    const analysisResult = buildAnalysisResultEvent(mainAgentToolContext, state.analyticsContext);
+    if (analysisResult) {
+      runtimeEvents.push(emit(config, { ...analysisResult, threadId: state.threadId }));
+    }
     return {
       context,
       finalMessages,
@@ -1032,7 +1091,7 @@ export function createLangGraphChatRuntime({
       mainAgentToolContext,
       directResponse: state.directResponse || null,
       metrics,
-      runtimeEvents: [event],
+      runtimeEvents,
     };
   }
 

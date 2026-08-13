@@ -4,6 +4,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 import sqlite3
+from backend.analytics.db import ensure_wal_pragmas
 from typing import Any
 
 
@@ -22,7 +23,7 @@ class DuplicateCommentRunStore:
         self._ensure_schema()
 
     def _connect(self) -> sqlite3.Connection:
-        return sqlite3.connect(self.db_path)
+        return ensure_wal_pragmas(sqlite3.connect(self.db_path))
 
     def _ensure_schema(self) -> None:
         with self._connect() as conn:
@@ -125,7 +126,7 @@ def load_phase00_ticket_candidates(
     limit: int | None = None,
 ) -> list[Phase00TicketCandidate]:
     normalized_ids = tuple(str(ticket_id).strip() for ticket_id in (ticket_ids or ()) if str(ticket_id).strip())
-    with sqlite3.connect(source_db_path) as conn:
+    with ensure_wal_pragmas(sqlite3.connect(source_db_path)) as conn:
         columns = _table_columns(conn, "octane_defects")
         phase_expr = _coalesce_column(columns, ("status_phase", "phase"))
         team_expr = _coalesce_column(columns, ("problem_finder_team", "team"))

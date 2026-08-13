@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from backend.analytics.ingest.source_store import OctaneSourceStore
+from backend.analytics.db import ensure_wal_pragmas
 
 
 MANUAL_RUN_OVERLAP_DAYS = 3
@@ -102,7 +103,7 @@ def _load_incremental_manual_run_since_by_year(
           AND COALESCE(NULLIF(TRIM(CAST(run_team AS TEXT)), ''), NULLIF(TRIM(CAST(team AS TEXT)), '')) = ?
         GROUP BY CAST(year AS INTEGER)
     """
-    conn = sqlite3.connect(str(source_db_path))
+    conn = ensure_wal_pragmas(sqlite3.connect(str(source_db_path)))
     try:
         rows = conn.execute(query, [*years, team_name]).fetchall()
     except sqlite3.Error:
@@ -142,7 +143,7 @@ def _load_traceability_refresh_since_by_year(
           AND TRIM(COALESCE(CAST(scope_team AS TEXT), '')) = ?
         GROUP BY CAST(year AS INTEGER)
     """
-    conn = sqlite3.connect(str(source_db_path))
+    conn = ensure_wal_pragmas(sqlite3.connect(str(source_db_path)))
     try:
         rows = conn.execute(query, [*years, team_name]).fetchall()
     except sqlite3.Error:
@@ -178,7 +179,7 @@ def _load_incremental_defect_since_by_year(
           AND COALESCE(NULLIF(TRIM(CAST(problem_finder_team AS TEXT)), ''), NULLIF(TRIM(CAST(team AS TEXT)), '')) = ?
         GROUP BY CAST(year AS INTEGER)
     """
-    conn = sqlite3.connect(str(source_db_path))
+    conn = ensure_wal_pragmas(sqlite3.connect(str(source_db_path)))
     try:
         rows = conn.execute(query, [*years, team_name]).fetchall()
     except sqlite3.Error:

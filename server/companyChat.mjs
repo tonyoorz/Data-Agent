@@ -6,6 +6,7 @@ import { assertChatAttachmentLimits } from "./attachmentBoundary.mjs";
 import { validateAnswerTextCitations } from "./answerValidator.mjs";
 import { evaluateClaimEvidence } from "./mainAgentEvidence.mjs";
 import { readBoundedResponseJson } from "./boundedResponseBody.mjs";
+import { createCircuitBreaker } from "./circuitBreaker.mjs";
 
 const SYSTEM_PROMPT = `You are DTSV Intelligence — a senior data analyst embedded in a quality engineering dashboard.
 
@@ -102,6 +103,23 @@ function chatResilienceOptions(env = process.env) {
   };
 }
 
+// Cross-request circuit breaker for the chat model upstream. companyChat's own
+// retry handles single-request hiccups; this trips after N consecutive upstream
+// failures (transport errors or 5xx/408/429 responses) so a sustained outage
+// fast-fails instead of every caller paying the full retry budget. A non-throwing
+// 5xx response still counts as a failure but is returned to the caller unchanged
+// so upstreamFailure() keeps producing its upstream_status diagnostic.
+const companyChatBreaker = createCircuitBreaker({
+  service: "companyChat",
+  failureThreshold: positiveInteger(process.env.VIZION_CHAT_BREAKER_THRESHOLD, 5),
+  resetTimeoutMs: positiveInteger(process.env.VIZION_CHAT_BREAKER_RESET_MS, 30000),
+  isFailure(error, result) {
+    if (error) return true;
+    const status = Number(result?.response?.status || 0);
+    return status === 408 || status === 429 || status >= 500;
+  },
+});
+
 function isRetryableStatus(status) {
   return status === 408 || status === 429 || status >= 500;
 }
@@ -139,7 +157,24 @@ function normalizeUpstreamTransportError(error, signal) {
   );
 }
 
-async function fetchWithResilience(url, init, { env = process.env } = {}) {
+async function fetchWithResilience(url, init, options = {}) {
+  // Wrap the retry loop in the cross-request circuit breaker. When the breaker
+  // is open we fast-fail as a CHAT_UPSTREAM_REQUEST_FAILED degradation (502)
+  // instead of waiting out the timeout/retry budget on every caller.
+  try {
+    return await companyChatBreaker.call(() => fetchWithResilienceOnce(url, init, options));
+  } catch (error) {
+    if (error?.circuitOpen) {
+      throw new CompanyChatBoundaryError(
+        "CHAT_UPSTREAM_REQUEST_FAILED",
+        "error_code=CHAT_UPSTREAM_REQUEST_FAILED circuit_open=true",
+      );
+    }
+    throw error;
+  }
+}
+
+async function fetchWithResilienceOnce(url, init, { env = process.env } = {}) {
   const { maxAttempts, timeoutMs, retryDelayMs } = chatResilienceOptions(env);
   let lastError;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
