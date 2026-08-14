@@ -24,10 +24,12 @@ import {
   executeMainAgentPlannedToolCall,
   hasEmptyAnalyticsResult,
   hasPlannedDiagnosis,
+  privateAdapterToolCall,
   selectMainAgentToolset,
   shouldPlanMainAgentTools,
 } from "../mainAgentToolPlanning.mjs";
 import { isToolAllowed } from "../mainAgentToolRegistry.mjs";
+import { primitiveForLegacyTool, toPrimitiveToolCall } from "../mainAgentPrimitives.mjs";
 import {
   buildCatalogBackedAnalyticsRetry,
   buildGovernedSemanticPlanRetry,
@@ -247,7 +249,8 @@ function parseToolCallArguments(toolCall) {
 }
 
 function isCompletedTopIssueGrowthRank(toolCall, result) {
-  if (toolCall?.function?.name !== "query_analytics" || hasEmptyAnalyticsResult(toolCall, result)) {
+  const adapterCall = privateAdapterToolCall(toolCall);
+  if (adapterCall?.function?.name !== "query_analytics" || hasEmptyAnalyticsResult(toolCall, result)) {
     return false;
   }
   let payload = {};
@@ -260,7 +263,7 @@ function isCompletedTopIssueGrowthRank(toolCall, result) {
     return false;
   }
 
-  const query = parseToolCallArguments(toolCall);
+  const query = parseToolCallArguments(adapterCall);
   const dimensions = Array.isArray(query.dimensions) ? query.dimensions : [];
   const derivedMetrics = Array.isArray(query.derived_metrics) ? query.derived_metrics : [];
   const orderBy = Array.isArray(query.order_by) ? query.order_by : [];
@@ -291,25 +294,40 @@ function buildReadySemanticPlanToolCalls({ analyticsContext, actorScope, selecte
     .filter((step) => isRecord(step?.canonicalArgs)
       && isRecord(step?.canonicalArgs?.query)
       && ((step?.operation === "semantic_metric_query" && step?.toolName === "query_semantic_metrics")
-        || (step?.operation === "semantic_record_query" && step?.toolName === "query_semantic_records")));
+        || (step?.operation === "semantic_record_query" && step?.toolName === "query_semantic_records")
+        || (step?.operation === "traceability_query" && step?.toolName === "query_traceability")));
   if (semanticSteps.length !== 1) {
     return [];
   }
 
   const step = semanticSteps[0];
-  if (!isToolAllowed(step.toolName, selectedToolset)) {
+  if (!isToolAllowed(primitiveForLegacyTool(step.toolName), selectedToolset)) {
     return [];
   }
   const stepId = String(step?.stepId || "").trim();
   if (!stepId) {
     return [];
   }
+  if (step.toolName === "query_semantic_records") {
+    return [{
+      id: `${queryPlan.planId}-${stepId}`,
+      type: "function",
+      function: { name: "records", arguments: JSON.stringify({ operation: "semantic", input: { plan_ref: queryPlan.planId } }) },
+    }];
+  }
+  if (step.toolName === "query_traceability") {
+    return [{
+      id: `${queryPlan.planId}-${stepId}`,
+      type: "function",
+      function: { name: "trace", arguments: JSON.stringify({ plan_ref: queryPlan.planId }) },
+    }];
+  }
   return [{
     id: `${queryPlan.planId}-${stepId}`,
     type: "function",
     function: {
-      name: step.toolName,
-      arguments: JSON.stringify(step.canonicalArgs),
+      name: "analyze",
+      arguments: JSON.stringify({ operation: "semantic_metrics", input: { plan_ref: queryPlan.planId } }),
     },
   }];
 }
@@ -532,7 +550,7 @@ function resolveDeterministicQueryPlan({ analyticsContext, actorScope, selectedT
     const toolNames = new Set(selectedToolset?.toolNames || []);
     if (plan.status !== "valid" || plan.actorScopeHash !== String(actorScope?.scopeHash || "")) return null;
     if (plan.executionFingerprint !== fingerprintQueryPlanSteps(plan.steps)) return null;
-    if (!plan.steps.length || !plan.steps.every((step) => step.riskLevel === "R0" && toolNames.has(step.toolName))) return null;
+    if (!plan.steps.length || !plan.steps.every((step) => step.riskLevel === "R0" && toolNames.has(primitiveForLegacyTool(step.toolName)))) return null;
     return plan;
   } catch {
     return null;
@@ -540,14 +558,33 @@ function resolveDeterministicQueryPlan({ analyticsContext, actorScope, selectedT
 }
 
 function canonicalToolCalls(plan) {
-  return plan.steps.map((step) => ({
-    id: `${plan.planId}:${step.stepId}`,
-    type: "function",
-    function: {
-      name: step.toolName,
-      arguments: JSON.stringify(step.canonicalArgs),
-    },
-  }));
+  return plan.steps.map((step) => {
+    const publicCall = toPrimitiveToolCall({
+      id: `${plan.planId}:${step.stepId}`,
+      type: "function",
+      function: { name: step.toolName, arguments: JSON.stringify(step.canonicalArgs) },
+    });
+    if (step.toolName === "query_semantic_records") {
+      return {
+        ...publicCall,
+        function: { ...publicCall.function, arguments: JSON.stringify({ operation: "semantic", input: { plan_ref: plan.planId } }) },
+      };
+    }
+    if (step.toolName === "query_traceability") {
+      return {
+        ...publicCall,
+        function: { ...publicCall.function, arguments: JSON.stringify({ plan_ref: plan.planId }) },
+      };
+    }
+    if (step.toolName !== "query_semantic_metrics") return publicCall;
+    return {
+      ...publicCall,
+      function: {
+        ...publicCall.function,
+        arguments: JSON.stringify({ operation: "semantic_metrics", input: { plan_ref: plan.planId } }),
+      },
+    };
+  });
 }
 
 export function createLangGraphChatRuntime({
@@ -621,10 +658,12 @@ export function createLangGraphChatRuntime({
         events.push(emit(config, { type: "analytics-context-blocked", threadId: state.threadId }));
       } else {
         events.push(emit(config, { type: "analytics-context-started", threadId: state.threadId }));
+        const priorSemanticFrame = state.analyticsContext?.semanticFrame ?? null;
         analyticsContext = await resolveAnalyticsContext({
           messages: body?.messages,
           actor: state.actorScope,
           ...(ontologyRegistry ? { ontologyRegistry } : {}),
+          ...(priorSemanticFrame ? { priorSemanticFrame } : {}),
         });
         const governedAnalysisPlan = governedAnalysisAuditFromContext(analyticsContext);
         if (governedAnalysisPlan) {
@@ -692,8 +731,13 @@ export function createLangGraphChatRuntime({
     if (hasActorScope(state.actorScope)) {
       toolDependencies.actor = state.actorScope;
     }
-    if (state.analyticsContext?.queryPlan?.status === "valid") {
-      toolDependencies.governedQueryPlan = state.analyticsContext.queryPlan;
+    const governedQueryPlan = state.analyticsContext?.queryPlan?.status === "valid"
+      ? state.analyticsContext.queryPlan
+      : state.analyticsContext?.semanticPlan?.status === "valid"
+        ? state.analyticsContext.semanticPlan
+        : null;
+    if (governedQueryPlan) {
+      toolDependencies.governedQueryPlan = governedQueryPlan;
     }
     return toolDependencies;
   }
@@ -893,7 +937,7 @@ export function createLangGraphChatRuntime({
           queryPlan: toolDependencies.governedQueryPlan,
           actorScopeHash: state.actorScope?.scopeHash,
         });
-        if (correction && isToolAllowed(correction.toolCall.function.name, selectedToolset)) {
+        if (correction && isToolAllowed(primitiveForLegacyTool(correction.toolCall.function.name), selectedToolset)) {
           allToolCalls.push(correction.toolCall);
           await executeOne(correction.toolCall, { catalogRecovery: correction.recovery });
           if (!stoppedReason) {
@@ -919,13 +963,14 @@ export function createLangGraphChatRuntime({
           break;
         }
         const correction = buildCatalogBackedAnalyticsRetry({
-          originalToolCall: toolCall,
+          originalToolCall: privateAdapterToolCall(toolCall),
           diagnosisToolCall,
           diagnosisResult: diagnosisExecution.result,
         });
-        if (correction && isToolAllowed(correction.toolCall.function.name, selectedToolset)) {
-          allToolCalls.push(correction.toolCall);
-          await executeOne(correction.toolCall, { catalogRecovery: correction.recovery });
+        if (correction && isToolAllowed(primitiveForLegacyTool(correction.toolCall.function.name), selectedToolset)) {
+          const publicCorrection = toPrimitiveToolCall(correction.toolCall);
+          allToolCalls.push(publicCorrection);
+          await executeOne(publicCorrection, { catalogRecovery: correction.recovery });
           if (!stoppedReason) {
             stoppedReason = "catalog_retry_completed";
           }

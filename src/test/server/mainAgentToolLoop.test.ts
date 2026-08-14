@@ -20,10 +20,10 @@ describe("main agent tool loop", () => {
     expect(selected.reason).toContain("metric");
     expect(selected.requiredSlots).toEqual(expect.arrayContaining(["metric", "time_window"]));
     expect(selected.toolNames).toEqual(names);
-    expect(names).toEqual(expect.arrayContaining(["resolve_business_terms", "search_analytics_filter_values", "query_analytics", "diagnose_analytics_empty", "query_semantic_metrics", "ask_clarification"]));
-    expect(names).not.toContain("search_duplicates");
-    expect(names).not.toContain("get_test_case_context");
-    expect(names).not.toContain("search_octane_fields");
+    expect(names).toEqual(["resolve", "analyze"]);
+    expect(names).not.toContain("duplicate_search");
+    expect(names).not.toContain("prepare_testcase");
+    expect(names).not.toContain("catalog");
     expect(names.length).toBeLessThanOrEqual(8);
   });
 
@@ -45,14 +45,11 @@ describe("main agent tool loop", () => {
     const aidaCoverage = selectMainAgentToolset([{ role: "user", content: "测试执行覆盖率 AIDA 低于70% 关联缺陷数量 排序" }]);
 
     expect(selected.intent).toBe("coverage_query");
-    expect(selected.toolNames).toContain("query_testing_coverage_project_status");
-    expect(selected.toolNames).toContain("query_testing_coverage_aida_status");
+    expect(selected.toolNames).toEqual(expect.arrayContaining(["resolve", "analyze", "records"]));
     expect(clarification.intent).toBe("coverage_query");
-    expect(clarification.toolNames).toContain("query_testing_coverage_project_status");
-    expect(clarification.toolNames).toContain("query_testing_coverage_aida_status");
+    expect(clarification.toolNames).toEqual(expect.arrayContaining(["resolve", "analyze", "records"]));
     expect(aidaCoverage.intent).toBe("coverage_query");
-    expect(aidaCoverage.toolNames).toContain("query_testing_coverage_aida_status");
-    expect(aidaCoverage.toolNames).toContain("query_analytics");
+    expect(aidaCoverage.toolNames).toContain("analyze");
   });
 
   it("routes internal test-group efficiency and defect discovery to FV coverage analysis", () => {
@@ -61,7 +58,7 @@ describe("main agent tool loop", () => {
     ]);
 
     expect(selected.intent).toBe("coverage_query");
-    expect(selected.toolNames).toContain("query_testing_team_fv_analysis");
+    expect(selected.toolNames).toContain("analyze");
   });
 
   it("exposes governed fallback only for analytics toolsets", () => {
@@ -74,8 +71,8 @@ describe("main agent tool loop", () => {
     ];
 
     for (const query of analyticsQueries) {
-      expect(selectMainAgentToolset([{ role: "user", content: query }]).toolNames, query).toContain("query_analytics_fallback");
-      expect(selectMainAgentToolset([{ role: "user", content: query }]).toolNames, query).toContain("search_analytics_filter_values");
+      expect(selectMainAgentToolset([{ role: "user", content: query }]).toolNames, query).toContain("analyze");
+      expect(selectMainAgentToolset([{ role: "user", content: query }]).toolNames, query).toContain("resolve");
     }
 
     expect(selectMainAgentToolset([{ role: "user", content: "这个 camera black screen 缺陷是不是重复？" }]).toolNames).not.toContain("query_analytics_fallback");
@@ -90,9 +87,9 @@ describe("main agent tool loop", () => {
 
     expect(selected.intent).toBe("action_capability");
     expect(selected.policyHints).toEqual(expect.arrayContaining(["use_action_ontology", "block_disabled_or_blocked_actions"]));
-    expect(names).toEqual(expect.arrayContaining(["get_ontology_catalog", "search_octane_fields", "ask_clarification"]));
-    expect(names).not.toContain("query_semantic_metrics");
-    expect(names).not.toContain("search_duplicates");
+    expect(names).toEqual(["catalog"]);
+    expect(names).not.toContain("analyze");
+    expect(names).not.toContain("duplicate_search");
     expect(names.length).toBeLessThan(7);
   });
 
@@ -101,9 +98,8 @@ describe("main agent tool loop", () => {
     const names = toolNames(selected.tools);
 
     expect(selected.intent).toBe("duplicate_search");
-    expect(names).toEqual(expect.arrayContaining(["search_duplicates", "ask_clarification"]));
-    expect(names).not.toContain("query_semantic_metrics");
-    expect(names).not.toContain("query_full_picture_module");
+    expect(names).toEqual(["duplicate_search"]);
+    expect(names).not.toContain("analyze");
     expect(names.length).toBeLessThan(6);
   });
 
@@ -124,9 +120,9 @@ describe("main agent tool loop", () => {
     const emptyData = selectMainAgentToolset([{ role: "user", content: "这个数据为什么为空？" }]);
 
     expect(personTicket.intent).toBe("metric_query");
-    expect(personTicket.toolNames).toEqual(expect.arrayContaining(["resolve_business_terms", "query_analytics", "diagnose_analytics_empty"]));
+    expect(personTicket.toolNames).toEqual(["resolve", "analyze"]);
     expect(emptyData.intent).toBe("metric_query");
-    expect(emptyData.toolNames).toEqual(expect.arrayContaining(["query_analytics", "diagnose_analytics_empty", "ask_clarification"]));
+    expect(emptyData.toolNames).toEqual(["resolve", "analyze"]);
   });
 
   it("routes a named defect reporter away from team-only semantic metrics", () => {
@@ -135,14 +131,7 @@ describe("main agent tool loop", () => {
     expect(selected.intent).toBe("metric_query");
     expect(selected.requiredSlots).toContain("defect_reporter");
     expect(selected.policyHints).toContain("resolve_defect_reporter_before_aggregate");
-    expect(selected.toolNames).toEqual(expect.arrayContaining([
-      "resolve_business_terms",
-      "search_analytics_filter_values",
-      "query_analytics",
-      "ask_clarification",
-    ]));
-    expect(selected.toolNames).not.toContain("query_semantic_metrics");
-    expect(selected.toolNames).not.toContain("query_dashboard_summary");
+    expect(selected.toolNames).toEqual(["resolve", "analyze"]);
   });
 
   it("routes broad risk questions to an ontology-backed assessment toolset", () => {
@@ -150,16 +139,8 @@ describe("main agent tool loop", () => {
 
     expect(shouldPlanMainAgentTools([{ role: "user", content: "DTSV 当前风险怎么看？" }])).toBe(true);
     expect(selected.intent).toBe("business_risk_assessment");
-    expect(selected.toolNames).toEqual(expect.arrayContaining([
-      "get_ontology_catalog",
-      "resolve_business_terms",
-      "query_semantic_metrics",
-      "query_analytics",
-      "query_defect_high_frequency_analysis",
-      "ask_clarification",
-    ]));
-    expect(selected.toolNames).not.toContain("query_defect_aggregate");
-    expect(selected.toolNames).not.toContain("search_duplicates");
+    expect(selected.toolNames).toEqual(["catalog", "resolve", "analyze", "records", "trace"]);
+    expect(selected.toolNames).not.toContain("duplicate_search");
   });
 
   it("runs planned tool calls and returns factual context", async () => {
@@ -199,9 +180,9 @@ describe("main agent tool loop", () => {
     const requestArgs = requestChatCompletion.mock.calls[0][0];
     expect(requestArgs.model).toBe("deepseek-v4-flash");
     expect(requestArgs.toolChoice).toBe("auto");
-    expect(requestArgs.context).toContain("query_defect_high_frequency_analysis");
+    expect(requestArgs.context).toContain("defect_high_frequency");
     expect(requestArgs.tools.map((tool: { function?: { name?: string } }) => tool.function?.name)).toContain(
-      "query_dashboard_summary",
+      "analyze",
     );
     expect(requestChatCompletion).toHaveBeenCalledTimes(2);
     expect(executeToolCall).toHaveBeenCalledWith(toolCalls[0], { runDuplicateBridge: "bridge" });
@@ -212,13 +193,13 @@ describe("main agent tool loop", () => {
       {
         type: "tool-input-available",
         toolCallId: "call-1",
-        toolName: "query_dashboard_summary",
-        input: { filters: { years: 2026 } },
+        toolName: "analyze",
+        input: { operation: "dashboard_summary", input: { filters: { years: 2026 } } },
       },
       {
         type: "tool-output-available",
         toolCallId: "call-1",
-        toolName: "query_dashboard_summary",
+        toolName: "analyze",
         outputSummary: "# Main agent tool result\nTool: query_dashboard_summary\nResult: 12 defects",
       },
     ]);
@@ -265,7 +246,7 @@ describe("main agent tool loop", () => {
     expect(resolved.toolEvents).toContainEqual(expect.objectContaining({
       type: "tool-blocked",
       toolCallId: "bad-call",
-      toolName: "search_duplicates",
+      toolName: "duplicate_search",
       intent: "metric_query",
     }));
   });
@@ -309,7 +290,7 @@ describe("main agent tool loop", () => {
     expect(resolved.toolEvents).toContainEqual(expect.objectContaining({
       type: "tool-blocked",
       toolCallId: "missing-defect-reporter",
-      toolName: "query_analytics",
+      toolName: "analyze",
       reason: "defect_reporter_filter_required",
     }));
   });
@@ -623,14 +604,13 @@ describe("main agent tool loop", () => {
     });
 
     const requestArgs = requestChatCompletion.mock.calls[0][0];
-    expect(requestArgs.context).toContain("recent_days: 7");
-    expect(requestArgs.context).toContain("diagnose_analytics_empty");
-    expect(requestArgs.context).toContain("before answering no data");
+    expect(requestArgs.context).toContain("recent_days 7");
+    expect(requestArgs.context).toContain("bounded diagnosis");
     expect(requestArgs.tools.map((tool: { function?: { name?: string } }) => tool.function?.name)).toContain(
-      "query_defect_high_frequency_analysis",
+      "analyze",
     );
     expect(requestArgs.tools.map((tool: { function?: { name?: string } }) => tool.function?.name)).toContain(
-      "query_analytics",
+      "resolve",
     );
   });
 
@@ -650,15 +630,15 @@ describe("main agent tool loop", () => {
 
     const requestArgs = requestChatCompletion.mock.calls[0][0];
     expect(selected.intent).toBe("dashboard_fallback");
-    expect(requestArgs.context).toContain("query_full_picture_module");
+    expect(requestArgs.context).toContain("allowlisted dashboard");
     expect(requestArgs.context).toContain("fallback");
-    expect(requestArgs.context).toContain("query_analytics");
-    expect(requestArgs.context).toContain("ask_clarification");
+    expect(requestArgs.context).toContain("defect_aggregate");
+    expect(requestArgs.context).toContain("Clarification is a runtime state");
     expect(requestArgs.tools.map((tool: { function?: { name?: string } }) => tool.function?.name)).toContain(
-      "query_full_picture_module",
+      "analyze",
     );
     expect(requestArgs.tools.map((tool: { function?: { name?: string } }) => tool.function?.name)).toContain(
-      "diagnose_analytics_empty",
+      "records",
     );
   });
 
@@ -676,11 +656,10 @@ describe("main agent tool loop", () => {
     });
 
     const requestArgs = requestChatCompletion.mock.calls[0][0];
-    expect(requestArgs.context).toContain("get_test_case_context");
-    expect(requestArgs.context).toContain("before drafting");
-    expect(requestArgs.context).toContain("call get_test_case_context first");
+    expect(requestArgs.context).toContain("prepare_testcase");
+    expect(requestArgs.context).toContain("proposal context");
     expect(requestArgs.tools.map((tool: { function?: { name?: string } }) => tool.function?.name)).toContain(
-      "get_test_case_context",
+      "prepare_testcase",
     );
   });
 
@@ -699,10 +678,10 @@ describe("main agent tool loop", () => {
 
     const requestArgs = requestChatCompletion.mock.calls[0][0];
     expect(requestArgs.context).toContain("Octane ticket URL");
-    expect(requestArgs.context).toContain("id=2774806");
+    expect(requestArgs.context).toContain("extract id as a defect_id anchor");
     expect(requestArgs.context).toContain("defect_id");
     expect(requestArgs.tools.map((tool: { function?: { name?: string } }) => tool.function?.name)).toContain(
-      "get_test_case_context",
+      "prepare_testcase",
     );
   });
 
@@ -720,10 +699,10 @@ describe("main agent tool loop", () => {
     });
 
     const requestArgs = requestChatCompletion.mock.calls[0][0];
-    expect(requestArgs.context).toContain("get_ontology_catalog");
-    expect(requestArgs.context).toContain("capability states");
+    expect(requestArgs.context).toContain("catalog");
+    expect(requestArgs.context).toContain("ontology discovery");
     expect(requestArgs.tools.map((tool: { function?: { name?: string } }) => tool.function?.name)).toContain(
-      "get_ontology_catalog",
+      "catalog",
     );
   });
 
@@ -741,11 +720,9 @@ describe("main agent tool loop", () => {
     });
 
     const requestArgs = requestChatCompletion.mock.calls[0][0];
-    expect(requestArgs.context).toContain("search_octane_fields");
-    expect(requestArgs.context).toContain("top-k field candidates");
-    expect(requestArgs.context).toContain("Do not load the full Octane field catalog into the prompt");
+    expect(requestArgs.context).toContain("top-k Octane field retrieval");
     expect(requestArgs.tools.map((tool: { function?: { name?: string } }) => tool.function?.name)).toContain(
-      "search_octane_fields",
+      "catalog",
     );
   });
 
@@ -763,11 +740,9 @@ describe("main agent tool loop", () => {
     });
 
     const requestArgs = requestChatCompletion.mock.calls[0][0];
-    expect(requestArgs.context).toContain("Action Ontology");
-    expect(requestArgs.context).toContain("write/update/delete");
-    expect(requestArgs.context).toContain("disabled or blocked actions must not be executed");
+    expect(requestArgs.context).toContain("can never commit or mutate Octane");
     expect(requestArgs.tools.map((tool: { function?: { name?: string } }) => tool.function?.name)).toContain(
-      "get_ontology_catalog",
+      "catalog",
     );
   });
 
@@ -785,14 +760,11 @@ describe("main agent tool loop", () => {
     });
 
     const requestArgs = requestChatCompletion.mock.calls[0][0];
-    expect(requestArgs.context).toContain("query_semantic_metrics");
-    expect(requestArgs.context).toContain("governed Ontology");
-    expect(requestArgs.context).toContain("Never redefine metrics");
-    expect(requestArgs.context.indexOf("query_semantic_metrics first")).toBeLessThan(
-      requestArgs.context.indexOf("query_analytics as the canonical high-level tool"),
-    );
+    expect(requestArgs.context).toContain("semantic_metrics");
+    expect(requestArgs.context).toContain("governed Ontology plan");
+    expect(requestArgs.context).toContain("Never redefine a governed metric");
     expect(requestArgs.tools.map((tool: { function?: { name?: string } }) => tool.function?.name)).toContain(
-      "query_semantic_metrics",
+      "analyze",
     );
   });
 
@@ -810,10 +782,9 @@ describe("main agent tool loop", () => {
     });
 
     const requestArgs = requestChatCompletion.mock.calls[0][0];
-    expect(requestArgs.context).toContain("query_semantic_records");
-    expect(requestArgs.context).toContain("list or drilldown");
+    expect(requestArgs.context).toContain("Use records for lists and drilldowns");
     expect(requestArgs.tools.map((tool: { function?: { name?: string } }) => tool.function?.name)).toContain(
-      "query_semantic_records",
+      "records",
     );
   });
 
@@ -831,10 +802,10 @@ describe("main agent tool loop", () => {
     });
 
     const requestArgs = requestChatCompletion.mock.calls[0][0];
-    expect(requestArgs.context).toContain("query_traceability");
+    expect(requestArgs.context).toContain("Use trace");
     expect(requestArgs.context).toContain("requirement, testcase, test-run, and defect lineage");
     expect(requestArgs.tools.map((tool: { function?: { name?: string } }) => tool.function?.name)).toContain(
-      "query_traceability",
+      "trace",
     );
   });
 
@@ -852,16 +823,14 @@ describe("main agent tool loop", () => {
     });
 
     const requestArgs = requestChatCompletion.mock.calls[0][0];
-    expect(requestArgs.context).toContain("query_analytics");
-    expect(requestArgs.context).not.toContain("query_defect_aggregate");
+    expect(requestArgs.context).toContain("defect_aggregate");
     expect(requestArgs.context).toContain("Top Issue");
     expect(requestArgs.context).toContain("comparison");
-    expect(requestArgs.context).toContain("query_analytics as the canonical high-level tool");
     expect(requestArgs.tools.map((tool: { function?: { name?: string } }) => tool.function?.name)).toContain(
-      "query_analytics",
+      "analyze",
     );
     expect(requestArgs.tools.map((tool: { function?: { name?: string } }) => tool.function?.name)).toContain(
-      "diagnose_analytics_empty",
+      "records",
     );
     expect(requestArgs.tools.map((tool: { function?: { name?: string } }) => tool.function?.name)).not.toContain(
       "query_defect_aggregate",

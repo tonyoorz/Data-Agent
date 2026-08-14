@@ -32,6 +32,13 @@ const SAFE_KEYS = new Set([
   "totalTokens",
 ]);
 const SAFE_TOOL_NAMES = new Set([
+  "catalog",
+  "resolve",
+  "analyze",
+  "records",
+  "trace",
+  "duplicate_search",
+  "prepare_testcase",
   "get_data_catalog",
   "get_ontology_catalog",
   "search_octane_fields",

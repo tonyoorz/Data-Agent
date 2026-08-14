@@ -304,15 +304,6 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
     }).catch(() => undefined);
   }, [interactionMode]);
 
-  // Warmup test case RAG index on mount (pre-builds 16K embedding index)
-  useEffect(() => {
-    void fetch("/api/create-testcase/warmup", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reason: "ai-chat-mount" }),
-    }).catch(() => undefined);
-  }, []);
-
   const sortedConvos = useMemo(() => {
     return [...conversations].sort((a, b) => {
       if (!!b.pinned !== !!a.pinned) return (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0);

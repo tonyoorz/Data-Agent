@@ -1,25 +1,20 @@
 import { extractLatestUserQuery } from "./aiContext.mjs";
 import { classifyDirectMainAgentIntent } from "./mainAgentDirectIntent.mjs";
-import { executeMainAgentToolCall, extractDetectedByName, isDefectReporterTicketQuery, MAIN_AGENT_TOOLS } from "./mainAgentTools.mjs";
+import { executeMainAgentToolCall, extractDetectedByName, isDefectReporterTicketQuery } from "./mainAgentTools.mjs";
 import { buildToolEvidence } from "./mainAgentEvidence.mjs";
+import { expandPrimitiveToolCall, MAIN_AGENT_PRIMITIVE_TOOLS, toPrimitiveToolCall } from "./mainAgentPrimitives.mjs";
 import { executeToolWithRecovery } from "./mainAgentToolRecovery.mjs";
 import { selectMainAgentToolset as selectToolsetWithTools } from "./mainAgentIntentRouter.mjs";
 import { buildBlockedToolResult, validateToolCallAllowed } from "./mainAgentPolicyGate.mjs";
 
 export function selectMainAgentToolset(messages, priorToolCalls = []) {
-  const selectedToolset = selectToolsetWithTools(messages, MAIN_AGENT_TOOLS);
+  const selectedToolset = selectToolsetWithTools(messages, MAIN_AGENT_PRIMITIVE_TOOLS);
   if (!resolveDefectReporterRequest(messages, priorToolCalls)) {
     return selectedToolset;
   }
 
-  const allowedToolNames = new Set([
-    "resolve_business_terms",
-    "search_analytics_filter_values",
-    "query_analytics",
-    "diagnose_analytics_empty",
-    "ask_clarification",
-  ]);
-  const tools = MAIN_AGENT_TOOLS.filter((tool) => allowedToolNames.has(tool.function?.name));
+  const allowedToolNames = new Set(["resolve", "analyze"]);
+  const tools = MAIN_AGENT_PRIMITIVE_TOOLS.filter((tool) => allowedToolNames.has(tool.function?.name));
   return {
     ...selectedToolset,
     requiredSlots: [...new Set([...(selectedToolset.requiredSlots || []), "defect_reporter"])],
@@ -30,39 +25,24 @@ export function selectMainAgentToolset(messages, priorToolCalls = []) {
   };
 }
 
-const TOOL_PLANNING_CONTEXT = `# Main agent tool policy
-You have access to typed dashboard and duplicate-search tools. Use them only when the user asks for factual QGate dashboard metrics, counts, filtered summaries, defect/test coverage data, or duplicate/similar defect analysis.
-If the supplied context already contains the exact factual result needed, answer normally without calling tools.
-Use get_data_catalog first when the user asks a broad analytics question and you need to discover available datasets, filters, metrics, or modules.
-Use get_ontology_catalog when the user asks what the ontology can answer, which entities/relationships/tools/actions exist, or which capability states are available/partial/unavailable/dry_run_only/disabled/blocked.
-For broad business risk, health, status, or "how does this look" questions, use get_ontology_catalog to ground the available governed metrics first, then call a small evidence set across defect trend/ranking, testing coverage, and high-frequency analysis before summarizing risk.
-Use Action Ontology capability states for Octane write/update/delete intents. Never execute write/update/delete directly from field candidates; disabled or blocked actions must not be executed, and dry_run_only actions require explicit approval before any external write path.
-Use search_octane_fields when the user asks which Octane/API/database field backs a business concept, asks about editable/filterable/sortable fields, or explores CRUD/action schema. Retrieve only top-k field candidates.
-Do not load the full Octane field catalog into the prompt; use search_octane_fields as local schema retrieval, then validate facts through governed ontology or analytics tools.
-Use search_analytics_filter_values before query_analytics when the user supplies a fuzzy or partial detected_by person name, ECU/module, business_module, or team value. Use returned exact values as filters; if none match, ask one focused clarification.
-If a tool result reports TOOL_SCHEMA_OR_VALUE_MISMATCH, use governed field or filter-value retrieval and make at most one corrected typed retry. Never generate SQL, loosen authorization scope, or retry a denied request.
-Use resolve_business_terms when Chinese/English business wording needs normalization before choosing filters or metrics.
-Routing priority: use governed Ontology semantic tools first when the question fits approved ontology metrics, dimensions, filters, time windows, top-N ranking, records, or lineage.
-Use query_semantic_metrics first for aggregate, trend, compare, rank, count, and top-N questions over ontology-governed metrics and dimensions.
-Use query_semantic_records for governed Ontology list or drilldown requests. When a prior governed semantic result supplies analysis_ref, continue from that ref and only narrow it with explicit selections; never rebuild or widen the original query.
-Use query_traceability for governed Ontology requirement, testcase, test-run, and defect lineage questions when the user asks for lineage rather than testcase drafting.
-Never redefine metrics after a semantic tool result; use the returned ontologyVersion, schemaFingerprint, sourceRevision, quality, and metrics as factual evidence.
-Use query_analytics as the canonical high-level tool for defect analytics counts, trends, rankings, and aggregate questions when the question is not covered by the semantic tools. It wraps governed defect aggregate execution so you do not need to choose a page-specific endpoint first.
-Use query_testing_coverage_project_status for Testing Coverage / manual-run coverage, pass-rate, execution-rate, and below-threshold module questions when the module dimension is FV/FVP. Its rows are grouped by test_week, fv, fvp, status, and count; compute rates from status/count groups instead of querying defects.
-For a named organization's internal testing groups or 测试小组, use query_testing_team_fv_analysis with the organization team as scope and FV as the group dimension. It returns execution, pass, distinct linked-defect, pass-rate, and defect-discovery-rate values per FV. Never substitute team or tester for FV; tester is only for an explicitly person-level question.
-Use query_testing_coverage_aida_status for Testing Coverage questions when the user chooses AIDA as the module dimension. Its rows are grouped by test_week, top_aida, status, and count; compute pass rate as Passed count divided by total status count for each AIDA. If business impact must be sorted by associated defect count, also call query_analytics on defects with dimensions ["aida"] and metric defect_count, then join the two results by AIDA.
-If query_analytics or another analytics tool returns zero rows, empty groups, or a result that is suspiciously small for the user's wording, call diagnose_analytics_empty with the same query before answering no data. Use the diagnosis to retry with corrected filters, ask one focused clarification, or state a specific data limitation.
-Use query_defect_records only after query_analytics returns a drilldown_ref, and only for example tickets.
-For Top Issue growth/rising questions, use query_analytics with time.current and time.comparison windows, derived_metrics ["delta", "growth_pct"], and order_by delta desc unless the user asks for another ranking.
-For module wording, prefer dimensions ["business_module"] unless the user explicitly asks for assigned_ecu or solution_cluster. When drilling from a returned business_module into ECU details, use filters.business_module or filters.business_modules. Convert relative dates to absolute creation_time dates in Asia/Shanghai before calling analytics tools.
-If a dashboard fallback tool is needed, call at most one dashboard tool with precise filters. Do not invent fields, filters, or metrics.
-Use ask_clarification when required filters, scope, timeframe, or business meaning are ambiguous. Ask one focused question instead of guessing.
-Use query_defect_high_frequency_analysis for Defect High Frequency / 缺陷高频分析 questions about newly created defects concentrated by ECU/module.
-For 最近一周 / recent week / last 7 days high-frequency questions, call query_defect_high_frequency_analysis with filters.recent_days: 7 instead of asking the user to switch views.
-For high-frequency questions that can be answered as a simple assigned_ecu or business_module ranking, query_analytics is also acceptable; still use diagnose_analytics_empty before answering no data.
-Use get_test_case_context before drafting or extending a testcase when the user provides a test_id, defect_id, or asks to create a regression/coverage testcase from known QGate context. For defect-to-testcase workflows, call get_test_case_context first; use query_traceability only if the user explicitly asks for lineage beyond testcase drafting context.
-For an Octane ticket URL such as entityType=work_item&id=2774806, extract id=2774806 as anchor.type defect_id and call get_test_case_context; do not stop at external-link access limitations.
-Use query_full_picture_module as the fallback for factual Full Picture dashboard questions when no more specific tool fits. Prefer query_analytics first for defect counts/trends/rankings; use query_full_picture_module for page-parity payloads or modules not covered by query_analytics. Choose only one allowlisted module: dashboard_summary, dashboard_tickets, top_issue_analysis, long_runner_analysis, or defect_high_frequency_analysis.`;
+const TOOL_PLANNING_CONTEXT = `# Governed agent primitive policy
+You have seven composable primitives: catalog, resolve, analyze, records, trace, duplicate_search, and prepare_testcase. These are semantic capabilities, not raw API endpoints.
+If supplied context already contains the exact factual result, answer without calling another primitive.
+Use catalog for governed data/ontology discovery or top-k Octane field retrieval. Catalog context is never execution permission.
+Use resolve for business-term normalization and exact filter-value linking before analysis; never guess a person, team, ECU, or module identifier.
+Use analyze for aggregate, compare, trend, rank, coverage, testing-team, high-frequency, or allowlisted dashboard questions. Prefer operation semantic_metrics when the governed Ontology plan supports the question. Use defect_aggregate only for supported gaps. For Top Issue growth use current/comparison windows, delta and growth_pct, ordered by delta descending.
+Use records for lists and drilldowns. Prefer operation semantic with the prior analysis_ref and only narrow selections; never reconstruct or widen the original actor, filter, time, or snapshot scope.
+Use trace for governed requirement, testcase, test-run, and defect lineage.
+Use duplicate_search only for similarity reasoning, never population statistics or causality.
+Use prepare_testcase for proposal context from a defect/testcase anchor. It can never commit or mutate Octane.
+Clarification is a runtime state, not a model-visible tool: if a required filter, scope, timeframe, identity, or business meaning is ambiguous, return one focused question in normal text and do not call a data primitive.
+Never submit SQL, code, endpoint names, actor scope, authorization fields, or arbitrary datasets. Runtime policy binds identity and RLS, expands primitives through private adapters, performs bounded empty-result recovery, and validates evidence.
+Never redefine a governed metric after execution. Treat ontologyVersion, schemaFingerprint, sourceRevision, analysisRef, scope, quality, and EvidenceEnvelope as the factual contract.
+For named defect reporters, first resolve operation filter_values for detected_by, then analyze operation defect_aggregate with that exact value. Never substitute a team aggregate.
+For testing coverage use analyze operation coverage_project or coverage_aida. For an organization's internal testing groups use testing_team_fv; FV is the group dimension, not tester.
+For recent high-frequency questions use analyze operation defect_high_frequency with recent_days 7. For module wording prefer business_module unless the user explicitly requests assigned_ecu or solution_cluster.
+For an Octane ticket URL, extract id as a defect_id anchor and use prepare_testcase. Use trace only when lineage itself is requested.
+On empty or suspicious results, do not conclude no data immediately; runtime performs one bounded diagnosis/correction before publication.`;
 
 const TOOL_PLANNING_QUERY_RE = /\b(DTSV|QGate|Octane|ticket|work_item|dashboard|ontology|capability|available|partial|unavailable|bug|defect|issue|top\s*issue|octane_defects|solution_cluster|assigned_ecu|business_module|opened|created|raised|submitted|resolved|coverage|test|summary|count|metric|trend|growth|rising|increase|delta|duplicate|similar|write|update|delete|edit|empty\s*result|no\s*data|zero\s*rows)\b|entityType=work_item|id=\d+|本体|能力|缺陷|测试|覆盖率|多少|几个|统计|趋势|创建|提交|新建|解决|关闭|更新|修改|删除|写入|重复|查重|相似|模块|问题模块|上升|增长|环比|同比|根因|提票|报票|提了|数据.*(?:为空|没数据|没有数据|查不到)|为什么.*(?:为空|没数据|没有数据|查不到)|空结果/i;
 
@@ -380,6 +360,14 @@ export function parseToolInput(toolCall) {
   }
 }
 
+export function privateAdapterToolCall(toolCall) {
+  try {
+    return expandPrimitiveToolCall(toolCall).adapterCall;
+  } catch {
+    return toolCall;
+  }
+}
+
 function parseToolMessageContent(result) {
   try {
     return JSON.parse(String(result?.toolMessage?.content || "{}"));
@@ -389,7 +377,7 @@ function parseToolMessageContent(result) {
 }
 
 export function hasEmptyAnalyticsResult(toolCall, result) {
-  if (toolCall?.function?.name !== "query_analytics") {
+  if (privateAdapterToolCall(toolCall)?.function?.name !== "query_analytics") {
     return false;
   }
   const payload = parseToolMessageContent(result);
@@ -404,13 +392,14 @@ export function hasPlannedDiagnosis(toolCalls) {
 }
 
 export function buildEmptyDiagnosisToolCall(toolCall) {
+  const adapterCall = privateAdapterToolCall(toolCall);
   return {
     id: `${toolCall?.id || `query-analytics-${Date.now()}`}-diagnosis`,
     type: "function",
     function: {
       name: "diagnose_analytics_empty",
       arguments: JSON.stringify({
-        query: parseToolInput(toolCall),
+        query: parseToolInput(adapterCall),
         reason: "query_analytics returned no aggregate rows",
       }),
     },
@@ -418,7 +407,8 @@ export function buildEmptyDiagnosisToolCall(toolCall) {
 }
 
 function missingRequiredAnalyticsFilter(toolCall, selectedToolset) {
-  if (toolCall?.function?.name !== "query_analytics") {
+  const adapterCall = privateAdapterToolCall(toolCall);
+  if (adapterCall?.function?.name !== "query_analytics") {
     return false;
   }
   const requiredFilters = Array.isArray(selectedToolset?.requiredAnalyticsFilters)
@@ -427,7 +417,7 @@ function missingRequiredAnalyticsFilter(toolCall, selectedToolset) {
   if (!requiredFilters.length) {
     return false;
   }
-  const filters = parseToolInput(toolCall).filters;
+  const filters = parseToolInput(adapterCall).filters;
   return requiredFilters.some((field) => {
     const value = filters?.[field];
     return Array.isArray(value) ? value.length === 0 : !String(value || "").trim();
@@ -440,20 +430,25 @@ export async function executeMainAgentPlannedToolCall({
   executeToolCall = executeMainAgentToolCall,
   toolDependencies = {},
 } = {}) {
-  const toolName = toolCall?.function?.name || "unknown_tool";
+  const publicToolCall = toPrimitiveToolCall(toolCall) || toolCall;
+  const compatibilityAdapterCall = publicToolCall !== toolCall;
+  const toolName = publicToolCall?.function?.name || "unknown_tool";
   const toolEvents = [{
     type: "tool-input-available",
     toolCallId: toolCall?.id || "",
     toolName,
-    input: parseToolInput(toolCall),
+    input: parseToolInput(publicToolCall),
   }];
 
-  const baseGate = validateToolCallAllowed(toolCall, selectedToolset);
+  const internalRuntimeTool = ["ask_clarification", "diagnose_analytics_empty"].includes(toolCall?.function?.name);
+  const baseGate = internalRuntimeTool
+    ? { allowed: true, toolName: `runtime_${toolCall.function.name}` }
+    : validateToolCallAllowed(publicToolCall, selectedToolset);
   const gate = baseGate.allowed && missingRequiredAnalyticsFilter(toolCall, selectedToolset)
     ? { allowed: false, reason: "defect_reporter_filter_required" }
     : baseGate;
   if (!gate.allowed) {
-    const blockedResult = buildBlockedToolResult(toolCall, selectedToolset, gate.reason);
+    const blockedResult = buildBlockedToolResult(publicToolCall, selectedToolset, gate.reason);
     toolEvents.push({
       type: "tool-blocked",
       toolCallId: toolCall?.id || "",
@@ -471,8 +466,16 @@ export async function executeMainAgentPlannedToolCall({
   }
 
   const recovered = await executeToolWithRecovery({
-    toolCall,
-    executeToolCall,
+    toolCall: internalRuntimeTool || compatibilityAdapterCall ? toolCall : publicToolCall,
+    executeToolCall: async (executingToolCall, dependencies) => {
+      if (internalRuntimeTool || compatibilityAdapterCall || executeToolCall === executeMainAgentToolCall) {
+        return executeToolCall(executingToolCall, dependencies);
+      }
+      const expansion = expandPrimitiveToolCall(executingToolCall, { governedQueryPlan: dependencies.governedQueryPlan });
+      const adapterResult = await executeToolCall(expansion.adapterCall, dependencies);
+      const { wrapPrimitiveResult } = await import("./mainAgentPrimitives.mjs");
+      return wrapPrimitiveResult(executingToolCall, expansion, adapterResult);
+    },
     toolDependencies,
   });
   const result = recovered.result;
@@ -502,7 +505,7 @@ export async function executeMainAgentPlannedToolCall({
   return {
     result,
     toolEvents,
-    evidence: buildToolEvidence({ toolCall, result, intent: selectedToolset?.intent }),
+    evidence: buildToolEvidence({ toolCall: publicToolCall, result, intent: selectedToolset?.intent }),
     recovery: recovered.recovery,
     stoppedReason: result.requiresUserInput
       ? "clarification_requested"

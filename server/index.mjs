@@ -27,6 +27,7 @@ import {
 import { handleTranscribeRequest } from "./transcribe.mjs";
 import { resolveChatModelConfig } from "./chatModelConfig.mjs";
 import testcaseBridgeRuntime from "./testcaseBridgeRuntime.cjs";
+import { prepareTestCaseProposal } from "./testCaseProposal.mjs";
 
 const { runDuplicateBridge, stopDuplicateBridgeRuntime } = duplicateBridgeRuntime;
 const { runTestCaseBridge, stopTestCaseBridgeRuntime } = testcaseBridgeRuntime;
@@ -126,6 +127,12 @@ async function handleAuthenticatedAiChatRequest(body, response) {
         toolDependencies: {
           runDuplicateBridge,
           ensureDuplicateWarmup: () => duplicateWarmupManager.ensureWarm({ reason: "langgraph-agent-tool" }),
+          runTestCaseBridge,
+          generateTestCaseProposalContent: (defectInfo, fewShotText) => generateTestCaseContent(
+            defectInfo,
+            fewShotText,
+            resolveChatModelConfig(undefined, process.env),
+          ),
         },
         onCompleted: async (completed) => {
           await agentRuntimeStore.appendRunEvent({
@@ -185,6 +192,12 @@ async function handleAuthenticatedAiChatRequest(body, response) {
           toolDependencies: {
             runDuplicateBridge,
             ensureDuplicateWarmup: () => duplicateWarmupManager.ensureWarm({ reason: "main-agent-tool-search-duplicates" }),
+            runTestCaseBridge,
+            generateTestCaseProposalContent: (defectInfo, fewShotText) => generateTestCaseContent(
+              defectInfo,
+              fewShotText,
+              resolveChatModelConfig(undefined, process.env),
+            ),
           },
         });
         if (mainAgentToolContext.toolCalls.length) {
@@ -633,43 +646,12 @@ const server = http.createServer(async (request, response) => {
       }
 
       try {
-        // Step 1: Python bridge — read defect + RAG retrieve similar test cases
-        const prepared = await runTestCaseBridge({ action: "prepare", defect_id: defectId });
-        if (!prepared?.success || !prepared?.defect_info) {
-          sendJson(response, 500, { success: false, error: prepared?.error || "failed to prepare defect" });
-          return;
-        }
-
-        const defectInfo = prepared.defect_info;
-        const similarCases = prepared.similar_cases || [];
-        const fewShotText = prepared.few_shot_text || "";
-
-        // Step 2: LLM generation — build description HTML + steps text
         const chatConfig = resolveChatModelConfig(undefined, process.env);
-        const llmResult = await generateTestCaseContent(defectInfo, fewShotText, chatConfig);
-
-        // Step 3: Python bridge — verify quality
-        const verified = await runTestCaseBridge({
-          action: "verify",
-          defect_info: defectInfo,
-          description_html: llmResult.descriptionHtml,
-          steps_text: llmResult.stepsText,
+        const result = await prepareTestCaseProposal({
+          defectId,
+          runTestCaseBridge,
+          generateContent: (defectInfo, fewShotText) => generateTestCaseContent(defectInfo, fewShotText, chatConfig),
         });
-
-        const result = {
-          defectId: defectInfo.defect_id,
-          defectName: defectInfo.name,
-          defectSeverity: defectInfo.severity,
-          defectSoftwareVersion: defectInfo.software_version,
-          defectAssignedEcu: defectInfo.assigned_ecu,
-          defectLeadModel: defectInfo.lead_model,
-          descriptionHtml: llmResult.descriptionHtml,
-          stepsText: llmResult.stepsText,
-          name: llmResult.testName,
-          verification: verified?.verification || { passed: false, criteria: [], feedback: "verification skipped" },
-          similarCases,
-          generatedAt: new Date().toISOString(),
-        };
 
         sendJson(response, 200, { success: true, result });
       } catch (error) {

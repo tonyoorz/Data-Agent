@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { MAIN_AGENT_TOOLS } from "../../../server/mainAgentTools.mjs";
+import { MAIN_AGENT_PRIMITIVE_TOOLS } from "../../../server/mainAgentPrimitives.mjs";
 import {
   createMainAgentToolRegistry,
   selectMainAgentToolset,
@@ -9,13 +9,13 @@ import {
 
 describe("main agent tool registry", () => {
   it("derives compact toolsets from tool metadata", () => {
-    const registry = createMainAgentToolRegistry(MAIN_AGENT_TOOLS);
+    const registry = createMainAgentToolRegistry(MAIN_AGENT_PRIMITIVE_TOOLS);
     const selected = registry.selectToolset([{ role: "user", content: "Octane defect 字段能不能更新？能不能删除缺陷单？" }]);
 
     expect(selected.intent).toBe("action_capability");
-    expect(selected.toolNames).toEqual(["get_ontology_catalog", "search_octane_fields", "ask_clarification"]);
+    expect(selected.toolNames).toEqual(["catalog"]);
     expect(selected.tools.map((tool) => tool.function.name)).toEqual(selected.toolNames);
-    expect(registry.validateToolCall({ function: { name: "query_analytics" } }, selected)).toEqual(
+    expect(registry.validateToolCall({ function: { name: "analyze" } }, selected)).toEqual(
       expect.objectContaining({ allowed: false, reason: expect.stringContaining("not allowed") }),
     );
   });
@@ -33,7 +33,7 @@ describe("main agent tool registry", () => {
     expect(shouldPlanMainAgentTools(messages)).toBe(true);
     expect(selectMainAgentToolset(messages)).toMatchObject({
       intent: "record_query",
-      toolNames: expect.arrayContaining(["query_semantic_records"]),
+      toolNames: expect.arrayContaining(["records"]),
     });
   });
 
@@ -43,6 +43,6 @@ describe("main agent tool registry", () => {
     ]);
 
     expect(selected.intent).toBe("coverage_query");
-    expect(selected.toolNames).toContain("query_testing_team_fv_analysis");
+    expect(selected.toolNames).toContain("analyze");
   });
 });

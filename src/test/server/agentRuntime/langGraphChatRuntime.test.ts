@@ -103,8 +103,8 @@ describe("LangGraph chat runtime", () => {
     expect(result.context).toContain("# Tool context");
     expect(result.finalMessages).toEqual([{ role: "user", content: "DTSV 6月份提了多少bug？" }]);
     expect(result.prefaceEvents).toEqual([
-      { type: "tool-input-available", toolCallId: "call-1", toolName: "query_semantic_metrics", input: {} },
-      { type: "tool-output-available", toolCallId: "call-1", toolName: "query_semantic_metrics", outputSummary: "# Tool context" },
+      { type: "tool-input-available", toolCallId: "call-1", toolName: "analyze", input: { operation: "semantic_metrics", input: {} } },
+      { type: "tool-output-available", toolCallId: "call-1", toolName: "analyze", outputSummary: "# Tool context" },
     ]);
     expect(result.events.map((event: { type?: string }) => event.type)).toEqual(expect.arrayContaining([
       "agent.tool.started",
@@ -123,7 +123,7 @@ describe("LangGraph chat runtime", () => {
         messages: result.body.messages,
         model: "deepseek-v4-flash",
         context: expect.stringContaining("# Analytics context"),
-        tools: expect.arrayContaining([expect.objectContaining({ function: expect.objectContaining({ name: "query_semantic_metrics" }) })]),
+        tools: expect.arrayContaining([expect.objectContaining({ function: expect.objectContaining({ name: "analyze" }) })]),
         toolChoice: "auto",
       }),
     );
@@ -134,7 +134,7 @@ describe("LangGraph chat runtime", () => {
     expect(result.metrics.toolRouting).toEqual(expect.objectContaining({
       shouldUseTools: true,
       intent: "metric_query",
-      toolNames: expect.arrayContaining(["query_analytics", "diagnose_analytics_empty"]),
+      toolNames: expect.arrayContaining(["resolve", "analyze"]),
     }));
     expect(events.map((event) => (event as { type?: string }).type)).toEqual([
       "agent-runtime-started",
@@ -850,7 +850,7 @@ describe("LangGraph chat runtime", () => {
       function: { name: "query_semantic_records", arguments: JSON.stringify(canonicalArgs) },
     }), expect.objectContaining({ actor: expect.objectContaining({ actorId: "alice", scopeHash: "scope-a" }) }));
     expect(result.mainAgentToolContext.toolCalls).toHaveLength(1);
-    expect(result.mainAgentToolContext.toolCalls[0].function.name).toBe("query_semantic_records");
+    expect(result.mainAgentToolContext.toolCalls[0].function.name).toBe("records");
   });
 
   it("does not resolve unscoped duplicate context for an OIDC actor", async () => {
@@ -976,8 +976,8 @@ describe("LangGraph chat runtime", () => {
         threadId: "thread-123",
         actorScope: result.actorScope,
         toolCallId: "call-1",
-        toolName: "query_semantic_metrics",
-        input: { query: { intent: "rank" } },
+        toolName: "analyze",
+        input: { operation: "semantic_metrics", input: { query: { intent: "rank" } } },
         outputSummary: "# Main agent semantic tool result",
       }),
     );
@@ -1306,7 +1306,7 @@ describe("LangGraph chat runtime", () => {
     expect(result.mainAgentToolContext.toolCalls.map((toolCall) => toolCall.function.name)).toEqual([
       "query_analytics",
       "diagnose_analytics_empty",
-      "query_analytics",
+      "analyze",
     ]);
     expect(JSON.parse(executeToolCall.mock.calls[2][0].function.arguments)).toMatchObject({
       filters: { years: ["2026"], detected_by: ["Li Size"], problem_finder_teams: ["DTSV_China"] },

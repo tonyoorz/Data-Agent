@@ -1,11 +1,10 @@
 import { streamCompanyChatCompletion, writeSseEvent, writeSseResponse } from "../companyChat.mjs";
+import { isClaimBearingEvidence } from "../mainAgentEvidence.mjs";
 import { createOntologyRegistry } from "../ontology/registry.mjs";
-
-const CLAIM_BEARING_SEMANTIC_TOOLS = new Set(["query_semantic_metrics", "query_semantic_records"]);
 
 function createAnswerValidation(runtimeResult) {
   const evidence = runtimeResult?.mainAgentToolContext?.evidence;
-  const semanticEvidence = (Array.isArray(evidence) ? evidence : []).filter((item) => CLAIM_BEARING_SEMANTIC_TOOLS.has(item?.tool));
+  const semanticEvidence = (Array.isArray(evidence) ? evidence : []).filter(isClaimBearingEvidence);
   if (!semanticEvidence.length) {
     return undefined;
   }
