@@ -178,7 +178,7 @@ describe("main agent tool orchestrator", () => {
     expect(result.toolCalls.map((toolCall) => toolCall.function.name)).toEqual([
       "query_analytics",
       "diagnose_analytics_empty",
-      "query_analytics",
+      "analyze",
     ]);
     expect(executeToolCall.mock.calls[2][0]).toMatchObject({
       id: "alias-source-catalog-retry",

@@ -7,6 +7,7 @@ import { validateAnswerTextCitations } from "../../../server/answerValidator.mjs
 import { evaluateSemanticEvidence } from "../../../server/mainAgentEvidence.mjs";
 import { executeMainAgentToolCall } from "../../../server/mainAgentTools.mjs";
 import { runMainAgentToolTurn } from "../../../server/mainAgentToolOrchestrator.mjs";
+import { primitiveForLegacyTool } from "../../../server/mainAgentPrimitives.mjs";
 import { verifyActorCapabilityHeader } from "../../../server/agentActorCapability.mjs";
 
 const EVAL_NOW = 1_700_000_000;
@@ -125,7 +126,13 @@ describe("Main agent execution golden suite", () => {
         now: new Date("2026-08-04T08:00:00.000Z"),
       });
 
-      expect(result.toolCalls.map((call) => call.function.name), item.caseId).toEqual(item.expected.toolSequence);
+      const normalizedToolSequence = result.toolCalls.map((call) => call.function.name === "diagnose_analytics_empty"
+        ? call.function.name
+        : primitiveForLegacyTool(call.function.name) || call.function.name);
+      const expectedToolSequence = item.expected.toolSequence.map((name: string) => name === "diagnose_analytics_empty"
+        ? name
+        : primitiveForLegacyTool(name) || name);
+      expect(normalizedToolSequence, item.caseId).toEqual(expectedToolSequence);
       expect(requests.map((request) => request.path), item.caseId).toEqual(item.expected.endpointSequence);
       const evidenceGate = evaluateSemanticEvidence(result.evidence);
       expect(evidenceGate.status, `${item.caseId}: ${JSON.stringify({ evidenceGate, evidence: result.evidence, toolMessages: result.toolMessages, requestAssertionError })}`).toBe(item.expected.evidenceStatus);

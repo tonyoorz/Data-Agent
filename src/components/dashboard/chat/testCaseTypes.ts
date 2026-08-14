@@ -29,4 +29,9 @@ export interface TestCaseResult {
   verification: TestCaseVerification;
   similarCases: TestCaseSimilarCase[];
   generatedAt: string;
+  proposalDigest: string;
+  proposalCapability: string;
+  proposalExpiresAt: string;
+  proposalOnly: true;
+  committed: false;
 }

@@ -89,7 +89,7 @@ const INTENT_PROFILES = Object.freeze({
 function routeToolIntent(queryText) {
   if (/删除|更新|修改|写入|评论|comment|write|update|delete|edit/i.test(queryText)) return "action_capability";
   if (/重复|查重|相似|duplicate|similar/i.test(queryText)) return "duplicate_search";
-  if (/traceability|追溯|链路|Requirement|TestRun/i.test(queryText)) return "traceability";
+  if (/traceability|追溯|追踪|链路|Requirement|TestRun/i.test(queryText)) return "traceability";
   if (/创建.*测试用例|回归测试|test\s*case|testcase|entityType=work_item|id=\d+/i.test(queryText)) return "testcase_context";
   if (/字段|API|UDF|filterable|sortable|editable|schema|field|octane_defects/i.test(queryText)) return "schema_discovery";
   if (/ontology|本体|能力|available|partial|unavailable|dry_run_only|disabled|blocked/i.test(queryText)) return "ontology_catalog";

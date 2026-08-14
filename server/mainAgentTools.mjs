@@ -2223,15 +2223,61 @@ export async function executeMainAgentToolCall(toolCall, {
   analyticsFetch = globalThis.fetch,
   analyticsApiBase = resolveAnalyticsApiBase(),
   runDuplicateBridge,
+  runTestCaseBridge,
   ensureDuplicateWarmup,
   actor,
   actorCapabilitySecret,
   actorCapabilityNow,
   actorCapabilityNonce,
   actorCapabilityEnv,
+  governedQueryPlan,
+  generateTestCaseProposalContent,
   now,
 } = {}) {
   analyticsFetch = boundDefaultAnalyticsFetch(analyticsFetch);
+  if (toolCall?.function?.name === "prepare_testcase") {
+    const args = parseToolArguments(toolCall?.function?.arguments);
+    if (args?.anchor?.type !== "defect_id" || !String(args?.anchor?.value || "").trim()) {
+      throw Object.assign(new Error("TESTCASE_DEFECT_ANCHOR_REQUIRED"), { code: "TESTCASE_DEFECT_ANCHOR_REQUIRED", status: "denied" });
+    }
+    const { prepareTestCaseProposal } = await import("./testCaseProposal.mjs");
+    const proposal = await prepareTestCaseProposal({
+      defectId: String(args.anchor.value).trim(),
+      runTestCaseBridge,
+      generateContent: generateTestCaseProposalContent,
+      generatedAt: now instanceof Date ? now.toISOString() : new Date().toISOString(),
+    });
+    return {
+      toolMessage: buildToolMessage(toolCall, JSON.stringify({ ok: true, tool: "prepare_testcase", result: proposal })),
+      contextText: [
+        "# Main agent testcase proposal",
+        `Defect: ${proposal.defectId}`,
+        `Proposal digest: ${proposal.proposalDigest}`,
+        `Verification passed: ${proposal.verification?.passed === true}`,
+        "Proposal only: no Octane mutation occurred. Ask the user to review it; never call a commit action from the Agent.",
+      ].join("\n"),
+    };
+  }
+  if (["catalog", "resolve", "analyze", "records", "trace", "duplicate_search"].includes(toolCall?.function?.name)) {
+    const { expandPrimitiveToolCall, wrapPrimitiveResult } = await import("./mainAgentPrimitives.mjs");
+    const expansion = expandPrimitiveToolCall(toolCall, { governedQueryPlan });
+    const result = await executeMainAgentToolCall(expansion.adapterCall, {
+      analyticsFetch,
+      analyticsApiBase,
+      runDuplicateBridge,
+      runTestCaseBridge,
+      ensureDuplicateWarmup,
+      actor,
+      actorCapabilitySecret,
+      actorCapabilityNow,
+      actorCapabilityNonce,
+      actorCapabilityEnv,
+      governedQueryPlan,
+      generateTestCaseProposalContent,
+      now,
+    });
+    return wrapPrimitiveResult(toolCall, expansion, result);
+  }
   const agentAnalyticsDependencies = {
     analyticsFetch,
     analyticsApiBase,

@@ -4,16 +4,10 @@ import {
   writeSseEvent,
   writeSseResponse,
 } from "../companyChat.mjs";
-import { evaluateClaimEvidence } from "../mainAgentEvidence.mjs";
+import { evaluateClaimEvidence, isClaimBearingEvidence } from "../mainAgentEvidence.mjs";
 import { createOntologyRegistry } from "../ontology/registry.mjs";
 
 const FINAL_STREAM_FAILURE_CODE = "FINAL_STREAM_FAILED";
-const CLAIM_BEARING_SEMANTIC_TOOLS = new Set([
-  "query_semantic_metrics",
-  "query_semantic_records",
-  "query_traceability",
-]);
-
 function blockedAnswerValidation(violations = []) {
   const normalized = [...new Set((Array.isArray(violations) ? violations : [])
     .map((value) => String(value || "").trim())
@@ -83,7 +77,7 @@ function resolveReleaseGate(runtimeResult) {
 
 function createAnswerValidation(runtimeResult, releaseGate) {
   const evidence = runtimeResult?.mainAgentToolContext?.evidence;
-  const semanticEvidence = (Array.isArray(evidence) ? evidence : []).filter((item) => CLAIM_BEARING_SEMANTIC_TOOLS.has(item?.tool));
+  const semanticEvidence = (Array.isArray(evidence) ? evidence : []).filter(isClaimBearingEvidence);
   if (!semanticEvidence.length) {
     return undefined;
   }

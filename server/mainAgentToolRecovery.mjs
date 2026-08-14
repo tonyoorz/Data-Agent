@@ -4,6 +4,13 @@ const TRANSIENT_STATUS_CODES = new Set([408, 429]);
 const ACCESS_DENIAL_CODE = /(DENIED|FORBIDDEN|UNAUTHORIZED|SCOPE|SENSITIVE|PERMISSION|POLICY|ACTOR_CAPABILITY|ACTION_BLOCKED|UNSCOPED_TOOL_DISABLED)/i;
 const SCHEMA_OR_VALUE_CODE = /(SCHEMA|DIMENSION|FIELD|FILTER|VALUE|METRIC).*(INVALID|NOT_FOUND|MISMATCH|UNSUPPORTED|NOT_ALLOWED)|(?:ONTOLOGY_)?METRIC_NOT_APPROVED|UNSUPPORTED_(?:DEFECT_)?(?:FILTER|METRIC|DIMENSION)/i;
 const RETRYABLE_READ_TOOLS = new Set([
+  "catalog",
+  "resolve",
+  "analyze",
+  "records",
+  "trace",
+  "duplicate_search",
+  "prepare_testcase",
   "get_ontology_catalog",
   "search_octane_fields",
   "search_analytics_filter_values",

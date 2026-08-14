@@ -8,6 +8,13 @@ interface Props {
 
 const OCTANE_BASE = "https://octane-prod.bmwgroup.net/ui/?p=1002/2001#/entity-navigation?entityType=work_item&id=";
 
+function descriptionPreviewText(html: string) {
+  if (typeof DOMParser === "undefined") {
+    return html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  }
+  return new DOMParser().parseFromString(html, "text/html").body.textContent?.trim() || "";
+}
+
 export default function TestCasePreviewCard({ result }: Props) {
   const [commitState, setCommitState] = useState<"idle" | "submitting" | "success" | "error">("idle");
   const [commitError, setCommitError] = useState("");
@@ -23,13 +30,7 @@ export default function TestCasePreviewCard({ result }: Props) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          test_case_data: {
-            name: result.name,
-            description_html: result.descriptionHtml,
-            steps_text: result.stepsText,
-            defectId: result.defectId,
-            owner_workspace_user_id: ownerId,
-          },
+          proposal_capability: result.proposalCapability,
           feature_id: featureId,
           owner_workspace_user_id: ownerId,
         }),
@@ -108,10 +109,9 @@ export default function TestCasePreviewCard({ result }: Props) {
         {/* description preview */}
         <div className="space-y-1">
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">描述 (Description)</p>
-          <div
-            className="rounded-lg border border-border bg-muted/20 p-3 text-xs prose prose-sm max-w-none"
-            dangerouslySetInnerHTML={{ __html: result.descriptionHtml }}
-          />
+          <pre className="rounded-lg border border-border bg-muted/20 p-3 text-xs overflow-x-auto whitespace-pre-wrap font-sans">
+            {descriptionPreviewText(result.descriptionHtml)}
+          </pre>
         </div>
 
         {/* steps preview */}

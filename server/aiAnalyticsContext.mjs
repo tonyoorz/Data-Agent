@@ -312,6 +312,7 @@ export async function resolveAiAnalyticsContext({
   ontologyRegistry,
   model,
   requestSemanticCandidate = requestCompanySemanticCandidate,
+  priorSemanticFrame = null,
 }) {
   analyticsFetch = boundDefaultAnalyticsFetch(analyticsFetch);
   const queryText = extractLatestUserQuery(messages);
@@ -336,7 +337,7 @@ export async function resolveAiAnalyticsContext({
         priorSemanticContext: null,
         model,
       });
-      semanticFrame = resolver.resolve({ query: recentUserText || queryText, actor, requestAnchorAt: now.toISOString(), candidate });
+      semanticFrame = resolver.resolve({ query: recentUserText || queryText, actor, requestAnchorAt: now.toISOString(), candidate, priorSemanticFrame });
       semanticPlan = createQueryPlanner({ registry: ontologyRegistry }).createPlan({ frame: semanticFrame, actor, query: recentUserText || queryText });
       analysisPlan = createGovernedAnalysisPlanner({ registry: ontologyRegistry }).createPlan({ frame: semanticFrame, queryPlan: semanticPlan });
       semanticContext = governedContext(semanticFrame, semanticPlan, ontologyRegistry, analysisPlan);

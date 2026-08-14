@@ -1,6 +1,6 @@
 import { requestCompanyChatCompletion } from "./companyChat.mjs";
 import { executeMainAgentToolCall } from "./mainAgentTools.mjs";
-import { isToolAllowed } from "./mainAgentToolRegistry.mjs";
+import { primitiveForLegacyTool, toPrimitiveToolCall } from "./mainAgentPrimitives.mjs";
 import {
   buildCatalogBackedAnalyticsRetry,
   completeCatalogBackedAnalyticsRetry,
@@ -12,6 +12,7 @@ import {
   executeMainAgentPlannedToolCall,
   hasEmptyAnalyticsResult,
   hasPlannedDiagnosis,
+  privateAdapterToolCall,
   mergeToolContext,
   selectMainAgentToolset,
 } from "./mainAgentToolPlanning.mjs";
@@ -246,7 +247,7 @@ export async function runMainAgentToolTurn({
         break;
       }
 
-      if (hasEmptyAnalyticsResult(toolCall, result) && !hasPlannedDiagnosis(allToolCalls) && isToolAllowed("diagnose_analytics_empty", selectedToolset)) {
+      if (hasEmptyAnalyticsResult(toolCall, result) && !hasPlannedDiagnosis(allToolCalls)) {
         const diagnosisToolCall = buildEmptyDiagnosisToolCall(toolCall);
         allToolCalls.push(diagnosisToolCall);
         toolConversationMessages.push({
@@ -266,25 +267,26 @@ export async function runMainAgentToolTurn({
           break;
         }
         const correction = buildCatalogBackedAnalyticsRetry({
-          originalToolCall: toolCall,
+          originalToolCall: privateAdapterToolCall(toolCall),
           diagnosisToolCall,
           diagnosisResult: diagnosis.result,
         });
-        if (correction && isToolAllowed(correction.toolCall.function.name, selectedToolset)) {
-          allToolCalls.push(correction.toolCall);
+        if (correction && selectedToolset.toolNames?.includes(primitiveForLegacyTool(correction.toolCall.function.name))) {
+          const publicCorrection = toPrimitiveToolCall(correction.toolCall);
+          allToolCalls.push(publicCorrection);
           toolConversationMessages.push({
             role: "assistant",
             content: "",
-            tool_calls: [correction.toolCall],
+            tool_calls: [publicCorrection],
           });
           events.push(standardEvent(eventBase, {
             type: "agent.tool.planned",
-            toolCallId: correction.toolCall.id,
-            toolName: correction.toolCall.function.name,
+            toolCallId: publicCorrection.id,
+            toolName: publicCorrection.function.name,
             intent: selectedToolset.intent,
             reason: "catalog_backed_alias_retry",
           }));
-          await executeAndRecordToolCall(correction.toolCall, { catalogRecovery: correction.recovery });
+          await executeAndRecordToolCall(publicCorrection, { catalogRecovery: correction.recovery });
           if (!stoppedReason) {
             stoppedReason = "catalog_retry_completed";
           }

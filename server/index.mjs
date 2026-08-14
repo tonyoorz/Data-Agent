@@ -56,6 +56,11 @@ import {
 import { handleTranscribeRequest, toSafeTranscriptionError } from "./transcribe.mjs";
 import { resolveChatModelConfig } from "./chatModelConfig.mjs";
 import testcaseBridgeRuntime from "./testcaseBridgeRuntime.cjs";
+import { prepareTestCaseProposal } from "./testCaseProposal.mjs";
+import {
+  createTestCaseProposalRegistry,
+  toSafeTestCaseProposalError,
+} from "./testCaseProposalRegistry.mjs";
 
 const { runDuplicateBridge, stopDuplicateBridgeRuntime } = duplicateBridgeRuntime;
 const { runTestCaseBridge, stopTestCaseBridgeRuntime } = testcaseBridgeRuntime;
@@ -99,6 +104,7 @@ const langGraphChatRuntime = createLangGraphChatRuntime({
   runtimeStore: agentRuntimeStore,
   checkpointer: agentCheckpointer,
 });
+const testCaseProposalRegistry = createTestCaseProposalRegistry();
 
 function nowMs() {
   return performance.now();
@@ -162,12 +168,11 @@ export async function handleAiTranscribeRequest(request, response) {
 
 async function requireInternalAuxiliaryActor(request, response) {
   try {
-    await resolveInternalAuxiliaryActor(request, { env: process.env });
-    return true;
+    return await resolveInternalAuxiliaryActor(request, { env: process.env });
   } catch (error) {
     const safe = toSafeAgentAuthResponse(error);
     sendJson(response, safe?.statusCode || 503, safe?.payload || { success: false, error: "AUXILIARY_ROUTE_UNAVAILABLE" });
-    return false;
+    return null;
   }
 }
 
@@ -187,6 +192,12 @@ async function handleAuthenticatedAiChatRequest(body, response) {
       toolDependencies: {
         runDuplicateBridge,
         ensureDuplicateWarmup: () => duplicateWarmupManager.ensureWarm({ reason: "langgraph-agent-tool" }),
+        runTestCaseBridge,
+        generateTestCaseProposalContent: (defectInfo, fewShotText) => generateTestCaseContent(
+          defectInfo,
+          fewShotText,
+          resolveChatModelConfig(undefined, process.env),
+        ),
       },
       onCompleted: async (completed) => {
         await agentRuntimeStore.appendRunEvent(buildAgentStreamAuditEvent(completed));
@@ -575,7 +586,8 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (request.method === "POST" && url.pathname === "/api/create-testcase") {
-      if (!await requireInternalAuxiliaryActor(request, response)) return;
+      const actor = await requireInternalAuxiliaryActor(request, response);
+      if (!actor) return;
       const body = await readBoundedJsonBody(request, { maxBytes: jsonBodyLimitBytes });
       const defectId = typeof body?.defect_id === "string" ? body.defect_id.trim() : "";
 
@@ -585,72 +597,80 @@ const server = http.createServer(async (request, response) => {
       }
 
       try {
-        // Step 1: Python bridge — read defect + RAG retrieve similar test cases
-        const prepared = await runTestCaseBridge({ action: "prepare", defect_id: defectId });
-        if (!prepared?.success || !prepared?.defect_info) {
-          sendJson(response, 500, { success: false, error: prepared?.error || "failed to prepare defect" });
-          return;
-        }
-
-        const defectInfo = prepared.defect_info;
-        const similarCases = prepared.similar_cases || [];
-        const fewShotText = prepared.few_shot_text || "";
-
-        // Step 2: LLM generation — build description HTML + steps text
         const chatConfig = resolveChatModelConfig(undefined, process.env);
-        const llmResult = await generateTestCaseContent(defectInfo, fewShotText, chatConfig);
-
-        // Step 3: Python bridge — verify quality
-        const verified = await runTestCaseBridge({
-          action: "verify",
-          defect_info: defectInfo,
-          description_html: llmResult.descriptionHtml,
-          steps_text: llmResult.stepsText,
+        const result = await prepareTestCaseProposal({
+          defectId,
+          runTestCaseBridge,
+          generateContent: (defectInfo, fewShotText) => generateTestCaseContent(defectInfo, fewShotText, chatConfig),
         });
+        const issued = testCaseProposalRegistry.issue({ actor, proposal: result });
 
-        const result = {
-          defectId: defectInfo.defect_id,
-          defectName: defectInfo.name,
-          defectSeverity: defectInfo.severity,
-          defectSoftwareVersion: defectInfo.software_version,
-          defectAssignedEcu: defectInfo.assigned_ecu,
-          defectLeadModel: defectInfo.lead_model,
-          descriptionHtml: llmResult.descriptionHtml,
-          stepsText: llmResult.stepsText,
-          name: llmResult.testName,
-          verification: verified?.verification || { passed: false, criteria: [], feedback: "verification skipped" },
-          similarCases,
-          generatedAt: new Date().toISOString(),
-        };
-
-        sendJson(response, 200, { success: true, result });
+        sendJson(response, 200, {
+          success: true,
+          result: {
+            ...result,
+            proposalCapability: issued.capability,
+            proposalExpiresAt: new Date(issued.expiresAt).toISOString(),
+          },
+        });
       } catch (error) {
-        sendJson(response, 500, { success: false, error: String(error?.message || error) });
+        const safe = toSafeTestCaseProposalError(error);
+        sendJson(
+          response,
+          safe?.statusCode || 500,
+          safe?.payload || { success: false, error: String(error?.message || error) },
+        );
       }
       return;
     }
 
     if (request.method === "POST" && url.pathname === "/api/create-testcase/commit") {
-      if (!await requireInternalAuxiliaryActor(request, response)) return;
+      const actor = await requireInternalAuxiliaryActor(request, response);
+      if (!actor) return;
       const body = await readBoundedJsonBody(request, { maxBytes: jsonBodyLimitBytes });
-      const testCaseData = body?.test_case_data;
+      const proposalCapability = typeof body?.proposal_capability === "string"
+        ? body.proposal_capability.trim()
+        : "";
       const featureId = typeof body?.feature_id === "string" ? body.feature_id.trim() : "";
       const ownerId = typeof body?.owner_workspace_user_id === "string" ? body.owner_workspace_user_id.trim() : "";
 
-      if (!testCaseData) {
-        sendJson(response, 400, { success: false, error: "test_case_data is required" });
+      if (!proposalCapability) {
+        sendJson(response, 400, { success: false, error: "TESTCASE_PROPOSAL_CAPABILITY_REQUIRED" });
         return;
       }
 
       try {
-        const result = await runTestCaseBridge({
-          action: "commit",
-          test_case_data: { ...testCaseData, owner_workspace_user_id: ownerId },
-          feature_id: featureId,
+        const result = await testCaseProposalRegistry.commit({
+          capability: proposalCapability,
+          actor,
+          featureId,
+          ownerId,
+          commitProposal: async ({ proposal, featureId: approvedFeatureId, ownerId: approvedOwnerId }) => {
+            const committed = await runTestCaseBridge({
+              action: "commit",
+              test_case_data: {
+                name: proposal.name,
+                description_html: proposal.descriptionHtml,
+                steps_text: proposal.stepsText,
+                defectId: proposal.defectId,
+                owner_workspace_user_id: approvedOwnerId,
+              },
+              feature_id: approvedFeatureId,
+            });
+            if (!committed?.success) {
+              throw new Error(committed?.error || "TESTCASE_COMMIT_FAILED");
+            }
+            return committed;
+          },
         });
-        sendJson(response, result?.success ? 200 : 500, result);
+        sendJson(response, 200, result);
       } catch (error) {
-        sendJson(response, 500, { success: false, error: String(error?.message || error) });
+        const safe = toSafeTestCaseProposalError(error);
+        sendJson(
+          response,
+          safe?.statusCode || 500,
+          safe?.payload || { success: false, error: String(error?.message || error) },
+        );
       }
       return;
     }
