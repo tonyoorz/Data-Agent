@@ -11,6 +11,8 @@ import { createSessionEventLog } from "./agentRuntime/sessionEventLog.mjs";
 import { createEvalMetricsService } from "./agentRuntime/evalMetrics.mjs";
 import { createApprovalFlow } from "./agentRuntime/approvalFlow.mjs";
 import { createFeedbackLoop, createSemanticCache } from "./agentRuntime/feedbackAndCache.mjs";
+import { createSandboxSqlGuard, isSandboxSqlEnabled } from "./ontology/sandboxSql.mjs";
+import { createOntologyRegistry } from "./ontology/registry.mjs";
 import { resolveAgentOperationsResponse } from "./agentOperations.mjs";
 import { resolveAiAnalyticsContext } from "./aiAnalyticsContext.mjs";
 import { resolveMainAgentToolContext } from "./mainAgentToolLoop.mjs";
@@ -53,6 +55,18 @@ const evalMetricsService = createEvalMetricsService({ sessionEventLog });
 const approvalFlow = createApprovalFlow({ eventLog: sessionEventLog });
 const feedbackLoop = createFeedbackLoop();
 const semanticCache = createSemanticCache();
+// Governed sandbox SQL (strategic item): lazily built, default OFF via VIZION_SANDBOX_SQL=1.
+let sandboxSqlGuardInstance;
+function getSandboxSqlGuard() {
+  if (sandboxSqlGuardInstance === undefined) {
+    try {
+      sandboxSqlGuardInstance = createSandboxSqlGuard({ registry: createOntologyRegistry() });
+    } catch {
+      sandboxSqlGuardInstance = null; // ontology not compiled in this environment
+    }
+  }
+  return sandboxSqlGuardInstance;
+}
 const langGraphChatRuntime = createLangGraphChatRuntime({
   runtimeStore: agentRuntimeStore,
   sessionEventLog,
@@ -696,6 +710,125 @@ const server = http.createServer(async (request, response) => {
           aggregate: report.aggregate,
           daily: report.daily,
           generatedAt: report.generatedAt,
+        });
+      } catch (error) {
+        sendJson(response, 500, { success: false, error: String(error?.message || error) });
+      }
+      return;
+    }
+
+    // --- Governed sandbox SQL (strategic item): dry-run preview + approval-gated execution ---
+    // Default OFF; enable with VIZION_SANDBOX_SQL=1. Results are evidence-kind
+    // "sandbox_result" (non-claim-bearing): they may inform an answer but must
+    // be labeled 未经治理校验 and never back a cited claim.
+    if (request.method === "POST" && (url.pathname === "/api/ai/sandbox-sql/preview" || url.pathname === "/api/ai/sandbox-sql/execute")) {
+      if (!isSandboxSqlEnabled()) {
+        sendJson(response, 404, { success: false, error: "SANDBOX_SQL_DISABLED" });
+        return;
+      }
+      if (!await requireInternalAuxiliaryActor(request, response)) return;
+      const guard = getSandboxSqlGuard();
+      if (!guard) {
+        sendJson(response, 503, { success: false, error: "SANDBOX_ONTOLOGY_NOT_COMPILED" });
+        return;
+      }
+      const body = await readJsonBody(request);
+      const sql = typeof body?.sql === "string" ? body.sql.trim() : "";
+      const intent = typeof body?.intent === "string" ? body.intent : "list";
+      const actor = body?.actor && typeof body.actor === "object" && !Array.isArray(body.actor) ? body.actor : null;
+
+      if (url.pathname.endsWith("/preview")) {
+        if (!sql) {
+          sendJson(response, 400, { success: false, error: "sql required" });
+          return;
+        }
+        if (!actor) {
+          sendJson(response, 400, { success: false, error: "actor required (row-level policy is enforced per actor scope)" });
+          return;
+        }
+        const preview = await guard.dryRun({ sql, actor, intent });
+        sendJson(response, preview?.ok ? 200 : 400, {
+          success: Boolean(preview?.ok),
+          ...preview,
+          evidenceKind: "sandbox_result",
+          claimBearing: false,
+        });
+        return;
+      }
+
+      // execute path: approval-gated two-phase
+      const approvalId = typeof body?.approvalId === "string" ? body.approvalId.trim() : "";
+      if (approvalId) {
+        const decision = typeof body?.decision === "string" ? body.decision.trim().toLowerCase() : "approved";
+        if (!["approved", "rejected"].includes(decision)) {
+          sendJson(response, 400, { success: false, error: "decision must be approved|rejected" });
+          return;
+        }
+        try {
+          const outcome = await approvalFlow.decide({ approvalId, decision, decidedBy: body?.decidedBy || "user" });
+          if (outcome?.status !== "ok") {
+            sendJson(response, 404, { success: false, error: "APPROVAL_NOT_FOUND_OR_EXPIRED" });
+            return;
+          }
+          if (decision !== "approved" || outcome.handoffState?.kind !== "sandbox_sql") {
+            sendJson(response, 200, { success: true, status: decision === "approved" ? "kind_mismatch" : "rejected" });
+            return;
+          }
+          const handoff = outcome.handoffState;
+          const limit = Math.max(1, Math.min(5000, Number(handoff.limit) || 200));
+          const executed = await guard.execute({
+            sql: handoff.sql,
+            actor: handoff.actor,
+            intent: handoff.intent || "list",
+            limit,
+          });
+          await safeAppendSessionEvent(sessionEventLog, {
+            type: "sandbox/execute",
+            sessionId: handoff.sessionId || "sandbox",
+            payload: { approvalId, ok: Boolean(executed?.ok), rowCount: executed?.rowCount ?? 0, reason: executed?.reason || "" },
+          }).catch(() => {});
+          sendJson(response, executed?.ok ? 200 : 400, {
+            success: Boolean(executed?.ok),
+            ...executed,
+            approvalId,
+            evidenceKind: "sandbox_result",
+            claimBearing: false,
+            governanceNote: "Sandbox results are 未经治理校验: label them in the answer and never back a cited claim with them.",
+          });
+        } catch (error) {
+          sendJson(response, 500, { success: false, error: String(error?.message || error) });
+        }
+        return;
+      }
+
+      if (!sql) {
+        sendJson(response, 400, { success: false, error: "sql required" });
+        return;
+      }
+      if (!actor) {
+        sendJson(response, 400, { success: false, error: "actor required (row-level policy is enforced per actor scope)" });
+        return;
+      }
+      const limit = Math.max(1, Math.min(5000, Number(body?.limit) || 200));
+      const preview = await guard.dryRun({ sql, actor, intent });
+      if (!preview?.ok) {
+        sendJson(response, 400, { success: false, ...preview });
+        return;
+      }
+      try {
+        const request2 = await approvalFlow.request({
+          sessionId: body?.sessionId || "sandbox",
+          kind: "sandbox_sql",
+          summary: `execute sandbox sql on ${preview.tables?.join(", ") || "governed tables"}`,
+          toolCall: { name: "sandbox_sql_execute", arguments: { sql, intent, limit } },
+          handoffState: { kind: "sandbox_sql", sql, actor, intent, limit, sessionId: body?.sessionId || "sandbox" },
+        });
+        sendJson(response, 202, {
+          success: true,
+          status: "approval_pending",
+          approvalId: request2.approvalId,
+          preview,
+          next: `POST /api/ai/sandbox-sql/execute {approvalId, decision:"approved|rejected"}`,
         });
       } catch (error) {
         sendJson(response, 500, { success: false, error: String(error?.message || error) });
