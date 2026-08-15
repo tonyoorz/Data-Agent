@@ -8,6 +8,7 @@ import { streamLangGraphChatResponse } from "./agentRuntime/langGraphChatHandler
 import { createLangGraphChatRuntime, resolveAgentRuntimeMode } from "./agentRuntime/langGraphChatRuntime.mjs";
 import { createFileAgentRuntimeStore } from "./agentRuntime/runtimeAuditStore.mjs";
 import { createSessionEventLog } from "./agentRuntime/sessionEventLog.mjs";
+import { createEvalMetricsService } from "./agentRuntime/evalMetrics.mjs";
 import { createApprovalFlow } from "./agentRuntime/approvalFlow.mjs";
 import { createFeedbackLoop, createSemanticCache } from "./agentRuntime/feedbackAndCache.mjs";
 import { resolveAgentOperationsResponse } from "./agentOperations.mjs";
@@ -48,6 +49,7 @@ const duplicateWarmupManager = createDuplicateWarmupManager({
 });
 const agentRuntimeStore = createFileAgentRuntimeStore();
 const sessionEventLog = createSessionEventLog();
+const evalMetricsService = createEvalMetricsService({ sessionEventLog });
 const approvalFlow = createApprovalFlow({ eventLog: sessionEventLog });
 const feedbackLoop = createFeedbackLoop();
 const semanticCache = createSemanticCache();
@@ -673,6 +675,28 @@ const server = http.createServer(async (request, response) => {
           sessionEventLog.metrics(sessionId),
         ]);
         sendJson(response, 200, { success: true, sessionId, events, metrics });
+      } catch (error) {
+        sendJson(response, 500, { success: false, error: String(error?.message || error) });
+      }
+      return;
+    }
+
+    // --- Eval metrics (P1-8): online metrics closed loop from session event logs ---
+    if (request.method === "GET" && url.pathname === "/api/ai/metrics") {
+      if (!await requireInternalAuxiliaryActor(request, response)) return;
+      const windowDaysRaw = Number(url.searchParams?.get("windowDays") ?? 7);
+      const windowDays = Number.isFinite(windowDaysRaw)
+        ? Math.max(1, Math.min(90, Math.floor(windowDaysRaw)))
+        : 7;
+      try {
+        const report = await evalMetricsService.report({ windowDays });
+        sendJson(response, 200, {
+          success: true,
+          windowDays: report.windowDays,
+          aggregate: report.aggregate,
+          daily: report.daily,
+          generatedAt: report.generatedAt,
+        });
       } catch (error) {
         sendJson(response, 500, { success: false, error: String(error?.message || error) });
       }

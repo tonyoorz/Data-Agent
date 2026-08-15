@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createHash } from "node:crypto";
 
@@ -99,6 +99,20 @@ export function createSessionEventLog({ rootDir = process.env.VIZION_SESSION_EVE
       try {
         const raw = await readFile(fileFor(sessionId), "utf8");
         return raw.split("\n").filter((line) => line.trim()).map((line) => JSON.parse(line));
+      } catch (error) {
+        if (error && error.code === "ENOENT") return [];
+        throw error;
+      }
+    },
+
+    /** List persisted session ids (derived from file names, sorted ascending). */
+    async list() {
+      try {
+        const entries = await readdir(sessionsDir, { withFileTypes: true });
+        return entries
+          .filter((entry) => entry.isFile() && entry.name.endsWith(".jsonl"))
+          .map((entry) => entry.name.slice(0, -".jsonl".length))
+          .sort();
       } catch (error) {
         if (error && error.code === "ENOENT") return [];
         throw error;
