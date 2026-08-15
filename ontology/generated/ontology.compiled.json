@@ -5041,6 +5041,7 @@
         "status": "approved"
       },
       "id": "evidence.artifact.supports.defect",
+      "kind": "foreign_key",
       "predicate": "supports",
       "reversible": true,
       "sourceEntity": "evidence.artifact",
@@ -5064,6 +5065,7 @@
         "status": "approved"
       },
       "id": "organization.function_team_mapping.belongs_to.organization.team",
+      "kind": "foreign_key",
       "predicate": "belongs_to",
       "reversible": true,
       "sourceEntity": "organization.function_team_mapping",
@@ -5087,6 +5089,7 @@
         "status": "approved"
       },
       "id": "organization.tester.belongs_to.team",
+      "kind": "foreign_key",
       "predicate": "belongs_to",
       "reversible": true,
       "sourceEntity": "organization.tester",
@@ -5095,6 +5098,37 @@
         "target": "team_id"
       },
       "targetEntity": "organization.team"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "organization.tester",
+          "organization.team"
+        ]
+      ],
+      "cardinality": "many_to_one",
+      "direction": "outbound",
+      "governance": {
+        "owner": "Organization Analytics",
+        "status": "draft"
+      },
+      "id": "organization.tester.member_of_history.organization.team",
+      "kind": "time_varying",
+      "note": "Team membership over time. The team_id join only reflects the current team snapshot; octane_manual_runs has no valid_from/valid_to columns yet, so membership intervals are not queryable - draft until history columns land.",
+      "pendingColumns": [
+        "valid_from",
+        "valid_to"
+      ],
+      "predicate": "member_of_history",
+      "reversible": true,
+      "sourceEntity": "organization.tester",
+      "sourceFields": {
+        "source": "team_id",
+        "target": "team_id"
+      },
+      "targetEntity": "organization.team",
+      "validFrom": "valid_from",
+      "validTo": "valid_to"
     },
     {
       "allowedJoinPaths": [
@@ -5111,6 +5145,7 @@
         "status": "approved"
       },
       "id": "product.i_step.implements.pu",
+      "kind": "foreign_key",
       "predicate": "implements",
       "reversible": true,
       "sourceEntity": "product.i_step",
@@ -5134,6 +5169,7 @@
         "status": "approved"
       },
       "id": "product.platform.runs.os",
+      "kind": "foreign_key",
       "predicate": "runs",
       "reversible": true,
       "sourceEntity": "product.platform",
@@ -5157,6 +5193,7 @@
         "status": "approved"
       },
       "id": "product.pu.belongs_to.service_pack",
+      "kind": "foreign_key",
       "predicate": "belongs_to",
       "reversible": true,
       "sourceEntity": "product.pu",
@@ -5181,6 +5218,7 @@
         "status": "approved"
       },
       "id": "quality.defect.affects.aida_node",
+      "kind": "foreign_key",
       "predicate": "affects",
       "reversible": true,
       "sourceEntity": "quality.defect",
@@ -5204,6 +5242,7 @@
         "status": "approved"
       },
       "id": "quality.defect.affects.ecu",
+      "kind": "foreign_key",
       "predicate": "affects",
       "reversible": true,
       "sourceEntity": "quality.defect",
@@ -5227,6 +5266,7 @@
         "status": "approved"
       },
       "id": "quality.defect.detected_in.test_run",
+      "kind": "foreign_key",
       "predicate": "detected_in",
       "reversible": true,
       "sourceEntity": "quality.defect",
@@ -5250,6 +5290,7 @@
         "status": "approved"
       },
       "id": "quality.defect.evaluated_by.quality.qgate",
+      "kind": "foreign_key",
       "predicate": "evaluated_by",
       "reversible": true,
       "sourceEntity": "quality.defect",
@@ -5273,6 +5314,7 @@
         "status": "approved"
       },
       "id": "quality.defect.has_history.quality.defect_history_event",
+      "kind": "foreign_key",
       "predicate": "has_history",
       "reversible": true,
       "sourceEntity": "quality.defect",
@@ -5296,6 +5338,7 @@
         "status": "approved"
       },
       "id": "quality.defect.has_maturity_grade.quality.maturity_grade",
+      "kind": "foreign_key",
       "predicate": "has_maturity_grade",
       "reversible": true,
       "sourceEntity": "quality.defect",
@@ -5319,6 +5362,7 @@
         "status": "approved"
       },
       "id": "quality.defect.has_outcome.quality.defect_outcome",
+      "kind": "foreign_key",
       "predicate": "has_outcome",
       "reversible": true,
       "sourceEntity": "quality.defect",
@@ -5342,6 +5386,7 @@
         "status": "approved"
       },
       "id": "quality.defect.parent_of.quality.defect",
+      "kind": "foreign_key",
       "predicate": "parent_of",
       "reversible": true,
       "sourceEntity": "quality.defect",
@@ -5349,6 +5394,23 @@
         "source": "defect_id",
         "target": "parent_id"
       },
+      "targetEntity": "quality.defect"
+    },
+    {
+      "cardinality": "many_to_many",
+      "derivedBy": "duplicate_search",
+      "direction": "outbound",
+      "explosionPolicy": "distinct_source",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "draft"
+      },
+      "id": "quality.defect.same_root_cause_cluster.quality.defect",
+      "kind": "derived",
+      "note": "Derived by defect similarity search (duplicate_search): cluster members share the same root cause. Computed offline, never materialized as columns - not expressible as a SQL join, so no sourceFields/allowedJoinPaths.",
+      "predicate": "same_root_cause_cluster",
+      "reversible": true,
+      "sourceEntity": "quality.defect",
       "targetEntity": "quality.defect"
     },
     {
@@ -5365,6 +5427,7 @@
         "status": "approved"
       },
       "id": "quality.maturity_grade.measured_at.product.i_step",
+      "kind": "foreign_key",
       "predicate": "measured_at",
       "reversible": true,
       "sourceEntity": "quality.maturity_grade",
@@ -5389,6 +5452,7 @@
         "status": "draft"
       },
       "id": "quality.qgate.evaluates.pu",
+      "kind": "foreign_key",
       "predicate": "evaluates",
       "reversible": true,
       "sourceEntity": "quality.qgate",
@@ -5397,6 +5461,27 @@
         "target": "pu_id"
       },
       "targetEntity": "product.pu"
+    },
+    {
+      "cardinality": "many_to_one",
+      "direction": "outbound",
+      "governance": {
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md",
+        "owner": "Quality Governance",
+        "status": "draft"
+      },
+      "happensAtField": "passed_at",
+      "id": "quality.qgate.gate_passed.product.project",
+      "kind": "event",
+      "note": "A passed Q-Gate is an event binding a gate occurrence to the project it gated. quality.qgate currently exposes no time attribute and no project column, so happensAtField points at the intended passed_at column; draft until the qgate read model lands both columns.",
+      "pendingColumns": [
+        "passed_at",
+        "project_id"
+      ],
+      "predicate": "gate_passed",
+      "reversible": true,
+      "sourceEntity": "quality.qgate",
+      "targetEntity": "product.project"
     },
     {
       "allowedJoinPaths": [
@@ -5412,6 +5497,7 @@
         "status": "approved"
       },
       "id": "requirements.aida_node.parent_of.aida_node",
+      "kind": "foreign_key",
       "predicate": "parent_of",
       "reversible": true,
       "sourceEntity": "requirements.aida_node",
@@ -5436,6 +5522,7 @@
         "status": "approved"
       },
       "id": "testing.test_case.validates.aida_node",
+      "kind": "foreign_key",
       "predicate": "validates",
       "reversible": true,
       "sourceEntity": "testing.test_case",
@@ -5459,6 +5546,7 @@
         "status": "approved"
       },
       "id": "testing.test_event.includes.testing.test_run",
+      "kind": "foreign_key",
       "predicate": "includes",
       "reversible": true,
       "sourceEntity": "testing.test_event",
@@ -5482,6 +5570,7 @@
         "status": "approved"
       },
       "id": "testing.test_run.executed_on.product.test_rack",
+      "kind": "foreign_key",
       "predicate": "executed_on",
       "reversible": true,
       "sourceEntity": "testing.test_run",
@@ -5505,6 +5594,7 @@
         "status": "approved"
       },
       "id": "testing.test_run.executed_on.vehicle.test_vehicle",
+      "kind": "foreign_key",
       "predicate": "executed_on",
       "reversible": true,
       "sourceEntity": "testing.test_run",
@@ -5528,6 +5618,7 @@
         "status": "approved"
       },
       "id": "testing.test_run.executes.test_case",
+      "kind": "foreign_key",
       "predicate": "executes",
       "reversible": true,
       "sourceEntity": "testing.test_run",
@@ -5552,6 +5643,7 @@
         "status": "approved"
       },
       "id": "testing.test_run.traces_to.feature",
+      "kind": "foreign_key",
       "predicate": "traces_to",
       "reversible": true,
       "sourceEntity": "testing.test_run",
@@ -5576,6 +5668,7 @@
         "status": "approved"
       },
       "id": "testing.test_run.traces_to.story",
+      "kind": "foreign_key",
       "predicate": "traces_to",
       "reversible": true,
       "sourceEntity": "testing.test_run",
@@ -5599,6 +5692,7 @@
         "status": "approved"
       },
       "id": "traceability.link.belongs_to.testing.test_run",
+      "kind": "foreign_key",
       "predicate": "belongs_to",
       "reversible": true,
       "sourceEntity": "traceability.link",
@@ -5622,6 +5716,7 @@
         "status": "approved"
       },
       "id": "traceability.testcase_summary.aggregates.testing.test_case",
+      "kind": "foreign_key",
       "predicate": "aggregates",
       "reversible": true,
       "sourceEntity": "traceability.testcase_summary",
@@ -5645,6 +5740,7 @@
         "status": "approved"
       },
       "id": "vehicle.model_series.uses.platform",
+      "kind": "foreign_key",
       "predicate": "uses",
       "reversible": true,
       "sourceEntity": "vehicle.model_series",

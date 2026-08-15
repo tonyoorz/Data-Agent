@@ -50,6 +50,23 @@ function sortById(items) {
   return [...items].sort((left, right) => left.id.localeCompare(right.id));
 }
 
+const relationshipKinds = Object.freeze(["foreign_key", "derived", "time_varying", "event"]);
+
+export function validateRelationshipKinds(relationships) {
+  for (const relationship of relationships) {
+    const kind = relationship.kind ?? "foreign_key";
+    if (!relationshipKinds.includes(kind)) {
+      throw new Error(`ONTOLOGY_RELATIONSHIP_KIND_INVALID:${relationship.id}:${kind}`);
+    }
+    if (kind === "derived" && relationship.sourceFields) {
+      throw new Error(`ONTOLOGY_DERIVED_RELATION_SOURCE_FIELDS_FORBIDDEN:${relationship.id}`);
+    }
+    if (kind === "derived" && relationship.allowedJoinPaths) {
+      throw new Error(`ONTOLOGY_DERIVED_RELATION_JOIN_PATHS_FORBIDDEN:${relationship.id}`);
+    }
+  }
+}
+
 function atomicWrite(filePath, content) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   const temporary = `${filePath}.tmp-${process.pid}`;
@@ -92,6 +109,7 @@ export function compileOntology({
   graphPath = path.join(root, "docs/ontology/graph.md"),
 } = {}) {
   const documents = loadOntologySources({ sourceDir, schemaDir });
+  validateRelationshipKinds(documents.relationships);
   const bundle = canonicalize({
     schemaVersion: "1.0",
     ontologyVersion: "v1",

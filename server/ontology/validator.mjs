@@ -67,7 +67,7 @@ export function validateOntologyBundle(bundle) {
     if (relationship.cardinality === "many_to_many" && !relationship.explosionPolicy) {
       fail("ONTOLOGY_MANY_TO_MANY_POLICY_REQUIRED", relationship.id);
     }
-    for (const path of relationship.allowedJoinPaths) {
+    for (const path of relationship.allowedJoinPaths || []) {
       if (path[0] !== relationship.sourceEntity || path.at(-1) !== relationship.targetEntity) {
         fail("ONTOLOGY_JOIN_PATH_ENDPOINT_MISMATCH", relationship.id);
       }

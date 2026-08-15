@@ -8,6 +8,7 @@ import {
   reconcileSchema,
   fingerprintTableSchema,
   createOntologyVersioning,
+  applySourceAvailability,
 } from "../../../../server/ontology/driftReconciler.mjs";
 
 const NOW = () => new Date("2026-08-15T03:00:00.000Z");
@@ -94,6 +95,89 @@ describe("schema drift reconciler", () => {
     const report = reconcileSchema({ observed: {}, registered, catalog: CATALOG });
     expect(report.drift[0].kind).toBe("table_removed");
     expect(report.status).toBe("action_required");
+  });
+});
+
+describe("source availability downgrades", () => {
+  const registered = {
+    defects: fingerprintTableSchema({
+      table: "defects",
+      columns: [{ name: "id", type: "integer" }],
+    }),
+    racks: fingerprintTableSchema({
+      table: "racks",
+      columns: [{ name: "rack_id", type: "text" }],
+    }),
+    vehicles: fingerprintTableSchema({
+      table: "vehicles",
+      columns: [{ name: "vin", type: "text" }],
+    }),
+  };
+
+  function baseReport() {
+    // observed misses all three governed tables -> 3 table_removed criticals
+    return reconcileSchema({ observed: {}, registered, catalog: CATALOG });
+  }
+
+  it("downgrades table_removed to source_unavailable info when database unreachable", () => {
+    const report = applySourceAvailability({
+      report: baseReport(),
+      unavailableTables: new Map([["defects", "database/source/qgate_raw.db"]]),
+    });
+    const defects = report.drift.find((item) => item.table === "defects");
+    expect(defects.kind).toBe("source_unavailable");
+    expect(defects.severity).toBe("info");
+    expect(defects.detail).toContain("unreachable");
+    // other tables keep their critical classification
+    expect(report.drift.find((item) => item.table === "racks").severity).toBe("critical");
+    expect(report.counts.critical).toBe(2);
+    expect(report.counts.unverified).toBe(1);
+    expect(report.status).toBe("action_required");
+  });
+
+  it("marks presence_verified for tables proven via local fallback database", () => {
+    const report = applySourceAvailability({
+      report: baseReport(),
+      unavailableTables: new Map([["defects", "database/source/qgate_raw.db"]]),
+      presenceVerifiedTables: new Map([["racks", "backend/database/octane_data.db"]]),
+    });
+    const racks = report.drift.find((item) => item.table === "racks");
+    expect(racks.kind).toBe("presence_verified");
+    expect(racks.severity).toBe("info");
+    expect(racks.detail).toContain("octane_data.db");
+    expect(report.counts.critical).toBe(1);
+    expect(report.counts.partial).toBe(1);
+  });
+
+  it("reports partial_verify when no real drift remains", () => {
+    const report = applySourceAvailability({
+      report: baseReport(),
+      unavailableTables: new Map([
+        ["defects", "database/source/qgate_raw.db"],
+        ["vehicles", "database/source/qgate_raw.db"],
+      ]),
+      presenceVerifiedTables: new Map([["racks", "backend/database/octane_data.db"]]),
+    });
+    expect(report.counts.critical).toBe(0);
+    expect(report.status).toBe("partial_verify");
+  });
+
+  it("returns the report unchanged when availability maps are empty", () => {
+    const base = baseReport();
+    expect(applySourceAvailability({ report: base, unavailableTables: new Map() })).toBe(base);
+  });
+
+  it("never downgrades column-level criticals for reachable tables", () => {
+    const observed = {
+      defects: fingerprintTableSchema({ table: "defects", columns: [] }),
+    };
+    const columnReport = reconcileSchema({ observed, registered, catalog: CATALOG });
+    const report = applySourceAvailability({
+      report: columnReport,
+      unavailableTables: new Map([["racks", "db"]]),
+    });
+    const columnDrift = report.drift.find((item) => item.kind === "column_removed");
+    expect(columnDrift.severity).toBe("critical");
   });
 });
 

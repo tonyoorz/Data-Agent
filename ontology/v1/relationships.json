@@ -5,6 +5,7 @@
     {
       "id": "testing.test_run.executes.test_case",
       "predicate": "executes",
+      "kind": "foreign_key",
       "sourceEntity": "testing.test_run",
       "targetEntity": "testing.test_case",
       "direction": "outbound",
@@ -28,6 +29,7 @@
     {
       "id": "testing.test_case.validates.aida_node",
       "predicate": "validates",
+      "kind": "foreign_key",
       "sourceEntity": "testing.test_case",
       "targetEntity": "requirements.aida_node",
       "direction": "outbound",
@@ -52,6 +54,7 @@
     {
       "id": "requirements.aida_node.parent_of.aida_node",
       "predicate": "parent_of",
+      "kind": "foreign_key",
       "sourceEntity": "requirements.aida_node",
       "targetEntity": "requirements.aida_node",
       "direction": "outbound",
@@ -75,6 +78,7 @@
     {
       "id": "testing.test_run.traces_to.feature",
       "predicate": "traces_to",
+      "kind": "foreign_key",
       "sourceEntity": "testing.test_run",
       "targetEntity": "requirements.feature",
       "direction": "outbound",
@@ -99,6 +103,7 @@
     {
       "id": "testing.test_run.traces_to.story",
       "predicate": "traces_to",
+      "kind": "foreign_key",
       "sourceEntity": "testing.test_run",
       "targetEntity": "requirements.story",
       "direction": "outbound",
@@ -123,6 +128,7 @@
     {
       "id": "quality.defect.detected_in.test_run",
       "predicate": "detected_in",
+      "kind": "foreign_key",
       "sourceEntity": "quality.defect",
       "targetEntity": "testing.test_run",
       "direction": "outbound",
@@ -146,6 +152,7 @@
     {
       "id": "quality.defect.affects.ecu",
       "predicate": "affects",
+      "kind": "foreign_key",
       "sourceEntity": "quality.defect",
       "targetEntity": "product.ecu",
       "direction": "outbound",
@@ -169,6 +176,7 @@
     {
       "id": "quality.defect.affects.aida_node",
       "predicate": "affects",
+      "kind": "foreign_key",
       "sourceEntity": "quality.defect",
       "targetEntity": "requirements.aida_node",
       "direction": "outbound",
@@ -193,6 +201,7 @@
     {
       "id": "product.pu.belongs_to.service_pack",
       "predicate": "belongs_to",
+      "kind": "foreign_key",
       "sourceEntity": "product.pu",
       "targetEntity": "product.service_pack",
       "direction": "outbound",
@@ -216,6 +225,7 @@
     {
       "id": "product.i_step.implements.pu",
       "predicate": "implements",
+      "kind": "foreign_key",
       "sourceEntity": "product.i_step",
       "targetEntity": "product.pu",
       "direction": "outbound",
@@ -240,6 +250,7 @@
     {
       "id": "product.platform.runs.os",
       "predicate": "runs",
+      "kind": "foreign_key",
       "sourceEntity": "product.platform",
       "targetEntity": "product.os",
       "direction": "outbound",
@@ -263,6 +274,7 @@
     {
       "id": "vehicle.model_series.uses.platform",
       "predicate": "uses",
+      "kind": "foreign_key",
       "sourceEntity": "vehicle.model_series",
       "targetEntity": "product.platform",
       "direction": "outbound",
@@ -286,6 +298,7 @@
     {
       "id": "organization.tester.belongs_to.team",
       "predicate": "belongs_to",
+      "kind": "foreign_key",
       "sourceEntity": "organization.tester",
       "targetEntity": "organization.team",
       "direction": "outbound",
@@ -309,6 +322,7 @@
     {
       "id": "quality.qgate.evaluates.pu",
       "predicate": "evaluates",
+      "kind": "foreign_key",
       "sourceEntity": "quality.qgate",
       "targetEntity": "product.pu",
       "direction": "outbound",
@@ -333,6 +347,7 @@
     {
       "id": "evidence.artifact.supports.defect",
       "predicate": "supports",
+      "kind": "foreign_key",
       "sourceEntity": "evidence.artifact",
       "targetEntity": "quality.defect",
       "direction": "outbound",
@@ -357,6 +372,7 @@
     {
       "id": "quality.defect.parent_of.quality.defect",
       "predicate": "parent_of",
+      "kind": "foreign_key",
       "sourceEntity": "quality.defect",
       "targetEntity": "quality.defect",
       "direction": "outbound",
@@ -380,6 +396,7 @@
     {
       "id": "quality.defect.has_history.quality.defect_history_event",
       "predicate": "has_history",
+      "kind": "foreign_key",
       "sourceEntity": "quality.defect",
       "targetEntity": "quality.defect_history_event",
       "direction": "outbound",
@@ -403,6 +420,7 @@
     {
       "id": "quality.defect.has_outcome.quality.defect_outcome",
       "predicate": "has_outcome",
+      "kind": "foreign_key",
       "sourceEntity": "quality.defect",
       "targetEntity": "quality.defect_outcome",
       "direction": "outbound",
@@ -426,6 +444,7 @@
     {
       "id": "traceability.testcase_summary.aggregates.testing.test_case",
       "predicate": "aggregates",
+      "kind": "foreign_key",
       "sourceEntity": "traceability.testcase_summary",
       "targetEntity": "testing.test_case",
       "direction": "outbound",
@@ -449,6 +468,7 @@
     {
       "id": "traceability.link.belongs_to.testing.test_run",
       "predicate": "belongs_to",
+      "kind": "foreign_key",
       "sourceEntity": "traceability.link",
       "targetEntity": "testing.test_run",
       "direction": "outbound",
@@ -472,6 +492,7 @@
     {
       "id": "quality.defect.evaluated_by.quality.qgate",
       "predicate": "evaluated_by",
+      "kind": "foreign_key",
       "sourceEntity": "quality.defect",
       "targetEntity": "quality.qgate",
       "direction": "outbound",
@@ -495,6 +516,7 @@
     {
       "id": "quality.defect.has_maturity_grade.quality.maturity_grade",
       "predicate": "has_maturity_grade",
+      "kind": "foreign_key",
       "sourceEntity": "quality.defect",
       "targetEntity": "quality.maturity_grade",
       "direction": "outbound",
@@ -518,6 +540,7 @@
     {
       "id": "organization.function_team_mapping.belongs_to.organization.team",
       "predicate": "belongs_to",
+      "kind": "foreign_key",
       "sourceEntity": "organization.function_team_mapping",
       "targetEntity": "organization.team",
       "direction": "outbound",
@@ -541,6 +564,7 @@
     {
       "id": "quality.maturity_grade.measured_at.product.i_step",
       "predicate": "measured_at",
+      "kind": "foreign_key",
       "sourceEntity": "quality.maturity_grade",
       "targetEntity": "product.i_step",
       "direction": "outbound",
@@ -564,6 +588,7 @@
     {
       "id": "testing.test_event.includes.testing.test_run",
       "predicate": "includes",
+      "kind": "foreign_key",
       "sourceEntity": "testing.test_event",
       "targetEntity": "testing.test_run",
       "direction": "outbound",
@@ -587,6 +612,7 @@
     {
       "id": "testing.test_run.executed_on.vehicle.test_vehicle",
       "predicate": "executed_on",
+      "kind": "foreign_key",
       "sourceEntity": "testing.test_run",
       "targetEntity": "vehicle.test_vehicle",
       "direction": "outbound",
@@ -610,6 +636,7 @@
     {
       "id": "testing.test_run.executed_on.product.test_rack",
       "predicate": "executed_on",
+      "kind": "foreign_key",
       "sourceEntity": "testing.test_run",
       "targetEntity": "product.test_rack",
       "direction": "outbound",
@@ -628,6 +655,75 @@
       "governance": {
         "status": "approved",
         "owner": "DTSV Team"
+      }
+    },
+    {
+      "id": "quality.defect.same_root_cause_cluster.quality.defect",
+      "predicate": "same_root_cause_cluster",
+      "kind": "derived",
+      "sourceEntity": "quality.defect",
+      "targetEntity": "quality.defect",
+      "direction": "outbound",
+      "cardinality": "many_to_many",
+      "reversible": true,
+      "derivedBy": "duplicate_search",
+      "explosionPolicy": "distinct_source",
+      "note": "Derived by defect similarity search (duplicate_search): cluster members share the same root cause. Computed offline, never materialized as columns - not expressible as a SQL join, so no sourceFields/allowedJoinPaths.",
+      "governance": {
+        "status": "draft",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "quality.qgate.gate_passed.product.project",
+      "predicate": "gate_passed",
+      "kind": "event",
+      "sourceEntity": "quality.qgate",
+      "targetEntity": "product.project",
+      "direction": "outbound",
+      "cardinality": "many_to_one",
+      "reversible": true,
+      "happensAtField": "passed_at",
+      "pendingColumns": [
+        "passed_at",
+        "project_id"
+      ],
+      "note": "A passed Q-Gate is an event binding a gate occurrence to the project it gated. quality.qgate currently exposes no time attribute and no project column, so happensAtField points at the intended passed_at column; draft until the qgate read model lands both columns.",
+      "governance": {
+        "status": "draft",
+        "owner": "Quality Governance",
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md"
+      }
+    },
+    {
+      "id": "organization.tester.member_of_history.organization.team",
+      "predicate": "member_of_history",
+      "kind": "time_varying",
+      "sourceEntity": "organization.tester",
+      "targetEntity": "organization.team",
+      "direction": "outbound",
+      "cardinality": "many_to_one",
+      "reversible": true,
+      "sourceFields": {
+        "source": "team_id",
+        "target": "team_id"
+      },
+      "allowedJoinPaths": [
+        [
+          "organization.tester",
+          "organization.team"
+        ]
+      ],
+      "validFrom": "valid_from",
+      "validTo": "valid_to",
+      "pendingColumns": [
+        "valid_from",
+        "valid_to"
+      ],
+      "note": "Team membership over time. The team_id join only reflects the current team snapshot; octane_manual_runs has no valid_from/valid_to columns yet, so membership intervals are not queryable - draft until history columns land.",
+      "governance": {
+        "status": "draft",
+        "owner": "Organization Analytics"
       }
     }
   ]

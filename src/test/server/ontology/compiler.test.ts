@@ -22,7 +22,7 @@ describe("Ontology compiler", () => {
     expect(second.fingerprint).toBe(first.fingerprint);
     expect(first.counts).toMatchObject({
       entityCount: 28,
-      relationshipCount: 27,
+      relationshipCount: 30,
       dimensionCount: 51,
       metricCount: 31,
       businessRuleCount: 3,

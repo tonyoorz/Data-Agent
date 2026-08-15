@@ -35,6 +35,7 @@ flowchart LR
     evidence_artifact -->|"supports"| quality_defect
     organization_function_team_mapping -->|"belongs_to"| organization_team
     organization_tester -->|"belongs_to"| organization_team
+    organization_tester -.->|"member_of_history"| organization_team
     product_i_step -->|"implements"| product_pu
     product_platform -->|"runs"| product_os
     product_pu -->|"belongs_to"| product_service_pack
@@ -46,8 +47,10 @@ flowchart LR
     quality_defect -->|"has_maturity_grade"| quality_maturity_grade
     quality_defect -->|"has_outcome"| quality_defect_outcome
     quality_defect -->|"parent_of"| quality_defect
+    quality_defect -.->|"same_root_cause_cluster"| quality_defect
     quality_maturity_grade -->|"measured_at"| product_i_step
     quality_qgate -.->|"evaluates"| product_pu
+    quality_qgate -.->|"gate_passed"| product_project
     requirements_aida_node -->|"parent_of"| requirements_aida_node
     testing_test_case -->|"validates"| requirements_aida_node
     testing_test_event -->|"includes"| testing_test_run

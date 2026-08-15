@@ -12,11 +12,23 @@
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["id", "predicate", "sourceEntity", "targetEntity", "direction", "cardinality", "reversible", "sourceFields", "allowedJoinPaths", "governance"],
+        "required": ["id", "predicate", "sourceEntity", "targetEntity", "direction", "cardinality", "reversible", "governance"],
         "additionalProperties": false,
         "properties": {
           "id": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]+$" },
           "predicate": { "type": "string", "pattern": "^[a-z][a-z0-9_]+$" },
+          "kind": { "enum": ["foreign_key", "derived", "time_varying", "event"] },
+          "derivedBy": { "type": "string", "minLength": 1 },
+          "happensAtField": { "type": "string", "minLength": 1 },
+          "validFrom": { "type": "string", "minLength": 1 },
+          "validTo": { "type": "string", "minLength": 1 },
+          "pendingColumns": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "type": "string", "minLength": 1 }
+          },
+          "note": { "type": "string", "minLength": 1 },
           "sourceEntity": { "type": "string", "minLength": 1 },
           "targetEntity": { "type": "string", "minLength": 1 },
           "direction": { "enum": ["outbound"] },
@@ -44,6 +56,34 @@
           "governance": { "$ref": "common.schema.json#/$defs/governance" }
         },
         "allOf": [
+          {
+            "if": { "properties": { "kind": { "const": "foreign_key" } } },
+            "then": {
+              "properties": { "sourceFields": true, "allowedJoinPaths": true },
+              "required": ["sourceFields", "allowedJoinPaths"]
+            }
+          },
+          {
+            "if": { "properties": { "kind": { "const": "derived" } }, "required": ["kind"] },
+            "then": {
+              "properties": { "derivedBy": true, "sourceFields": true, "allowedJoinPaths": true },
+              "required": ["derivedBy"],
+              "not": {
+                "anyOf": [
+                  { "properties": { "sourceFields": true }, "required": ["sourceFields"] },
+                  { "properties": { "allowedJoinPaths": true }, "required": ["allowedJoinPaths"] }
+                ]
+              }
+            }
+          },
+          {
+            "if": { "properties": { "kind": { "const": "event" } }, "required": ["kind"] },
+            "then": { "properties": { "happensAtField": true }, "required": ["happensAtField"] }
+          },
+          {
+            "if": { "properties": { "kind": { "const": "time_varying" } }, "required": ["kind"] },
+            "then": { "properties": { "validFrom": true, "validTo": true }, "required": ["validFrom", "validTo"] }
+          },
           {
             "if": { "properties": { "cardinality": { "const": "many_to_many" } }, "required": ["cardinality"] },
             "then": {
