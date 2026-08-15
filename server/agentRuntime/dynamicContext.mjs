@@ -37,7 +37,37 @@ const TOOL_RULES = {
   get_ontology_catalog: ["What the ontology can answer: entities/relations/metrics/actions and capability states."],
   search_octane_fields: ["Local schema retrieval for field-level questions; top-k only, never full catalog."],
   ask_clarification: ["One focused question when filters/scope/timeframe/business meaning are ambiguous."],
+  // Governed primitive rules (ported from the monolithic planning prompt so the
+  // runtime can assemble per-intent context without losing governed policy).
+  catalog: [
+    "Use for governed data/ontology discovery or top-k Octane field retrieval. Catalog context is never execution permission.",
+  ],
+  resolve: [
+    "Use for business-term normalization and exact filter-value linking before analysis; never guess a person, team, ECU, or module identifier.",
+  ],
+  analyze: [
+    "Use for aggregate, compare, trend, rank, coverage, testing-team, high-frequency, or allowlisted dashboard questions. Prefer operation semantic_metrics when the governed Ontology plan supports the question. Use defect_aggregate only for supported gaps.",
+    "Top Issue growth: time.current + time.comparison windows, derived_metrics [delta, growth_pct], order_by delta desc.",
+    "For named defect reporters: first resolve operation filter_values for detected_by, then analyze operation defect_aggregate with that exact value; never substitute a team aggregate.",
+    "Testing coverage: operation coverage_project or coverage_aida. Organization internal groups: testing_team_fv (FV is the group dimension, not tester).",
+    "Recent high-frequency: operation defect_high_frequency with recent_days 7; module wording prefers business_module unless assigned_ecu/solution_cluster explicitly requested.",
+  ],
+  records: [
+    "Use for lists and drilldowns. Prefer operation semantic with the prior analysis_ref; only narrow selections; never reconstruct or widen actor/filter/time/snapshot scope.",
+  ],
+  trace: [
+    "Use for governed requirement, testcase, test-run, and defect lineage.",
+  ],
+  duplicate_search: [
+    "Use only for similarity reasoning, never population statistics or causality.",
+  ],
+  prepare_testcase: [
+    "Use for proposal context from a defect/testcase anchor. It can never commit or mutate Octane. For an Octane ticket URL extract id as defect_id anchor.",
+  ],
 };
+
+const TERMINAL_RECOVERY_RULE = "On empty or suspicious results, do not conclude no data immediately; runtime performs one bounded diagnosis/correction before publication.";
+const GOVERNED_CONTRACT_RULE = "Never redefine a governed metric after execution. Treat ontologyVersion, schemaFingerprint, sourceRevision, analysisRef, scope, quality, and EvidenceEnvelope as the factual contract. Never submit SQL, code, endpoint names, actor scope, or authorization fields.";
 
 function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -52,6 +82,7 @@ export function buildDynamicPlanningContext({ intent, toolNames, policyHints = [
     for (const rule of TOOL_RULES[name] ?? []) rules.push(`- ${name}: ${rule}`);
   }
   if (rules.length) sections.push(`# Selected toolset rules (${intent || "general"})\n${rules.join("\n")}`);
+  if (rules.length) sections.push(`# Terminal + governed contract\n- ${TERMINAL_RECOVERY_RULE}\n- ${GOVERNED_CONTRACT_RULE}`);
 
   if (policyHints.length) {
     sections.push(`# Policy hints\n${policyHints.map((hint) => `- ${hint}`).join("\n")}`);

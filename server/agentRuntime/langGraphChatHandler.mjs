@@ -1,6 +1,7 @@
 import { streamCompanyChatCompletion, writeSseEvent, writeSseResponse } from "../companyChat.mjs";
 import { isClaimBearingEvidence } from "../mainAgentEvidence.mjs";
 import { createOntologyRegistry } from "../ontology/registry.mjs";
+import { safeAppendSessionEvent } from "./sessionEventLogging.mjs";
 
 function createAnswerValidation(runtimeResult) {
   const evidence = runtimeResult?.mainAgentToolContext?.evidence;
@@ -25,6 +26,7 @@ export async function streamLangGraphChatResponse({
   writeEvent = writeSseEvent,
   imageOcrRunner,
   documentTextRunner,
+  sessionEventLog = null,
   onCompleted,
 } = {}) {
   let streamMetrics = null;
@@ -40,6 +42,15 @@ export async function streamLangGraphChatResponse({
 
   if (typeof runtimeResult?.directResponse?.content === "string" && runtimeResult.directResponse.content.trim()) {
     writeSseResponse(response, runtimeResult.directResponse.content);
+    await safeAppendSessionEvent(sessionEventLog, {
+      type: "agent/response",
+      sessionId: runtimeResult?.threadId || "",
+      payload: {
+        runId: runtimeResult?.runId || "",
+        directResponse: true,
+        intent: runtimeResult?.directResponse?.intent || "",
+      },
+    });
     const result = { runtimeResult, streamMetrics: { directResponse: true }, answerValidation: null };
     try {
       await onCompleted?.(result);
@@ -63,6 +74,17 @@ export async function streamLangGraphChatResponse({
     },
     onMetrics: (metrics) => {
       streamMetrics = metrics;
+    },
+  });
+
+  await safeAppendSessionEvent(sessionEventLog, {
+    type: "agent/response",
+    sessionId: runtimeResult?.threadId || "",
+    payload: {
+      runId: runtimeResult?.runId || "",
+      tokenUsage: streamMetrics?.tokenUsage || null,
+      streamTotalMs: Number.isFinite(Number(streamMetrics?.streamTotalMs)) ? Number(streamMetrics.streamTotalMs) : null,
+      answerValidation: answerValidationResult ? { valid: answerValidationResult.valid } : null,
     },
   });
 

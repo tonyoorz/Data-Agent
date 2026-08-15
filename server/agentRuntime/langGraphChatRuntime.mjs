@@ -1,4 +1,5 @@
 import { Annotation, END, MemorySaver, START, StateGraph } from "@langchain/langgraph";
+import path from "node:path";
 
 import { isOidcScopedActor } from "../agentAuth.mjs";
 import { resolveAiAnalyticsContext } from "../aiAnalyticsContext.mjs";
@@ -13,6 +14,11 @@ import {
   formatSemanticEvidenceGate,
 } from "../mainAgentEvidence.mjs";
 import { buildRuntimeRunSummary } from "./runSummary.mjs";
+import { createTokenBudgetGuard } from "./tokenBudgetGuard.mjs";
+import { createSubagentFanout } from "./subagentFanout.mjs";
+import { buildDataHealth } from "./dataQualityNote.mjs";
+import { buildDynamicPlanningContext, withDataQualityFootnote } from "./dynamicContext.mjs";
+import { safeAppendSessionEvent } from "./sessionEventLogging.mjs";
 import {
   buildDefectReporterAggregateToolCall,
   buildDefectReporterAliasLookupToolCall,
@@ -503,6 +509,65 @@ async function persistRuntimeFailure(runtimeStore, { runId, threadId, actorScope
   }
 }
 
+// Write-intent primitives that must clear human approval before execution.
+// Current registered primitives are read-only by design; commit/mutate-style
+// names activate the gate the moment such a tool is registered.
+const WRITE_INTENT_TOOL_NAMES = new Set([
+  "commit_testcase",
+  "commit_octane_workitem",
+  "write_octane_workitem",
+  "update_octane_workitem",
+  "delete_octane_workitem",
+]);
+
+function isWriteIntentToolCall(toolCall) {
+  return WRITE_INTENT_TOOL_NAMES.has(String(toolCall?.function?.name || "").trim());
+}
+
+function planningRuntimeDate(value) {
+  try {
+    return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" })
+      .format(value);
+  } catch {
+    return new Date(value).toISOString().slice(0, 10);
+  }
+}
+
+function estimateTokensForText(text) {
+  // CJK-heavy chat traffic: ~1 token per 1.6 chars is a conservative lower bound.
+  return Math.ceil(String(text || "").length / 1.6);
+}
+
+async function datasetHealthFromRegistry(registry, options = {}) {
+  if (!registry?.bundle?.sources) return null;
+  const { stat } = await import("node:fs/promises");
+  const byDatabase = new Map();
+  for (const source of registry.bundle.sources) {
+    if (!source || source.system === "artifact" || !source.database) continue;
+    const key = String(source.database);
+    const sloMinutes = Math.max(1, Number(source.freshnessSloMinutes || 1440));
+    const current = byDatabase.get(key);
+    if (!current || sloMinutes < current.sloMinutes) {
+      byDatabase.set(key, { database: key, sloMinutes });
+    }
+  }
+  const datasets = [];
+  for (const { database, sloMinutes } of byDatabase.values()) {
+    try {
+      const info = await stat(path.resolve(process.cwd(), database));
+      datasets.push({
+        name: path.basename(database),
+        lastRefreshedAt: info.mtime.toISOString(),
+        expectedFrequencyHours: Math.max(1, Math.round(sloMinutes / 60)),
+      });
+    } catch {
+      // Source DB missing locally: freshness unknown, not a quality violation.
+    }
+  }
+  if (!datasets.length) return null;
+  return buildDataHealth({ datasets, now: options.now });
+}
+
 export function resolveAgentRuntimeMode(env = process.env) {
   const raw = String(env?.VIZION_AGENT_RUNTIME || "").trim().toLowerCase();
   if (!raw) return "langgraph";
@@ -597,9 +662,32 @@ export function createLangGraphChatRuntime({
   maxToolSteps = 4,
   checkpointer = new MemorySaver(),
   runtimeStore = null,
+  sessionEventLog = null,
+  createBudgetGuard = createTokenBudgetGuard,
+  approvalFlow = null,
+  semanticCache = null,
+  feedbackLoop = null,
+  subagentFanout = createSubagentFanout(),
+  dynamicPlanningEnabled = true,
+  dataQualityFootnotesEnabled = true,
   now = () => new Date(),
 } = {}) {
   ensureAbortSignalCompatibility();
+
+  function budgetGuardFor(config) {
+    return config?.configurable?.tokenBudgetGuard || null;
+  }
+
+  function planCacheKey(plan, actorScope) {
+    return `${String(plan?.planId || "")}:${String(actorScope?.scopeHash || "")}`;
+  }
+
+  function isApprovedToolCall(approved, toolCall) {
+    if (!approved || !toolCall) return false;
+    if (String(approved.id || "") && String(approved.id || "") === String(toolCall.id || "")) return true;
+    return String(approved.name || "") === String(toolCall?.function?.name || "")
+      && canonicalJson(approved.arguments || {}) === canonicalJson(parseToolCallArguments(toolCall));
+  }
 
   async function initialize(state, config) {
     const body = state.body && typeof state.body === "object" ? state.body : {};
@@ -614,6 +702,14 @@ export function createLangGraphChatRuntime({
       threadId,
       queryPreview: queryText.slice(0, 120),
     });
+    if (sessionEventLog) {
+      const priorEvents = await sessionEventLog.read(threadId).catch(() => []);
+      if (!priorEvents.length) {
+        await safeAppendSessionEvent(sessionEventLog, { type: "session/start", sessionId: threadId, payload: { runId, actorId: actorScope.actorId || "" } });
+      }
+      await safeAppendSessionEvent(sessionEventLog, { type: "turn/start", sessionId: threadId, payload: { runId, queryText } });
+      await safeAppendSessionEvent(sessionEventLog, { type: "user/message", sessionId: threadId, payload: { content: queryText, runId } });
+    }
     return {
       body,
       runId,
@@ -801,6 +897,28 @@ export function createLangGraphChatRuntime({
         runtimeEvents: events,
       };
     }
+    // Semantic cache read: reuse a verified governed result for the same plan+scope.
+    if (semanticCache && Number(state.toolStepIndex || 0) === 0) {
+      const planForCache = state.analyticsContext?.queryPlan?.status === "valid"
+        ? state.analyticsContext.queryPlan
+        : state.analyticsContext?.semanticPlan?.status === "valid"
+          ? state.analyticsContext.semanticPlan
+          : null;
+      if (planForCache) {
+        const cached = await semanticCache.get(planCacheKey(planForCache, state.actorScope)).catch(() => null);
+        if (cached?.contextText) {
+          events.push(emit(config, { type: "semantic-cache-hit", threadId: state.threadId, via: cached._cache?.via || "exact" }));
+          return {
+            plannedToolCalls: [],
+            plannedToolCallSource: "semantic_cache",
+            stoppedReason: "semantic_cache_hit",
+            toolExecutionMode: "deterministic",
+            toolResultTexts: [cached.contextText],
+            runtimeEvents: events,
+          };
+        }
+      }
+    }
     const governedPlanToolCalls = buildReadySemanticPlanToolCalls({
       analyticsContext: state.analyticsContext,
       actorScope: state.actorScope,
@@ -836,21 +954,75 @@ export function createLangGraphChatRuntime({
         runtimeEvents: events,
       };
     }
+    const guard = budgetGuardFor(config);
+    if (guard && !guard.canAdmitFullStep()) {
+      guard.markDegraded("planning_budget_exhausted");
+      events.push(emit(config, { type: "budget-exceeded", threadId: state.threadId, at: "planning" }));
+      return {
+        plannedToolCalls: [],
+        plannedToolCallSource: "",
+        stoppedReason: "budget_exceeded",
+        toolExecutionMode: "model",
+        runtimeEvents: events,
+      };
+    }
+    const feedbackHints = [];
+    if (feedbackLoop && state.queryText) {
+      try {
+        const negatives = await feedbackLoop.findSimilarNegatives(state.queryText, { threshold: 0.4, limit: 2 });
+        for (const item of negatives) {
+          feedbackHints.push(`demote:${item.record.intent}:${item.record.toolNames.join("+")}`);
+        }
+      } catch {
+        // Feedback history is advisory; failures never block planning.
+      }
+    }
+    const planningContext = mergeContext(
+      state.baseContext,
+      dynamicPlanningEnabled
+        ? buildDynamicPlanningContext({
+            intent: selectedToolset.intent,
+            toolNames: (selectedToolset.tools || []).map((tool) => tool.function?.name).filter(Boolean),
+            policyHints: [...(selectedToolset.policyHints || []), ...feedbackHints],
+            runtimeDate: planningRuntimeDate(now()),
+          })
+        : buildToolPlanningContext(now()),
+      buildSelectedToolsetContext(selectedToolset),
+      buildSemanticContinuationContext(state.toolEvidence || [], state.actorScope),
+    );
     const planningResult = await requestToolCompletion({
       messages: [
         ...(Array.isArray(body?.messages) ? body.messages : []),
         ...(state.toolConversationMessages || []).slice(Number(state.turnToolConversationStart || 0)),
       ],
       model: body?.model,
-      context: mergeContext(
-        state.baseContext,
-        buildToolPlanningContext(now()),
-        buildSelectedToolsetContext(selectedToolset),
-        buildSemanticContinuationContext(state.toolEvidence || [], state.actorScope),
-      ),
+      context: planningContext,
       tools: selectedToolset.tools,
       toolChoice: "auto",
     });
+    if (guard) {
+      guard.recordStep();
+      const usage = planningResult?.usage || planningResult?.tokenUsage;
+      if (usage) {
+        guard.recordRequest(usage);
+      } else {
+        guard.recordRequest({ input: estimateTokensForText(planningContext), output: 0 });
+      }
+    }
+    if (sessionEventLog) {
+      await safeAppendSessionEvent(sessionEventLog, {
+        type: "agent/request",
+        sessionId: state.threadId,
+        payload: {
+          runId: state.runId,
+          tokens: guard
+            ? { input: guard.snapshot().session.input, output: guard.snapshot().session.output, total: guard.snapshot().session.total }
+            : null,
+          contextChars: planningContext.length,
+          dynamicPlanning: dynamicPlanningEnabled,
+        },
+      });
+    }
     const modelToolCalls = Array.isArray(planningResult.toolCalls) ? planningResult.toolCalls.slice(0, 3) : [];
     const { uniqueToolCalls: plannedToolCalls, removedDuplicate } = removeRepeatedToolCalls(modelToolCalls, state.toolCalls);
     if (!plannedToolCalls.length) {
@@ -871,7 +1043,7 @@ export function createLangGraphChatRuntime({
     };
   }
 
-  async function executeToolCalls(state) {
+  async function executeToolCalls(state, config) {
     const selectedToolset = state.toolRouting?.selectedToolset;
     const toolDependencies = buildToolDependencies(state);
     const plannedToolCalls = Array.isArray(state.plannedToolCalls) ? state.plannedToolCalls : [];
@@ -883,10 +1055,33 @@ export function createLangGraphChatRuntime({
     const toolResultTexts = [];
     const allToolCalls = [...(state.toolCalls || [])];
     let stoppedReason = "";
+    const guard = budgetGuardFor(config);
+
+    if (guard) {
+      if (!guard.canToolStep()) {
+        guard.markDegraded("tool_budget_exhausted");
+        return {
+          plannedToolCalls: [],
+          toolStepIndex: Number(state.toolStepIndex || 0),
+          stoppedReason: "budget_exceeded",
+          runtimeEvents: [emit(config, { type: "budget-exceeded", threadId: state.threadId, at: "tool_execution" })],
+        };
+      }
+      guard.recordToolStep();
+    }
 
     async function executeOne(toolCall, { catalogRecovery = null, deferCatalogStop = false } = {}) {
       toolCalls.push(toolCall);
       toolConversationMessages.push({ role: "assistant", content: "", tool_calls: [toolCall] });
+      await safeAppendSessionEvent(sessionEventLog, {
+        type: "tool/call",
+        sessionId: state.threadId,
+        payload: {
+          id: String(toolCall?.id || `t${toolCalls.length}`),
+          name: String(toolCall?.function?.name || ""),
+          arguments: String(toolCall?.function?.arguments || "{}").slice(0, 4000),
+        },
+      });
       const executed = await executeMainAgentPlannedToolCall({
         toolCall,
         selectedToolset,
@@ -902,6 +1097,15 @@ export function createLangGraphChatRuntime({
       if (executed.result.contextText) {
         toolResultTexts.push(executed.result.contextText);
       }
+      await safeAppendSessionEvent(sessionEventLog, {
+        type: "tool/result",
+        sessionId: state.threadId,
+        payload: {
+          id: String(toolCall?.id || `t${toolCalls.length}`),
+          ok: !executed.stoppedReason,
+          resultText: String(executed.result?.contextText || executed.result?.toolMessage?.content || "").slice(0, 4000),
+        },
+      });
       const deferredCatalogStop = deferCatalogStop && executed.recovery?.action === "catalog";
       if (executed.stoppedReason && !deferredCatalogStop) {
         stoppedReason = executed.stoppedReason;
@@ -923,6 +1127,112 @@ export function createLangGraphChatRuntime({
         recovery: executed.recovery,
         stoppedReason: executed.stoppedReason,
         deferredCatalogStop,
+      };
+    }
+
+    // Approval gate: suspend before executing any write-intent tool call.
+    if (approvalFlow) {
+      const writeToolCall = plannedToolCalls.find(isWriteIntentToolCall);
+      if (writeToolCall) {
+        const alreadyApproved = isApprovedToolCall(state.body?._approvedToolCall, writeToolCall);
+        if (!alreadyApproved) {
+          const request = await approvalFlow.request({
+            sessionId: state.threadId,
+            kind: "dry_run",
+            summary: `execute ${writeToolCall?.function?.name}`,
+            toolCall: {
+              id: String(writeToolCall?.id || ""),
+              name: String(writeToolCall?.function?.name || ""),
+              arguments: parseToolCallArguments(writeToolCall),
+            },
+            handoffState: { runId: state.runId, threadId: state.threadId, toolCall: writeToolCall },
+          }).catch(() => null);
+          if (request) {
+            stoppedReason = "approval_pending";
+            const event = emit(config, {
+              type: "approval-required",
+              threadId: state.threadId,
+              approvalId: request.approvalId,
+              toolName: String(writeToolCall?.function?.name || ""),
+            });
+            return {
+              plannedToolCalls: [],
+              toolStepIndex: Number(state.toolStepIndex || 0),
+              stoppedReason,
+              runtimeEvents: [event],
+              directResponse: {
+                intent: "approval_pending",
+                content: `该操作（${writeToolCall?.function?.name}）需要人工确认。审批单号：${request.approvalId}。请在确认后携带 approvalDecision 重新发起请求。`,
+              },
+            };
+          }
+        }
+      }
+    }
+
+    // Parallel fan-out for independent governed steps (no dependsOn edges).
+    const governedPlan = toolDependencies.governedQueryPlan || null;
+    if (subagentFanout
+      && Array.isArray(plannedToolCalls)
+      && plannedToolCalls.length > 1
+      && Array.isArray(governedPlan?.steps)
+      && governedPlan.steps.length === plannedToolCalls.length
+      && governedPlan.steps.every((step) => Array.isArray(step?.dependsOn) && step.dependsOn.length === 0)) {
+      const fanout = subagentFanout || createSubagentFanout({ budgetGuard: guard });
+      const perBranch = plannedToolCalls.map((toolCall) => ({ toolCall, executed: null }));
+      const fanoutResult = await fanout.run(plannedToolCalls.map((toolCall, index) => ({
+        name: `${String(toolCall?.function?.name || "tool")}#${index}`,
+        run: async () => {
+          perBranch[index].executed = await executeMainAgentPlannedToolCall({
+            toolCall,
+            selectedToolset,
+            executeToolCall,
+            toolDependencies,
+          });
+          return { stoppedReason: executedOf(index).stoppedReason };
+        },
+      })));
+      function executedOf(index) {
+        return perBranch[index].executed || { result: {}, toolEvents: [], stoppedReason: "branch_failed" };
+      }
+      let branchIndex = 0;
+      for (const { toolCall } of perBranch) {
+        const executed = executedOf(branchIndex);
+        toolCalls.push(toolCall);
+        toolConversationMessages.push({ role: "assistant", content: "", tool_calls: [toolCall] });
+        await safeAppendSessionEvent(sessionEventLog, {
+          type: "tool/call",
+          sessionId: state.threadId,
+          payload: { id: String(toolCall?.id || `t${branchIndex + 1}`), name: String(toolCall?.function?.name || ""), arguments: String(toolCall?.function?.arguments || "{}").slice(0, 4000) },
+        });
+        if (executed.result?.toolMessage) {
+          toolMessages.push(executed.result.toolMessage);
+          toolConversationMessages.push(executed.result.toolMessage);
+        }
+        toolEvents.push(...(executed.toolEvents || []));
+        if (executed.evidence) toolEvidence.push(executed.evidence);
+        if (executed.result?.contextText) toolResultTexts.push(executed.result.contextText);
+        await safeAppendSessionEvent(sessionEventLog, {
+          type: "tool/result",
+          sessionId: state.threadId,
+          payload: { id: String(toolCall?.id || `t${branchIndex + 1}`), ok: !executed.stoppedReason, resultText: String(executed.result?.contextText || "").slice(0, 4000) },
+        });
+        allToolCalls.push(toolCall);
+        if (executed.stoppedReason && !stoppedReason) stoppedReason = executed.stoppedReason;
+        branchIndex += 1;
+      }
+      const nextStepIndexFanout = Number(state.toolStepIndex || 0) + 1;
+      return {
+        plannedToolCalls: [],
+        toolStepIndex: nextStepIndexFanout,
+        stoppedReason: stoppedReason || "deterministic_plan_complete",
+        toolCalls,
+        toolMessages,
+        toolConversationMessages,
+        toolEvents,
+        toolEvidence,
+        toolResultTexts,
+        runtimeEvents: [emit(config, { type: "tool-fanout-completed", threadId: state.threadId, ok: fanoutResult.ok.length, failed: fanoutResult.failed.length })],
       };
     }
 
@@ -1003,11 +1313,22 @@ export function createLangGraphChatRuntime({
     const body = state.body || {};
     const mainAgentToolContext = state.toolRouting?.shouldUseTools ? buildMainAgentToolContextFromState(state) : null;
     const citationContractContext = buildCitationContractContext({ evidence: mainAgentToolContext?.evidence, registry: ontologyRegistry });
+    const guard = budgetGuardFor(config);
+    const budgetNote = guard ? guard.budgetNote() : null;
+    const dataHealth = dataQualityFootnotesEnabled ? await datasetHealthFromRegistry(ontologyRegistry, { now }) : null;
+    const dataQualitySection = dataHealth?.notes?.length
+      ? `# Data quality\n${dataHealth.notes.map((note) => `- ${note}`).join("\n")}`
+      : null;
+    const budgetSection = budgetNote
+      ? `# Budget note\n本次会话 token 预算已用尽（${budgetNote.spent}/${budgetNote.budget}），Agent 提前结束工具步骤并降级作答。请在新的会话中继续追问。`
+      : null;
     const context = mergeContext(
       state.baseContext,
       mainAgentToolContext?.contextText,
       formatSemanticEvidenceGate(mainAgentToolContext?.evidenceGate),
       citationContractContext,
+      dataQualitySection,
+      budgetSection,
     );
     const finalMessages = [
       ...(Array.isArray(body?.messages) ? body.messages : []),
@@ -1039,14 +1360,23 @@ export function createLangGraphChatRuntime({
         ? { ...compactToolRouting(state.toolRouting), intent: state.directResponse.intent }
         : compactToolRouting(state.toolRouting),
       aiContextTimings: state.defectContext?.timings || null,
+      ...(guard ? { tokenBudget: guard.snapshot() } : {}),
+      ...(budgetNote ? { budgetNote } : {}),
+      ...(dataHealth ? { dataHealth: { severity: dataHealth.severity, notes: dataHealth.notes } } : {}),
     };
+    const directResponse = state.directResponse && dataQualitySection && state.directResponse.intent !== "approval_pending"
+      ? { ...state.directResponse, content: withDataQualityFootnote(state.directResponse.content || "", dataHealth) }
+      : state.directResponse || null;
+    if (sessionEventLog) {
+      await safeAppendSessionEvent(sessionEventLog, { type: "turn/end", sessionId: state.threadId, payload: { runId: state.runId, stoppedReason: state.stoppedReason || "no_tool_calls" } });
+    }
     const event = emit(config, { type: "agent-runtime-ready", runId: state.runId, threadId: state.threadId });
     return {
       context,
       finalMessages,
       prefaceEvents,
       mainAgentToolContext,
-      directResponse: state.directResponse || null,
+      directResponse,
       metrics,
       runtimeEvents: [event],
     };
@@ -1089,19 +1419,38 @@ export function createLangGraphChatRuntime({
     async invoke({ body = {}, toolDependencies = {} } = {}, { onEvent } = {}) {
       const runId = normalizeRunId(body, now);
       const threadId = normalizeThreadId(body, now);
+      let effectiveBody = body;
+      // Approval resume: a caller-approved decision unlocks the suspended write-intent call.
+      if (approvalFlow && body?.approvalDecision && typeof body.approvalDecision === "object") {
+        const decision = String(body.approvalDecision.decision || "");
+        const approvalId = String(body.approvalDecision.approvalId || "");
+        if (approvalId && ["approved", "rejected", "expired"].includes(decision)) {
+          const outcome = await approvalFlow.decide({ approvalId, decision, decidedBy: body.approvalDecision.decidedBy || "user" }).catch(() => null);
+          if (outcome?.status === "ok" && decision === "approved" && outcome.handoffState?.toolCall) {
+            effectiveBody = { ...body, _approvedToolCall: outcome.handoffState.toolCall };
+          }
+        }
+      }
+      const budgetGuard = typeof createBudgetGuard === "function" ? createBudgetGuard() : null;
       let state;
       try {
         state = await graph.invoke(
-          { body, runId, threadId, toolDependencies },
+          { body: effectiveBody, runId, threadId, toolDependencies },
           {
             signal: createRunnableSignal(),
             configurable: {
               thread_id: threadId,
               onEvent,
+              ...(budgetGuard ? { tokenBudgetGuard: budgetGuard } : {}),
             },
           },
         );
       } catch (error) {
+        await safeAppendSessionEvent(sessionEventLog, {
+          type: "error/runtime",
+          sessionId: threadId,
+          payload: { runId, message: String(error?.message || error).slice(0, 500) },
+        });
         await persistRuntimeFailure(runtimeStore, {
           runId,
           threadId,
@@ -1110,6 +1459,23 @@ export function createLangGraphChatRuntime({
           error,
         });
         throw error;
+      }
+      // Semantic cache: store verified governed results for reuse.
+      if (semanticCache) {
+        const governedPlan = state?.analyticsContext?.queryPlan?.status === "valid"
+          ? state.analyticsContext.queryPlan
+          : state?.analyticsContext?.semanticPlan?.status === "valid"
+            ? state.analyticsContext.semanticPlan
+            : null;
+        const contextText = state?.mainAgentToolContext?.contextText || "";
+        if (governedPlan && contextText && state?.stoppedReason !== "budget_exceeded") {
+          await semanticCache.set({
+            planFingerprint: planCacheKey(governedPlan, state.actorScope),
+            queryText: state.queryText || "",
+            intent: state?.metrics?.toolRouting?.intent || "",
+            result: { contextText: contextText.slice(0, 8000), stoppedReason: state.stoppedReason || "" },
+          }).catch(() => null);
+        }
       }
       await persistRuntimeState(runtimeStore, state);
       return {

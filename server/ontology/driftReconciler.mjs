@@ -104,6 +104,51 @@ export function reconcileSchema({ observed, registered, catalog = {} }) {
   };
 }
 
+/**
+ * Downgrade table_removed criticals when the whole source database could not
+ * be opened (availability problem, not schema drift). Tables whose presence
+ * is still proven via a local fallback database are marked presence_verified:
+ * schema exists, column-level verification deferred to the declared source.
+ */
+export function applySourceAvailability({ report, unavailableTables, presenceVerifiedTables }) {
+  if (!isRecord(report) || !Array.isArray(report.drift)) {
+    throw new Error("DRIFT_INVALID: report.drift array required");
+  }
+  const unavailable = unavailableTables && unavailableTables.size ? unavailableTables : null;
+  const presenceVerified = presenceVerifiedTables && presenceVerifiedTables.size ? presenceVerifiedTables : null;
+  if (!unavailable && !presenceVerified) return report;
+  const drift = report.drift.map((item) => {
+    if (item?.kind !== "table_removed") return item;
+    if (unavailable?.has(item.table)) {
+      return {
+        ...item,
+        kind: "source_unavailable",
+        severity: "info",
+        detail: `source database ${unavailable.get(item.table)} unreachable; ${item.table} not verifiable (pipeline/environment issue, not schema drift)`,
+      };
+    }
+    if (presenceVerified?.has(item.table)) {
+      return {
+        ...item,
+        kind: "presence_verified",
+        severity: "info",
+        detail: `${item.table} present in ${presenceVerified.get(item.table)}; column-level verification requires the declared source database`,
+      };
+    }
+    return item;
+  });
+  const critical = drift.filter((item) => item.severity === "critical").length;
+  const major = drift.filter((item) => item.severity === "major").length;
+  const unverified = drift.filter((item) => item.kind === "source_unavailable").length;
+  const partial = drift.filter((item) => item.kind === "presence_verified").length;
+  return {
+    ...report,
+    drift,
+    counts: { critical, major, info: drift.length - critical - major, unverified, partial },
+    status: critical ? "action_required" : major ? "review_recommended" : unverified || partial ? "partial_verify" : "aligned",
+  };
+}
+
 function affectedByTable(table, catalog) {
   const affected = [];
   for (const metric of catalog.metrics ?? []) {

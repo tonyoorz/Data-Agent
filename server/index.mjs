@@ -7,6 +7,9 @@ import duplicateBridgeRuntime from "./duplicateBridgeRuntime.cjs";
 import { streamLangGraphChatResponse } from "./agentRuntime/langGraphChatHandler.mjs";
 import { createLangGraphChatRuntime, resolveAgentRuntimeMode } from "./agentRuntime/langGraphChatRuntime.mjs";
 import { createFileAgentRuntimeStore } from "./agentRuntime/runtimeAuditStore.mjs";
+import { createSessionEventLog } from "./agentRuntime/sessionEventLog.mjs";
+import { createApprovalFlow } from "./agentRuntime/approvalFlow.mjs";
+import { createFeedbackLoop, createSemanticCache } from "./agentRuntime/feedbackAndCache.mjs";
 import { resolveAgentOperationsResponse } from "./agentOperations.mjs";
 import { resolveAiAnalyticsContext } from "./aiAnalyticsContext.mjs";
 import { resolveMainAgentToolContext } from "./mainAgentToolLoop.mjs";
@@ -44,8 +47,16 @@ const duplicateWarmupManager = createDuplicateWarmupManager({
   logger: console,
 });
 const agentRuntimeStore = createFileAgentRuntimeStore();
+const sessionEventLog = createSessionEventLog();
+const approvalFlow = createApprovalFlow({ eventLog: sessionEventLog });
+const feedbackLoop = createFeedbackLoop();
+const semanticCache = createSemanticCache();
 const langGraphChatRuntime = createLangGraphChatRuntime({
   runtimeStore: agentRuntimeStore,
+  sessionEventLog,
+  approvalFlow,
+  feedbackLoop,
+  semanticCache,
 });
 
 function nowMs() {
@@ -124,6 +135,7 @@ async function handleAuthenticatedAiChatRequest(body, response) {
         body,
         response,
         runtime: langGraphChatRuntime,
+        sessionEventLog,
         toolDependencies: {
           runDuplicateBridge,
           ensureDuplicateWarmup: () => duplicateWarmupManager.ensureWarm({ reason: "langgraph-agent-tool" }),
@@ -590,6 +602,80 @@ const server = http.createServer(async (request, response) => {
       }
 
       sendJson(response, result?.success ? 200 : 500, result);
+      return;
+    }
+
+    // --- Agent feedback loop (P0-4) ---
+    if (request.method === "POST" && url.pathname === "/api/ai/feedback") {
+      if (!await requireInternalAuxiliaryActor(request, response)) return;
+      const body = await readJsonBody(request);
+      const thumb = typeof body?.thumb === "string" ? body.thumb.trim().toLowerCase() : "";
+      if (!["up", "down"].includes(thumb)) {
+        sendJson(response, 400, { success: false, error: "thumb must be up|down" });
+        return;
+      }
+      try {
+        const record = await feedbackLoop.recordThumb({
+          sessionId: body?.sessionId,
+          queryText: body?.queryText,
+          intent: body?.intent,
+          toolNames: Array.isArray(body?.toolNames) ? body.toolNames : [],
+          thumb,
+          note: body?.note || "",
+        });
+        const adjustments = await feedbackLoop.derivePolicyAdjustments();
+        sendJson(response, 200, { success: true, record, policyAdjustments: adjustments });
+      } catch (error) {
+        sendJson(response, 500, { success: false, error: String(error?.message || error) });
+      }
+      return;
+    }
+
+    // --- Approval flow (P0-3): list pending + decide ---
+    if (request.method === "GET" && url.pathname === "/api/ai/approvals") {
+      if (!await requireInternalAuxiliaryActor(request, response)) return;
+      const sessionId = url.searchParams?.get("sessionId") || undefined;
+      const pending = approvalFlow.listPending(sessionId);
+      await approvalFlow.expireStale().catch(() => []);
+      sendJson(response, 200, { success: true, pending });
+      return;
+    }
+
+    if (request.method === "POST" && /^\/api\/ai\/approvals\/[A-Za-z0-9_-]+$/.test(url.pathname)) {
+      if (!await requireInternalAuxiliaryActor(request, response)) return;
+      const approvalId = url.pathname.split("/").pop();
+      const body = await readJsonBody(request);
+      const decision = typeof body?.decision === "string" ? body.decision.trim().toLowerCase() : "";
+      if (!["approved", "rejected"].includes(decision)) {
+        sendJson(response, 400, { success: false, error: "decision must be approved|rejected" });
+        return;
+      }
+      try {
+        const outcome = await approvalFlow.decide({
+          approvalId,
+          decision,
+          decidedBy: body?.decidedBy || "user",
+        });
+        sendJson(response, outcome?.status === "ok" ? 200 : 404, { success: outcome?.status === "ok", outcome });
+      } catch (error) {
+        sendJson(response, 500, { success: false, error: String(error?.message || error) });
+      }
+      return;
+    }
+
+    // --- Session event log (P0-1): durable model-visible stream ---
+    if (request.method === "GET" && /^\/api\/ai\/sessions\/[A-Za-z0-9._-]+\/events$/.test(url.pathname)) {
+      if (!await requireInternalAuxiliaryActor(request, response)) return;
+      const sessionId = url.pathname.split("/")[4];
+      try {
+        const [events, metrics] = await Promise.all([
+          sessionEventLog.read(sessionId),
+          sessionEventLog.metrics(sessionId),
+        ]);
+        sendJson(response, 200, { success: true, sessionId, events, metrics });
+      } catch (error) {
+        sendJson(response, 500, { success: false, error: String(error?.message || error) });
+      }
       return;
     }
 

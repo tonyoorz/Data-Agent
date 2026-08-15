@@ -21,6 +21,7 @@
     "ontology:compile": "node scripts/compileOntology.mjs --emit-graph",
     "ontology:graph": "node scripts/compileOntology.mjs --emit-graph",
     "ontology:check": "node scripts/compileOntology.mjs --check",
+    "ontology:reconcile": "node scripts/ontologyReconcile.mjs",
     "ontology:sync-vault": "node scripts/sync-vault-graph.mjs",
     "test:ontology": "vitest run src/test/server/ontology && python -m pytest backend/tests/test_ontology_contract.py -q"
   },
