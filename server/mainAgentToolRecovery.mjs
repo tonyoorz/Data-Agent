@@ -388,3 +388,59 @@ export async function executeToolWithRecovery({
   };
   return { result: safeFailureResult(toolCall, recovery), recovery };
 }
+
+/**
+ * P0-B4: alternative-path retry — when a governed semantic plan path fails,
+ * swap to a DIFFERENT multi-path candidate (direct/decomposed/constraintFirst)
+ * instead of only re-parameterizing the same path. Retry cap stays 1.
+ * Scope is enforced: candidate plan must belong to the same actorScopeHash.
+ */
+export function buildAlternativePathRetry({ originalToolCall, failedFingerprint, candidates, actorScopeHash } = {}) {
+  const toolName = String(originalToolCall?.function?.name || "");
+  if (!SEMANTIC_QUERY_TOOLS.has(toolName)) return null;
+  const tried = new Set([String(failedFingerprint || "")]);
+  const next = (Array.isArray(candidates) ? candidates : []).find((c) => {
+    const plan = c?.plan;
+    return plan?.status === "valid"
+      && String(plan.actorScopeHash || "") === String(actorScopeHash || "")
+      && plan.executionFingerprint
+      && !tried.has(plan.executionFingerprint);
+  });
+  if (!next) return null;
+  const matchingSteps = (Array.isArray(next.plan.steps) ? next.plan.steps : [])
+    .filter((step) => step?.toolName === toolName && isRecord(step?.canonicalArgs) && !hasForbiddenExecutionField(step.canonicalArgs));
+  if (matchingSteps.length !== 1) return null;
+
+  const correctedToolCall = {
+    id: `${originalToolCall?.id || toolName}-alt-path-retry`,
+    type: "function",
+    function: {
+      name: toolName,
+      arguments: JSON.stringify(matchingSteps[0].canonicalArgs),
+    },
+  };
+  return {
+    toolCall: correctedToolCall,
+    recovery: {
+      action: "retry",
+      retryable: false,
+      maxAttempts: 1,
+      reason: "alternative_path_retry",
+      attempts: 1,
+      outcome: "planned",
+      pathKind: next.kind,
+      originalQueryFingerprint: queryFingerprint(originalToolCall),
+      revisedQueryFingerprint: queryFingerprint(correctedToolCall),
+      sourceToolCallId: String(originalToolCall?.id || ""),
+      ...(next.plan.planId ? { sourcePlanId: String(next.plan.planId) } : {}),
+    },
+  };
+}
+
+/**
+ * P0-B4: voting DISAGREEMENT is a clarification need (宁澄清不硬答),
+ * NEVER a recovery trigger — callers must check this before entering recovery.
+ */
+export function isVotingDisagreementPayload(result) {
+  return isRecord(result) && result.verdict === "DISAGREE";
+}
