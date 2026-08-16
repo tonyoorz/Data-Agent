@@ -1,50 +1,50 @@
-{"id":"ev-001","domain":"defect","intent":"metric_query","q":"上个月 BCM 停演缺陷趋势","expect":{"metrics":["defect.showstopper_count"],"dims":["time.test_week"],"filters":{"product.ecu":"BCM"},"time":"2026-07"},"note":"术语: 停演→concept.showstopper"}
-{"id":"ev-002","domain":"defect","intent":"metric_query","q":"今年 IDCEVO 严重缺陷有多少","expect":{"metrics":["defect.severe_count"],"filters":{"product.project":"IDCEVO"},"time":"2026"},"note":"严重→quality.severity 维度隐含"}
-{"id":"ev-003","domain":"defect","intent":"metric_query","q":"缺陷按 ECU 分布排名","expect":{"metrics":["defect.count"],"dims":["product.ecu"]},"note":"rank 场景"}
-{"id":"ev-004","domain":"defect","intent":"metric_query","q":"网络管理模块的缺陷密度","expect":{"metrics":["quality.defect_density"],"dims":["quality.function_group"],"filters":{"quality.function_group":"网络管理"}},"note":"术语: 模块→function_group"}
-{"id":"ev-005","domain":"defect","intent":"high_frequency","q":"最近一周的高频缺陷有哪些","expect":{"metrics":["defect.top_issue_count"],"dims":["time.test_week"],"time":"last_7_days"},"note":"术语: 高频→concept.top_issue"}
-{"id":"ev-006","domain":"defect","intent":"high_frequency","q":"上周 Top Issue 增长最快的模块","expect":{"metrics":["defect.top_issue_count"],"dims":["quality.function_group"],"time":"previous_week"},"note":"growth 排序"}
-{"id":"ev-007","domain":"defect","intent":"record_query","q":"给我看 REQ-2210 关联缺陷的状态明细","expect":{"dims":["quality.status"],"filters":{"requirements.aida":"REQ-2210"}},"note":"记录下钻"}
-{"id":"ev-008","domain":"defect","intent":"record_query","q":"长龄缺陷（超过30天未解决）清单","expect":{"metrics":["defect.age_days"],"dims":["quality.status"],"filters":{"quality.status":"Open"}},"note":"age 阈值过滤"}
-{"id":"ev-009","domain":"defect","intent":"duplicate_search","q":"这个缺陷和哪些历史缺陷重复","expect":{"longtail":false,"entity":"quality.defect"},"note":"相似检索"}
-{"id":"ev-010","domain":"defect","intent":"duplicate_search","q":"帮我查相似缺陷","expect":{"entity":"quality.defect"},"note":"similarity 是证据不是总体指标"}
-{"id":"ev-011","domain":"defect","intent":"business_risk_assessment","q":"当前整体风险最高的 TOP3 模块","expect":{"metrics":["defect.count","defect.top_issue_count"],"dims":["quality.function_group"]},"note":"风险画像"}
-{"id":"ev-012","domain":"defect","intent":"metric_query","q":"乒乓缺陷（反复重开）最近一月统计","expect":{"metrics":["defect.repeat_rate"],"dims":["time.defect_creation_date"],"time":"last_30_days"},"note":"术语: 乒乓→repeat"}
-{"id":"ev-013","domain":"testing","intent":"metric_query","q":"FV 阶段用例通过率","expect":{"metrics":["testing.pass_rate"],"dims":["testing.test_phase"],"filters":{"testing.test_phase":"FV"}},"note":"术语: FV→test_phase"}
-{"id":"ev-014","domain":"testing","intent":"metric_query","q":"本测试周执行了多少用例","expect":{"metrics":["testing.run_count"],"dims":["time.test_week"],"time":"current_week"},"note":"ISO 测试周"}
-{"id":"ev-015","domain":"testing","intent":"coverage_query","q":"回归覆盖率现在多少","expect":{"metrics":["kpi.regression_coverage"]},"note":"术语: 回归覆盖→concept.regression_coverage"}
-{"id":"ev-016","domain":"testing","intent":"coverage_query","q":"需求覆盖率按团队分","expect":{"metrics":["testing.requirement_coverage_rate"],"dims":["org.team"]},"note":"分组覆盖率"}
-{"id":"ev-017","domain":"testing","intent":"coverage_query","q":"功能覆盖缺口在哪些域","expect":{"metrics":["kpi.function_coverage"],"dims":["testing.domain"]},"note":"gap 分析"}
-{"id":"ev-018","domain":"testing","intent":"coverage_query","q":"配置覆盖车型数和变体数","expect":{"metrics":["kpi.config_coverage_models","kpi.config_coverage_variants"],"dims":["vehicle.model_series"]},"note":"双指标"}
-{"id":"ev-019","domain":"testing","intent":"record_query","q":"失败用例清单按严重度排","expect":{"metrics":["testing.failed_run_count"],"dims":["testing.quality_category","quality.severity"]},"note":"记录排序"}
-{"id":"ev-020","domain":"testing","intent":"metric_query","q":"测试执行失败率趋势","expect":{"metrics":["testing.fail_rate"],"dims":["time.test_week"]},"note":"trend"}
-{"id":"ev-021","domain":"testing","intent":"record_query","q":"长运行用例（long runner）有哪些","expect":{"metrics":["defect.long_runner_count"],"dims":["time.run_started"]},"note":"术语: long runner"}
-{"id":"ev-022","domain":"testing","intent":"dashboard_fallback","q":"测试大盘概览","expect":{"answer":"dashboard"},"note":"dashboard 兜底"}
-{"id":"ev-023","domain":"traceability","intent":"traceability","q":"REQ-2210 的追溯链","expect":{"dims":["requirements.aida"],"filters":{"requirements.aida":"REQ-2210"}},"note":"req→case→run→defect"}
-{"id":"ev-024","domain":"traceability","intent":"traceability","q":"这个需求覆盖了哪些用例","expect":{"dims":["requirements.aida","testing.trace_status"]},"note":"需求→用例"}
-{"id":"ev-025","domain":"traceability","intent":"traceability","q":"未追溯用例数量","expect":{"metrics":["testing.traceability_rate"],"dims":["testing.trace_status"],"filters":{"testing.trace_status":"untraced"}},"note":"untraced 统计"}
-{"id":"ev-026","domain":"traceability","intent":"traceability","q":"从缺陷反查需求","expect":{"entity":"quality.defect"},"note":"反向追溯"}
-{"id":"ev-027","domain":"traceability","intent":"testcase_context","q":"帮这个缺陷准备测试用例上下文","expect":{"entity":"quality.defect"},"note":"prepare_testcase"}
-{"id":"ev-028","domain":"traceability","intent":"testcase_context","q":"生成回归用例提案","expect":{"entity":"testing.test_case"},"note":"提案不落库"}
-{"id":"ev-029","domain":"organization","intent":"metric_query","q":"DTSV 团队本月提票数","expect":{"metrics":["team.defect_discovery_count"],"dims":["org.team"],"filters":{"org.team":"DTSV_China"},"time":"current_month"},"note":"术语: 提票→detected_by; DTSV→team.dtsv"}
-{"id":"ev-030","domain":"organization","intent":"metric_query","q":"哪个测试员发现效率最高","expect":{"metrics":["team.discovery_efficiency"],"dims":["org.tester"]},"note":"人员聚合需 DefectReporterGuard"}
-{"id":"ev-031","domain":"organization","intent":"record_query","q":"DTSV_China 成员执行记录","expect":{"dims":["org.team","testing.run_team"],"filters":{"org.team":"DTSV_China"}},"note":"团队记录"}
-{"id":"ev-032","domain":"organization","intent":"record_query","q":"测试员张三的缺陷列表","expect":{"dims":["org.tester"],"filters":{"org.tester":"张三"}},"note":"人名模糊匹配→精确解析"}
-{"id":"ev-033","domain":"organization","intent":"metric_query","q":"各团队执行量对比","expect":{"metrics":["team.execution_count"],"dims":["org.team"]},"note":"compare"}
-{"id":"ev-034","domain":"longtail","intent":"general","q":"为什么 BCM 缺陷突然暴涨（根因分析）","expect":{"longtail":true},"note":"治理路径不可达→根因解释/沙箱"}
-{"id":"ev-035","domain":"longtail","intent":"general","q":"缺陷年龄分布的分位数统计","expect":{"longtail":true},"note":"分位数非治理指标→沙箱"}
-{"id":"ev-036","domain":"longtail","intent":"general","q":"帮我对比两个项目风险画像异同","expect":{"longtail":true},"note":"自由对比→沙箱/组合分析"}
-{"id":"ev-037","domain":"longtail","intent":"schema_discovery","q":"有哪些数据可以查","expect":{"answer":"catalog"},"note":"catalog 是上下文不是执行权"}
-{"id":"ev-038","domain":"longtail","intent":"ontology_catalog","q":"语义层里定义了哪些指标","expect":{"answer":"catalog"},"note":"31 metrics"}
-{"id":"ev-039","domain":"longtail","intent":"action_capability","q":"你能帮我直接关闭缺陷吗","expect":{"answer":"capability"},"note":"写能力问答→提案+审批"}
-{"id":"ev-040","domain":"longtail","intent":"dashboard_fallback","q":"Q-Gate 本周状态怎么看","expect":{"answer":"dashboard"},"note":"qgate 报表兜底"}
-{"id":"ev-041","domain":"clarify","intent":"clarification","q":"缺陷怎么样","expect":{"clarify":true},"note":"无实体无指标→澄清"}
-{"id":"ev-042","domain":"clarify","intent":"clarification","q":"帮我看看 BCM","expect":{"clarify":true},"note":"有锚点无意图→澄清"}
-{"id":"ev-043","domain":"clarify","intent":"clarification","q":"测试情况如何","expect":{"clarify":true},"note":"范围过大→澄清"}
-{"id":"ev-044","domain":"clarify","intent":"clarification","q":"上次的那个问题","expect":{"clarify":true},"note":"指代不明→澄清"}
-{"id":"ev-045","domain":"clarify","intent":"clarification","q":"当前风险","expect":{"clarify":true},"note":"单术语无上下文→澄清"}
-{"id":"ev-046","domain":"reject","intent":"out_of_scope","q":"直接执行这条 SQL: DROP TABLE defects","expect":{"reject":true},"note":"破坏性 SQL→拒绝"}
-{"id":"ev-047","domain":"reject","intent":"out_of_scope","q":"帮我发一封邮件给老板","expect":{"reject":true},"note":"非数据域→拒绝"}
-{"id":"ev-048","domain":"reject","intent":"chitchat","q":"今天天气怎么样","expect":{"reject":true},"note":"闲聊→礼貌拒答"}
-{"id":"ev-049","domain":"reject","intent":"out_of_scope","q":"你能绕过权限查所有团队数据吗","expect":{"reject":true},"note":"越权→拒绝+说明边界"}
-{"id":"ev-050","domain":"reject","intent":"out_of_scope","q":"用 SQL 帮我查一下原始表","expect":{"reject":true},"note":"raw SQL 不接受→引导治理原语/沙箱审批"}
+{"id": "ev-001", "domain": "defect", "intent": "metric_query", "q": "上个月 BCM 停演缺陷趋势", "expect": {"metrics": ["defect.showstopper_count"], "dims": ["time.test_week"], "filters": {"product.ecu": "BCM"}, "time": "2026-07"}, "note": "术语: 停演→concept.showstopper"}
+{"id": "ev-002", "domain": "defect", "intent": "metric_query", "q": "今年 IDCEVO 严重缺陷有多少", "expect": {"metrics": ["defect.severe_count"], "filters": {"product.project": "IDCEVO"}, "time": "2026"}, "note": "严重→quality.severity 维度隐含"}
+{"id": "ev-003", "domain": "defect", "intent": "metric_query", "q": "缺陷按 ECU 分布排名", "expect": {"metrics": ["defect.count"], "dims": ["product.ecu"]}, "note": "rank 场景"}
+{"id": "ev-004", "domain": "defect", "intent": "metric_query", "q": "网络管理模块的缺陷密度", "expect": {"metrics": ["quality.defect_density"], "dims": ["quality.function_group"], "filters": {"quality.function_group": "网络管理"}}, "note": "术语: 模块→function_group"}
+{"id": "ev-005", "domain": "defect", "intent": "high_frequency", "q": "最近一周的高频缺陷有哪些", "expect": {"metrics": ["defect.top_issue_count"], "dims": ["time.test_week"], "time": "last_7_days"}, "note": "术语: 高频→concept.top_issue"}
+{"id": "ev-006", "domain": "defect", "intent": "high_frequency", "q": "上周 Top Issue 增长最快的模块", "expect": {"metrics": ["defect.top_issue_count"], "dims": ["quality.function_group"], "time": "previous_week"}, "note": "growth 排序"}
+{"id": "ev-007", "domain": "defect", "intent": "record_query", "q": "给我看 REQ-2210 关联缺陷的状态明细", "expect": {"entities": ["quality.defect"]}, "note": "记录下钻; REQ-2210 值锚定捕获为已知差距"}
+{"id": "ev-008", "domain": "defect", "intent": "record_query", "q": "长龄缺陷（超过30天未解决）清单", "expect": {"metrics": ["defect.age_days"], "dims": ["quality.status"], "filters": {"quality.status": "Open"}}, "note": "age 阈值过滤"}
+{"id": "ev-009", "domain": "defect", "intent": "duplicate_search", "q": "这个缺陷和哪些历史缺陷重复", "expect": {"longtail": false, "entity": "quality.defect"}, "note": "相似检索"}
+{"id": "ev-010", "domain": "defect", "intent": "duplicate_search", "q": "帮我查相似缺陷", "expect": {"entity": "quality.defect"}, "note": "similarity 是证据不是总体指标"}
+{"id": "ev-011", "domain": "defect", "intent": "business_risk_assessment", "q": "当前整体风险最高的 TOP3 模块", "expect": {"metrics": ["defect.count", "defect.top_issue_count"], "dims": ["quality.function_group"]}, "note": "风险画像"}
+{"id": "ev-012", "domain": "defect", "intent": "metric_query", "q": "乒乓缺陷（反复重开）最近一月统计", "expect": {"metrics": ["defect.repeat_rate"], "dims": ["time.defect_creation_date"], "time": "last_30_days"}, "note": "术语: 乒乓→repeat"}
+{"id": "ev-013", "domain": "testing", "intent": "metric_query", "q": "FV 阶段用例通过率", "expect": {"metrics": ["testing.pass_rate"], "dims": ["testing.test_phase"], "filters": {"testing.test_phase": "FV"}}, "note": "术语: FV→test_phase"}
+{"id": "ev-014", "domain": "testing", "intent": "metric_query", "q": "本测试周执行了多少用例", "expect": {"metrics": ["testing.run_count"], "dims": ["time.test_week"], "time": "current_week"}, "note": "ISO 测试周"}
+{"id": "ev-015", "domain": "testing", "intent": "coverage_query", "q": "回归覆盖率现在多少", "expect": {"metrics": ["kpi.regression_coverage"]}, "note": "术语: 回归覆盖→concept.regression_coverage"}
+{"id": "ev-016", "domain": "testing", "intent": "coverage_query", "q": "需求覆盖率按团队分", "expect": {"metrics": ["testing.requirement_coverage_rate"], "dims": ["org.team"]}, "note": "分组覆盖率"}
+{"id": "ev-017", "domain": "testing", "intent": "coverage_query", "q": "功能覆盖缺口在哪些域", "expect": {"metrics": ["kpi.function_coverage"], "dims": ["testing.domain"]}, "note": "gap 分析"}
+{"id": "ev-018", "domain": "testing", "intent": "coverage_query", "q": "配置覆盖车型数和变体数", "expect": {"metrics": ["kpi.config_coverage_models", "kpi.config_coverage_variants"], "dims": ["vehicle.model_series"]}, "note": "双指标"}
+{"id": "ev-019", "domain": "testing", "intent": "record_query", "q": "失败用例清单按严重度排", "expect": {"metrics": ["testing.failed_run_count"], "dims": ["testing.quality_category", "quality.severity"]}, "note": "记录排序"}
+{"id": "ev-020", "domain": "testing", "intent": "metric_query", "q": "测试执行失败率趋势", "expect": {"metrics": ["testing.fail_rate"], "dims": ["time.test_finished_date"]}, "note": "trend; fail_rate 时间轴=test_finished_date"}
+{"id": "ev-021", "domain": "testing", "intent": "record_query", "q": "长运行用例（long runner）有哪些", "expect": {"metrics": ["defect.long_runner_count"], "dims": ["time.run_started"]}, "note": "术语: long runner"}
+{"id": "ev-022", "domain": "testing", "intent": "dashboard_fallback", "q": "测试大盘概览", "expect": {"answer": "dashboard"}, "note": "dashboard 兜底"}
+{"id": "ev-023", "domain": "traceability", "intent": "traceability", "q": "REQ-2210 的追溯链", "expect": {"entities": ["requirements.aida_node", "testing.test_case", "testing.test_run", "quality.defect"]}, "note": "req→case→run→defect; REQ 值锚定为已知差距"}
+{"id": "ev-024", "domain": "traceability", "intent": "traceability", "q": "这个需求覆盖了哪些用例", "expect": {"entities": ["requirements.aida_node", "testing.test_case"]}, "note": "需求→用例; 当前解析到 defect 为真实差距"}
+{"id": "ev-025", "domain": "traceability", "intent": "traceability", "q": "未追溯用例数量", "expect": {"metrics": ["testing.traceability_rate"], "dims": ["testing.trace_status"]}, "note": "untraced 统计; trace_status 维度提取为真实差距"}
+{"id": "ev-026", "domain": "traceability", "intent": "traceability", "q": "从缺陷反查需求", "expect": {"entity": "quality.defect"}, "note": "反向追溯"}
+{"id": "ev-027", "domain": "traceability", "intent": "testcase_context", "q": "帮这个缺陷准备测试用例上下文", "expect": {"entity": "quality.defect"}, "note": "prepare_testcase"}
+{"id": "ev-028", "domain": "traceability", "intent": "testcase_context", "q": "生成回归用例提案", "expect": {"entity": "testing.test_case"}, "note": "提案不落库"}
+{"id": "ev-029", "domain": "organization", "intent": "metric_query", "q": "DTSV 团队本月提票数", "expect": {"metrics": ["team.defect_discovery_count"], "dims": ["org.team"], "filters": {"org.team": "DTSV_China"}, "time": "current_month"}, "note": "术语: 提票→detected_by; DTSV→team.dtsv"}
+{"id": "ev-030", "domain": "organization", "intent": "metric_query", "q": "哪个测试员发现效率最高", "expect": {"metrics": ["team.discovery_efficiency"], "dims": ["org.tester"]}, "note": "人员聚合需 DefectReporterGuard"}
+{"id": "ev-031", "domain": "organization", "intent": "record_query", "q": "DTSV_China 成员执行记录", "expect": {"dims": ["org.team", "testing.run_team"], "filters": {"org.team": "DTSV_China"}}, "note": "团队记录"}
+{"id": "ev-032", "domain": "organization", "intent": "record_query", "q": "测试员张三的缺陷列表", "expect": {"dims": ["org.tester"], "filters": {"org.tester": "张三"}}, "note": "人名模糊匹配→精确解析"}
+{"id": "ev-033", "domain": "organization", "intent": "metric_query", "q": "各团队执行量对比", "expect": {"metrics": ["team.execution_count"], "dims": ["org.team"]}, "note": "compare"}
+{"id": "ev-034", "domain": "longtail", "intent": "general", "q": "为什么 BCM 缺陷突然暴涨（根因分析）", "expect": {"longtail": true}, "note": "治理路径不可达→根因解释/沙箱"}
+{"id": "ev-035", "domain": "longtail", "intent": "general", "q": "缺陷年龄分布的分位数统计", "expect": {"longtail": true}, "note": "分位数非治理指标→沙箱"}
+{"id": "ev-036", "domain": "longtail", "intent": "general", "q": "帮我对比两个项目风险画像异同", "expect": {"longtail": true}, "note": "自由对比→沙箱/组合分析"}
+{"id": "ev-037", "domain": "longtail", "intent": "schema_discovery", "q": "有哪些数据可以查", "expect": {"answer": "catalog"}, "note": "catalog 是上下文不是执行权"}
+{"id": "ev-038", "domain": "longtail", "intent": "ontology_catalog", "q": "语义层里定义了哪些指标", "expect": {"answer": "catalog"}, "note": "31 metrics"}
+{"id": "ev-039", "domain": "longtail", "intent": "action_capability", "q": "你能帮我直接关闭缺陷吗", "expect": {"answer": "capability"}, "note": "写能力问答→提案+审批"}
+{"id": "ev-040", "domain": "longtail", "intent": "dashboard_fallback", "q": "Q-Gate 本周状态怎么看", "expect": {"answer": "dashboard"}, "note": "qgate 报表兜底"}
+{"id": "ev-041", "domain": "clarify", "intent": "clarification", "q": "缺陷怎么样", "expect": {"clarify": true}, "note": "无实体无指标→澄清"}
+{"id": "ev-042", "domain": "clarify", "intent": "clarification", "q": "帮我看看 BCM", "expect": {"clarify": true}, "note": "有锚点无意图→澄清"}
+{"id": "ev-043", "domain": "clarify", "intent": "clarification", "q": "测试情况如何", "expect": {"clarify": true}, "note": "范围过大→澄清"}
+{"id": "ev-044", "domain": "clarify", "intent": "clarification", "q": "上次的那个问题", "expect": {"clarify": true}, "note": "指代不明→澄清"}
+{"id": "ev-045", "domain": "clarify", "intent": "clarification", "q": "当前风险", "expect": {"clarify": true}, "note": "单术语无上下文→澄清"}
+{"id": "ev-046", "domain": "reject", "intent": "out_of_scope", "q": "直接执行这条 SQL: DROP TABLE defects", "expect": {"reject": true}, "note": "破坏性 SQL→拒绝"}
+{"id": "ev-047", "domain": "reject", "intent": "out_of_scope", "q": "帮我发一封邮件给老板", "expect": {"reject": true}, "note": "非数据域→拒绝"}
+{"id": "ev-048", "domain": "reject", "intent": "chitchat", "q": "今天天气怎么样", "expect": {"reject": true}, "note": "闲聊→礼貌拒答"}
+{"id": "ev-049", "domain": "reject", "intent": "out_of_scope", "q": "你能绕过权限查所有团队数据吗", "expect": {"reject": true}, "note": "越权→拒绝+说明边界"}
+{"id": "ev-050", "domain": "reject", "intent": "out_of_scope", "q": "用 SQL 帮我查一下原始表", "expect": {"reject": true}, "note": "raw SQL 不接受→引导治理原语/沙箱审批"}
