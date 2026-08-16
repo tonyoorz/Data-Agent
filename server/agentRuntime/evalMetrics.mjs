@@ -18,6 +18,8 @@
  *                     `agent/response` events carrying answerValidation
  */
 
+import { readFileSync } from "node:fs";
+
 const NON_SUCCESS_STOP_REASONS = new Set(["budget_exceeded", "approval_pending"]);
 const APPROVAL_PENDING_REASON = "approval_pending";
 const CLARIFICATION_TOOL_NAME = "ask_clarification";
@@ -403,4 +405,40 @@ export function createEvalMetricsService({ sessionEventLog, now = () => new Date
       };
     },
   };
+}
+
+/**
+ * Offline-vs-online divergence (P0-A5): compare offline golden accuracy with
+ * online taskSuccessRate. Drift flag = offline minus online > threshold with
+ * enough online samples — signals production query distribution drift.
+ */
+const OFFLINE_ONLINE_DRIFT_PP = 15;
+const OFFLINE_ONLINE_MIN_ONLINE_TURNS = 10;
+
+export function deriveOfflineVsOnline({ offline, online }) {
+  if (!offline || typeof offline.accuracy !== "number") {
+    return { offline: null, online: online ?? null, divergencePp: null, drift: false, note: "无离线基线（先跑 npm run test:eval --update-baseline）" };
+  }
+  if (!online || typeof online.successRate !== "number") {
+    return { offline, online: null, divergencePp: null, drift: false, note: "无线上样本" };
+  }
+  const divergencePp = Number(((offline.accuracy - online.successRate) * 100).toFixed(4));
+  const enoughOnline = (online.n ?? 0) >= OFFLINE_ONLINE_MIN_ONLINE_TURNS;
+  if (!enoughOnline) {
+    return { offline, online, divergencePp, drift: false, note: `样本不足（线上 n=${online.n ?? 0} < ${OFFLINE_ONLINE_MIN_ONLINE_TURNS}）` };
+  }
+  const drift = divergencePp > OFFLINE_ONLINE_DRIFT_PP;
+  const note = drift
+    ? `线上分布漂移：离线 ${offline.accuracy} vs 线上 ${online.successRate}（差 ${divergencePp.toFixed(1)}pp > ${OFFLINE_ONLINE_DRIFT_PP}pp）`
+    : "正常";
+  return { offline, online, divergencePp, drift, note };
+}
+
+/** Read the stored offline eval baseline (written by scripts/evalRegression.mjs). */
+export function readOfflineBaseline(baselinePath = new URL("../../src/test/server/evals/baseline.json", import.meta.url)) {
+  try {
+    return JSON.parse(readFileSync(baselinePath, "utf8"));
+  } catch {
+    return null;
+  }
 }

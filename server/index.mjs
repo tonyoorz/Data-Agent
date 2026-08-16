@@ -8,7 +8,7 @@ import { streamLangGraphChatResponse } from "./agentRuntime/langGraphChatHandler
 import { createLangGraphChatRuntime, resolveAgentRuntimeMode } from "./agentRuntime/langGraphChatRuntime.mjs";
 import { createFileAgentRuntimeStore } from "./agentRuntime/runtimeAuditStore.mjs";
 import { createSessionEventLog } from "./agentRuntime/sessionEventLog.mjs";
-import { createEvalMetricsService } from "./agentRuntime/evalMetrics.mjs";
+import { createEvalMetricsService, deriveOfflineVsOnline, readOfflineBaseline } from "./agentRuntime/evalMetrics.mjs";
 import { createApprovalFlow } from "./agentRuntime/approvalFlow.mjs";
 import { createFeedbackLoop, createSemanticCache } from "./agentRuntime/feedbackAndCache.mjs";
 import { createSandboxSqlGuard, isSandboxSqlEnabled } from "./ontology/sandboxSql.mjs";
@@ -711,6 +711,26 @@ const server = http.createServer(async (request, response) => {
           daily: report.daily,
           generatedAt: report.generatedAt,
         });
+      } catch (error) {
+        sendJson(response, 500, { success: false, error: String(error?.message || error) });
+      }
+      return;
+    }
+
+    // --- Offline vs online divergence (P0-A5): golden baseline vs live task success ---
+    if (request.method === "GET" && url.pathname === "/api/ai/metrics/offline-vs-online") {
+      if (!await requireInternalAuxiliaryActor(request, response)) return;
+      try {
+        const baseline = readOfflineBaseline();
+        const onlineReport = await evalMetricsService.report({ windowDays: 7 });
+        const divergence = deriveOfflineVsOnline({
+          offline: baseline ? { accuracy: baseline.accuracy, n: baseline.total } : null,
+          online: {
+            successRate: onlineReport.aggregate?.taskSuccessRate ?? null,
+            n: onlineReport.aggregate?.evaluableTurns ?? 0,
+          },
+        });
+        sendJson(response, 200, { success: true, divergence, baseline, generatedAt: onlineReport.generatedAt });
       } catch (error) {
         sendJson(response, 500, { success: false, error: String(error?.message || error) });
       }
