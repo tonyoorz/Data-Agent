@@ -209,7 +209,7 @@ function clarifiedTraceSubject(query, clarification) {
   return value && value.length <= 200 ? value : null;
 }
 
-export function createSemanticResolver({ registry, now = () => new Date().toISOString(), onUnmatched } = {}) {
+export function createSemanticResolver({ registry, now = () => new Date().toISOString(), onUnmatched, schemaLinker } = {}) {
   if (!registry) throw new Error("ONTOLOGY_REGISTRY_REQUIRED");
   return Object.freeze({
     resolve({ query, actor, requestAnchorAt = now(), clarification = null, candidate = null, priorSemanticFrame = null }) {
@@ -409,6 +409,19 @@ export function createSemanticResolver({ registry, now = () => new Date().toISOS
         assumptions,
         confidence: Math.max(0, Math.min(1, 0.72 + Math.min(0.22, matchedTerms.length * 0.04) - (ambiguitiesByCode.size ? 0.25 : 0))),
       });
+      // P0-B1 schema-link safety net: when NO governed vocabulary term matched,
+      // attach ranked schemaLinker suggestions for planner/LLM consideration.
+      // Suggestions never alter the governed resolution — the validator still decides.
+      if (schemaLinker && typeof schemaLinker.linkQueryTokensSync === "function"
+        && matchedTerms.length === 0 && !followUp
+        && intent !== "trace" && intent !== "similarity" && !selectedFallback && !clarificationOverridesMetric) {
+        const linked = schemaLinker.linkQueryTokensSync(text);
+        frame.schemaLinkSuggestions = {
+          dims: linked.matchedDims ?? [],
+          metrics: linked.matchedMetrics ?? [],
+          entities: linked.matchedEntities ?? [],
+        };
+      }
       // Ontology-evolution signal (FAOS-style learn-from-usage loop): when a metric-bearing
       // question matches zero governed vocabulary terms, surface it so stewards can decide
       // whether a new term/metric is warranted. Trace/similarity intents and follow-ups are
