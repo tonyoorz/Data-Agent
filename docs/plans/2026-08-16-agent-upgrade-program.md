@@ -46,7 +46,7 @@
 - [x] **P0-A5** 线上线下打通
 - [x] **P0-B1** SchemaLinker（embedding 可插拔）
 - [x] **P0-B2** 多路径查询计划（CHASE-SQL 迁移）
-- [ ] **P0-B3** 执行投票
+- [x] **P0-B3** 执行投票
 - [ ] **P0-B4** 自纠错环增强
 - [ ] **P1-C1** Action Type schema 与编译器校验
 - [ ] **P1-C2** ActionRuntime 事务写回
