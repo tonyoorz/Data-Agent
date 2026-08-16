@@ -139,7 +139,11 @@ export function createSemanticCache({
   now = nowDefault,
   ttlMs = CACHE_TTL_MS,
   similarityThreshold = 0.8,
+  /** "eval" bypasses reads/writes entirely — offline evaluation must never
+   *  score hits from (or leak results into) the live semantic cache. */
+  mode = "live",
 } = {}) {
+  const isEval = mode === "eval";
   const indexFile = path.join(cacheDir, "index.json");
 
   async function readIndex() {
@@ -167,6 +171,7 @@ export function createSemanticCache({
   return {
     /** Exact planFingerprint lookup. */
     async get(planFingerprint) {
+      if (isEval) return null;
       const entries = await readIndex();
       const at = now();
       const hit = entries.find((entry) => entry.key === planFingerprint && fresh(entry, at));
@@ -176,6 +181,7 @@ export function createSemanticCache({
 
     /** Fuzzy lookup by query text similarity (same governed intent shape). */
     async getSimilar(queryText, { intent } = {}) {
+      if (isEval) return null;
       const entries = await readIndex();
       const at = now();
       let best = null;
@@ -194,6 +200,7 @@ export function createSemanticCache({
 
     /** Store a verified governed result. LRU-ish trim keeps index bounded. */
     async set({ planFingerprint, queryText, intent, result }) {
+      if (isEval) return { key: "", entries: -1, bypassed: "eval" };
       if (!isRecord(result)) throw new Error("SEMANTIC_CACHE_INVALID: result must be object");
       const key = keyFor({ planFingerprint });
       if (!key) throw new Error("SEMANTIC_CACHE_INVALID: planFingerprint required");
@@ -209,7 +216,7 @@ export function createSemanticCache({
     },
 
     stats() {
-      return { ttlMs, maxEntries: CACHE_MAX_ENTRIES, similarityThreshold };
+      return { ttlMs, maxEntries: CACHE_MAX_ENTRIES, similarityThreshold, mode };
     },
   };
 }
