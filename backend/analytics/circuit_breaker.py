@@ -101,13 +101,17 @@ class CircuitBreaker:
             )
         if self._state == "half-open":
             self._half_open_inflight += 1
+        was_half_open = self._state == "half-open"
         try:
             result = fn()
         except Exception as err:
             failed = bool(self._is_failure(err, None))
             if failed:
-                self._state = "open"
-                self._last_failure_at = time.monotonic()
+                if was_half_open:
+                    self._state = "open"
+                    self._last_failure_at = time.monotonic()
+                else:
+                    self._record_failure()
             self._half_open_inflight = 0
             raise
         failed = bool(self._is_failure(None, result))

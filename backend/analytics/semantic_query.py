@@ -750,23 +750,7 @@ def _aggregate_rows(
     sort_items: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], dict[str, int], list[str]]:
     warnings: list[str] = []
-    unavailable_dimensions: list[str] = []
-    partially_missing_dimensions: list[str] = []
-    if rows:
-        for dimension_id in dimension_ids:
-            source_field = field_map.get(dimension_id, "")
-            populated = sum(1 for row in rows if str(row.get(source_field) or "").strip())
-            if populated == 0:
-                unavailable_dimensions.append(dimension_id)
-            elif populated < len(rows):
-                partially_missing_dimensions.append(dimension_id)
-    if unavailable_dimensions:
-        raise SemanticQueryError(
-            f"SEMANTIC_SOURCE_FIELD_UNAVAILABLE:{unavailable_dimensions[0]}",
-            status_code=422,
-        )
-    if partially_missing_dimensions:
-        warnings.append(f"DIMENSION_VALUES_PARTIALLY_MISSING:{','.join(partially_missing_dimensions)}")
+    _validate_grouping_dimensions(rows, dimension_ids, field_map)
     distinct_rows = {str(row.get(identifier) or ""): row for row in rows if str(row.get(identifier) or "")}
     metric_values: dict[str, int] = {}
     for metric_id in metric_ids:

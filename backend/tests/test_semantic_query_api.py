@@ -319,7 +319,7 @@ def test_grouping_dimension_with_no_source_values_fails_closed(catalog) -> None:
     payload = _payload(catalog)
     payload["query"]["dimensionIds"] = ["product.ecu"]
 
-    with pytest.raises(SemanticQueryError, match="SEMANTIC_SOURCE_FIELD_UNAVAILABLE:product.ecu") as exc_info:
+    with pytest.raises(SemanticQueryError, match="SEMANTIC_DIMENSION_VALUES_UNAVAILABLE:product.ecu") as exc_info:
         execute_semantic_query(
             payload,
             catalog=catalog,
@@ -336,29 +336,25 @@ def test_grouping_dimension_with_no_source_values_fails_closed(catalog) -> None:
     assert exc_info.value.status_code == 422
 
 
-def test_grouping_dimension_with_partial_source_values_is_disclosed(catalog) -> None:
+def test_grouping_dimension_with_partial_source_values_fails_closed(catalog) -> None:
     payload = _payload(catalog)
     payload["query"]["dimensionIds"] = ["product.ecu"]
 
-    result = execute_semantic_query(
-        payload,
-        catalog=catalog,
-        defect_provider=lambda _filters: {
-            "snapshot_version": "partial-ecu-1",
-            "generated_from": {},
-            "ticket_rows": [
-                {"ticket_id": "D-1", "problem_finder_team": "DTSV_China", "assigned_ecu": "HU"},
-                {"ticket_id": "D-2", "problem_finder_team": "DTSV_China"},
-            ],
-        },
-    )
+    with pytest.raises(SemanticQueryError, match="SEMANTIC_DIMENSION_VALUES_UNAVAILABLE:product.ecu") as exc_info:
+        execute_semantic_query(
+            payload,
+            catalog=catalog,
+            defect_provider=lambda _filters: {
+                "snapshot_version": "partial-ecu-1",
+                "generated_from": {},
+                "ticket_rows": [
+                    {"ticket_id": "D-1", "problem_finder_team": "DTSV_China", "assigned_ecu": "HU"},
+                    {"ticket_id": "D-2", "problem_finder_team": "DTSV_China"},
+                ],
+            },
+        )
 
-    assert result["data"] == [
-        {"product.ecu": "(missing)", "defect.count": 1},
-        {"product.ecu": "HU", "defect.count": 1},
-    ]
-    assert result["quality"]["completeness"] == "partial"
-    assert result["quality"]["warnings"] == ["DIMENSION_VALUES_PARTIALLY_MISSING:product.ecu"]
+    assert exc_info.value.status_code == 422
 
 
 def test_records_continuation_returns_allowlisted_raw_rows_from_same_revision(catalog, tmp_path: Path) -> None:
@@ -907,11 +903,11 @@ def test_grouping_rejects_rows_without_dimension_values(catalog) -> None:
     assert exc_info.value.status_code == 422
 
 
-def test_grouping_rejects_approved_dimension_without_executor_binding(catalog) -> None:
+def test_grouping_rejects_dimension_not_allowed_for_metric(catalog) -> None:
     payload = _payload(catalog)
     payload["query"]["dimensionIds"] = ["quality.solution_cluster"]
 
-    with pytest.raises(SemanticQueryError, match="SEMANTIC_DIMENSION_NOT_EXECUTABLE:quality.solution_cluster") as exc_info:
+    with pytest.raises(SemanticQueryError, match="SEMANTIC_DIMENSION_NOT_ALLOWED:defect.count:quality.solution_cluster") as exc_info:
         execute_semantic_query(
             payload,
             catalog=catalog,
@@ -922,7 +918,7 @@ def test_grouping_rejects_approved_dimension_without_executor_binding(catalog) -
             },
         )
 
-    assert exc_info.value.status_code == 422
+    assert exc_info.value.status_code == 400
 
 
 def test_comparison_values_are_union_filtered_and_grouped(catalog) -> None:

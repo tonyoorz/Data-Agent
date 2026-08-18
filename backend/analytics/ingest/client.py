@@ -171,7 +171,13 @@ class _BreakerSessionProxy:
         return self._request("PUT", url, **kwargs)
 
     def _request(self, method, url, **kwargs):
-        return self._breaker.call(lambda: self._session.request(method, url, **kwargs))
+        request = getattr(self._session, "request", None)
+        if callable(request):
+            return self._breaker.call(lambda: request(method, url, **kwargs))
+        method_request = getattr(self._session, str(method).lower(), None)
+        if not callable(method_request):
+            raise AttributeError(f"session does not support {method}")
+        return self._breaker.call(lambda: method_request(url, **kwargs))
 
     def __getattr__(self, name):
         # Only forward public attributes; underscored names raise to avoid
