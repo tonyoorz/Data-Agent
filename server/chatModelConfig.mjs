@@ -1,8 +1,18 @@
-const DEFAULT_MODELS = [
+const LEGACY_DEFAULT_MODELS = [
   "deepseek-v4-flash",
   "qwen3.5-397b-a17b",
   "glm-5",
 ];
+
+const GLM_PROXY_DEFAULT_MODELS = [
+  "deepseek-v4-pro",
+  "deepseek-v4-flash",
+  "qwen3.7-max",
+  "qwen3.7-flash",
+  "glm-5.1",
+];
+
+const DEFAULT_GLM_PROXY_BASE_URL = "http://127.0.0.1:8001/v1";
 
 const DEFAULT_ENDPOINTS = {
   "deepseek-v4-flash": "https://aistudio.bmwbrill.cn/api/service/ssl/170/lm-platform/llm/v2/chat/completions",
@@ -89,6 +99,24 @@ function parseEndpointMap(env) {
   return mapped;
 }
 
+function resolveGlmProxyBaseUrl(env) {
+  const configuredBaseUrl = readFirst(env, [
+    "DUPSEARCH_GLM_PROXY_API_BASE",
+    "GLM_PROXY_API_BASE",
+    "GLM_PROXY_BASE_URL",
+    "GLM_PROXY_URL",
+  ]);
+  if (configuredBaseUrl) {
+    return configuredBaseUrl;
+  }
+
+  return readFirst(env, ["GLM_PROXY_API_KEY"]) ? DEFAULT_GLM_PROXY_BASE_URL : "";
+}
+
+function usesGlmProxy(env) {
+  return Boolean(resolveGlmProxyBaseUrl(env));
+}
+
 export function getChatModelOptions(env = process.env) {
   const explicit = readExplicit(env, [
     "DUPSEARCH_CHAT_MODEL_OPTIONS",
@@ -100,7 +128,8 @@ export function getChatModelOptions(env = process.env) {
   if (explicit.configured && envModels.length === 0) {
     throw modelConfigError("CHAT_MODEL_OPTIONS_INVALID");
   }
-  const merged = explicit.configured ? envModels : DEFAULT_MODELS;
+  const defaultModels = usesGlmProxy(env) ? GLM_PROXY_DEFAULT_MODELS : LEGACY_DEFAULT_MODELS;
+  const merged = explicit.configured ? envModels : defaultModels;
   const seen = new Set();
   const ordered = [];
 
@@ -119,7 +148,7 @@ export function getChatModelOptions(env = process.env) {
     ordered.push(normalized);
   }
 
-  return ordered.length ? ordered : [DEFAULT_MODELS[0]];
+  return ordered.length ? ordered : [defaultModels[0]];
 }
 
 export function getDefaultChatModel(env = process.env) {
@@ -128,7 +157,8 @@ export function getDefaultChatModel(env = process.env) {
 
 export function resolveChatModelConfig(selectedModel, env = process.env) {
   const model = String(selectedModel || "").trim() || getDefaultChatModel(env);
-  const endpointMap = parseEndpointMap(env);
+  const glmProxyBaseUrl = resolveGlmProxyBaseUrl(env);
+  const endpointMap = glmProxyBaseUrl ? {} : parseEndpointMap(env);
   const allowedModels = new Set(getChatModelOptions(env).map((item) => item.toLowerCase()));
   if (!allowedModels.has(model.toLowerCase())) {
     throw modelConfigError("CHAT_MODEL_NOT_ALLOWED");
@@ -139,6 +169,7 @@ export function resolveChatModelConfig(selectedModel, env = process.env) {
     "DEEPSEEK_ACCESS_CODE",
   ]);
   const apiKey = readFirst(env, [
+    "GLM_PROXY_API_KEY",
     "DUPSEARCH_CHAT_API_KEY",
     "DEEPSEEK_API_KEY",
   ]);
@@ -151,7 +182,8 @@ export function resolveChatModelConfig(selectedModel, env = process.env) {
   const baseUrl = useInternalEndpoint
     ? ""
     : secureModelUrl(
-      readFirst(env, ["DUPSEARCH_CHAT_API_BASE", "DEEPSEEK_API_BASE"])
+      glmProxyBaseUrl
+        || readFirst(env, ["DUPSEARCH_CHAT_API_BASE", "DEEPSEEK_API_BASE"])
         || "https://api.deepseek.com/v1",
     );
 

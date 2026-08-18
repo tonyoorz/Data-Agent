@@ -27,6 +27,7 @@ describe("AgentOperations", () => {
         byOutcome: { completed: 2, denied: 1 },
         byEvidenceStatus: { pass: 2, blocked: 1 },
         latency: { p50Ms: 120, p95Ms: 300 },
+        tokenUsage: { inputTokens: 120, outputTokens: 50, totalTokens: 170 },
         citationValidation: { pass: 2, blocked: 1 },
         topFailureCodes: [{ code: "TOOL_ACCESS_DENIED", count: 1 }],
         recoveryOutcomes: { recovered: 1 },
@@ -45,6 +46,8 @@ describe("AgentOperations", () => {
     render(<AgentOperations />);
 
     expect(await screen.findByText("3")).toBeInTheDocument();
+  expect(screen.getByText("Tokens")).toBeInTheDocument();
+  expect(screen.getByText("170")).toBeInTheDocument();
     expect(screen.getByText("TOOL_ACCESS_DENIED")).toBeInTheDocument();
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith("/api/agent-operations/summary", expect.objectContaining({

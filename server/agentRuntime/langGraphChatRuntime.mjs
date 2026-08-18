@@ -7,7 +7,8 @@ import { resolveAiAnalyticsContext } from "../aiAnalyticsContext.mjs";
 import { extractLatestUserQuery, resolveAiDefectContext } from "../aiContext.mjs";
 import { buildCitationContractContext } from "../answerValidator.mjs";
 import { prepareCompanyChatMessages, requestCompanyChatCompletion } from "../companyChat.mjs";
-import { classifyDirectMainAgentIntent } from "../mainAgentDirectIntent.mjs";
+import { buildDataAccessUnavailableResponse, classifyDirectMainAgentIntent } from "../mainAgentDirectIntent.mjs";
+import { isAnalyticsActorScopeConfigured } from "../internalActorScope.mjs";
 import {
   buildSemanticContinuationContext,
   evaluateClaimEvidence,
@@ -15,7 +16,12 @@ import {
 } from "../mainAgentEvidence.mjs";
 import { buildRuntimeRunSummary } from "./runSummary.mjs";
 import {
+  buildDefectReporterAggregateToolCall,
+  buildDefectReporterAliasLookupToolCall,
+  buildDefectReporterClarificationToolCall,
+  buildDefectReporterLookupToolCall,
   buildEmptyDiagnosisToolCall,
+  buildSelectedToolsetContext,
   buildToolPlanningContext,
   executeMainAgentPlannedToolCall,
   hasEmptyAnalyticsResult,
@@ -54,6 +60,7 @@ const ChatState = Annotation.Root({
   toolRouting: Annotation({ reducer: overwrite, default: () => null }),
   plannedToolCalls: Annotation({ reducer: overwrite, default: () => [] }),
   plannedToolCallSource: Annotation({ reducer: overwrite, default: () => "" }),
+  toolExecutionMode: Annotation({ reducer: overwrite, default: () => "model" }),
   governedPlanBlockCode: Annotation({ reducer: overwrite, default: () => "" }),
   toolStepIndex: Annotation({ reducer: overwrite, default: () => 0 }),
   stoppedReason: Annotation({ reducer: overwrite, default: () => "" }),
@@ -631,11 +638,6 @@ function compactToolRouting(toolRouting) {
   };
 }
 
-function buildSelectedToolsetContext(selectedToolset) {
-  const toolNames = (selectedToolset?.tools || []).map((tool) => tool.function?.name).filter(Boolean).join(", ");
-  return `# Selected toolset\nIntent: ${selectedToolset?.intent || "general"}. Tools: ${toolNames}.`;
-}
-
 function emptyClaimReleaseGate() {
   return { status: "not_required", violations: [], analysisRefs: [], sourceRevisionIds: [], warnings: [] };
 }
@@ -691,6 +693,32 @@ function buildMainAgentToolContextFromState(state) {
   };
 }
 
+function resolveDeterministicQueryPlan({ analyticsContext, actorScope, selectedToolset }) {
+  const candidate = analyticsContext?.semanticPlan;
+  if (!candidate || typeof candidate !== "object") return null;
+  try {
+    const plan = validatePlan(candidate);
+    const toolNames = new Set(selectedToolset?.toolNames || []);
+    if (plan.status !== "valid" || plan.actorScopeHash !== String(actorScope?.scopeHash || "")) return null;
+    if (plan.executionFingerprint !== fingerprintQueryPlanSteps(plan.steps)) return null;
+    if (!plan.steps.length || !plan.steps.every((step) => step.riskLevel === "R0" && toolNames.has(step.toolName))) return null;
+    return plan;
+  } catch {
+    return null;
+  }
+}
+
+function canonicalToolCalls(plan) {
+  return plan.steps.map((step) => ({
+    id: `${plan.planId}:${step.stepId}`,
+    type: "function",
+    function: {
+      name: step.toolName,
+      arguments: JSON.stringify(step.canonicalArgs),
+    },
+  }));
+}
+
 export function createLangGraphChatRuntime({
   resolveAnalyticsContext = resolveAiAnalyticsContext,
   resolveDefectContext = resolveAiDefectContext,
@@ -736,6 +764,7 @@ export function createLangGraphChatRuntime({
       model: String(body?.model || ""),
       plannedToolCalls: [],
       governedPlanBlockCode: "",
+      toolExecutionMode: "model",
       toolStepIndex: 0,
       stoppedReason: "",
       turnToolCallStart: (state.toolCalls || []).length,
@@ -750,24 +779,40 @@ export function createLangGraphChatRuntime({
 
   async function resolveContext(state, config) {
     const body = state.body || {};
+    if (classifyDirectMainAgentIntent(state.queryText || extractLatestUserQuery(body?.messages))) {
+      return {
+        analyticsContext: null,
+        defectContext: null,
+        baseContext: "",
+        runtimeEvents: [],
+      };
+    }
     let analyticsContext = null;
     let defectContext = null;
     const events = [];
 
     if (body?.useAnalyticsContext === true) {
-      events.push(emit(config, { type: "analytics-context-started", threadId: state.threadId }));
-      analyticsContext = await resolveAnalyticsContext({
-        messages: body?.messages,
-        ...(hasActorScope(state.actorScope) ? { actor: state.actorScope } : {}),
-        ...(hasActorScope(state.actorScope) && ontologyRegistry ? { ontologyRegistry } : {}),
-      });
-      const governedAnalysisPlan = governedAnalysisAuditFromContext(analyticsContext);
-      if (governedAnalysisPlan) {
-        events.push(emit(config, {
-          type: "governed-analysis-plan-ready",
-          threadId: state.threadId,
-          analysisPlan: governedAnalysisPlan,
-        }));
+      if (!isAnalyticsActorScopeConfigured(state.actorScope)) {
+        analyticsContext = {
+          contextText: "# Governed data access\nStatus: BLOCKED\nReason: a server-owned workspace, team, or project scope and allowed object types are required before data access.",
+          skipDefectContext: true,
+        };
+        events.push(emit(config, { type: "analytics-context-blocked", threadId: state.threadId }));
+      } else {
+        events.push(emit(config, { type: "analytics-context-started", threadId: state.threadId }));
+        analyticsContext = await resolveAnalyticsContext({
+          messages: body?.messages,
+          actor: state.actorScope,
+          ...(ontologyRegistry ? { ontologyRegistry } : {}),
+        });
+        const governedAnalysisPlan = governedAnalysisAuditFromContext(analyticsContext);
+        if (governedAnalysisPlan) {
+          events.push(emit(config, {
+            type: "governed-analysis-plan-ready",
+            threadId: state.threadId,
+            analysisPlan: governedAnalysisPlan,
+          }));
+        }
       }
     }
 
@@ -792,17 +837,25 @@ export function createLangGraphChatRuntime({
   async function routeTools(state, config) {
     const body = state.body || {};
     const governedPlanCandidate = hasReadyGovernedPlanCandidate(state.analyticsContext);
+    const selectedToolset = selectMainAgentToolset(body?.messages, state.toolCalls);
+    const actorScopeConfigured = isAnalyticsActorScopeConfigured(state.actorScope);
+    const needsDataTools = body?.useAnalyticsContext === true && (
+      governedPlanCandidate
+      || shouldPlanTools(body?.messages)
+      || selectedToolset.policyHints?.includes("resolve_defect_reporter_before_aggregate")
+    );
     const directResponse = governedPlanCandidate
       ? null
-      : classifyDirectMainAgentIntent(state.queryText || extractLatestUserQuery(body?.messages));
-    const selectedToolset = selectMainAgentToolset(body?.messages);
+      : classifyDirectMainAgentIntent(state.queryText || extractLatestUserQuery(body?.messages))
+        || (!actorScopeConfigured && needsDataTools ? buildDataAccessUnavailableResponse() : null);
     const governedPlanDenied = state.analyticsContext?.analysisPlan?.status === "denied";
-    const shouldUseTools = body?.useAnalyticsContext === true && (
+    const shouldUseTools = actorScopeConfigured && body?.useAnalyticsContext === true && (
       governedPlanCandidate
       || (!directResponse
         && !governedPlanDenied
         && !state.analyticsContext?.skipDefectContext
-        && shouldPlanTools(body?.messages))
+        && (shouldPlanTools(body?.messages)
+          || selectedToolset.policyHints?.includes("resolve_defect_reporter_before_aggregate")))
     );
     const toolRouting = { shouldUseTools, selectedToolset };
     const compact = compactToolRouting(toolRouting);
@@ -833,10 +886,63 @@ export function createLangGraphChatRuntime({
 
   async function planToolCalls(state, config) {
     const body = state.body || {};
-    const selectedToolset = state.toolRouting?.selectedToolset || selectMainAgentToolset(body?.messages);
+    const selectedToolset = state.toolRouting?.selectedToolset || selectMainAgentToolset(body?.messages, state.toolCalls);
     const events = Number(state.toolStepIndex || 0) === 0
       ? [emit(config, { type: "tool-planning-started", threadId: state.threadId })]
       : [];
+    const defectReporterLookup = buildDefectReporterLookupToolCall(body?.messages, state.toolCalls);
+    if (defectReporterLookup) {
+      return {
+        plannedToolCalls: [defectReporterLookup],
+        plannedToolCallSource: "defect_reporter_lookup",
+        toolExecutionMode: "model",
+        stoppedReason: "",
+        runtimeEvents: events,
+      };
+    }
+    const defectReporterAliasLookup = buildDefectReporterAliasLookupToolCall({
+      messages: body?.messages,
+      toolMessages: state.toolMessages,
+      priorToolCalls: state.toolCalls,
+    });
+    if (defectReporterAliasLookup) {
+      return {
+        plannedToolCalls: [defectReporterAliasLookup],
+        plannedToolCallSource: "defect_reporter_alias_lookup",
+        toolExecutionMode: "model",
+        stoppedReason: "",
+        runtimeEvents: events,
+      };
+    }
+    const defectReporterAggregate = buildDefectReporterAggregateToolCall({
+      messages: body?.messages,
+      toolMessages: state.toolMessages,
+      priorToolCalls: state.toolCalls,
+      now: now(),
+    });
+    if (defectReporterAggregate) {
+      return {
+        plannedToolCalls: [defectReporterAggregate],
+        plannedToolCallSource: "defect_reporter_aggregate",
+        toolExecutionMode: "deterministic",
+        stoppedReason: "",
+        runtimeEvents: events,
+      };
+    }
+    const defectReporterClarification = buildDefectReporterClarificationToolCall({
+      messages: body?.messages,
+      toolMessages: state.toolMessages,
+      priorToolCalls: state.toolCalls,
+    });
+    if (defectReporterClarification) {
+      return {
+        plannedToolCalls: [defectReporterClarification],
+        plannedToolCallSource: "defect_reporter_clarification",
+        toolExecutionMode: "model",
+        stoppedReason: "",
+        runtimeEvents: events,
+      };
+    }
     const governedPlan = inspectReadySemanticPlan({
       analyticsContext: state.analyticsContext,
       actorScope: state.actorScope,
@@ -847,6 +953,7 @@ export function createLangGraphChatRuntime({
       return {
         plannedToolCalls: governedPlan.toolCalls,
         plannedToolCallSource: "governed_semantic_plan",
+        toolExecutionMode: "deterministic",
         governedPlanBlockCode: "",
         stoppedReason: "",
         runtimeEvents: events,
@@ -875,6 +982,25 @@ export function createLangGraphChatRuntime({
         ],
       };
     }
+    const deterministicPlan = Number(state.toolStepIndex || 0) === 0
+      ? resolveDeterministicQueryPlan({ analyticsContext: state.analyticsContext, actorScope: state.actorScope, selectedToolset })
+      : null;
+    if (deterministicPlan) {
+      const plannedToolCalls = canonicalToolCalls(deterministicPlan);
+      events.push(emit(config, {
+        type: "deterministic-tool-plan-ready",
+        threadId: state.threadId,
+        planId: deterministicPlan.planId,
+        toolNames: plannedToolCalls.map((toolCall) => toolCall.function.name),
+      }));
+      return {
+        plannedToolCalls,
+        plannedToolCallSource: "canonical_query_plan",
+        toolExecutionMode: "deterministic",
+        stoppedReason: "",
+        runtimeEvents: events,
+      };
+    }
     const planningResult = await requestToolCompletion({
       messages: [
         ...(Array.isArray(body?.messages) ? body.messages : []),
@@ -897,12 +1023,14 @@ export function createLangGraphChatRuntime({
         plannedToolCalls: [],
         plannedToolCallSource: "",
         stoppedReason: removedDuplicate ? "duplicate_tool_call" : "no_tool_calls",
+        toolExecutionMode: "model",
         runtimeEvents: events,
       };
     }
     return {
       plannedToolCalls,
       plannedToolCallSource: "model",
+      toolExecutionMode: "model",
       stoppedReason: "",
       runtimeEvents: events,
     };
@@ -1017,6 +1145,9 @@ export function createLangGraphChatRuntime({
     }
 
     const nextStepIndex = Number(state.toolStepIndex || 0) + 1;
+    if (!stoppedReason && state.toolExecutionMode === "deterministic") {
+      stoppedReason = "deterministic_plan_complete";
+    }
     if (!stoppedReason && nextStepIndex >= Math.max(1, Math.min(10, Number(maxToolSteps || 4)))) {
       stoppedReason = "max_steps";
     }
@@ -1104,7 +1235,7 @@ export function createLangGraphChatRuntime({
   }
 
   function routeAfterToolExecution(state) {
-    if (state.plannedToolCallSource === "governed_semantic_plan") {
+    if (["governed_semantic_plan", "defect_reporter_aggregate"].includes(state.plannedToolCallSource)) {
       return "finalize";
     }
     return state.stoppedReason ? "finalize" : "plan_tool_calls";

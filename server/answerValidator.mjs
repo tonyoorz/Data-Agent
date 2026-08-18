@@ -19,6 +19,8 @@ const CAUSAL_LIMITATION_PATTERN = /(?:不能|无法|不).{0,20}(?:证明|表明)
 const CITATION_SOURCE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
 const CITATION_TOKEN_PATTERN = /<cite\s+source=(["'])([A-Za-z0-9][A-Za-z0-9._:-]{0,127})\1\s*>([\s\S]*?)<\/cite\s*>/giu;
 const CITATION_LIKE_PATTERN = /<\/?cit(?:e|ation)\b/iu;
+const NUMERIC_CLAIM_PATTERN = /(?<![A-Za-z0-9_-])(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?%?/gu;
+const RECORD_IDENTIFIER_PATTERN = /\b[A-Za-z][A-Za-z0-9_]*-\d+\b/gu;
 const CLAIM_CLAUSE_SEPARATOR = /[。！？!?；;，,：:、•●▪◦\n]/u;
 const CAUSAL_SENTENCE_SEPARATOR = /[。！？!?；;\n]/u;
 const FACTUAL_DATA_SUBJECT_PATTERN = /(?:缺陷|问题单|测试(?:用例|执行|运行)?|覆盖率|通过率|执行率|数量|总数|趋势|排名|占比|均值|中位数|项目|团队|模块|ECU|AIDA|defects?|issues?|tests?|runs?|coverage|pass\s*rate|execution\s*rate|count|total|trend|rank|average|median)/iu;
@@ -58,6 +60,7 @@ function isClaimBearingBlock(text) {
   const normalized = normalizeClaimText(text);
   if (!normalized) return false;
   if (/\d/u.test(normalized)) return true;
+  if (CAUSAL_CLAIM_PATTERN.test(normalized)) return true;
   return FACTUAL_DATA_SUBJECT_PATTERN.test(normalized) && FACTUAL_DATA_PREDICATE_PATTERN.test(normalized);
 }
 
@@ -78,7 +81,8 @@ function parseCitationTokens(text) {
     if (!content || !CITATION_SOURCE_ID_PATTERN.test(source) || CITATION_LIKE_PATTERN.test(content)) {
       violations.push("ANSWER_CITATION_TOKEN_INVALID");
     }
-    const claimBlocks = splitClaimClauses(content).filter((block) => isClaimBearingBlock(block));
+    const claimBlocks = splitPreservingDecimalPoints(content, CAUSAL_SENTENCE_SEPARATOR)
+      .filter((block) => isClaimBearingBlock(block));
     if (claimBlocks.length > 1) {
       violations.push(`ANSWER_CITATION_TOKEN_MULTIPLE_CLAIMS:${source}`);
     }
@@ -139,6 +143,66 @@ function evidenceSupportsCausality(evidence) {
   return (Array.isArray(evidence) ? evidence : []).some((item) => item?.causalEvidence === true || item?.evidence?.causalEvidence === true);
 }
 
+function unique(values) {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function normalizeNumeric(value) {
+  const raw = String(value || "").trim();
+  const percent = raw.endsWith("%");
+  const numeric = Number(raw.replace(/,/g, "").replace(/%$/, ""));
+  return Number.isFinite(numeric) ? `${numeric}${percent ? "%" : ""}` : "";
+}
+
+function numericClaims(text) {
+  return [...String(text || "").matchAll(NUMERIC_CLAIM_PATTERN)].map((match) => String(match[0]));
+}
+
+function recordIdentifiers(text) {
+  return [...String(text || "").matchAll(RECORD_IDENTIFIER_PATTERN)].map((match) => String(match[0]));
+}
+
+function collectEvidenceScalars(value, supportedNumbers, supportedRecordIds) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    supportedNumbers.add(normalizeNumeric(value));
+    return;
+  }
+  if (typeof value === "string") {
+    if (/^(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?%?$/.test(value.trim())) {
+      supportedNumbers.add(normalizeNumeric(value));
+    }
+    for (const recordId of recordIdentifiers(value)) {
+      supportedRecordIds.add(recordId);
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    supportedNumbers.add(normalizeNumeric(value.length));
+    for (const item of value) {
+      collectEvidenceScalars(item, supportedNumbers, supportedRecordIds);
+    }
+    return;
+  }
+  if (value && typeof value === "object") {
+    for (const item of Object.values(value)) {
+      collectEvidenceScalars(item, supportedNumbers, supportedRecordIds);
+    }
+  }
+}
+
+function supportedEvidenceScalars(item) {
+  const supportedNumbers = new Set();
+  const supportedRecordIds = new Set();
+  for (const value of [item?.evidence, item?.summary, item?.data, item?.pagination]) {
+    collectEvidenceScalars(value, supportedNumbers, supportedRecordIds);
+  }
+  return { supportedNumbers, supportedRecordIds };
+}
+
+function hasSemanticClaim(text) {
+  return numericClaims(text).length > 0 || recordIdentifiers(text).length > 0 || CAUSAL_CLAIM_PATTERN.test(String(text || ""));
+}
+
 export function validateAnswerContract({ answer, evidence = [], registry } = {}) {
   const constraint = approvedClaimEvidenceConstraint(registry);
   const coverage = Number(constraint?.parameters?.coverage || 0);
@@ -176,7 +240,14 @@ export function extractCitationSources(text) {
   return [...new Set(parseCitationTokens(text).tokens.map((token) => token.source))];
 }
 
-export function validateAnswerTextCitations({ text, evidence = [], registry } = {}) {
+export function validateAnswerTextCitations({ text, evidence = [], registry, evidenceGate } = {}) {
+  const answerText = String(text || "");
+  const gateStatus = String(evidenceGate?.status || "pass");
+  if (gateStatus === "blocked") {
+    return hasSemanticClaim(answerText)
+      ? { valid: false, violations: ["ANSWER_SEMANTIC_EVIDENCE_BLOCKED"] }
+      : { valid: true, violations: [] };
+  }
   const parsed = parseCitationTokens(text);
   const contract = validateAnswerContract({
     answer: {
@@ -188,12 +259,35 @@ export function validateAnswerTextCitations({ text, evidence = [], registry } = 
   });
   const ruleViolations = checkRuleValidations({ text, registry });
   const numericViolations = checkNumericGuardrails({ text, parsed, evidence });
+  const byId = evidenceByToolCallId(evidence);
+  const evidenceBoundViolations = [];
+  if (byId.size && evidenceGate && gateStatus === "pass") {
+    const uncitedText = answerText.replace(CITATION_TOKEN_PATTERN, "");
+    if (numericClaims(uncitedText).length) evidenceBoundViolations.push("ANSWER_NUMERIC_CLAIM_UNCITED");
+    if (recordIdentifiers(uncitedText).length) evidenceBoundViolations.push("ANSWER_RECORD_CLAIM_UNCITED");
+    for (const claim of parsed.tokens) {
+      const item = byId.get(String(claim.source));
+      if (!item) continue;
+      const { supportedNumbers, supportedRecordIds } = supportedEvidenceScalars(item);
+      for (const value of numericClaims(claim.content)) {
+        if (!supportedNumbers.has(normalizeNumeric(value))) {
+          evidenceBoundViolations.push(`ANSWER_NUMERIC_CLAIM_UNSUPPORTED:${claim.source}`);
+        }
+      }
+      for (const recordId of recordIdentifiers(claim.content)) {
+        if (!supportedRecordIds.has(recordId)) {
+          evidenceBoundViolations.push(`ANSWER_RECORD_CLAIM_UNSUPPORTED:${claim.source}`);
+        }
+      }
+    }
+  }
   const violations = [
     ...contract.violations,
     ...parsed.violations,
     ...claimCoverageViolations(text, parsed.tokens, evidence),
     ...ruleViolations,
     ...numericViolations,
+    ...evidenceBoundViolations,
   ];
   return { valid: violations.length === 0, violations: [...new Set(violations)] };
 }

@@ -158,8 +158,20 @@ describe("AIChat duplicate search integration", () => {
       screen.getByRole("button", { name: /duplicate search/i }),
     ).toBeInTheDocument();
 
-    expect(screen.getByRole("combobox")).toHaveValue("deepseek-v4-flash");
+    expect(screen.getByRole("combobox")).toHaveValue("deepseek-v4-pro");
     expect(screen.getByRole("switch", { name: /缺陷上下文/i })).not.toBeChecked();
+  });
+
+  it("offers the supported GLMProxy chat models", () => {
+    render(<AIChat moduleKey="ai-chat" moduleLabel="AI Chat" />);
+
+    expect(screen.getAllByRole("option").map((option) => option.getAttribute("value"))).toEqual([
+      "deepseek-v4-pro",
+      "deepseek-v4-flash",
+      "qwen3.7-max",
+      "qwen3.7-flash",
+      "glm-5.1",
+    ]);
   });
 
   it("keeps the defect context control inside the composer context chip", () => {
@@ -543,7 +555,7 @@ describe("AIChat duplicate search integration", () => {
     expect(requestOptions?.headers).toEqual({ "Content-Type": "application/json" });
   });
 
-  it("shows model token usage and estimated cost below assistant messages", async () => {
+  it("shows the company token price for a versioned DeepSeek V4 Pro response", async () => {
     const encoder = new TextEncoder();
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -553,7 +565,7 @@ describe("AIChat duplicate search integration", () => {
             encoder.encode(
               'data: {"choices":[{"delta":{"content":"已完成"}}]}' +
                 '\n\n' +
-                'data: {"model":"glm-5","choices":[],"usage":{"prompt_tokens":1000,"completion_tokens":500,"total_tokens":1500}}' +
+                'data: {"model":"deepseek-v4-pro-260425","choices":[],"usage":{"prompt_tokens":1000,"completion_tokens":500,"total_tokens":1500}}' +
                 '\n\n' +
                 'data: [DONE]\n\n',
             ),
@@ -568,16 +580,89 @@ describe("AIChat duplicate search integration", () => {
 
     render(<AIChat moduleKey="ai-chat" moduleLabel="AI Chat" />);
 
-    fireEvent.change(screen.getByRole("combobox"), { target: { value: "glm-5" } });
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "deepseek-v4-pro" } });
     fireEvent.change(screen.getByRole("textbox"), {
       target: { value: "请总结当前缺陷风险" },
     });
     fireEvent.click(screen.getByRole("button", { name: "发送" }));
 
     expect(await screen.findByText("已完成")).toBeInTheDocument();
-    expect(await screen.findByLabelText("模型 glm-5")).toBeInTheDocument();
+    expect(await screen.findByLabelText("模型 deepseek-v4-pro-260425")).toBeInTheDocument();
     expect(screen.getByText("Tokens 1,500")).toBeInTheDocument();
-    expect(screen.getByText("Cost ¥0.0018")).toBeInTheDocument();
+    expect(screen.getByText("Cost ¥0.024")).toBeInTheDocument();
+  });
+
+  it("uses the company zero price for Qwen 3.7 Max", async () => {
+    const encoder = new TextEncoder();
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            encoder.encode(
+              'data: {"choices":[{"delta":{"content":"已完成"}}]}' +
+                '\n\n' +
+                'data: {"model":"qwen3.7-max-2026-06-08","choices":[],"usage":{"prompt_tokens":1000,"completion_tokens":500,"total_tokens":1500}}' +
+                '\n\n' +
+                'data: [DONE]\n\n',
+            ),
+          );
+          controller.close();
+        },
+      }),
+      json: async () => ({ error: "unexpected" }),
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<AIChat moduleKey="ai-chat" moduleLabel="AI Chat" />);
+
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "qwen3.7-max" } });
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "请总结当前缺陷风险" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    expect(await screen.findByText("已完成")).toBeInTheDocument();
+    expect(await screen.findByLabelText("模型 qwen3.7-max-2026-06-08")).toBeInTheDocument();
+    expect(screen.getByText("Cost ¥0")).toBeInTheDocument();
+  });
+
+  it("does not estimate token cost for a model billed by route", async () => {
+    const encoder = new TextEncoder();
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(
+            encoder.encode(
+              'data: {"choices":[{"delta":{"content":"已完成"}}]}' +
+                '\n\n' +
+                'data: {"model":"glm-5-2-260617","choices":[],"usage":{"prompt_tokens":1000,"completion_tokens":500,"total_tokens":1500}}' +
+                '\n\n' +
+                'data: [DONE]\n\n',
+            ),
+          );
+          controller.close();
+        },
+      }),
+      json: async () => ({ error: "unexpected" }),
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<AIChat moduleKey="ai-chat" moduleLabel="AI Chat" />);
+
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "glm-5.1" } });
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "请总结当前缺陷风险" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    expect(await screen.findByText("已完成")).toBeInTheDocument();
+    expect(await screen.findByLabelText("模型 glm-5-2-260617")).toBeInTheDocument();
+    expect(screen.getByText("Tokens 1,500")).toBeInTheDocument();
+    expect(screen.queryByText(/^Cost /)).not.toBeInTheDocument();
   });
 
   it("shows an immediate generating status for pure AI chat before the first visible answer chunk", async () => {

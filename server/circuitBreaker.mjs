@@ -108,5 +108,10 @@ export function createCircuitBreaker({
     return { service, state, failureCount, lastFailureAt };
   }
 
-  return { call, getState };
+  function reset() {
+    recordSuccess();
+    lastFailureAt = 0;
+  }
+
+  return { call, getState, reset };
 }

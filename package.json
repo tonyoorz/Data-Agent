@@ -21,6 +21,7 @@
     "start": "node ./server/index.mjs",
     "pretest": "node ./scripts/ensureNodeVersion.mjs",
     "test": "vitest run",
+    "benchmark:asr": "node ./scripts/benchmarkTranscription.mjs",
     "test:watch": "vitest",
     "test:agent-evals": "vitest run src/test/server/mainAgentGolden.test.ts src/test/server/ontology/semanticGolden.test.ts src/test/server/ontology/semanticQualityGolden.test.ts src/test/server/mainAgentExecutionGolden.test.ts src/test/server/mainAgentPolicyGolden.test.ts src/test/server/mainAgentToolRecovery.test.ts src/test/server/answerValidator.test.ts",
     "eval:scorecard": "node ./scripts/runScorecard.mjs",
@@ -96,7 +97,7 @@
     "tailwindcss-animate": "^1.0.7",
     "vaul": "^0.9.9",
     "zod": "^3.25.76",
-    "@langchain/langgraph-checkpoint-sqlite3": "^2.0.0"
+    "@langchain/langgraph-checkpoint-sqlite": "^1.0.3"
   },
   "devDependencies": {
     "@eslint/js": "^9.32.0",

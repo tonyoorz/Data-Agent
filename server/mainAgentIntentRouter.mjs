@@ -5,6 +5,7 @@ import { toolsForIntent } from "./mainAgentToolsets.mjs";
 const INTENT_PROFILES = Object.freeze({
   chitchat: DIRECT_MAIN_AGENT_INTENT_PROFILES.chitchat,
   out_of_scope: DIRECT_MAIN_AGENT_INTENT_PROFILES.out_of_scope,
+  clarification: DIRECT_MAIN_AGENT_INTENT_PROFILES.clarification,
   metric_query: {
     confidence: 0.88,
     reason: "metric/trend/rank wording matched",

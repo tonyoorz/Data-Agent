@@ -46,6 +46,13 @@ describe("Ontology semantic resolver", () => {
     expect(resolver.resolve(input)).toEqual(resolver.resolve(input));
   });
 
+  it("treats ticket reporting as defect creation", () => {
+    const frame = resolver.resolve({ query: "DTSV 提票情况", actor, requestAnchorAt: anchorAt });
+
+    expect(frame.metricIds).toEqual(["defect.created_count"]);
+    expect(frame.filters).toContainEqual({ dimensionId: "org.problem_finder_team", operator: "in", values: ["DTSV_China"], source: "user" });
+  });
+
   it("unions same-dimension comparison values instead of intersecting them", () => {
     const frame = resolver.resolve({ query: "OS8 与 OS9 缺陷数对比", actor, requestAnchorAt: anchorAt });
     expect(frame.filters.filter((item) => item.dimensionId === "product.os" && item.source === "user")).toEqual([

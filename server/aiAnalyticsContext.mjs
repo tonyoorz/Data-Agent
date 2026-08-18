@@ -283,6 +283,11 @@ async function requestCompanySemanticCandidate({ registry, query, priorSemanticC
   const completion = await requestCompanyChatCompletion({
     messages: createSemanticCandidateMessages({ registry, query, priorSemanticContext, catalog }),
     model,
+    resilience: {
+      maxAttempts: 1,
+      timeoutMs: positiveInteger(process.env.DUPSEARCH_SEMANTIC_CANDIDATE_TIMEOUT_MS, SEMANTIC_CANDIDATE_DEFAULT_TIMEOUT_MS),
+      retryDelayMs: 0,
+    },
   });
   return {
     ...parseSemanticCandidate(completion.content, schema),
@@ -355,6 +360,7 @@ export async function resolveAiAnalyticsContext({
     shadowObservation,
     analysisPlan,
     queryPlan: semanticPlan,
+    semanticPlan,
     semanticFrame,
   };
 }

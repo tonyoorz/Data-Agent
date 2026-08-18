@@ -54,13 +54,22 @@ describe("resolveAiAnalyticsContext", () => {
   });
 
   it("adds governed ontology interpretation when registry and actor are provided", async () => {
+    const requestSemanticCandidate = vi.fn().mockResolvedValue({
+      intent: "rank",
+      entityIds: ["quality.defect"],
+      metricIds: ["defect.created_count"],
+      dimensionIds: ["product.ecu"],
+    });
+
     const resolved = await resolveAiAnalyticsContext({
       messages: [{ role: "user", content: "最近一周 DTSV 新增缺陷按 ECU Top 5" }],
       now: new Date("2026-07-15T04:00:00.000Z"),
       actor: { actorId: "alice", scopeHash: "scope-a", scopes: { workspaceIds: ["DTSV"], teamIds: ["DTSV"] } },
       ontologyRegistry: createOntologyRegistry(),
+      requestSemanticCandidate,
     });
 
+    expect(requestSemanticCandidate).toHaveBeenCalledOnce();
     expect(resolved.contextText).toContain("# Governed Ontology interpretation");
     expect(resolved.contextText).toContain("Intent: rank");
     expect(resolved.contextText).toContain("defect.created_count");
@@ -72,6 +81,14 @@ describe("resolveAiAnalyticsContext", () => {
       schemaFingerprint: resolved.queryPlan.schemaFingerprint,
     });
     expect(resolved.analysisPlan).toMatchObject({ operation: "ranked_comparison", visualization: "bar" });
+    expect(resolved.semanticPlan).toMatchObject({
+      status: "valid",
+      actorScopeHash: "scope-a",
+      steps: [expect.objectContaining({
+        toolName: "query_semantic_metrics",
+        canonicalArgs: expect.any(Object),
+      })],
+    });
     expect(resolved.contextText).toContain(`Analysis plan: ${resolved.analysisPlan.analysisPlanId}`);
     expect(resolved.contextText).toContain(`Ontology version: ${resolved.analysisPlan.ontologyVersion}`);
     expect(resolved.contextText).toContain(`Source plan fingerprint: ${resolved.analysisPlan.sourcePlanFingerprint}`);

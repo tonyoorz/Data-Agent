@@ -5,9 +5,11 @@ import { buildCompanyChatModels } from "../components/dashboard/chat/companyMode
 describe("company chat model options", () => {
   it("uses repository defaults only when no deployment allowlist is configured", () => {
     expect(buildCompanyChatModels().map((item) => item.id)).toEqual([
+      "deepseek-v4-pro",
       "deepseek-v4-flash",
-      "qwen3.5-397b-a17b",
-      "glm-5",
+      "qwen3.7-max",
+      "qwen3.7-flash",
+      "glm-5.1",
     ]);
   });
 

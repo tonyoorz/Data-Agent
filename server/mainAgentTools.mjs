@@ -1356,7 +1356,7 @@ async function executeAnalyticsFilterValueSearch(toolCall, { analyticsFetch, ana
 
 const PERSON_FILTER_STOP_WORDS = new Set(["dtsv", "qgate", "octane", "defect", "defects", "ticket", "tickets"]);
 
-function normalizePersonName(rawName) {
+function normalizePersonName(rawName, { allowSingleToken = false } = {}) {
   const tokens = String(rawName || "")
     .trim()
     .split(/\s+/)
@@ -1370,7 +1370,7 @@ function normalizePersonName(rawName) {
     }
     nameTokens.push(token);
   }
-  if (nameTokens.length < 2) {
+  if (nameTokens.length < (allowSingleToken ? 1 : 2)) {
     return "";
   }
   return nameTokens
@@ -1378,7 +1378,7 @@ function normalizePersonName(rawName) {
     .join(" ");
 }
 
-function extractDetectedByName(text) {
+export function extractDetectedByName(text) {
   const labeledName = String(text || "").match(/(?:人名|姓名|name)\s*[:：]?\s+([A-Za-z][A-Za-z.'-]*(?:\s+[A-Za-z][A-Za-z.'-]*){1,5})/i);
   const personLabelName = normalizePersonName(labeledName?.[1]);
   if (personLabelName) {
@@ -1391,8 +1391,19 @@ function extractDetectedByName(text) {
     return explicitName;
   }
 
-  const beforeTicketVerb = String(text || "").match(/\b([A-Za-z][A-Za-z.'-]*(?:\s+[A-Za-z][A-Za-z.'-]*){1,3})\s*(?:提了|提票|提交|新增|创建|缺陷|ticket)/i);
-  return normalizePersonName(beforeTicketVerb?.[1]);
+  const beforeTicketVerb = String(text || "").match(/\b([A-Za-z][A-Za-z.'-]*(?:\s+[A-Za-z][A-Za-z.'-]*){1,3})\s*(?:提了|提票|报票|提交|新增|创建|缺陷)/i);
+  const fullName = normalizePersonName(beforeTicketVerb?.[1]);
+  if (fullName) {
+    return fullName;
+  }
+
+  const accountBeforeTicketVerb = String(text || "").match(/\b([A-Za-z][A-Za-z0-9._'-]{1,63})\s*(?:提了|提票|报票|提交|新增|创建|缺陷)/i);
+  return normalizePersonName(accountBeforeTicketVerb?.[1], { allowSingleToken: true });
+}
+
+export function isDefectReporterTicketQuery(text) {
+  return Boolean(extractDetectedByName(text))
+    && /提了|提票|报票|提交|新增|新建|创建|opened|created|raised|submitted/i.test(String(text || ""));
 }
 
 function resolveBusinessTerms(query) {

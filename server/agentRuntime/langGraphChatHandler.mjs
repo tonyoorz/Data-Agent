@@ -8,6 +8,11 @@ import { evaluateClaimEvidence } from "../mainAgentEvidence.mjs";
 import { createOntologyRegistry } from "../ontology/registry.mjs";
 
 const FINAL_STREAM_FAILURE_CODE = "FINAL_STREAM_FAILED";
+const CLAIM_BEARING_SEMANTIC_TOOLS = new Set([
+  "query_semantic_metrics",
+  "query_semantic_records",
+  "query_traceability",
+]);
 
 function blockedAnswerValidation(violations = []) {
   const normalized = [...new Set((Array.isArray(violations) ? violations : [])
@@ -78,9 +83,11 @@ function resolveReleaseGate(runtimeResult) {
 
 function createAnswerValidation(runtimeResult, releaseGate) {
   const evidence = runtimeResult?.mainAgentToolContext?.evidence;
-  if (!Array.isArray(evidence) || !evidence.length) {
+  const semanticEvidence = (Array.isArray(evidence) ? evidence : []).filter((item) => CLAIM_BEARING_SEMANTIC_TOOLS.has(item?.tool));
+  if (!semanticEvidence.length) {
     return undefined;
   }
+  const evidenceGate = runtimeResult?.mainAgentToolContext?.evidenceGate;
   try {
     return {
       evidence,

@@ -720,6 +720,26 @@ describe("main agent analytics tools", () => {
     expect(result.contextText).toContain("Datasets: defects");
   });
 
+  it("normalizes a single-token account in a defect ticket question to detected_by", async () => {
+    const analyticsFetch = vi.fn();
+
+    const result = await executeMainAgentToolCall(
+      {
+        id: "terms-person-account",
+        type: "function",
+        function: {
+          name: "resolve_business_terms",
+          arguments: JSON.stringify({ query: "xumiao 提票情况" }),
+        },
+      },
+      { analyticsFetch },
+    );
+
+    expect(analyticsFetch).not.toHaveBeenCalled();
+    expect(result.toolMessage.content).toContain('"detected_by":["Xumiao"]');
+    expect(result.contextText).toContain("Datasets: defects");
+  });
+
   it("allows detected_by as a defect aggregate dimension", () => {
     const queryAnalyticsTool = MAIN_AGENT_TOOLS.find((tool) => tool.function.name === "query_analytics");
     const dimensionEnum = queryAnalyticsTool?.function.parameters.properties.dimensions.items.enum;

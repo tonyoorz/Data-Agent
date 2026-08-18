@@ -21,6 +21,11 @@ describe("transcribeAudio", () => {
     delete process.env.DUPSEARCH_TRANSCRIBE_PROVIDER;
     delete process.env.DUPSEARCH_LOCAL_ASR_MODEL;
     delete process.env.DUPSEARCH_LOCAL_ASR_DEVICE;
+    delete process.env.DUPSEARCH_BEACON_DOUBAO_ASR_URL;
+    delete process.env.DUPSEARCH_BEACON_DOUBAO_ASR_API_KEY;
+    delete process.env.DUPSEARCH_BEACON_DOUBAO_ASR_MODEL;
+    delete process.env.DUPSEARCH_BEACON_DOUBAO_ASR_REQUEST_FORMAT;
+    delete process.env.DUPSEARCH_BEACON_DOUBAO_ASR_FALLBACK_TO_LOCAL;
   });
 
   it("rejects when no transcription provider is configured", async () => {
@@ -319,6 +324,73 @@ describe("transcribeAudio", () => {
           localModel: "C:\\models\\SenseVoiceSmall",
           localDevice: "cuda:0",
         }),
+      }),
+    );
+  });
+
+  it("uses the configured Beacon Doubao batch endpoint without exposing its credential to callers", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ text: "  beacon transcript  " }),
+      text: async () => "",
+      headers: {
+        get: (name: string) => (name.toLowerCase() === "content-type" ? "application/json" : null),
+      },
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+    process.env.DUPSEARCH_TRANSCRIBE_PROVIDER = "beacon-doubao";
+    process.env.DUPSEARCH_BEACON_DOUBAO_ASR_URL = "https://beacon.example.test/asr";
+    process.env.DUPSEARCH_BEACON_DOUBAO_ASR_API_KEY = "beacon-server-token";
+
+    await expect(
+      transcribeAudio({ audioBase64: "Zm9v", mimeType: "audio/webm" }),
+    ).resolves.toEqual({ text: "beacon transcript", provider: "beacon-doubao", fallback: false });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://beacon.example.test/asr",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          Authorization: "Bearer beacon-server-token",
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        }),
+        body: JSON.stringify({
+          model: "Doubao-ASR-Async",
+          audio: "Zm9v",
+          mime: "audio/webm",
+        }),
+      }),
+    );
+  });
+
+  it("falls back to local FunASR when Beacon Doubao transcription fails", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 503,
+      statusText: "Service Unavailable",
+      text: async () => "temporary upstream failure",
+    });
+    const localAsrRunner = vi.fn().mockResolvedValue({ text: "local fallback transcript" });
+
+    vi.stubGlobal("fetch", fetchMock);
+    process.env.DUPSEARCH_TRANSCRIBE_PROVIDER = "beacon-doubao";
+    process.env.DUPSEARCH_BEACON_DOUBAO_ASR_URL = "https://beacon.example.test/asr";
+    process.env.DUPSEARCH_BEACON_DOUBAO_ASR_API_KEY = "beacon-server-token";
+
+    await expect(
+      transcribeAudio(
+        { audioBase64: "Zm9v", mimeType: "audio/webm" },
+        process.env,
+        { localAsrRunner },
+      ),
+    ).resolves.toEqual({ text: "local fallback transcript", provider: "local-funasr", fallback: true });
+
+    expect(localAsrRunner).toHaveBeenCalledWith(
+      expect.objectContaining({
+        audioBase64: "Zm9v",
+        mimeType: "audio/webm",
       }),
     );
   });

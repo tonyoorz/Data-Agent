@@ -270,7 +270,11 @@ describe("LangGraph chat handler", () => {
       body: {
         threadId: "thread-invalid-ready-plan",
         useAnalyticsContext: true,
-        actor: { actorId: "alice", scopeHash: "scope-a" },
+        actor: {
+          actorId: "alice",
+          scopeHash: "scope-a",
+          scopes: { workspaceIds: ["DTSV"], allowedObjectTypes: ["quality.defect"] },
+        },
         messages: [{ role: "user", content: "缺陷总数" }],
       },
       response,

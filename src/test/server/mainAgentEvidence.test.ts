@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildToolEvidence,
   buildSemanticContinuationContext,
   evaluateClaimEvidence,
   evaluateSemanticEvidence,

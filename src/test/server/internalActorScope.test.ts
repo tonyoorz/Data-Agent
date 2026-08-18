@@ -1,10 +1,10 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 
-import { withInternalActorScope } from "../../../server/internalActorScope.mjs";
+import { isAnalyticsActorScopeConfigured, withInternalActorScope } from "../../../server/internalActorScope.mjs";
 
 describe("internal analytics actor scope", () => {
-  it("adds one server-owned principal for the internal deployment", () => {
+  it("does not grant analytics access when deployment scope is absent", () => {
     const body = withInternalActorScope(
       { messages: [{ role: "user", content: "按 ECU 看缺陷" }] },
       {},
@@ -13,15 +13,9 @@ describe("internal analytics actor scope", () => {
     expect(body.actor).toMatchObject({
       actorId: "vizion-internal",
       scopeHash: expect.stringMatching(/^internal-[a-f0-9]{16}$/),
-      scopes: {
-        allowedObjectTypes: [
-          "quality.defect",
-          "testing.test_case",
-          "testing.test_run",
-          "requirements.aida_node",
-        ],
-      },
+      scopes: {},
     });
+    expect(isAnalyticsActorScopeConfigured(body.actor)).toBe(false);
   });
 
   it("uses environment scope settings without trusting browser overrides", () => {
@@ -46,5 +40,6 @@ describe("internal analytics actor scope", () => {
       },
     });
     expect(body.actor.scopeHash).not.toBe("browser-scope");
+    expect(isAnalyticsActorScopeConfigured(body.actor)).toBe(true);
   });
 });

@@ -24,12 +24,15 @@ dist-ssr
 *.sw?
 backend/database/octane_data.db
 backend/database/*.sqlite
+backend/database/*.db
 backend/cache/
 __pycache__/
 .octane-browser-profile/
 .octane-browser-profile-refresh/
 .understand-anything/
 graphify-out/
+.claude/
+.workbuddy/
 cookie.txt
 cookie.txt.candidate
 login_info.txt
@@ -41,6 +44,7 @@ database/**/*.db-wal
 database/**/*.db
 database/**/*.sqlite
 database/**/*.duckdb
+database/**/*.db.bak-*
 database/cold/parquet/**
 docs/qgate-reports/generated_runs/
 artifacts/agent-qualification/

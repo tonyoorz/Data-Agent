@@ -95,11 +95,24 @@ function nonNegativeInteger(value, fallback) {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
-function chatResilienceOptions(env = process.env) {
+function tokenCount(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric >= 0 ? Math.round(numeric) : 0;
+}
+
+function normalizeTokenUsage(usage) {
+  if (!usage || typeof usage !== "object") return null;
+  const inputTokens = tokenCount(usage.prompt_tokens ?? usage.input_tokens);
+  const outputTokens = tokenCount(usage.completion_tokens ?? usage.output_tokens);
+  const totalTokens = tokenCount(usage.total_tokens) || inputTokens + outputTokens;
+  return totalTokens > 0 ? { inputTokens, outputTokens, totalTokens } : null;
+}
+
+function chatResilienceOptions(env = process.env, overrides = {}) {
   return {
-    maxAttempts: positiveInteger(env.DUPSEARCH_CHAT_MAX_ATTEMPTS, 2),
-    timeoutMs: positiveInteger(env.DUPSEARCH_CHAT_TIMEOUT_MS, 30000),
-    retryDelayMs: nonNegativeInteger(env.DUPSEARCH_CHAT_RETRY_DELAY_MS, 250),
+    maxAttempts: positiveInteger(overrides.maxAttempts, positiveInteger(env.DUPSEARCH_CHAT_MAX_ATTEMPTS, 2)),
+    timeoutMs: positiveInteger(overrides.timeoutMs, positiveInteger(env.DUPSEARCH_CHAT_TIMEOUT_MS, 30000)),
+    retryDelayMs: nonNegativeInteger(overrides.retryDelayMs, nonNegativeInteger(env.DUPSEARCH_CHAT_RETRY_DELAY_MS, 250)),
   };
 }
 
@@ -119,6 +132,10 @@ const companyChatBreaker = createCircuitBreaker({
     return status === 408 || status === 429 || status >= 500;
   },
 });
+
+export function resetCompanyChatCircuitBreakerForTests() {
+  companyChatBreaker.reset();
+}
 
 function isRetryableStatus(status) {
   return status === 408 || status === 429 || status >= 500;
@@ -174,8 +191,8 @@ async function fetchWithResilience(url, init, options = {}) {
   }
 }
 
-async function fetchWithResilienceOnce(url, init, { env = process.env } = {}) {
-  const { maxAttempts, timeoutMs, retryDelayMs } = chatResilienceOptions(env);
+async function fetchWithResilienceOnce(url, init, { env = process.env, resilience = {} } = {}) {
+  const { maxAttempts, timeoutMs, retryDelayMs } = chatResilienceOptions(env, resilience);
   let lastError;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
@@ -583,7 +600,8 @@ function computeAnswerValidation(state) {
     return { valid: false, violations: [state.releaseViolation] };
   }
   const violations = [];
-  if (state.releaseRequired) {
+  let evidenceGate = state.answerValidation?.evidenceGate;
+  if (state.releaseBindingRequired) {
     let registryConstraintAvailable = false;
     try {
       registryConstraintAvailable = Boolean(state.answerValidation?.registry?.getConstraint?.("answer.claim_evidence_binding"));
@@ -593,7 +611,7 @@ function computeAnswerValidation(state) {
     if (!registryConstraintAvailable) {
       violations.push("ANSWER_VALIDATION_REGISTRY_UNAVAILABLE");
     }
-    const evidenceGate = evaluateClaimEvidence(state.answerValidation?.evidence, {
+    evidenceGate = evaluateClaimEvidence(state.answerValidation?.evidence, {
       expectedActorScopeHash: state.answerValidation?.expectedActorScopeHash,
       expectedSourceRevisionIds: state.answerValidation?.expectedSourceRevisionIds,
       requireReleaseBinding: true,
@@ -606,8 +624,9 @@ function computeAnswerValidation(state) {
   }
   const citationValidation = validateAnswerTextCitations({
     text: (state.visibleContentParts || []).join(""),
-    evidence: state.answerValidation?.evidence,
+    evidence: state.answerValidation?.semanticEvidence || state.answerValidation?.evidence,
     registry: state.answerValidation?.registry,
+    evidenceGate,
   });
   violations.push(...citationValidation.violations);
   const uniqueViolations = [...new Set(violations)];
@@ -648,12 +667,12 @@ function finalizeAnswerRelease(response, state) {
   writePseudoToolFallbackIfNeeded(response, state);
   const validation = computeAnswerValidation(state);
   state.answerValidationEmitted = true;
+  emitAnswerValidation(response, state, validation);
   if (validation.valid) {
     writeContentChunks(response, state.visibleContentParts.join(""));
   } else {
     writeContentChunks(response, GOVERNED_EVIDENCE_UNAVAILABLE_CONTENT);
   }
-  emitAnswerValidation(response, state, validation);
   response.write("data: [DONE]\n\n");
   state.terminalEmitted = true;
 }
@@ -696,6 +715,11 @@ function writeSanitizedSseFrame(response, frame, state) {
       addVisibleContent(response, state, sanitized);
     }
     return false;
+  }
+
+  const tokenUsage = normalizeTokenUsage(payload?.usage);
+  if (tokenUsage) {
+    state.onTokenUsage?.(tokenUsage);
   }
 
   for (const choice of Array.isArray(payload?.choices) ? payload.choices : []) {
@@ -748,6 +772,7 @@ export async function requestCompanyChatCompletion({
   context,
   tools,
   toolChoice,
+  resilience,
   imageOcrRunner,
   documentTextRunner,
 }) {
@@ -776,7 +801,7 @@ export async function requestCompanyChatCompletion({
       method: "POST",
       headers: requestConfig.headers,
       body: JSON.stringify(requestConfig.body),
-    });
+    }, { resilience });
 
     if (!upstream.response.ok) {
       throw upstreamFailure(upstream.response);
@@ -856,6 +881,7 @@ export async function streamCompanyChatCompletion({
   let byteCount = 0;
   let responseStatus = null;
   let streamError = null;
+  let tokenUsage = null;
   let upstream;
 
   try {
@@ -887,7 +913,8 @@ export async function streamCompanyChatCompletion({
 
     const reader = upstreamResponse.body.getReader();
     const decoder = new TextDecoder();
-    const releaseRequired = answerValidation?.releaseRequired === true;
+    const releaseRequired = answerValidation?.releaseRequired === true
+      || Boolean(answerValidation?.semanticEvidence?.length);
     const sanitizerState = {
       suppressingPseudoToolCall: false,
       suppressedPseudoToolCall: false,
@@ -900,10 +927,15 @@ export async function streamCompanyChatCompletion({
       pendingPseudoToolText: "",
       pendingStopTokenText: "",
       visibleContentParts: [],
+      visibleContentBytes: 0,
       answerValidation,
       answerValidationEmitted: false,
       onAnswerValidation,
+      onTokenUsage: (usage) => {
+        tokenUsage = usage;
+      },
       releaseRequired,
+      releaseBindingRequired: answerValidation?.releaseRequired === true,
       releaseMaxBytes: positiveInteger(process.env.VIZION_ANSWER_RELEASE_MAX_BYTES, DEFAULT_ANSWER_RELEASE_MAX_BYTES),
       releaseFrameMaxBytes: positiveInteger(process.env.VIZION_ANSWER_RELEASE_MAX_BYTES, DEFAULT_ANSWER_RELEASE_MAX_BYTES) + 64 * 1024,
       upstreamFrameMaxBytes: positiveInteger(
@@ -1035,6 +1067,7 @@ export async function streamCompanyChatCompletion({
       chunkCount,
       byteCount,
       error: streamError,
+      ...(tokenUsage ? { tokenUsage } : {}),
     });
   }
 }

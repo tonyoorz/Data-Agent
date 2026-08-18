@@ -27,6 +27,18 @@ describe("main agent tool loop", () => {
     expect(names.length).toBeLessThanOrEqual(8);
   });
 
+  it("does not plan analytics tools for a vague testing-status question", () => {
+    const messages = [{ role: "user", content: "测试怎么样" }];
+    const selected = selectMainAgentToolset(messages);
+
+    expect(shouldPlanMainAgentTools(messages)).toBe(false);
+    expect(selected).toMatchObject({
+      intent: "clarification",
+      policyHints: ["direct_response", "no_tools", "clarification_required"],
+      toolNames: [],
+    });
+  });
+
   it("exposes testing coverage tools for coverage threshold questions", () => {
     const selected = selectMainAgentToolset([{ role: "user", content: "覆盖率低于70%的模块有哪些？请按业务影响排序，并建议本周补测顺序" }]);
     const clarification = selectMainAgentToolset([{ role: "user", content: "测试执行覆盖率 — manual-run 的通过率/执行率（按模块/ECU 统计）" }]);
@@ -115,6 +127,22 @@ describe("main agent tool loop", () => {
     expect(personTicket.toolNames).toEqual(expect.arrayContaining(["resolve_business_terms", "query_analytics", "diagnose_analytics_empty"]));
     expect(emptyData.intent).toBe("metric_query");
     expect(emptyData.toolNames).toEqual(expect.arrayContaining(["query_analytics", "diagnose_analytics_empty", "ask_clarification"]));
+  });
+
+  it("routes a named defect reporter away from team-only semantic metrics", () => {
+    const selected = selectMainAgentToolset([{ role: "user", content: "xumiao 提票情况" }]);
+
+    expect(selected.intent).toBe("metric_query");
+    expect(selected.requiredSlots).toContain("defect_reporter");
+    expect(selected.policyHints).toContain("resolve_defect_reporter_before_aggregate");
+    expect(selected.toolNames).toEqual(expect.arrayContaining([
+      "resolve_business_terms",
+      "search_analytics_filter_values",
+      "query_analytics",
+      "ask_clarification",
+    ]));
+    expect(selected.toolNames).not.toContain("query_semantic_metrics");
+    expect(selected.toolNames).not.toContain("query_dashboard_summary");
   });
 
   it("routes broad risk questions to an ontology-backed assessment toolset", () => {
@@ -239,6 +267,50 @@ describe("main agent tool loop", () => {
       toolCallId: "bad-call",
       toolName: "search_duplicates",
       intent: "metric_query",
+    }));
+  });
+
+  it("blocks a team-only aggregate for a named defect reporter", async () => {
+    const teamOnlyToolCall = {
+      id: "missing-defect-reporter",
+      type: "function",
+      function: {
+        name: "query_analytics",
+        arguments: JSON.stringify({
+          dataset: "defects",
+          intent: "aggregate",
+          metrics: ["defect_count"],
+          dimensions: [],
+          filters: { problem_finder_teams: ["DTSV_China"] },
+          time: { field: "creation_time", current: ["2026-01-01", "2026-12-31"], timezone: "Asia/Shanghai" },
+        }),
+      },
+    };
+    const requestChatCompletion = vi.fn().mockResolvedValue({ content: "", toolCalls: [teamOnlyToolCall] });
+    const executeToolCall = vi.fn().mockResolvedValue({
+      contextText: "# Main agent tool result\nTool: query_analytics\nAggregate rows: 1",
+      toolMessage: {
+        role: "tool",
+        tool_call_id: "missing-defect-reporter",
+        name: "query_analytics",
+        content: JSON.stringify({ ok: true, tool: "query_analytics", result: { rows: [{ defect_count: 10 }], returned_groups: 1 } }),
+      },
+    });
+
+    const resolved = await resolveMainAgentToolContext({
+      messages: [{ role: "user", content: "xumiao 提票情况" }],
+      requestChatCompletion,
+      executeToolCall,
+    });
+
+    expect(executeToolCall).not.toHaveBeenCalled();
+    expect(resolved.stoppedReason).toBe("tool_not_allowed");
+    expect(resolved.contextText).toContain("defect_reporter_filter_required");
+    expect(resolved.toolEvents).toContainEqual(expect.objectContaining({
+      type: "tool-blocked",
+      toolCallId: "missing-defect-reporter",
+      toolName: "query_analytics",
+      reason: "defect_reporter_filter_required",
     }));
   });
 

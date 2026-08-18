@@ -5,6 +5,12 @@ import { supabase } from "@/integrations/supabase/client";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 
+type TokenUsage = {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+};
+
 type RunSummary = {
   runRef: string;
   intent: string;
@@ -13,6 +19,7 @@ type RunSummary = {
   citationValidation: string;
   toolNames: string[];
   latencyMs?: number;
+  tokenUsage?: TokenUsage;
 };
 
 type OperationsSummary = {
@@ -20,6 +27,7 @@ type OperationsSummary = {
   byOutcome: Record<string, number>;
   byEvidenceStatus: Record<string, number>;
   latency: { p50Ms: number | null; p95Ms: number | null };
+  tokenUsage?: TokenUsage | null;
   citationValidation: Record<string, number>;
   topFailureCodes: Array<{ code: string; count: number }>;
   recoveryOutcomes: Record<string, number>;
@@ -37,6 +45,10 @@ function displayCount(value: number | undefined) {
 
 function displayLatency(value: number | null | undefined) {
   return value == null ? "-" : `${Math.round(value)} ms`;
+}
+
+function displayTokens(value: number | null | undefined) {
+  return value == null ? "-" : displayCount(value);
 }
 
 async function operationsFetch(path: string) {
@@ -136,12 +148,13 @@ const AgentOperations = () => {
         </Button>
       </section>
 
-      <section className="grid gap-px border border-border bg-border sm:grid-cols-2 xl:grid-cols-5">
+      <section className="grid gap-px border border-border bg-border sm:grid-cols-2 xl:grid-cols-6">
         <Metric label="Runs" value={displayCount(summary.totalRuns)} />
         <Metric label="Completed" value={displayCount(summary.byOutcome.completed)} />
         <Metric label="Denied" value={displayCount(summary.byOutcome.denied)} />
         <Metric label="P50 latency" value={displayLatency(summary.latency.p50Ms)} />
         <Metric label="P95 latency" value={displayLatency(summary.latency.p95Ms)} />
+        <Metric label="Tokens" value={displayTokens(summary.tokenUsage?.totalTokens)} />
       </section>
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">

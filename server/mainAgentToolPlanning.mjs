@@ -1,12 +1,33 @@
 import { extractLatestUserQuery } from "./aiContext.mjs";
-import { executeMainAgentToolCall, MAIN_AGENT_TOOLS } from "./mainAgentTools.mjs";
+import { classifyDirectMainAgentIntent } from "./mainAgentDirectIntent.mjs";
+import { executeMainAgentToolCall, extractDetectedByName, isDefectReporterTicketQuery, MAIN_AGENT_TOOLS } from "./mainAgentTools.mjs";
 import { buildToolEvidence } from "./mainAgentEvidence.mjs";
 import { executeToolWithRecovery } from "./mainAgentToolRecovery.mjs";
 import { selectMainAgentToolset as selectToolsetWithTools } from "./mainAgentIntentRouter.mjs";
 import { buildBlockedToolResult, validateToolCallAllowed } from "./mainAgentPolicyGate.mjs";
 
-export function selectMainAgentToolset(messages) {
-  return selectToolsetWithTools(messages, MAIN_AGENT_TOOLS);
+export function selectMainAgentToolset(messages, priorToolCalls = []) {
+  const selectedToolset = selectToolsetWithTools(messages, MAIN_AGENT_TOOLS);
+  if (!resolveDefectReporterRequest(messages, priorToolCalls)) {
+    return selectedToolset;
+  }
+
+  const allowedToolNames = new Set([
+    "resolve_business_terms",
+    "search_analytics_filter_values",
+    "query_analytics",
+    "diagnose_analytics_empty",
+    "ask_clarification",
+  ]);
+  const tools = MAIN_AGENT_TOOLS.filter((tool) => allowedToolNames.has(tool.function?.name));
+  return {
+    ...selectedToolset,
+    requiredSlots: [...new Set([...(selectedToolset.requiredSlots || []), "defect_reporter"])],
+    policyHints: [...new Set([...(selectedToolset.policyHints || []), "resolve_defect_reporter_before_aggregate"])],
+    requiredAnalyticsFilters: ["detected_by"],
+    toolNames: tools.map((tool) => tool.function?.name).filter(Boolean),
+    tools,
+  };
 }
 
 const TOOL_PLANNING_CONTEXT = `# Main agent tool policy
@@ -69,7 +90,8 @@ export function buildToolPlanningContext(now) {
 
 export function shouldPlanMainAgentTools(messages) {
   const queryText = extractLatestUserQuery(messages);
-  return TOOL_PLANNING_QUERY_RE.test(queryText);
+  if (classifyDirectMainAgentIntent(queryText)) return false;
+  return Boolean(resolveDefectReporterRequest(messages)) || TOOL_PLANNING_QUERY_RE.test(queryText);
 }
 
 export function mergeToolContext(...parts) {
@@ -78,7 +100,269 @@ export function mergeToolContext(...parts) {
 
 export function buildSelectedToolsetContext(selectedToolset) {
   const toolNames = (selectedToolset?.tools || []).map((tool) => tool.function?.name).filter(Boolean).join(", ");
-  return `# Selected toolset\nIntent: ${selectedToolset?.intent || "general"}. Tools: ${toolNames}.`;
+  const defectReporterGuard = selectedToolset?.policyHints?.includes("resolve_defect_reporter_before_aggregate")
+    ? "\n# Defect reporter guard\nThis is a named personal ticket-reporting query. First use search_analytics_filter_values for detected_by, then use its exact candidate in query_analytics. If candidates are missing or ambiguous, call ask_clarification. Never answer it with a team-only aggregate."
+    : "";
+  return `# Selected toolset\nIntent: ${selectedToolset?.intent || "general"}. Tools: ${toolNames}.${defectReporterGuard}`;
+}
+
+function messageText(message) {
+  if (typeof message?.content === "string") {
+    return message.content;
+  }
+  if (!Array.isArray(message?.content)) {
+    return "";
+  }
+  return message.content
+    .map((part) => typeof part === "string" ? part : typeof part?.text === "string" ? part.text : "")
+    .join("\n");
+}
+
+function normalizedBarePersonName(text) {
+  const raw = String(text || "").trim();
+  if (!/^[A-Za-z][A-Za-z.'-]*(?:\s+[A-Za-z][A-Za-z.'-]*){0,3}$/.test(raw)) {
+    return "";
+  }
+  return raw
+    .split(/\s+/)
+    .map((token) => token.charAt(0).toUpperCase() + token.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function hasPriorDefectReporterLookup(priorToolCalls) {
+  return priorToolCalls.some((toolCall) => (
+    String(toolCall?.id || "").startsWith("defect-reporter-")
+    && toolCall?.function?.name === "search_analytics_filter_values"
+    && parseToolInput(toolCall).field === "detected_by"
+  ));
+}
+
+function resolveDefectReporterRequest(messages, priorToolCalls = []) {
+  const queryText = extractLatestUserQuery(messages);
+  if (isDefectReporterTicketQuery(queryText)) {
+    const reporter = extractDetectedByName(queryText);
+    return reporter ? { reporter, isContinuation: false } : null;
+  }
+
+  const userMessages = (Array.isArray(messages) ? messages : [])
+    .filter((message) => message?.role === "user")
+    .map(messageText)
+    .filter(Boolean);
+  const continuationCommand = /^(?:继续(?:未完成)?|continue)$/i.test(String(queryText || "").trim());
+  const reporter = normalizedBarePersonName(queryText)
+    || (continuationCommand
+      ? userMessages.slice(0, -1).reverse().map(normalizedBarePersonName).find(Boolean) || ""
+      : "");
+  if (!reporter) {
+    return null;
+  }
+  const hasPriorReporterQuestion = userMessages.slice(0, -1).some(isDefectReporterTicketQuery);
+  return hasPriorReporterQuestion || hasPriorDefectReporterLookup(priorToolCalls)
+    ? { reporter, isContinuation: true }
+    : null;
+}
+
+function reporterToolKey(reporter) {
+  return String(reporter || "")
+    .toLocaleLowerCase("en-US")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "unknown";
+}
+
+function reporterToolId(reporter, suffix) {
+  return `defect-reporter-${reporterToolKey(reporter)}-${suffix}`;
+}
+
+function reversedReporterName(reporter) {
+  const tokens = String(reporter || "").trim().split(/\s+/).filter(Boolean);
+  return tokens.length === 2 ? [tokens[1], tokens[0]].join(" ") : "";
+}
+
+function sameReporterName(left, right) {
+  return String(left || "").trim().toLocaleLowerCase("en-US") === String(right || "").trim().toLocaleLowerCase("en-US");
+}
+
+function lookupForReporter(priorToolCalls, reporter) {
+  return [...priorToolCalls].reverse().find((toolCall) => {
+    if (toolCall?.function?.name !== "search_analytics_filter_values") {
+      return false;
+    }
+    const input = parseToolInput(toolCall);
+    return input.dataset === "defects"
+      && input.field === "detected_by"
+      && sameReporterName(input.query, reporter);
+  });
+}
+
+export function buildDefectReporterLookupToolCall(messages, priorToolCalls = []) {
+  const reporterRequest = resolveDefectReporterRequest(messages, priorToolCalls);
+  if (!reporterRequest) {
+    return null;
+  }
+  if (lookupForReporter(priorToolCalls, reporterRequest.reporter)) {
+    return null;
+  }
+
+  return {
+    id: reporterToolId(reporterRequest.reporter, "filter-values"),
+    type: "function",
+    function: {
+      name: "search_analytics_filter_values",
+      arguments: JSON.stringify({
+        dataset: "defects",
+        field: "detected_by",
+        query: reporterRequest.reporter,
+        limit: 5,
+      }),
+    },
+  };
+}
+
+function lookupValuesForDefectReporter(toolMessages, lookupToolCall) {
+  const lookupToolCallId = String(lookupToolCall?.id || "");
+  const toolMessage = [...toolMessages].reverse().find((message) => (
+    message?.name === "search_analytics_filter_values"
+    && String(message?.tool_call_id || "") === lookupToolCallId
+  ));
+  if (!toolMessage) {
+    return null;
+  }
+  try {
+    const payload = JSON.parse(String(toolMessage.content || "{}"));
+    const values = Array.isArray(payload?.result?.values) ? payload.result.values : [];
+    return values
+      .map((item) => String(item?.value || "").trim())
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+export function buildDefectReporterAliasLookupToolCall({ messages, toolMessages = [], priorToolCalls = [] } = {}) {
+  const reporterRequest = resolveDefectReporterRequest(messages, priorToolCalls);
+  if (!reporterRequest) {
+    return null;
+  }
+
+  const primaryLookup = lookupForReporter(priorToolCalls, reporterRequest.reporter);
+  const primaryValues = lookupValuesForDefectReporter(toolMessages, primaryLookup);
+  const alias = reversedReporterName(reporterRequest.reporter);
+  if (!Array.isArray(primaryValues) || primaryValues.length !== 0 || !alias || lookupForReporter(priorToolCalls, alias)) {
+    return null;
+  }
+
+  return {
+    id: reporterToolId(alias, "filter-values"),
+    type: "function",
+    function: {
+      name: "search_analytics_filter_values",
+      arguments: JSON.stringify({
+        dataset: "defects",
+        field: "detected_by",
+        query: alias,
+        limit: 5,
+      }),
+    },
+  };
+}
+
+export function buildDefectReporterAggregateToolCall({ messages, toolMessages = [], priorToolCalls = [], now = new Date() } = {}) {
+  const reporterRequest = resolveDefectReporterRequest(messages, priorToolCalls);
+  if (!reporterRequest) {
+    return null;
+  }
+
+  const reporterNames = [reversedReporterName(reporterRequest.reporter), reporterRequest.reporter].filter(Boolean);
+  const candidateValues = reporterNames
+    .map((reporter) => lookupValuesForDefectReporter(toolMessages, lookupForReporter(priorToolCalls, reporter)))
+    .find((values) => Array.isArray(values) && values.length === 1);
+  if (!candidateValues) {
+    return null;
+  }
+  const [detectedBy] = candidateValues;
+
+  const alreadyAggregated = priorToolCalls.some((toolCall) => {
+    if (toolCall?.function?.name !== "query_analytics") {
+      return false;
+    }
+    const values = parseToolInput(toolCall).filters?.detected_by;
+    return Array.isArray(values) && values.includes(detectedBy);
+  });
+  if (alreadyAggregated) {
+    return null;
+  }
+
+  const today = formatPlanningDate(now);
+  return {
+    id: reporterToolId(detectedBy, "aggregate"),
+    type: "function",
+    function: {
+      name: "query_analytics",
+      arguments: JSON.stringify({
+        dataset: "defects",
+        intent: "aggregate",
+        metrics: ["defect_count"],
+        dimensions: [],
+        filters: { detected_by: [detectedBy] },
+        time: {
+          field: "creation_time",
+          current: [`${today.slice(0, 4)}-01-01`, today],
+          timezone: "Asia/Shanghai",
+        },
+        limit: 20,
+      }),
+    },
+  };
+}
+
+export function buildDefectReporterClarificationToolCall({ messages, toolMessages = [], priorToolCalls = [] } = {}) {
+  const reporterRequest = resolveDefectReporterRequest(messages, priorToolCalls);
+  if (!reporterRequest) {
+    return null;
+  }
+  const clarificationId = reporterToolId(reporterRequest.reporter, "clarification");
+  if (priorToolCalls.some((toolCall) => toolCall?.id === clarificationId)) {
+    return null;
+  }
+
+  const primaryLookup = lookupForReporter(priorToolCalls, reporterRequest.reporter);
+  const primaryValues = lookupValuesForDefectReporter(toolMessages, primaryLookup);
+  if (!Array.isArray(primaryValues)) {
+    return null;
+  }
+  const alias = reversedReporterName(reporterRequest.reporter);
+  const aliasLookup = alias ? lookupForReporter(priorToolCalls, alias) : null;
+  if (primaryValues.length === 0 && alias && !aliasLookup) {
+    return null;
+  }
+  const aliasValues = aliasLookup ? lookupValuesForDefectReporter(toolMessages, aliasLookup) : null;
+  if (aliasLookup && !Array.isArray(aliasValues)) {
+    return null;
+  }
+  const candidateValues = primaryValues.length === 0 && Array.isArray(aliasValues) ? aliasValues : primaryValues;
+  if (candidateValues.length === 1) {
+    return null;
+  }
+
+  const ambiguous = candidateValues.length > 1;
+  return {
+    id: clarificationId,
+    type: "function",
+    function: {
+      name: "ask_clarification",
+      arguments: JSON.stringify({
+        question: ambiguous
+          ? `找到多个与 ${reporterRequest.reporter} 相近的缺陷提票人，请确认 Octane 中的姓名。`
+          : `未找到与 ${reporterRequest.reporter} 匹配的缺陷提票人，请提供 Octane 中显示的姓名。`,
+        options: ambiguous
+          ? [...candidateValues.slice(0, 5), "以上都不是"]
+          : ["提供 Octane 姓名", "改查测试执行情况", "取消"],
+        reason: ambiguous
+          ? "detected_by 候选不唯一，不能猜测个人身份。"
+          : "detected_by 候选为空，不能用团队汇总代替个人提票数据。",
+      }),
+    },
+  };
 }
 
 export function parseToolInput(toolCall) {
@@ -133,6 +417,23 @@ export function buildEmptyDiagnosisToolCall(toolCall) {
   };
 }
 
+function missingRequiredAnalyticsFilter(toolCall, selectedToolset) {
+  if (toolCall?.function?.name !== "query_analytics") {
+    return false;
+  }
+  const requiredFilters = Array.isArray(selectedToolset?.requiredAnalyticsFilters)
+    ? selectedToolset.requiredAnalyticsFilters
+    : [];
+  if (!requiredFilters.length) {
+    return false;
+  }
+  const filters = parseToolInput(toolCall).filters;
+  return requiredFilters.some((field) => {
+    const value = filters?.[field];
+    return Array.isArray(value) ? value.length === 0 : !String(value || "").trim();
+  });
+}
+
 export async function executeMainAgentPlannedToolCall({
   toolCall,
   selectedToolset,
@@ -147,7 +448,10 @@ export async function executeMainAgentPlannedToolCall({
     input: parseToolInput(toolCall),
   }];
 
-  const gate = validateToolCallAllowed(toolCall, selectedToolset);
+  const baseGate = validateToolCallAllowed(toolCall, selectedToolset);
+  const gate = baseGate.allowed && missingRequiredAnalyticsFilter(toolCall, selectedToolset)
+    ? { allowed: false, reason: "defect_reporter_filter_required" }
+    : baseGate;
   if (!gate.allowed) {
     const blockedResult = buildBlockedToolResult(toolCall, selectedToolset, gate.reason);
     toolEvents.push({

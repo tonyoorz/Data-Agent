@@ -6,12 +6,51 @@ import {
   resolveAgentRuntimeMode,
 } from "../../../../server/agentRuntime/langGraphChatRuntime.mjs";
 import { createGovernedAnalysisPlanner } from "../../../../server/ontology/analysisPlanner.mjs";
-import { createQueryPlanner } from "../../../../server/ontology/queryPlanner.mjs";
+import { createQueryPlanner, fingerprintQueryPlanSteps } from "../../../../server/ontology/queryPlanner.mjs";
 import { createOntologyRegistry } from "../../../../server/ontology/registry.mjs";
 import { createSemanticResolver } from "../../../../server/ontology/resolver.mjs";
 
 const GOVERNED_NOW = "2026-08-10T08:00:00.000Z";
 const governedRegistry = createOntologyRegistry();
+
+function analyticsActor(scopeHash: string, actorId = "u1") {
+  return {
+    actorId,
+    scopeHash,
+    scopes: {
+      workspaceIds: ["DTSV"],
+      allowedObjectTypes: ["quality.defect"],
+    },
+  };
+}
+
+function deterministicMetricPlan(actorScopeHash: string) {
+  const steps = [{
+    stepId: "s1",
+    operation: "semantic_metric_query",
+    toolName: "query_semantic_metrics",
+    metricIds: ["defect.count"],
+    dimensionIds: ["product.ecu"],
+    canonicalArgs: { query: { intent: "rank", metricIds: ["defect.count"] } },
+    dependsOn: [],
+    riskLevel: "R0",
+  }];
+  return {
+    schemaVersion: "1.0",
+    planId: "plan-direct-1",
+    version: 1,
+    status: "valid",
+    ontologyVersion: "v1",
+    schemaFingerprint: "f".repeat(64),
+    actorScopeHash,
+    sourceQueryFingerprint: "a".repeat(64),
+    executionFingerprint: fingerprintQueryPlanSteps(steps),
+    steps,
+    violations: [],
+    warnings: [],
+    ruleEffects: [],
+  };
+}
 
 function readyGovernedContext(query = "缺陷总数", {
   actorScopeHash = "scope-a",
@@ -101,6 +140,7 @@ describe("LangGraph chat runtime", () => {
           model: "deepseek-v4-flash",
           useAnalyticsContext: true,
           useDefectContext: false,
+            actor: analyticsActor("scope-1"),
           context: "# User supplied context",
           messages: [{ role: "user", content: "DTSV 6月份提了多少bug？" }],
         },
@@ -124,7 +164,11 @@ describe("LangGraph chat runtime", () => {
       "agent.tool.completed",
     ]));
     expect(result.metrics.mainAgentToolCallCount).toBe(1);
-    expect(resolveAnalyticsContext).toHaveBeenCalledWith({ messages: result.body.messages });
+    expect(resolveAnalyticsContext).toHaveBeenCalledWith({
+      messages: result.body.messages,
+      actor: result.actorScope,
+      ontologyRegistry: expect.objectContaining({ version: "v1" }),
+    });
     expect(resolveDefectContext).not.toHaveBeenCalled();
     expect(requestToolCompletion).toHaveBeenCalledTimes(2);
     expect(requestToolCompletion).toHaveBeenCalledWith(
@@ -136,7 +180,10 @@ describe("LangGraph chat runtime", () => {
         toolChoice: "auto",
       }),
     );
-    expect(executeToolCall).toHaveBeenCalledWith(toolCalls[0], { runDuplicateBridge: "bridge" });
+    expect(executeToolCall).toHaveBeenCalledWith(toolCalls[0], {
+      runDuplicateBridge: "bridge",
+      actor: result.actorScope,
+    });
     expect(result.metrics.toolRouting).toEqual(expect.objectContaining({
       shouldUseTools: true,
       intent: "metric_query",
@@ -149,6 +196,210 @@ describe("LangGraph chat runtime", () => {
       "tool-planning-started",
       "agent-runtime-ready",
     ]);
+  });
+
+  it("resolves a named defect reporter before model-planned aggregation", async () => {
+    const requestToolCompletion = vi.fn().mockResolvedValue({ content: "", toolCalls: [] });
+    const executeToolCall = vi.fn(async (toolCall) => {
+      if (toolCall.function.name === "search_analytics_filter_values") {
+        return {
+          contextText: "# Main agent tool result\nTool: search_analytics_filter_values\nCandidate values: Xumiao: 3",
+          toolMessage: {
+            role: "tool",
+            tool_call_id: toolCall.id,
+            name: "search_analytics_filter_values",
+            content: JSON.stringify({
+              ok: true,
+              tool: "search_analytics_filter_values",
+              result: { values: [{ value: "Xumiao", count: 3 }] },
+            }),
+          },
+        };
+      }
+      return {
+        contextText: "# Main agent tool result\nTool: query_analytics\nAggregate rows: 1",
+        toolMessage: {
+          role: "tool",
+          tool_call_id: toolCall.id,
+          name: "query_analytics",
+          content: JSON.stringify({
+            ok: true,
+            tool: "query_analytics",
+            result: { rows: [{ defect_count: 3 }], returned_groups: 1 },
+          }),
+        },
+      };
+    });
+    const runtime = createLangGraphChatRuntime({
+      resolveAnalyticsContext: vi.fn().mockResolvedValue({ contextText: "# Analytics", skipDefectContext: false }),
+      resolveDefectContext: vi.fn(),
+      shouldPlanTools: vi.fn().mockReturnValue(true),
+      requestToolCompletion,
+      executeToolCall,
+      now: () => new Date("2026-08-11T08:00:00.000Z"),
+    });
+
+    const result = await runtime.invoke({
+      body: {
+        threadId: "thread-defect-reporter-lookup",
+        useAnalyticsContext: true,
+          actor: analyticsActor("scope-reporter-lookup"),
+        messages: [{ role: "user", content: "xumiao 提票情况" }],
+      },
+    });
+
+    expect(executeToolCall).toHaveBeenCalledTimes(2);
+    expect(executeToolCall.mock.calls[0][0]).toMatchObject({
+      id: "defect-reporter-xumiao-filter-values",
+      function: { name: "search_analytics_filter_values" },
+    });
+    expect(JSON.parse(executeToolCall.mock.calls[0][0].function.arguments)).toEqual({
+      dataset: "defects",
+      field: "detected_by",
+      query: "Xumiao",
+      limit: 5,
+    });
+    expect(executeToolCall.mock.calls[1][0]).toMatchObject({
+      id: "defect-reporter-xumiao-aggregate",
+      function: { name: "query_analytics" },
+    });
+    expect(JSON.parse(executeToolCall.mock.calls[1][0].function.arguments)).toMatchObject({
+      dataset: "defects",
+      intent: "aggregate",
+      metrics: ["defect_count"],
+      dimensions: [],
+      filters: { detected_by: ["Xumiao"] },
+      time: { field: "creation_time", current: ["2026-01-01", "2026-08-11"], timezone: "Asia/Shanghai" },
+    });
+    expect(result.mainAgentToolContext.toolCalls.map((toolCall) => toolCall.function.name)).toEqual([
+      "search_analytics_filter_values",
+      "query_analytics",
+    ]);
+    expect(requestToolCompletion).not.toHaveBeenCalled();
+  });
+
+  it("asks for clarification instead of model-planned fallback when a named reporter has no candidate", async () => {
+    const requestToolCompletion = vi.fn().mockResolvedValue({ content: "", toolCalls: [] });
+    const executeToolCall = vi.fn(async (toolCall) => {
+      if (toolCall.function.name === "search_analytics_filter_values") {
+        return {
+          contextText: "# Main agent tool result\nTool: search_analytics_filter_values\nCandidate values: none",
+          toolMessage: {
+            role: "tool",
+            tool_call_id: toolCall.id,
+            name: "search_analytics_filter_values",
+            content: JSON.stringify({
+              ok: true,
+              tool: "search_analytics_filter_values",
+              result: { values: [] },
+            }),
+          },
+        };
+      }
+      return {
+        requiresUserInput: true,
+        contextText: "# Main agent tool result\nTool: ask_clarification\nQuestion: provide the Octane name",
+        toolMessage: {
+          role: "tool",
+          tool_call_id: toolCall.id,
+          name: "ask_clarification",
+          content: JSON.stringify({ question: "Provide the Octane name" }),
+        },
+      };
+    });
+    const runtime = createLangGraphChatRuntime({
+      resolveAnalyticsContext: vi.fn().mockResolvedValue({ contextText: "# Analytics", skipDefectContext: false }),
+      resolveDefectContext: vi.fn(),
+      shouldPlanTools: vi.fn().mockReturnValue(true),
+      requestToolCompletion,
+      executeToolCall,
+      now: () => new Date("2026-08-11T08:00:00.000Z"),
+    });
+
+    const result = await runtime.invoke({
+      body: {
+        threadId: "thread-defect-reporter-no-candidate",
+        useAnalyticsContext: true,
+          actor: analyticsActor("scope-reporter-no-candidate"),
+        messages: [{ role: "user", content: "xumiao 提票情况" }],
+      },
+    });
+
+    expect(executeToolCall).toHaveBeenCalledTimes(2);
+    expect(executeToolCall.mock.calls[1][0]).toMatchObject({
+      id: "defect-reporter-xumiao-clarification",
+      function: { name: "ask_clarification" },
+    });
+    expect(result.mainAgentToolContext.toolCalls.map((toolCall) => toolCall.function.name)).toEqual([
+      "search_analytics_filter_values",
+      "ask_clarification",
+    ]);
+    expect(result.mainAgentToolContext.stoppedReason).toBe("clarification_requested");
+    expect(requestToolCompletion).not.toHaveBeenCalled();
+  });
+
+  it("resolves a name-only clarification reply and continuation command through a reversed defect reporter alias", async () => {
+    const requestToolCompletion = vi.fn().mockResolvedValue({ content: "", toolCalls: [] });
+    const executeToolCall = vi.fn(async (toolCall) => {
+      if (toolCall.function.name === "search_analytics_filter_values") {
+        const input = JSON.parse(toolCall.function.arguments);
+        const values = input.query === "Miao Xu" ? [{ value: "Miao Xu", count: 41 }] : [];
+        return {
+          contextText: "# Main agent tool result\nTool: search_analytics_filter_values",
+          toolMessage: {
+            role: "tool",
+            tool_call_id: toolCall.id,
+            name: "search_analytics_filter_values",
+            content: JSON.stringify({ ok: true, tool: "search_analytics_filter_values", result: { values } }),
+          },
+        };
+      }
+      return {
+        contextText: "# Main agent tool result\nTool: query_analytics\nAggregate rows: 1",
+        toolMessage: {
+          role: "tool",
+          tool_call_id: toolCall.id,
+          name: "query_analytics",
+          content: JSON.stringify({ ok: true, tool: "query_analytics", result: { rows: [{ defect_count: 41 }], returned_groups: 1 } }),
+        },
+      };
+    });
+    const runtime = createLangGraphChatRuntime({
+      resolveAnalyticsContext: vi.fn().mockResolvedValue({ contextText: "# Analytics", skipDefectContext: false }),
+      resolveDefectContext: vi.fn(),
+      shouldPlanTools: vi.fn().mockReturnValue(true),
+      requestToolCompletion,
+      executeToolCall,
+      now: () => new Date("2026-08-11T08:00:00.000Z"),
+    });
+
+    const result = await runtime.invoke({
+      body: {
+        threadId: "thread-defect-reporter-name-reply",
+        useAnalyticsContext: true,
+          actor: analyticsActor("scope-reporter-name-reply"),
+        messages: [
+          { role: "user", content: "xumiao 提票情况" },
+          { role: "assistant", content: "请提供 Octane 中显示的姓名。" },
+          { role: "user", content: "xu miao" },
+          { role: "assistant", content: "未找到完全匹配的候选。" },
+          { role: "user", content: "继续未完成" },
+        ],
+      },
+    });
+
+    expect(executeToolCall.mock.calls.map(([toolCall]) => toolCall.function.name)).toEqual([
+      "search_analytics_filter_values",
+      "search_analytics_filter_values",
+      "query_analytics",
+    ]);
+    expect(JSON.parse(executeToolCall.mock.calls[0][0].function.arguments)).toMatchObject({ query: "Xu Miao" });
+    expect(JSON.parse(executeToolCall.mock.calls[1][0].function.arguments)).toMatchObject({ query: "Miao Xu" });
+    expect(JSON.parse(executeToolCall.mock.calls[2][0].function.arguments)).toMatchObject({
+      filters: { detected_by: ["Miao Xu"] },
+    });
+    expect(requestToolCompletion).not.toHaveBeenCalled();
+    expect(result.mainAgentToolContext.stoppedReason).toBe("deterministic_plan_complete");
   });
 
   it("stops before executing an identical planned analytics query twice", async () => {
@@ -207,6 +458,7 @@ describe("LangGraph chat runtime", () => {
       body: {
         threadId: "thread-duplicate-query",
         useAnalyticsContext: true,
+          actor: analyticsActor("scope-duplicate-query"),
         messages: [{ role: "user", content: "近三个月缺陷按 ECU 增长排名" }],
       },
     });
@@ -291,6 +543,7 @@ describe("LangGraph chat runtime", () => {
       body: {
         threadId: "thread-top-issue-rank",
         useAnalyticsContext: true,
+          actor: analyticsActor("scope-top-issue-rank"),
         messages: [{ role: "user", content: "请基于近三个月的 Top Issue 数据，识别上升最快的三个问题模块并给出根因假设。" }],
       },
     });
@@ -355,6 +608,119 @@ describe("LangGraph chat runtime", () => {
     expect(requestToolCompletion).not.toHaveBeenCalled();
   });
 
+  it("executes a valid canonical QueryPlan without asking the model to plan tools", async () => {
+    const actor = {
+      actorId: "u1",
+      scopeHash: "scope-direct",
+      scopes: {
+        workspaceIds: ["DTSV"],
+        allowedObjectTypes: ["quality.defect"],
+      },
+    };
+    const semanticPlan = deterministicMetricPlan(actor.scopeHash);
+    const requestToolCompletion = vi.fn();
+    const executeToolCall = vi.fn().mockResolvedValue({
+      contextText: "# Canonical metric result",
+      toolMessage: {
+        role: "tool",
+        tool_call_id: "plan-direct-1:s1",
+        name: "query_semantic_metrics",
+        content: "{}",
+      },
+    });
+    const runtime = createLangGraphChatRuntime({
+      resolveAnalyticsContext: vi.fn().mockResolvedValue({
+        contextText: "# Analytics",
+        skipDefectContext: false,
+        semanticPlan,
+      }),
+      resolveDefectContext: vi.fn(),
+      shouldPlanTools: vi.fn().mockReturnValue(true),
+      requestToolCompletion,
+      executeToolCall,
+      now: () => new Date("2026-08-04T08:00:00.000Z"),
+    });
+
+    const result = await runtime.invoke({
+      body: {
+        useAnalyticsContext: true,
+        actor,
+        messages: [{ role: "user", content: "DTSV 缺陷按 ECU 排名" }],
+      },
+    });
+
+    expect(requestToolCompletion).not.toHaveBeenCalled();
+    expect(executeToolCall).toHaveBeenCalledWith({
+      id: "plan-direct-1:s1",
+      type: "function",
+      function: {
+        name: "query_semantic_metrics",
+        arguments: JSON.stringify(semanticPlan.steps[0].canonicalArgs),
+      },
+    }, expect.objectContaining({ actor }));
+    expect(result.mainAgentToolContext.stoppedReason).toBe("deterministic_plan_complete");
+    expect(result.mainAgentToolContext.toolCalls).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "plan-direct-1:s1" }),
+    ]));
+  });
+
+  it("falls back to model planning when a canonical QueryPlan scope does not match the actor", async () => {
+    const requestToolCompletion = vi.fn().mockResolvedValue({ content: "", toolCalls: [] });
+    const runtime = createLangGraphChatRuntime({
+      resolveAnalyticsContext: vi.fn().mockResolvedValue({
+        contextText: "# Analytics",
+        skipDefectContext: false,
+        semanticPlan: deterministicMetricPlan("another-scope"),
+      }),
+      resolveDefectContext: vi.fn(),
+      shouldPlanTools: vi.fn().mockReturnValue(true),
+      requestToolCompletion,
+      now: () => new Date("2026-08-04T08:00:00.000Z"),
+    });
+
+    await runtime.invoke({
+      body: {
+        useAnalyticsContext: true,
+        actor: {
+          actorId: "u1",
+          scopeHash: "scope-fallback",
+          scopes: {
+            workspaceIds: ["DTSV"],
+            allowedObjectTypes: ["quality.defect"],
+          },
+        },
+        messages: [{ role: "user", content: "DTSV 缺陷数按 ECU 排名" }],
+      },
+    });
+
+    expect(requestToolCompletion).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns direct clarification for vague testing status without resolving analytics context", async () => {
+    const resolveAnalyticsContext = vi.fn();
+    const requestToolCompletion = vi.fn();
+    const runtime = createLangGraphChatRuntime({
+      resolveAnalyticsContext,
+      resolveDefectContext: vi.fn(),
+      shouldPlanTools: vi.fn().mockReturnValue(false),
+      requestToolCompletion,
+      now: () => new Date("2026-08-11T08:00:00.000Z"),
+    });
+
+    const result = await runtime.invoke({
+      body: {
+        threadId: "thread-vague-test-status",
+        useAnalyticsContext: true,
+        messages: [{ role: "user", content: "测试怎么样" }],
+      },
+    });
+
+    expect(result.directResponse).toEqual(expect.objectContaining({ intent: "clarification" }));
+    expect(result.metrics.toolRouting).toEqual(expect.objectContaining({ shouldUseTools: false, intent: "clarification" }));
+    expect(resolveAnalyticsContext).not.toHaveBeenCalled();
+    expect(requestToolCompletion).not.toHaveBeenCalled();
+  });
+
   it("does not enter tool planning when the governed analysis plan is denied", async () => {
     const requestToolCompletion = vi.fn();
     const runtime = createLangGraphChatRuntime({
@@ -373,6 +739,7 @@ describe("LangGraph chat runtime", () => {
       body: {
         threadId: "thread-rule-denied",
         useAnalyticsContext: true,
+          actor: analyticsActor("scope-rule-denied"),
         messages: [{ role: "user", content: "最近一周 DTSV 新增缺陷按 ECU Top 5" }],
       },
     });
@@ -425,7 +792,7 @@ describe("LangGraph chat runtime", () => {
       body: {
         threadId: "thread-ready-plan",
         useAnalyticsContext: true,
-        actor: { actorId: "alice", scopeHash: "scope-a" },
+          actor: analyticsActor("scope-a", "alice"),
         messages: [{ role: "user", content: "IDCEVO 当前缺陷数按状态统计" }],
       },
     });
@@ -435,7 +802,7 @@ describe("LangGraph chat runtime", () => {
     expect(executeToolCall).toHaveBeenCalledWith(expect.objectContaining({
       id: `${context.queryPlan.planId}-s1`,
       function: { name: "query_semantic_metrics", arguments: JSON.stringify(step.canonicalArgs) },
-    }), expect.objectContaining({ actor: { actorId: "alice", scopeHash: "scope-a" } }));
+    }), expect.objectContaining({ actor: expect.objectContaining({ actorId: "alice", scopeHash: "scope-a" }) }));
     expect(result.mainAgentToolContext.toolCalls).toHaveLength(1);
     expect(result.metrics.mainAgentToolCallCount).toBe(1);
     expect(result.metrics.evidenceGate).toMatchObject({ status: "pass", violations: [] });
@@ -468,7 +835,7 @@ describe("LangGraph chat runtime", () => {
       body: {
         threadId: "thread-ready-record-plan",
         useAnalyticsContext: true,
-        actor: { actorId: "alice", scopeHash: "scope-a" },
+        actor: analyticsActor("scope-a", "alice"),
         messages: [{ role: "user", content: query }],
       },
     });
@@ -476,7 +843,7 @@ describe("LangGraph chat runtime", () => {
     expect(requestToolCompletion).not.toHaveBeenCalled();
     expect(executeToolCall).toHaveBeenCalledWith(expect.objectContaining({
       function: { name: "query_semantic_records", arguments: JSON.stringify(step.canonicalArgs) },
-    }), expect.objectContaining({ actor: { actorId: "alice", scopeHash: "scope-a" } }));
+    }), expect.objectContaining({ actor: expect.objectContaining({ actorId: "alice", scopeHash: "scope-a" }) }));
     expect(result.mainAgentToolContext.toolCalls).toHaveLength(1);
     expect(result.mainAgentToolContext.toolCalls[0].function.name).toBe("query_semantic_records");
   });
@@ -507,7 +874,7 @@ describe("LangGraph chat runtime", () => {
       body: {
         threadId: "thread-ready-multi-plan",
         useAnalyticsContext: true,
-        actor: { actorId: "alice", scopeHash: "scope-a" },
+        actor: analyticsActor("scope-a", "alice"),
         messages: [{ role: "user", content: query }],
       },
     });
@@ -546,7 +913,7 @@ describe("LangGraph chat runtime", () => {
       body: {
         threadId: "thread-ready-trace-plan",
         useAnalyticsContext: true,
-        actor: { actorId: "alice", scopeHash: "scope-a" },
+        actor: analyticsActor("scope-a", "alice"),
         messages: [{ role: "user", content: query }],
       },
     });
@@ -581,7 +948,7 @@ describe("LangGraph chat runtime", () => {
         body: {
           threadId: `thread-force-ready-${testCase.name}`,
           useAnalyticsContext: true,
-          actor: { actorId: "alice", scopeHash: "scope-a" },
+          actor: analyticsActor("scope-a", "alice"),
           messages: [{ role: "user", content: "IDCEVO 当前缺陷数按状态统计" }],
         },
       });
@@ -618,7 +985,7 @@ describe("LangGraph chat runtime", () => {
       body: {
         threadId: "thread-ready-step-failure",
         useAnalyticsContext: true,
-        actor: { actorId: "alice", scopeHash: "scope-a" },
+        actor: analyticsActor("scope-a", "alice"),
         messages: [{ role: "user", content: query }],
       },
     });
@@ -695,7 +1062,7 @@ describe("LangGraph chat runtime", () => {
         body: {
           threadId: `thread-invalid-${testCase.name}`,
           useAnalyticsContext: true,
-          actor: { actorId: "alice", scopeHash: "scope-a" },
+          actor: analyticsActor("scope-a", "alice"),
           messages: [{ role: "user", content: testCase.message || "统计缺陷数量" }],
         },
       });
@@ -753,6 +1120,7 @@ describe("LangGraph chat runtime", () => {
       body: {
         threadId: "thread-unreleased-resolved-analytics",
         useAnalyticsContext: true,
+        actor: analyticsActor("scope-resolved-context"),
         messages: [{ role: "user", content: "DTSV 六月新建了多少缺陷？" }],
       },
     });
@@ -856,7 +1224,7 @@ describe("LangGraph chat runtime", () => {
         actor: {
           actorId: "u1",
           scopeHash: "scope-1",
-          scopes: { projectIds: ["App"], teamIds: ["DTSV_China"] },
+          scopes: { projectIds: ["App"], teamIds: ["DTSV_China"], allowedObjectTypes: ["quality.defect"] },
         },
         messages: [{ role: "user", content: "DTSV 6月份提了多少bug？" }],
       },
@@ -867,7 +1235,7 @@ describe("LangGraph chat runtime", () => {
     expect(result.actorScope).toEqual({
       actorId: "u1",
       scopeHash: "scope-1",
-      scopes: { projectIds: ["App"], teamIds: ["DTSV_China"] },
+      scopes: { projectIds: ["App"], teamIds: ["DTSV_China"], allowedObjectTypes: ["quality.defect"] },
     });
     expect(executeToolCall).toHaveBeenCalledWith(toolCall, expect.objectContaining({
       analyticsFetch: "fetch",
@@ -953,7 +1321,7 @@ describe("LangGraph chat runtime", () => {
         runId: "run-analysis-1",
         threadId: "thread-analysis-1",
         useAnalyticsContext: true,
-        actor: { actorId: "u1", scopeHash: "scope-1" },
+          actor: analyticsActor("scope-1"),
         messages: [{ role: "user", content: "最近一周 DTSV 新增缺陷按 ECU Top 5" }],
       },
     });
@@ -978,6 +1346,7 @@ describe("LangGraph chat runtime", () => {
       writeThreadCheckpoint: vi.fn(async () => undefined),
       appendToolAudit: vi.fn(async () => undefined),
     };
+    const actor = analyticsActor("scope-1");
     const runtime = createLangGraphChatRuntime({
       resolveAnalyticsContext: vi.fn().mockRejectedValue(new Error("analytics context unavailable")),
       resolveDefectContext: vi.fn(),
@@ -991,7 +1360,7 @@ describe("LangGraph chat runtime", () => {
         runId: "run-fail-1",
         threadId: "thread-fail-1",
         useAnalyticsContext: true,
-        actor: { actorId: "u1", scopeHash: "scope-1" },
+        actor,
         messages: [{ role: "user", content: "DTSV 6月份提了多少bug？" }],
       },
     })).rejects.toThrow("analytics context unavailable");
@@ -999,7 +1368,7 @@ describe("LangGraph chat runtime", () => {
     expect(runtimeStore.appendRunEvent).toHaveBeenCalledWith(expect.objectContaining({
       runId: "run-fail-1",
       threadId: "thread-fail-1",
-      actorScope: { actorId: "u1", scopeHash: "scope-1" },
+      actorScope: actor,
       type: "agent-runtime-failed",
       error: expect.objectContaining({ message: "analytics context unavailable" }),
     }));
@@ -1038,6 +1407,7 @@ describe("LangGraph chat runtime", () => {
         runId: "run-retry-1",
         threadId: "thread-retry-1",
         useAnalyticsContext: true,
+        actor: analyticsActor("scope-retry"),
         messages: [{ role: "user", content: "DTSV 6月份提了多少bug？" }],
       },
       toolDependencies: { toolRecoveryWait, toolRecoveryRandom: () => 0 },
@@ -1106,6 +1476,7 @@ describe("LangGraph chat runtime", () => {
         runId: "run-schema-recovery",
         threadId: "thread-schema-recovery",
         useAnalyticsContext: true,
+        actor: analyticsActor("scope-schema-recovery"),
         messages: [{ role: "user", content: "DTSV 6月份提了多少bug？" }],
       },
     });
@@ -1213,6 +1584,7 @@ describe("LangGraph chat runtime", () => {
       body: {
         threadId: "thread-alias-retry",
         useAnalyticsContext: true,
+          actor: analyticsActor("scope-alias-retry"),
         messages: [{ role: "user", content: "Size Li 今年提票情况" }],
       },
     });
@@ -1333,7 +1705,7 @@ describe("LangGraph chat runtime", () => {
       body: {
         threadId: "thread-semantic-plan-retry",
         useAnalyticsContext: true,
-        actor: { actorId: "alice", scopeHash: "scope-a" },
+          actor: analyticsActor("scope-a", "alice"),
         messages: [{ role: "user", content: "最近一周 DTSV 新增缺陷按 ECU Top 5" }],
       },
     });
@@ -1382,7 +1754,7 @@ describe("LangGraph chat runtime", () => {
       maxToolSteps: 2,
       now: () => new Date("2026-08-03T08:00:00.000Z"),
     });
-    const actor = { actorId: "alice", scopeHash: "scope-a", scopes: { workspaceIds: ["DTSV"] } };
+    const actor = analyticsActor("scope-a", "alice");
 
     const first = await runtime.invoke({
       body: { threadId: "thread-continuation", useAnalyticsContext: true, actor, messages: [{ role: "user", content: "按 ECU 排名" }] },
@@ -1448,8 +1820,8 @@ describe("LangGraph chat runtime", () => {
       maxToolSteps: 2,
       now: () => new Date("2026-08-10T08:00:00.000Z"),
     });
-    const alice = { actorId: "alice", scopeHash: "scope-a", scopes: { allowedObjectTypes: ["quality.defect"] } };
-    const bob = { actorId: "bob", scopeHash: "scope-b", scopes: { allowedObjectTypes: ["quality.defect"] } };
+    const alice = analyticsActor("scope-a", "alice");
+    const bob = analyticsActor("scope-b", "bob");
 
     const first = await runtime.invoke({
       body: { threadId: "shared-client-thread", useAnalyticsContext: true, actor: alice, messages: [{ role: "user", content: "按 ECU 排名" }] },

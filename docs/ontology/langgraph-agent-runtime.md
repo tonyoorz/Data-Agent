@@ -49,6 +49,9 @@ The current migration makes the graph boundary the default runtime and keeps the
 - Explicit `runId` support from `body.runId`, with generated IDs when omitted; the audit store persists only a scope-bound opaque run reference.
 - Server-resolved actor scope from the internal local principal or verified OIDC identity; browser-supplied actor fields are removed by the gateway.
 - Runtime SSE events emitted as `agent-runtime-event`.
+- Governed semantic final answers are buffered up to 64 KiB and published only after server-side citation, numeric-value, record-identifier, causal-language, and evidence-gate validation. A rejected claim is replaced with a deterministic limitation response; rejected model values and record IDs are not echoed in SSE validation metadata.
+- Legacy tool results retain their existing informational citation audit and are not treated as governed semantic evidence until tool convergence moves them behind the Semantic Kernel.
+- A schema-valid, scope-matching QueryPlan with an intact execution fingerprint executes its canonical R0 steps directly through the existing tool executor and ends the tool phase. Plans with ambiguity, fingerprint drift, scope mismatch, or tools outside the selected intent retain the bounded model-planning fallback.
 - Tool routing state emitted as `tool-routing-completed` and included in runtime metrics.
 - Empty `query_analytics` aggregate results automatically invoke `diagnose_analytics_empty` when the selected toolset allows it.
 - File-backed runtime audit store under `logs/agent-runtime` by default.

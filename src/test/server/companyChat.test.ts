@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   controlledChatErrorDiagnostic,
   requestCompanyChatCompletion,
+  resetCompanyChatCircuitBreakerForTests,
   streamCompanyChatCompletion,
   toSafeCompanyChatError,
 } from "../../../server/companyChat.mjs";
@@ -11,6 +12,7 @@ import { createOntologyRegistry } from "../../../server/ontology/registry.mjs";
 describe("streamCompanyChatCompletion", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    resetCompanyChatCircuitBreakerForTests();
     process.env.DUPSEARCH_CHAT_ACCESS_CODE = "test-access-code";
     delete process.env.DUPSEARCH_CHAT_API_BASE;
     delete process.env.DUPSEARCH_CHAT_API_KEY;
@@ -44,6 +46,7 @@ describe("streamCompanyChatCompletion", () => {
           controller.enqueue(
             encoder.encode(
               'data: {"choices":[{"delta":{"content":"hello"}}]}\n\n' +
+                'data: {"model":"deepseek-v4-flash","choices":[],"usage":{"prompt_tokens":100,"completion_tokens":20,"total_tokens":120}}\n\n' +
                 'data: [DONE]\n\n',
             ),
           );
@@ -93,6 +96,7 @@ describe("streamCompanyChatCompletion", () => {
         upstreamConnectMs: expect.any(Number),
         firstChunkMs: expect.any(Number),
         streamTotalMs: expect.any(Number),
+        tokenUsage: { inputTokens: 100, outputTokens: 20, totalTokens: 120 },
       }),
     );
   });
@@ -816,7 +820,12 @@ describe("streamCompanyChatCompletion", () => {
           sourceRevision: { revisionId: "snap-1", status: "pinned" },
           scope: { actorScopeHash: "scope-a" },
           quality: { completeness: "complete", warnings: [] },
-          evidence: { kind: "semantic_metric_result", analysisRef: "analysis-1", sourceRevisionId: "snap-1" },
+          evidence: {
+            kind: "semantic_metric_result",
+            analysisRef: "analysis-1",
+            sourceRevisionId: "snap-1",
+            metricValues: { "defect.count": 12 },
+          },
         }],
       },
       onAnswerValidation,
@@ -838,13 +847,9 @@ describe("streamCompanyChatCompletion", () => {
     }));
   });
 
-  it("discards a cited causal claim instead of leaking it", async () => {
+  it("releases a supported governed Claim only after validation", async () => {
     const encoder = new TextEncoder();
-    const response = {
-      writeHead: vi.fn(),
-      write: vi.fn(),
-      end: vi.fn(),
-    };
+    const response = { writeHead: vi.fn(), write: vi.fn(), end: vi.fn() };
     const registry = createOntologyRegistry();
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -852,7 +857,7 @@ describe("streamCompanyChatCompletion", () => {
         start(controller) {
           controller.enqueue(
             encoder.encode(
-              'data: {"choices":[{"delta":{"content":"LEAK_CAUSAL: ECU A 导致缺陷数上升 <cite source=\\"call-1\\">evidence</cite>"}}]}\n\n' +
+              'data: {"choices":[{"delta":{"content":"<cite source=\\"call-1\\">缺陷数是 1</cite>"}}]}\n\n' +
                 'data: [DONE]\n\n',
             ),
           );
@@ -861,12 +866,53 @@ describe("streamCompanyChatCompletion", () => {
       }),
       text: async () => "",
     });
+    vi.stubGlobal("fetch", fetchMock);
 
+    await streamCompanyChatCompletion({
+      messages: [{ role: "user", content: "缺陷数是多少？" }],
+      model: "deepseek-v4-flash",
+      context: "# Main agent semantic tool result",
+      response,
+      answerValidation: {
+        registry,
+        semanticEvidence: [{
+          toolCallId: "call-1",
+          tool: "query_semantic_metrics",
+          ontologyVersion: "v1",
+          schemaFingerprint: registry.fingerprint,
+          evidence: { kind: "semantic_metric_result", metricValues: { "defect.count": 1 } },
+          data: [{ defect_id: "D-1", "defect.count": 1 }],
+        }],
+        evidenceGate: { status: "pass" },
+      },
+    });
+
+    const streamedText = response.write.mock.calls
+      .map(([chunk]) => Buffer.from(chunk).toString("utf8"))
+      .join("");
+    expect(streamedText).toContain('<cite source=\\"call-1\\">缺陷数是 1</cite>');
+    expect(streamedText.indexOf('"type":"answer-validation"')).toBeLessThan(streamedText.indexOf("缺陷数是 1"));
+  });
+
+  it("emits a causal-claim violation for cited observational analytics output", async () => {
+    const encoder = new TextEncoder();
+    const response = { writeHead: vi.fn(), write: vi.fn(), end: vi.fn() };
+    const registry = createOntologyRegistry();
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"ECU A causes more defects <cite source=\\"call-1\\">evidence</cite>"}}]}\n\n' + 'data: [DONE]\n\n'));
+          controller.close();
+        },
+      }),
+      text: async () => "",
+    });
     vi.stubGlobal("fetch", fetchMock);
     const onAnswerValidation = vi.fn();
 
     await streamCompanyChatCompletion({
-      messages: [{ role: "user", content: "缺陷数为什么上升？" }],
+      messages: [{ role: "user", content: "Why did defects increase?" }],
       model: "deepseek-v4-flash",
       context: "# Main agent tool result\nTool: query_semantic_metrics\nResult: 12",
       response,
@@ -885,7 +931,12 @@ describe("streamCompanyChatCompletion", () => {
           sourceRevision: { revisionId: "snap-1", status: "pinned" },
           scope: { actorScopeHash: "scope-a" },
           quality: { completeness: "complete", warnings: [] },
-          evidence: { kind: "semantic_metric_result", analysisRef: "analysis-1", sourceRevisionId: "snap-1" },
+          evidence: {
+            kind: "semantic_metric_result",
+            analysisRef: "analysis-1",
+            sourceRevisionId: "snap-1",
+            metricValues: { "defect.count": 12 },
+          },
         }],
       },
       onAnswerValidation,
@@ -992,7 +1043,12 @@ describe("streamCompanyChatCompletion", () => {
           sourceRevision: { revisionId: "snap-1", status: "pinned" },
           scope: { actorScopeHash: "scope-a" },
           quality: { completeness: "complete", warnings: [] },
-          evidence: { kind: "semantic_metric_result", analysisRef: "analysis-1", sourceRevisionId: "snap-1" },
+          evidence: {
+            kind: "semantic_metric_result",
+            analysisRef: "analysis-1",
+            sourceRevisionId: "snap-1",
+            metricValues: { "defect.count": 12 },
+          },
         }],
       },
     });
@@ -1001,8 +1057,8 @@ describe("streamCompanyChatCompletion", () => {
     expect(streamedText).toContain("缺陷数是 12");
     expect(streamedText).not.toContain("受治理证据不可用");
     expect(streamedText).toContain('"valid":true');
-    expect(streamedText.indexOf("缺陷数")).toBeLessThan(streamedText.indexOf('"type":"answer-validation"'));
-    expect(streamedText.indexOf('"type":"answer-validation"')).toBeLessThan(streamedText.indexOf("data: [DONE]"));
+    expect(streamedText.indexOf('"type":"answer-validation"')).toBeLessThan(streamedText.indexOf("缺陷数"));
+    expect(streamedText.indexOf("缺陷数")).toBeLessThan(streamedText.indexOf("data: [DONE]"));
   });
 
   it("does not write a valid claim token until the terminal frame triggers validation", async () => {
@@ -1241,6 +1297,7 @@ describe("streamCompanyChatCompletion", () => {
 describe("requestCompanyChatCompletion", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    resetCompanyChatCircuitBreakerForTests();
     process.env.DUPSEARCH_CHAT_ACCESS_CODE = "test-access-code";
     process.env.DUPSEARCH_CHAT_RETRY_DELAY_MS = "0";
     delete process.env.DUPSEARCH_CHAT_MAX_ATTEMPTS;

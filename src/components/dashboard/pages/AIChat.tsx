@@ -101,10 +101,25 @@ type ToolStreamEvent = {
   outputSummary?: unknown;
 };
 
-const CHAT_MODEL_PRICING = [
-  { pattern: /^glm/i, currency: "CNY", inputPerMillion: 0.8, outputPerMillion: 2 },
-  { pattern: /^deepseek/i, currency: "USD", inputPerMillion: 0.27, outputPerMillion: 1.1 },
-  { pattern: /^qwen/i, currency: "CNY", inputPerMillion: 2, outputPerMillion: 8 },
+type ChatModelPricing = {
+  currency: "CNY";
+  inputPerMillion: number;
+  outputPerMillion: number;
+};
+
+const CHAT_MODEL_PRICING: Record<string, ChatModelPricing> = {
+  "deepseek-v4-pro": { currency: "CNY", inputPerMillion: 12, outputPerMillion: 24 },
+  "deepseek-v4-flash": { currency: "CNY", inputPerMillion: 1, outputPerMillion: 2 },
+  "qwen3.7-max": { currency: "CNY", inputPerMillion: 0, outputPerMillion: 0 },
+  "glm-5": { currency: "CNY", inputPerMillion: 6, outputPerMillion: 22 },
+  "qwen3.5-397b-a17b": { currency: "CNY", inputPerMillion: 0.72, outputPerMillion: 1.2 },
+  "doubao-seed-2.1-pro": { currency: "CNY", inputPerMillion: 0, outputPerMillion: 0 },
+};
+
+const VERSIONED_MODEL_PRICING_ALIASES = [
+  ["deepseek-v4-pro-", "deepseek-v4-pro"],
+  ["deepseek-v4-flash-", "deepseek-v4-flash"],
+  ["qwen3.7-max-", "qwen3.7-max"],
 ] as const;
 
 function createId() {
@@ -165,7 +180,9 @@ function parseTokenUsage(usage: unknown): TokenUsage | undefined {
 
 function estimateChatCost(modelId: string | undefined, usage: TokenUsage | undefined) {
   if (!modelId || !usage) return undefined;
-  const pricing = CHAT_MODEL_PRICING.find((entry) => entry.pattern.test(modelId));
+  const normalizedModelId = modelId.trim().toLowerCase();
+  const canonicalModelId = VERSIONED_MODEL_PRICING_ALIASES.find(([prefix]) => normalizedModelId.startsWith(prefix))?.[1] || normalizedModelId;
+  const pricing = CHAT_MODEL_PRICING[canonicalModelId];
   if (!pricing) return undefined;
   const amount =
     (usage.promptTokens * pricing.inputPerMillion + usage.completionTokens * pricing.outputPerMillion) / 1_000_000;
@@ -383,15 +400,6 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
       body: JSON.stringify({ reason: "duplicate-search-mode" }),
     }).catch(() => undefined);
   }, [interactionMode]);
-
-  // Warmup test case RAG index on mount (pre-builds 16K embedding index)
-  useEffect(() => {
-    void fetch("/api/create-testcase/warmup", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reason: "ai-chat-mount" }),
-    }).catch(() => undefined);
-  }, []);
 
   const sortedConvos = useMemo(() => {
     return [...conversations].sort((a, b) => {
