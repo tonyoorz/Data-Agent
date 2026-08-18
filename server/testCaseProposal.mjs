@@ -5,6 +5,19 @@ const ALLOWED_HTML_TAGS = new Set([
   "table", "thead", "tbody", "tr", "th", "td", "strong", "em", "b", "i", "code", "pre",
 ]);
 
+export class TestCasePreparationError extends Error {
+  constructor(code, statusCode = 500) {
+    super(code);
+    this.code = code;
+    this.statusCode = statusCode;
+  }
+}
+
+export function toSafeTestCasePreparationError(error) {
+  if (!(error instanceof TestCasePreparationError)) return null;
+  return { statusCode: error.statusCode, payload: { success: false, error: error.code } };
+}
+
 export function sanitizeTestCaseHtml(value) {
   const withoutActiveContent = String(value || "")
     .replace(/<!--[\s\S]*?-->/g, "")
@@ -85,13 +98,28 @@ export async function prepareTestCaseProposal({
   defectId,
   runTestCaseBridge,
   generateContent,
+  authorizeDefect,
+  prepareScope,
   generatedAt = new Date().toISOString(),
 } = {}) {
   if (typeof runTestCaseBridge !== "function") throw new Error("TESTCASE_BRIDGE_UNAVAILABLE");
   if (typeof generateContent !== "function") throw new Error("TESTCASE_GENERATOR_UNAVAILABLE");
-  const prepared = await runTestCaseBridge({ action: "prepare", defect_id: String(defectId || "") });
-  if (!prepared?.success || !prepared?.defect_info) throw new Error(prepared?.error || "TESTCASE_PREPARE_FAILED");
+  const prepared = await runTestCaseBridge({
+    action: "prepare",
+    defect_id: String(defectId || ""),
+    ...(prepareScope ? { actor_scope: prepareScope } : {}),
+  });
+  if (!prepared?.success || !prepared?.defect_info) {
+    throw new TestCasePreparationError(
+      String(prepared?.error || "TESTCASE_PREPARE_FAILED"),
+      Number(prepared?.status_code) === 403 ? 403 : 500,
+    );
+  }
   const defectInfo = prepared.defect_info;
+  if (authorizeDefect !== undefined) {
+    if (typeof authorizeDefect !== "function") throw new Error("TESTCASE_AUTHORIZER_INVALID");
+    await authorizeDefect(defectInfo);
+  }
   const generated = await generateContent(defectInfo, prepared.few_shot_text || "");
   const safeGenerated = {
     testName: String(generated?.testName || ""),

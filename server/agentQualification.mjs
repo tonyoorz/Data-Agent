@@ -8,6 +8,8 @@ import { canonicalJson } from "./ontology/fingerprint.mjs";
 import { inspectCheckoutNodeDependencies } from "./nodeDependencyBoundary.mjs";
 
 const AGENT_EVAL_TEST_FILES = Object.freeze([
+  "src/test/server/agentCheckpointIntegration.test.ts",
+  "src/test/server/agentCheckpointPolicy.test.ts",
   "src/test/server/mainAgentGolden.test.ts",
   "src/test/server/ontology/semanticGolden.test.ts",
   "src/test/server/ontology/semanticQualityGolden.test.ts",

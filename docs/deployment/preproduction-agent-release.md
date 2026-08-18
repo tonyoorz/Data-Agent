@@ -20,6 +20,7 @@ Do not send all `/api/*` traffic to one upstream. Configure this explicit route 
 | --- | --- | --- |
 | `/`, built assets, SPA routes | Node | Auth policy chosen for the dashboard. |
 | `/api/ai/chat`, `/api/chat`, `/api/ai/transcribe`, `/api/agent-operations/*` | Node loopback | Gateway auth plus Node OIDC/scope enforcement. |
+| `/api/create-testcase`, `/api/create-testcase/commit` | Node loopback | Gateway auth plus `testcase.proposal`/`testcase.commit` policy separation. Proposal additionally enforces defect project/team scope; commit requires `testing.test_case` and the configured Octane workspace. `/api/create-testcase/warmup` remains internal-only. |
 | Approved dashboard reads under `/api/full-picture/*`, `/api/testing/*`, `/api/metadata/*`, `/api/correlation/*` | Private FastAPI | Disabled for a multi-scope Agent canary unless the backend is scope-aware; otherwise restrict to one homogeneous group already authorized for the complete dashboard dataset. Agent RLS does not cover these routes. |
 | `/api/qgate-reports/latest-dashboard`, `/api/qgate-reports/weekly-report`, `/api/qgate-reports/dashboard-html` | Node loopback | Exact allowlist plus gateway auth; Node serves local reports or proxies the configured analytics origin. |
 | `/api/semantic/*`, `/api/agent/analytics/*`, actor-capability endpoints | No public route | Node-to-FastAPI only, protected by the signed actor capability. |
@@ -80,6 +81,7 @@ Inject server configuration through the deployment secret/configuration system. 
 | `VIZION_ANALYTICS_API_BASE` | Private HTTPS FastAPI origin for split deployment. It overrides the loopback `VIZION_ANALYTICS_PORT` default. |
 | `VIZION_ANALYTICS_PROXY_TIMEOUT_MS` | Finite analytics deadline, default 10 seconds and maximum 120 seconds. |
 | `VIZION_AGENT_RUNTIME_STORE_DIR` | Encrypted, access-controlled persistent location with retention configured. |
+| `VIZION_AGENT_CHECKPOINT_DB` | Owner-only persistent SQLite checkpoint path. OIDC and every production runtime fail startup if the durable saver cannot initialize; only non-production `internal` development may fall back to `MemorySaver`. |
 | `VIZION_ONTOLOGY_ROOT`, `VIZION_ONTOLOGY_FINGERPRINT` | Exact qualified Ontology bundle and expected fingerprint. |
 | `VIZION_DATABASE_ROOT` or explicit `VIZION_FULL_PICTURE_*_DB_PATH`, `VIZION_ANALYTICS_DB_PATH`, `VIZION_SEMANTIC_ANALYSIS_DB_PATH` | Mounted source/read-model/semantic stores for this release. |
 | `DUPSEARCH_CHAT_ACCESS_CODE`, or `DUPSEARCH_CHAT_API_KEY` plus `DUPSEARCH_CHAT_API_BASE` | Least-privilege model provider credential and endpoint. |
@@ -97,7 +99,7 @@ Configure `VIZION_API_PORT`, `VIZION_WEB_PORT`, and the finite `VIZION_API_JSON_
 
 Node loads repository `.env`/`.env.local`, but a separately started FastAPI process does not. Shared deployments must inject the capability secret, Ontology/data paths, and other shared settings into both services through the same deployment configuration—not through an accidental checkout-local file. The local launcher gives Vite, the persistent FastAPI service, analytics CLI/ingest jobs, and local Python media workers separate consumer-specific environments; PIN/cookie/Octane refresh credentials belong only to the CLI/ingest job, while Node OIDC policy and model secrets belong to neither Python process. Production supervisors must preserve these per-process allowlists rather than inject one global secret set.
 
-Before accepting traffic, verify that every OIDC grant has an owner, version/hash, expiry/review date, allowed object types, row scope, sensitive-field policy, and—where needed—`agent.operations.read`. Duplicate search and legacy fallback remain unavailable to OIDC actors until their retrieval paths enforce the same scope and evidence contract.
+Before accepting traffic, verify that every OIDC grant has an owner, version/hash, expiry/review date, allowed object types, row scope, sensitive-field policy, and—where needed—`agent.operations.read`. Testcase users receive `testcase.proposal` only when they may read `quality.defect` in an explicit project/team scope; `testcase.commit` is a separate grant requiring `testing.test_case` and the exact `VIZION_OCTANE_WORKSPACE_ID`. Duplicate search and legacy fallback remain unavailable to OIDC actors until their retrieval paths enforce the same scope and evidence contract.
 
 ## 4. Start and network checks
 
@@ -140,6 +142,16 @@ curl -i -H 'Host: 127.0.0.1:3004' -H 'Origin: https://attacker.example' \
 
 Run the gateway smoke with two real test actors from different scopes. Never put their bearer tokens in shell history, console output, or CI artifacts.
 
+Copy `docs/deployment/preproduction-smoke.example.json` outside the repository, replace the two scope markers and queries with approved canary fixtures, and mount each short-lived bearer token as an owner-only file. The config rejects embedded token/authorization/secret/cookie/password/API-key fields, remote plaintext HTTP, duplicate actors, and missing RLS assertions. Both actors deliberately use the same client thread ID; the gate requires different actor-scoped analysis references and requires aggregate/records continuation to retain the same source revision per actor.
+
+```bash
+npm run agent:smoke:preprod -- \
+  --config /run/data-agent/preproduction-smoke.json \
+  --output artifacts/preproduction-smoke/latest.json
+```
+
+The artifact contains only hashes, counts and pass/fail decisions—never bearer tokens, configured row markers, answer text or result rows. A testcase canary is optional and defaults to no mutation. `mode: "proposal"` exercises generation without writing Octane. `mode: "commit"` is rejected unless the config contains `confirmation: "CREATE_ONE_TESTCASE:<defectId>"` and the operator also supplies `--allow-testcase-mutation`; the commit request transmits only the server-issued proposal capability plus the approved feature/owner fields. Record the returned test ID and clean it up under the approved Octane process.
+
 Verify all of the following before enabling the canary group:
 
 1. Node and FastAPI health checks return `200` only through their intended network paths.
@@ -155,11 +167,13 @@ Verify all of the following before enabling the canary group:
 
 Qualification does not inspect a running IdP, gateway, database, model, or secret mount. Use the live smoke above for deployed configuration. If deployment preparation changes code, Ontology, fixtures, or `dist`, create a new immutable commit and qualification artifact instead of reusing the old result.
 
+The automated smoke is a release gate, not a substitute for environment ownership: it must run against the deployed candidate with two real scoped identities and approved marker rows. A missing target, token file, model provider, semantic snapshot or permitted testcase route is a failed/blocked release, never a skipped pass.
+
 ## 5. Canary, observation, and rollback
 
 Start with a least-privilege canary group. Compare request count, latency, tool failures, denials, evidence blocks, citation validation, source freshness warnings, and empty-result rate against the release thresholds. Review a sample of evidence-backed business answers against the same data snapshot; deterministic fixtures alone do not qualify business accuracy.
 
-Before rollout, snapshot the immutable Node/Python artifacts, Ontology/runtime-capability fingerprint, OIDC policy hash, data/schema version, semantic-analysis store, and compatible runtime-store format. FastAPI startup can apply forward schema changes, so take an approved database snapshot and prove restore or forward-compatible rollback before starting the candidate. The current LangGraph `MemorySaver` is process-local: restart or rollback loses clarification/continuation checkpoint state. Drain active streams where possible and require users to start a new conversation; runtime audit files cannot restore graph execution.
+Before rollout, snapshot the immutable Node/Python artifacts, Ontology/runtime-capability fingerprint, OIDC policy hash, data/schema version, semantic-analysis store, durable LangGraph checkpoint database, and compatible runtime-store format. FastAPI startup can apply forward schema changes, so take an approved database snapshot and prove restore or forward-compatible rollback before starting the candidate. Checkpoint persistence does not make in-flight streams portable across versions: drain active streams where possible and require users to start a new conversation when the graph/state schema is incompatible; runtime audit files alone cannot restore graph execution.
 
 Rollback is traffic-first and must never cross below the release's security floor for OIDC/RLS, actor-scoped storage, evidence release, or safe audit logging:
 

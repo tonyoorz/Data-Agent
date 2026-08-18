@@ -27,6 +27,7 @@
     "eval:scorecard": "node ./scripts/runScorecard.mjs",
     "agent:qualification": "node ./scripts/agentQualification.mjs",
     "agent:qualification:verify": "node ./scripts/agentQualification.mjs --verify --require-full --require-build",
+    "agent:smoke:preprod": "node ./scripts/preproductionSmoke.mjs",
     "report:qgate-kpi": "node ./scripts/runPython.mjs -m backend.analytics_cli generate-qgate-kpi-reports",
     "ontology:compile": "node scripts/compileOntology.mjs --emit-graph",
     "ontology:graph": "node scripts/compileOntology.mjs --emit-graph",

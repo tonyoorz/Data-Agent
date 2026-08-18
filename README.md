@@ -334,7 +334,7 @@ Generate a qualification artifact from the current checkout:
 npm run agent:qualification
 ```
 
-The mandatory gates actually execute the deterministic Agent fixture suite and `ontology:check`. Add the complete Node test suite and production build when qualifying a release:
+The mandatory gates actually execute the deterministic Agent fixture suite, load and initialize the Node-native durable SQLite checkpointer, and run `ontology:check`. OIDC and production startup fail closed when the durable saver is unavailable; only non-production `internal` development may use the process-local fallback. Add the complete Node test suite and production build when qualifying a release:
 
 ```powershell
 npm run agent:qualification -- --full --build
@@ -353,6 +353,14 @@ Use `--output <path>` with either command for a CI artifact location. A generate
 `evidenceClass` is always `deterministic_fixture` and `productionSnapshot` is always `false`. A pass means only that the checked-in deterministic fixtures and selected repository gates passed; it is not a production-data result, model accuracy measurement, latency SLO, or proof of business effectiveness. Python is not invoked implicitly. Run an explicitly selected virtual-environment interpreter separately when a release policy also requires Python tests.
 
 Repeat the full qualification twice after any OIDC policy, actor-capability, agent route, tool recovery, Ontology, or model-streaming change.
+
+After deploying the exact qualified candidate, run the two-actor live gate with short-lived bearer tokens mounted as owner-only files. It validates missing/invalid-token boundaries, two distinct RLS marker sets, actor-scoped analysis references, and same-snapshot aggregate-to-records continuation. The evidence artifact contains hashes and counts rather than tokens, answers, configured markers, or data rows:
+
+```powershell
+npm run agent:smoke:preprod -- --config /run/data-agent/preproduction-smoke.json
+```
+
+Start from `docs/deployment/preproduction-smoke.example.json`. Testcase generation is proposal-only unless mutation is enabled independently in both the config and CLI; see the pre-production release runbook before creating a canary test in Octane.
 
 ### Operations Audit and Retention
 

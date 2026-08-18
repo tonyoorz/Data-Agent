@@ -7,6 +7,7 @@ import duplicateBridgeRuntime from "./duplicateBridgeRuntime.cjs";
 import { streamLangGraphChatResponse } from "./agentRuntime/langGraphChatHandler.mjs";
 import { createLangGraphChatRuntime, resolveAgentRuntimeMode } from "./agentRuntime/langGraphChatRuntime.mjs";
 import { MemorySaver } from "@langchain/langgraph";
+import { assertAgentCheckpointFallbackAllowed } from "./agentCheckpointPolicy.mjs";
 import { createFileAgentRuntimeStore } from "./agentRuntime/runtimeAuditStore.mjs";
 import { buildAgentStreamAuditEvent } from "./agentRuntime/streamAudit.mjs";
 import { resolveAgentOperationsResponse } from "./agentOperations.mjs";
@@ -23,6 +24,7 @@ import {
 import { resolveRequestUrl } from "./httpRequestUrl.mjs";
 import {
   resolveInternalAuxiliaryActor,
+  resolveRequestActor,
   runAuthenticatedAgentRequest,
   runAuthenticatedChatRequest,
   toSafeAgentAuthResponse,
@@ -56,11 +58,17 @@ import {
 import { handleTranscribeRequest, toSafeTranscriptionError } from "./transcribe.mjs";
 import { resolveChatModelConfig } from "./chatModelConfig.mjs";
 import testcaseBridgeRuntime from "./testcaseBridgeRuntime.cjs";
-import { prepareTestCaseProposal } from "./testCaseProposal.mjs";
+import { prepareTestCaseProposal, toSafeTestCasePreparationError } from "./testCaseProposal.mjs";
 import {
   createTestCaseProposalRegistry,
   toSafeTestCaseProposalError,
 } from "./testCaseProposalRegistry.mjs";
+import {
+  assertTestCaseDefectAuthorized,
+  assertTestCaseOperationAuthorized,
+  buildTestCaseDefectScope,
+  toSafeTestCaseAuthorizationError,
+} from "./testCaseAuthorization.mjs";
 
 const { runDuplicateBridge, stopDuplicateBridgeRuntime } = duplicateBridgeRuntime;
 const { runTestCaseBridge, stopTestCaseBridgeRuntime } = testcaseBridgeRuntime;
@@ -90,14 +98,17 @@ let agentCheckpointer;
 try {
   const checkpointDbPath = process.env.VIZION_AGENT_CHECKPOINT_DB
     || path.join(repoRoot, "data", "agent-checkpoints.db");
-  fs.mkdirSync(path.dirname(checkpointDbPath), { recursive: true });
+  fs.mkdirSync(path.dirname(checkpointDbPath), { recursive: true, mode: 0o700 });
+  if (process.platform !== "win32") fs.chmodSync(path.dirname(checkpointDbPath), 0o700);
   const sqliteModule = await import("@langchain/langgraph-checkpoint-sqlite");
   const SqliteSaver = sqliteModule.SqliteSaver;
   agentCheckpointer = await SqliteSaver.fromConnString(checkpointDbPath);
+  if (process.platform !== "win32" && fs.existsSync(checkpointDbPath)) fs.chmodSync(checkpointDbPath, 0o600);
   console.info(`[vizion] agent checkpointer: SqliteSaver @ ${checkpointDbPath}`);
 } catch (error) {
+  assertAgentCheckpointFallbackAllowed(process.env, error);
   agentCheckpointer = new MemorySaver();
-  console.warn(`[vizion] SqliteSaver unavailable, using in-process MemorySaver: ${error?.message || error}`);
+  console.warn("[vizion] SqliteSaver unavailable in non-production internal mode; using in-process MemorySaver");
 }
 
 const langGraphChatRuntime = createLangGraphChatRuntime({
@@ -172,6 +183,19 @@ async function requireInternalAuxiliaryActor(request, response) {
   } catch (error) {
     const safe = toSafeAgentAuthResponse(error);
     sendJson(response, safe?.statusCode || 503, safe?.payload || { success: false, error: "AUXILIARY_ROUTE_UNAVAILABLE" });
+    return null;
+  }
+}
+
+async function requireTestCaseActor(request, response, operation) {
+  try {
+    const actor = await resolveRequestActor(request, { env: process.env });
+    return assertTestCaseOperationAuthorized(actor, operation, process.env);
+  } catch (error) {
+    const authorization = toSafeTestCaseAuthorizationError(error);
+    const authentication = toSafeAgentAuthResponse(error);
+    const safe = authorization || authentication;
+    sendJson(response, safe?.statusCode || 503, safe?.payload || { success: false, error: "TESTCASE_AUTHORIZATION_UNAVAILABLE" });
     return null;
   }
 }
@@ -586,7 +610,7 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (request.method === "POST" && url.pathname === "/api/create-testcase") {
-      const actor = await requireInternalAuxiliaryActor(request, response);
+      const actor = await requireTestCaseActor(request, response, "proposal");
       if (!actor) return;
       const body = await readBoundedJsonBody(request, { maxBytes: jsonBodyLimitBytes });
       const defectId = typeof body?.defect_id === "string" ? body.defect_id.trim() : "";
@@ -601,6 +625,8 @@ const server = http.createServer(async (request, response) => {
         const result = await prepareTestCaseProposal({
           defectId,
           runTestCaseBridge,
+          prepareScope: buildTestCaseDefectScope(actor),
+          authorizeDefect: (defectInfo) => assertTestCaseDefectAuthorized(actor, defectInfo),
           generateContent: (defectInfo, fewShotText) => generateTestCaseContent(defectInfo, fewShotText, chatConfig),
         });
         const issued = testCaseProposalRegistry.issue({ actor, proposal: result });
@@ -614,7 +640,9 @@ const server = http.createServer(async (request, response) => {
           },
         });
       } catch (error) {
-        const safe = toSafeTestCaseProposalError(error);
+        const safe = toSafeTestCaseAuthorizationError(error)
+          || toSafeTestCasePreparationError(error)
+          || toSafeTestCaseProposalError(error);
         sendJson(
           response,
           safe?.statusCode || 500,
@@ -625,7 +653,7 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (request.method === "POST" && url.pathname === "/api/create-testcase/commit") {
-      const actor = await requireInternalAuxiliaryActor(request, response);
+      const actor = await requireTestCaseActor(request, response, "commit");
       if (!actor) return;
       const body = await readBoundedJsonBody(request, { maxBytes: jsonBodyLimitBytes });
       const proposalCapability = typeof body?.proposal_capability === "string"

@@ -48,6 +48,7 @@ database/**/*.db.bak-*
 database/cold/parquet/**
 docs/qgate-reports/generated_runs/
 artifacts/agent-qualification/
+artifacts/preproduction-smoke/
 evals/scorecard/output/
 !database/**/.gitkeep
 .worktrees/

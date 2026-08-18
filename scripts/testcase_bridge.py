@@ -46,9 +46,11 @@ def _read_defect(defect_id: str) -> Dict[str, Any]:
     conn = sqlite3.connect(str(get_full_picture_source_db_path()))
     conn.row_factory = sqlite3.Row
     try:
+        columns = {str(item[1]) for item in conn.execute("PRAGMA table_info(octane_defects)").fetchall()}
+        team_field = "problem_finder_team" if "problem_finder_team" in columns else "'' AS problem_finder_team"
         row = conn.execute(
             "SELECT defect_id, name, severity, software_version, assigned_ecu, "
-            "lead_model, project, phase, description FROM octane_defects WHERE defect_id = ?",
+            f"lead_model, project, {team_field}, phase, description FROM octane_defects WHERE defect_id = ?",
             (normalized,),
         ).fetchone()
     finally:
@@ -65,6 +67,7 @@ def _read_defect(defect_id: str) -> Dict[str, Any]:
         "assigned_ecu": str(row["assigned_ecu"] or ""),
         "lead_model": str(row["lead_model"] or ""),
         "project": str(row["project"] or ""),
+        "problem_finder_team": str(row["problem_finder_team"] or ""),
         "phase": str(row["phase"] or ""),
         "description": str(row["description"] or ""),
     }
@@ -85,6 +88,18 @@ def _do_prepare(payload: Dict[str, Any]) -> Dict[str, Any]:
         return {"success": False, "error": "defect_id is required"}
 
     defect = _read_defect(defect_id)
+    actor_scope = payload.get("actor_scope")
+    if actor_scope is not None:
+        if not isinstance(actor_scope, dict):
+            return {"success": False, "error": "TESTCASE_DEFECT_SCOPE_INVALID", "status_code": 403}
+        project_ids = {str(value).strip() for value in actor_scope.get("project_ids", []) if str(value).strip()}
+        team_ids = {str(value).strip() for value in actor_scope.get("team_ids", []) if str(value).strip()}
+        if not project_ids and not team_ids:
+            return {"success": False, "error": "TESTCASE_DEFECT_SCOPE_REQUIRED", "status_code": 403}
+        if project_ids and defect["project"] not in project_ids:
+            return {"success": False, "error": "TESTCASE_DEFECT_SCOPE_DENIED", "status_code": 403}
+        if team_ids and defect["problem_finder_team"] not in team_ids:
+            return {"success": False, "error": "TESTCASE_DEFECT_SCOPE_DENIED", "status_code": 403}
     query = f"{defect['name']} {defect.get('project', '')} {defect.get('assigned_ecu', '')}"
     similar = retrieve_similar_test_cases(query, top_k=5)
     few_shot = format_few_shot_examples(similar, max_cases=3)

@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "1.0",
+  "baseUrl": "https://agent-preprod.example.com",
+  "timeoutMs": 120000,
+  "threadId": "preprod-release-candidate-shared-thread",
+  "actors": [
+    {
+      "label": "scope-a",
+      "tokenFile": "/run/secrets/data-agent-smoke-actor-a.token",
+      "aggregateQuery": "按问题发现团队统计当前快照的缺陷数量",
+      "continuationQuery": "下钻刚才结果中的缺陷记录，保持同一个数据快照",
+      "aggregateRequiredValues": ["EXPECTED_SCOPE_A_MARKER"],
+      "aggregateForbiddenValues": ["EXPECTED_SCOPE_B_MARKER"],
+      "continuationForbiddenValues": ["EXPECTED_SCOPE_B_MARKER"]
+    },
+    {
+      "label": "scope-b",
+      "tokenFile": "/run/secrets/data-agent-smoke-actor-b.token",
+      "aggregateQuery": "按问题发现团队统计当前快照的缺陷数量",
+      "continuationQuery": "下钻刚才结果中的缺陷记录，保持同一个数据快照",
+      "aggregateRequiredValues": ["EXPECTED_SCOPE_B_MARKER"],
+      "aggregateForbiddenValues": ["EXPECTED_SCOPE_A_MARKER"],
+      "continuationForbiddenValues": ["EXPECTED_SCOPE_A_MARKER"]
+    }
+  ]
+}
