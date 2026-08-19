@@ -41,7 +41,9 @@
         "quality.detected_in_release",
         "quality.parent_child_type",
         "vehicle.lead_model",
-        "time.defect_last_modified"
+        "time.defect_last_modified",
+        "quality.function_group",
+        "org.tester"
       ],
       "requiredFilters": [],
       "missingDataPolicy": "zero_when_empty_result",
@@ -505,7 +507,8 @@
         "testing.test_phase",
         "testing.testing_tool_type",
         "product.release",
-        "time.run_started"
+        "time.run_started",
+        "testing.run_team"
       ],
       "requiredFilters": [],
       "missingDataPolicy": "zero_when_empty_result",
@@ -537,7 +540,8 @@
       "allowedDimensions": [
         "product.project",
         "product.pu",
-        "requirements.aida"
+        "requirements.aida",
+        "testing.trace_status"
       ],
       "requiredFilters": [],
       "missingDataPolicy": "zero_when_empty_result",
@@ -619,7 +623,9 @@
         "testing.test_phase",
         "testing.testing_tool_type",
         "product.release",
-        "time.run_started"
+        "time.run_started",
+        "quality.severity",
+        "testing.quality_category"
       ],
       "requiredFilters": [],
       "missingDataPolicy": "zero_when_empty_result",
@@ -738,7 +744,8 @@
       "allowedDimensions": [
         "product.project",
         "product.pu",
-        "requirements.aida"
+        "requirements.aida",
+        "org.team"
       ],
       "requiredFilters": [],
       "missingDataPolicy": "exclude_null_denominator",
@@ -827,7 +834,8 @@
         "quality.detected_in_release",
         "quality.parent_child_type",
         "vehicle.lead_model",
-        "time.defect_last_modified"
+        "time.defect_last_modified",
+        "quality.function_group"
       ],
       "requiredFilters": [],
       "missingDataPolicy": "exclude_null_denominator",
@@ -914,7 +922,8 @@
         "quality.detected_in_release",
         "quality.parent_child_type",
         "vehicle.lead_model",
-        "time.defect_last_modified"
+        "time.defect_last_modified",
+        "org.team"
       ],
       "requiredFilters": [
         "org.problem_finder_team"
@@ -950,7 +959,8 @@
         "time.defect_creation_date",
         "org.problem_finder_team",
         "product.project",
-        "product.pu"
+        "product.pu",
+        "org.tester"
       ],
       "requiredFilters": [
         "org.problem_finder_team"
@@ -1047,7 +1057,8 @@
       },
       "defaultTimeDimension": "time.defect_creation_date",
       "allowedDimensions": [
-        "time.defect_creation_date"
+        "time.defect_creation_date",
+        "vehicle.model_series"
       ],
       "requiredFilters": [],
       "missingDataPolicy": "not_applicable",
@@ -1077,7 +1088,8 @@
       },
       "defaultTimeDimension": "time.defect_creation_date",
       "allowedDimensions": [
-        "time.defect_creation_date"
+        "time.defect_creation_date",
+        "vehicle.model_series"
       ],
       "requiredFilters": [],
       "missingDataPolicy": "not_applicable",
@@ -1137,7 +1149,8 @@
       },
       "defaultTimeDimension": "time.defect_creation_date",
       "allowedDimensions": [
-        "time.defect_creation_date"
+        "time.defect_creation_date",
+        "testing.domain"
       ],
       "requiredFilters": [],
       "missingDataPolicy": "not_applicable",
@@ -1167,7 +1180,9 @@
         "owner": "Quality Analytics"
       },
       "allowedDimensions": [
-        "time.defect_creation_date"
+        "time.defect_creation_date",
+        "quality.function_group",
+        "product.ecu"
       ],
       "requiredFilters": [],
       "missingDataPolicy": "not_applicable",
@@ -1197,7 +1212,8 @@
         "owner": "Quality Analytics"
       },
       "allowedDimensions": [
-        "time.defect_creation_date"
+        "time.defect_creation_date",
+        "product.ecu"
       ],
       "requiredFilters": [],
       "missingDataPolicy": "not_applicable",

@@ -69,7 +69,7 @@ function mergeEquivalentFilters(filters) {
 
 function intentFrom(query) {
   if (/查重|相似缺陷|重复缺陷|duplicate|similar defect/i.test(query)) return "similarity";
-  if (/追溯|链路|trace|traceability/i.test(query)) return "trace";
+  if (/追溯|链路|trace|traceability/i.test(query) && !/数量|多少|统计|计数|几个|count\b/i.test(query)) return "trace";
   if (/对比|比较|相比|差异|\bcompare\b|\bvs\.?\b|versus|(?:本周|这周|本月|这个月|今年|去年|20\d{2}\s*年?)\s*比\s*(?:上周|上月|上个月|去年|今年|20\d{2})/i.test(query)) return "compare";
   if (/趋势|变化|走势|trend/i.test(query)) return "trend";
   if (/top\s*\d*|排名|排行|高频|最多|rank/i.test(query)) return "rank";
@@ -80,10 +80,12 @@ function intentFrom(query) {
 function defaultMetricId(query, intent) {
   if (intent === "similarity" || intent === "trace") return null;
   if (/测试执行|测试运行|manual run|run count/i.test(query)) return "testing.run_count";
+  if (/(?:执行|运行)[^，,。;；]{0,6}用例|用例[^，,。;；]{0,6}(?:执行|运行)|执行记录|测试记录/i.test(query)) return "testing.run_count";
+  if (/高频|top\s*issue|集中/i.test(query)) return "defect.top_issue_count";
   if (/测试用例|用例数量|testcase/i.test(query)) return "testing.testcase_count";
   if (/通过的测试|passed runs?/i.test(query)) return "testing.passed_run_count";
   if (/失败的测试|failed runs?/i.test(query)) return "testing.failed_run_count";
-  if (/新增|新建|提交|创建|提票|报票|提了|高频|created/i.test(query)) return "defect.created_count";
+  if (/新增|新建|提交|创建|提票|报票|提了|created/i.test(query)) return "defect.created_count";
   return "defect.count";
 }
 
@@ -231,7 +233,7 @@ export function createSemanticResolver({ registry, now = () => new Date().toISOS
       let heuristicIntent = intentFrom(text);
       const traceEntityIds = new Set(["requirements.aida_node", "testing.test_case", "testing.test_run", "quality.defect"]);
       const traceMentionCount = languageEntityIds.filter((entityId) => traceEntityIds.has(entityId)).length;
-      if (heuristicIntent === "aggregate" && traceMentionCount >= 2 && /关联|链路|追溯|哪些|没有|到|related|linked|without|which/i.test(text)) {
+      if (heuristicIntent === "aggregate" && traceMentionCount >= 2 && /关联|链路|追溯|哪些|没有|到|related|linked|without|which|反查/i.test(text) && !/清单|列表|数量|多少|统计|计数/i.test(text)) {
         heuristicIntent = "trace";
       }
       const candidateIntent = candidate?.intent;
@@ -267,6 +269,7 @@ export function createSemanticResolver({ registry, now = () => new Date().toISOS
           ? ["quality.defect"]
           : unique([
               ...metrics.map((metric) => metric.entityId),
+              ...(intent !== "trace" && intent !== "similarity" && /上下文|提案|准备/.test(text) ? languageEntityIds.filter((id) => id !== metrics[0]?.entityId) : []),
               ...(metrics.length ? [] : candidateEntityIds),
               ...(metrics.length || !usingInheritedMetric ? [] : priorFrame.entityIds || []),
             ]);
@@ -280,7 +283,8 @@ export function createSemanticResolver({ registry, now = () => new Date().toISOS
       const governedValueDimensions = new Set(governedValueFilters.map((item) => item.dimensionId));
       const matchedDimensionIds = (intent === "trace" ? [] : unique(matchedTerms
           .filter((term) => term.resolution.filterValue === undefined || intent === "compare")
-          .map((term) => term.resolution.dimensionId)))
+          .map((term) => term.resolution.dimensionId))
+          .map((dimensionId) => dimensionId === "org.team" && metrics.length && metrics.every((metric) => metric.entityId === "quality.defect") ? "org.problem_finder_team" : dimensionId))
         .filter((dimensionId) => !governedValueDimensions.has(dimensionId) || intent === "compare" || explicitGroupingForDimension(text, matchedTerms, dimensionId));
       const explicitGroupingDimensionIds = matchedDimensionIds.filter((dimensionId) => explicitGroupingForDimension(text, matchedTerms, dimensionId));
       const candidateDimensionIds = unique(candidate?.dimensionIds || []).map((id) => registry.getDimension(id).id)

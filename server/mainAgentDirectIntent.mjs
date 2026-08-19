@@ -40,11 +40,18 @@ export function classifyDirectMainAgentIntent(queryText) {
     const profile = DIRECT_MAIN_AGENT_INTENT_PROFILES.chitchat;
     return { intent: "chitchat", content: profile.responseTemplate, ...profile };
   }
-  if (/^(?:测试(?:情况)?|test(?:ing)?)(?:\s*(?:怎么样|咋样|如何|呢))?[?？!！。]*$/i.test(query)) {
+  if (/^(?:测试(?:情况)?|test(?:ing)?)(?:\s*(?:怎么样|咋样|如何|呢))?[?？!！。]*$/i.test(query)
+    || /^(?:缺陷|当前风险)(?:\s*(?:怎么样|咋样|如何|呢))?[?？!！。]*$/i.test(query)
+    || /^缺陷[?？!！。]*$/.test(query)
+    || /^当前风险[?？!！。]*$/.test(query)
+    || /^上次的那个问题[?？!！。]*$/.test(query)
+    || /^帮(?:我)?看看\s*[A-Za-z0-9_\-]{1,12}[?？!！。]*$/.test(query)) {
     const profile = DIRECT_MAIN_AGENT_INTENT_PROFILES.clarification;
     return { intent: "clarification", content: profile.responseTemplate, ...profile };
   }
-  if (/写一首诗|讲个笑话|天气|股票|菜谱|旅游攻略|写代码|python|javascript/i.test(query)) {
+  if (/写一首诗|讲个笑话|天气|股票|菜谱|旅游攻略|写代码|python|javascript/i.test(query)
+    || /^直接执行\b|drop\s+table|delete\s+from|insert\s+into|update\s+\w+\s+set/i.test(query)
+    || /发一封邮件|发邮件|帮我发邮件|绕过权限|用\s*sql\s*(?:帮我)?(?:查|执行|跑)/i.test(query)) {
     const profile = DIRECT_MAIN_AGENT_INTENT_PROFILES.out_of_scope;
     return { intent: "out_of_scope", content: profile.responseTemplate, ...profile };
   }

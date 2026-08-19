@@ -157,7 +157,8 @@
         "失败 Run 数",
         "失败 Run",
         "failed runs",
-        "failed run count"
+        "failed run count",
+        "失败用例"
       ],
       "kind": "synonym",
       "resolution": {
@@ -300,7 +301,6 @@
       "id": "dimension.ecu",
       "phrases": [
         "ECU",
-        "模块",
         "module"
       ],
       "kind": "alias",
@@ -420,7 +420,6 @@
       "id": "dimension.phase",
       "phrases": [
         "Phase",
-        "阶段",
         "缺陷阶段"
       ],
       "kind": "alias",
@@ -473,7 +472,8 @@
       "phrases": [
         "测试人员",
         "tester",
-        "执行人"
+        "执行人",
+        "测试员"
       ],
       "kind": "alias",
       "resolution": {
@@ -490,7 +490,9 @@
       "phrases": [
         "执行团队",
         "测试团队",
-        "execution team"
+        "execution team",
+        "团队",
+        "成员"
       ],
       "kind": "alias",
       "resolution": {
@@ -525,7 +527,9 @@
         "没有需求追溯",
         "未关联需求",
         "without requirement traceability",
-        "untraced testcase"
+        "untraced testcase",
+        "未追溯",
+        "未追溯用例"
       ],
       "kind": "enum_value",
       "resolution": {
@@ -850,7 +854,6 @@
     {
       "id": "dim.lead_model",
       "phrases": [
-        "车型",
         "lead model",
         "主车型",
         "G70",
@@ -890,7 +893,8 @@
       "phrases": [
         "测试域",
         "domain",
-        "测试领域"
+        "测试领域",
+        "哪些域"
       ],
       "kind": "synonym",
       "resolution": {
@@ -907,7 +911,8 @@
       "phrases": [
         "测试阶段",
         "test phase",
-        "测试阶段分类"
+        "测试阶段分类",
+        "阶段"
       ],
       "kind": "synonym",
       "resolution": {
@@ -1414,6 +1419,282 @@
       },
       "resolution": {
         "entityId": "quality.defect"
+      }
+    },
+    {
+      "id": "metric.traceability_rate",
+      "phrases": [
+        "追溯率",
+        "追溯覆盖率"
+      ],
+      "kind": "synonym",
+      "resolution": {
+        "metricId": "testing.traceability_rate",
+        "entityId": "testing.test_run"
+      },
+      "governance": {
+        "status": "draft",
+        "owner": "Testing Analytics"
+      }
+    },
+    {
+      "id": "metric.team_defect_discovery",
+      "phrases": [
+        "提票数",
+        "提票量",
+        "报票数",
+        "团队缺陷发现数"
+      ],
+      "kind": "synonym",
+      "resolution": {
+        "metricId": "team.defect_discovery_count",
+        "entityId": "quality.defect"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "metric.team_execution",
+      "phrases": [
+        "执行量",
+        "团队执行量",
+        "execution count"
+      ],
+      "kind": "synonym",
+      "resolution": {
+        "metricId": "team.execution_count",
+        "entityId": "testing.test_run"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Testing Analytics"
+      }
+    },
+    {
+      "id": "concept.pingpong",
+      "phrases": [
+        "乒乓",
+        "乒乓缺陷",
+        "反复重开"
+      ],
+      "kind": "synonym",
+      "resolution": {
+        "metricId": "defect.repeat_rate",
+        "entityId": "quality.defect"
+      },
+      "governance": {
+        "status": "draft",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "metric.long_age",
+      "phrases": [
+        "长龄",
+        "长龄缺陷",
+        "超龄缺陷"
+      ],
+      "kind": "synonym",
+      "resolution": {
+        "metricId": "defect.age_days",
+        "entityId": "quality.defect"
+      },
+      "governance": {
+        "status": "draft",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "dimension.function_group",
+      "phrases": [
+        "功能组",
+        "功能域",
+        "模块"
+      ],
+      "kind": "alias",
+      "resolution": {
+        "dimensionId": "quality.function_group",
+        "entityId": "organization.function_team_mapping"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Organization Analytics"
+      }
+    },
+    {
+      "id": "fg.network_mgmt",
+      "phrases": [
+        "网络管理"
+      ],
+      "kind": "enum_value",
+      "resolution": {
+        "dimensionId": "quality.function_group",
+        "filterValue": "网络管理"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Organization Analytics"
+      }
+    },
+    {
+      "id": "phase.fv",
+      "phrases": [
+        "FV 阶段",
+        "FV阶段",
+        "FV"
+      ],
+      "kind": "enum_value",
+      "resolution": {
+        "dimensionId": "testing.test_phase",
+        "filterValue": "FV"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Testing Analytics"
+      }
+    },
+    {
+      "id": "status.open",
+      "phrases": [
+        "未解决",
+        "未关闭"
+      ],
+      "kind": "enum_value",
+      "resolution": {
+        "dimensionId": "quality.status",
+        "filterValue": "Open"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "tester.zhangsan",
+      "phrases": [
+        "张三"
+      ],
+      "kind": "enum_value",
+      "resolution": {
+        "dimensionId": "org.tester",
+        "filterValue": "张三"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Testing Analytics"
+      }
+    },
+    {
+      "id": "dimension.test_week",
+      "phrases": [
+        "测试周",
+        "本测试周",
+        "test week"
+      ],
+      "kind": "alias",
+      "resolution": {
+        "dimensionId": "time.test_week",
+        "entityId": "testing.test_run"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Testing Analytics"
+      }
+    },
+    {
+      "id": "dimension.model_series_count",
+      "phrases": [
+        "车型数",
+        "车型系列"
+      ],
+      "kind": "alias",
+      "resolution": {
+        "dimensionId": "vehicle.model_series",
+        "entityId": "quality.defect"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Quality Analytics"
+      }
+    },
+    {
+      "id": "concept.function_coverage",
+      "phrases": [
+        "功能覆盖",
+        "功能覆盖缺口"
+      ],
+      "kind": "synonym",
+      "resolution": {
+        "metricId": "kpi.function_coverage"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Requirements Analytics"
+      }
+    },
+    {
+      "id": "concept.config_coverage_models",
+      "phrases": [
+        "配置覆盖",
+        "配置覆盖率"
+      ],
+      "kind": "synonym",
+      "resolution": {
+        "metricId": "kpi.config_coverage_models"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Vehicle Analytics"
+      }
+    },
+    {
+      "id": "concept.config_coverage_variants",
+      "phrases": [
+        "变体数"
+      ],
+      "kind": "synonym",
+      "resolution": {
+        "metricId": "kpi.config_coverage_variants"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Vehicle Analytics"
+      }
+    },
+    {
+      "id": "dimension.run_team_detail",
+      "phrases": [
+        "执行记录",
+        "成员执行"
+      ],
+      "kind": "alias",
+      "resolution": {
+        "dimensionId": "testing.run_team",
+        "entityId": "testing.test_run"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Testing Analytics"
+      }
+    },
+    {
+      "id": "value.ecu_codes",
+      "phrases": [
+        "ECU 编号"
+      ],
+      "kind": "value_pattern",
+      "resolution": {
+        "dimensionId": "product.ecu",
+        "valuePattern": "\\b(BCM|EDU|VCU|ICAS1|ICAS2|ICAS3|ADAS|GW|HUD|TCU|BMS|OBC|EPS|ESC|ZCU|DCU)\\b",
+        "captureGroup": 0,
+        "normalizer": "uppercase",
+        "maxMatches": 5
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Product Analytics"
       }
     }
   ]

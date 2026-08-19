@@ -843,7 +843,8 @@
       "aliases": [
         "AIDA",
         "需求节点",
-        "requirement"
+        "requirement",
+        "需求"
       ],
       "source": {
         "sourceId": "analytics.traceability",

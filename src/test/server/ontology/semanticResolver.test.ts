@@ -18,7 +18,7 @@ describe("Ontology semantic resolver", () => {
     ["2026 年 DTSV 有多少缺陷？", "aggregate", "defect.count", null, "2026-01-01"],
     ["2026 年 6 月 DTSV 创建了多少缺陷？", "aggregate", "defect.created_count", null, "2026-06-01"],
     ["六月新增缺陷按 ECU 统计", "aggregate", "defect.created_count", "product.ecu", "2026-06-01"],
-    ["最近一周 Top 5 高频模块", "rank", "defect.created_count", "product.ecu", "2026-07-09"],
+    ["最近一周 Top 5 高频模块", "rank", "defect.top_issue_count", "product.ecu", "2026-07-09"],
     ["OS8 与 OS9 缺陷数对比", "compare", "defect.count", "product.os", "2026-01-01"],
     ["本月测试执行数", "aggregate", "testing.run_count", null, "2026-07-01"],
     ["测试用例数按 PU", "aggregate", "testing.testcase_count", "product.pu", null],

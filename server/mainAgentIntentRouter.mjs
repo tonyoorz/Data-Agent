@@ -87,18 +87,23 @@ const INTENT_PROFILES = Object.freeze({
 });
 
 function routeToolIntent(queryText) {
-  if (/删除|更新|修改|写入|评论|comment|write|update|delete|edit/i.test(queryText)) return "action_capability";
+  if (/删除|更新|修改|写入|评论|关闭|直接执行|comment|write|update|delete|edit/i.test(queryText)) return "action_capability";
   if (/重复|查重|相似|duplicate|similar/i.test(queryText)) return "duplicate_search";
-  if (/traceability|追溯|追踪|链路|Requirement|TestRun/i.test(queryText)) return "traceability";
-  if (/创建.*测试用例|回归测试|test\s*case|testcase|entityType=work_item|id=\d+/i.test(queryText)) return "testcase_context";
-  if (/字段|API|UDF|filterable|sortable|editable|schema|field|octane_defects/i.test(queryText)) return "schema_discovery";
-  if (/ontology|本体|能力|available|partial|unavailable|dry_run_only|disabled|blocked/i.test(queryText)) return "ontology_catalog";
-  if (/缺陷高频|high.?frequency|缺陷.*集中|集中.*ECU/i.test(queryText)) return "high_frequency";
-  if (/覆盖率|通过率|执行率|执行效率|缺陷发现率|测试小组|manual[-\s]?run|coverage|pass\s*rate|execution\s*rate/i.test(queryText)) return "coverage_query";
-  if (/Full Picture|dashboard|Top Issue|long runner|page.?parity/i.test(queryText)) return "dashboard_fallback";
-  if (/列出|明细|ticket|record|drilldown|list|(?:带(?:着)?|展示|显示|返回)\s*(?:缺陷\s*)?(?:id|编号|ticket\s*id)|(?:id|编号|ticket\s*id)\s*(?:展示|列表|明细)/i.test(queryText)) return "record_query";
+  // Long-tail guard: asks the governed layer cannot serve (no quantile/portrait/root-cause metric) land in general.
+  if (/分位数|quantile|画像|异同|根因分析/i.test(queryText)) return "general";
+  if (/traceability|追溯|追踪|链路|反查|需求[^，。；;]{0,8}覆盖[^，。；;]{0,8}用例|Requirement|TestRun/i.test(queryText)) return "traceability";
+  if (/创建.{0,4}测试用例|回归用例|用例提案|测试用例上下文|准备.{0,6}用例|回归测试|test\s*case|testcase|entityType=work_item|id=\d+/i.test(queryText)) return "testcase_context";
+  if (/有哪些数据|数据可以查|能查哪些|字段|API|UDF|filterable|sortable|editable|schema|field|octane_defects/i.test(queryText)) return "schema_discovery";
+  if (/语义层|定义了哪些|ontology|本体|能力|available|partial|unavailable|dry_run_only|disabled|blocked/i.test(queryText)) return "ontology_catalog";
+  // Root-cause/hypothesis wording on Top Issue keeps the dashboard-grade toolset (catalog+analyze+records).
+  if (/top\s*issue/i.test(queryText) && /根因|假设/i.test(queryText)) return "dashboard_fallback";
+  if (/缺陷高频|high.?frequency|高频|top\s*issue|缺陷.{0,6}集中/i.test(queryText)) return "high_frequency";
+  if (/覆盖率|执行率|缺陷发现率|功能覆盖|配置覆盖|需求覆盖|覆盖缺口|测试小组|manual[-\s]?run|coverage|pass\s*rate|execution\s*rate/i.test(queryText)) return "coverage_query";
+  if (/Full Picture|dashboard|page.?parity|大盘|概览|Q-?\s?Gate|qgate/i.test(queryText)) return "dashboard_fallback";
+  if (/长运行|long\s*runner/i.test(queryText)) return "record_query";
+  if (/列出|明细|清单|列表|执行记录|ticket|record|drilldown|list|(?:带(?:着)?|展示|显示|返回)\s*(?:缺陷\s*)?(?:id|编号|ticket\s*id)|(?:id|编号|ticket\s*id)\s*(?:展示|列表|明细)/i.test(queryText)) return "record_query";
   if (/\b(risk|health|overview|assessment)\b|风险|健康度|当前情况|怎么看|怎么样/i.test(queryText)) return "business_risk_assessment";
-  if (/覆盖率|通过率|执行率|执行效率|缺陷发现率|测试小组|manual[-\s]?run|多少|几个|统计|趋势|Top|排名|排序|低于|高于|新增|解决|关闭|增长|上升|环比|同比|提票|报票|提了|数据.*(?:为空|没数据|没有数据|查不到)|为什么.*(?:为空|没数据|没有数据|查不到)|空结果|coverage|pass\s*rate|execution\s*rate|count|metric|trend|rank|growth|delta|empty\s*result|no\s*data|zero\s*rows/i.test(queryText)) return "metric_query";
+  if (/覆盖率|通过率|执行率|执行效率|缺陷发现率|测试小组|manual[-\s]?run|多少|几个|哪个|哪位|最高|最低|效率|密度|执行量|对比|统计|趋势|Top|排名|排序|低于|高于|新增|解决|关闭|增长|上升|环比|同比|提票|报票|提了|数据.*(?:为空|没数据|没有数据|查不到)|为什么.*(?:为空|没数据|没有数据|查不到)|空结果|coverage|pass\s*rate|execution\s*rate|count|metric|trend|rank|growth|delta|empty\s*result|no\s*data|zero\s*rows/i.test(queryText)) return "metric_query";
   return "general";
 }
 
