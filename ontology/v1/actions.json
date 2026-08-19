@@ -5,23 +5,53 @@
     {
       "id": "octane.defect.add_comment",
       "version": "0.1.0",
-      "labels": { "zh-CN": "添加缺陷评论", "en-US": "Add Defect Comment" },
+      "labels": {
+        "zh-CN": "添加缺陷评论",
+        "en-US": "Add Defect Comment"
+      },
       "description": "Draft action for posting a governed comment to an Octane defect. The current system supports dry-run preview and explicit apply through the duplicate-comment workflow, but this ontology action is not approved for autonomous execution.",
       "targetEntityId": "quality.defect",
       "operation": "comment",
       "capabilityState": "dry_run_only",
-      "intentHints": ["add comment", "post comment", "write comment", "添加评论", "写评论", "duplicate analysis comment"],
+      "intentHints": [
+        "add comment",
+        "post comment",
+        "write comment",
+        "添加评论",
+        "写评论",
+        "duplicate analysis comment"
+      ],
       "fieldBindings": [
-        { "fieldId": "octane_defects.table_column.defect_id", "role": "target", "localPropertyId": "defect_id", "required": true },
-        { "fieldId": "octane_defects.table_column.comments", "role": "editable", "localPropertyId": "comments", "required": true }
+        {
+          "fieldId": "octane_defects.table_column.defect_id",
+          "role": "target",
+          "localPropertyId": "defect_id",
+          "required": true
+        },
+        {
+          "fieldId": "octane_defects.table_column.comments",
+          "role": "editable",
+          "localPropertyId": "comments",
+          "required": true
+        }
       ],
       "inputSchema": {
         "type": "object",
-        "required": ["defect_id", "comment_html", "rationale"],
+        "required": [
+          "defect_id",
+          "comment_html",
+          "rationale"
+        ],
         "properties": {
-          "defect_id": { "type": "string" },
-          "comment_html": { "type": "string" },
-          "rationale": { "type": "string" }
+          "defect_id": {
+            "type": "string"
+          },
+          "comment_html": {
+            "type": "string"
+          },
+          "rationale": {
+            "type": "string"
+          }
         }
       },
       "apiBinding": {
@@ -36,30 +66,65 @@
         "requiresDryRun": true,
         "requiresHumanApproval": true,
         "requiresActorScope": true,
-        "sideEffects": ["comment_create", "octane_write", "audit_log"]
+        "sideEffects": [
+          "comment_create",
+          "octane_write",
+          "audit_log"
+        ]
       },
-      "policies": ["actor.scope.mandatory"],
-      "audit": { "runAudit": true, "toolCallAudit": true, "externalRequestAudit": true, "rollbackStrategy": "manual" },
-      "governance": { "status": "draft", "owner": "Agent Platform", "decisionRef": "docs/ontology/octane-field-catalog.md" }
+      "policies": [
+        "actor.scope.mandatory"
+      ],
+      "audit": {
+        "runAudit": true,
+        "toolCallAudit": true,
+        "externalRequestAudit": true,
+        "rollbackStrategy": "manual"
+      },
+      "governance": {
+        "status": "draft",
+        "owner": "Agent Platform",
+        "decisionRef": "docs/ontology/octane-field-catalog.md"
+      }
     },
     {
       "id": "octane.defect.delete_work_item",
       "version": "0.1.0",
-      "labels": { "zh-CN": "删除缺陷单", "en-US": "Delete Defect Work Item" },
+      "labels": {
+        "zh-CN": "删除缺陷单",
+        "en-US": "Delete Defect Work Item"
+      },
       "description": "Blocked action documenting that destructive Octane defect deletion is outside autonomous agent capability. Keep this explicit so delete intents are routed to policy explanation instead of ad-hoc tool use.",
       "targetEntityId": "quality.defect",
       "operation": "delete",
       "capabilityState": "blocked",
-      "intentHints": ["delete defect", "remove defect", "删除缺陷", "删除问题单"],
+      "intentHints": [
+        "delete defect",
+        "remove defect",
+        "删除缺陷",
+        "删除问题单"
+      ],
       "fieldBindings": [
-        { "fieldId": "octane_defects.table_column.defect_id", "role": "target", "localPropertyId": "defect_id", "required": true }
+        {
+          "fieldId": "octane_defects.table_column.defect_id",
+          "role": "target",
+          "localPropertyId": "defect_id",
+          "required": true
+        }
       ],
       "inputSchema": {
         "type": "object",
-        "required": ["defect_id", "business_approval_ref"],
+        "required": [
+          "defect_id",
+          "business_approval_ref"
+        ],
         "properties": {
-          "defect_id": { "type": "string" },
-          "business_approval_ref": { "type": "string" }
+          "defect_id": {
+            "type": "string"
+          },
+          "business_approval_ref": {
+            "type": "string"
+          }
         }
       },
       "apiBinding": {
@@ -74,37 +139,107 @@
         "requiresDryRun": true,
         "requiresHumanApproval": true,
         "requiresActorScope": true,
-        "sideEffects": ["destructive_delete", "octane_write", "audit_log"]
+        "sideEffects": [
+          "destructive_delete",
+          "octane_write",
+          "audit_log"
+        ]
       },
-      "policies": ["actor.scope.mandatory"],
-      "audit": { "runAudit": true, "toolCallAudit": true, "externalRequestAudit": true, "rollbackStrategy": "not_supported" },
-      "governance": { "status": "draft", "owner": "Agent Security", "decisionRef": "docs/ontology/octane-field-catalog.md" }
+      "policies": [
+        "actor.scope.mandatory"
+      ],
+      "audit": {
+        "runAudit": true,
+        "toolCallAudit": true,
+        "externalRequestAudit": true,
+        "rollbackStrategy": "not_supported"
+      },
+      "governance": {
+        "status": "draft",
+        "owner": "Agent Security",
+        "decisionRef": "docs/ontology/octane-field-catalog.md"
+      }
     },
     {
       "id": "octane.defect.update_triage_fields",
       "version": "0.1.0",
-      "labels": { "zh-CN": "更新缺陷分诊字段", "en-US": "Update Defect Triage Fields" },
+      "labels": {
+        "zh-CN": "更新缺陷分诊字段",
+        "en-US": "Update Defect Triage Fields"
+      },
       "description": "Disabled draft action for future governed updates to selected Octane defect triage fields. It records field candidates and guardrails before any executor is implemented.",
       "targetEntityId": "quality.defect",
       "operation": "update",
       "capabilityState": "disabled",
-      "intentHints": ["update defect", "edit field", "change triage", "更新缺陷", "修改字段", "分诊"],
+      "intentHints": [
+        "update defect",
+        "edit field",
+        "change triage",
+        "更新缺陷",
+        "修改字段",
+        "分诊"
+      ],
       "fieldBindings": [
-        { "fieldId": "octane_defects.table_column.defect_id", "role": "target", "localPropertyId": "defect_id", "required": true },
-        { "fieldId": "octane_defects.raw_json.problem_finder_team_udf", "role": "editable", "localPropertyId": "problem_finder_team", "required": false },
-        { "fieldId": "octane_defects.raw_json.model_series_udf", "role": "editable", "localPropertyId": "model_series", "required": false },
-        { "fieldId": "octane_defects.raw_json.assigned_ecu_udf", "role": "editable", "localPropertyId": "assigned_ecu", "required": false },
-        { "fieldId": "octane_defects.table_column.severity", "role": "editable", "localPropertyId": "severity", "required": false },
-        { "fieldId": "octane_defects.table_column.phase", "role": "editable", "localPropertyId": "phase", "required": false },
-        { "fieldId": "octane_defects.raw_json.software_version_udf", "role": "editable", "localPropertyId": "software_version", "required": false }
+        {
+          "fieldId": "octane_defects.table_column.defect_id",
+          "role": "target",
+          "localPropertyId": "defect_id",
+          "required": true
+        },
+        {
+          "fieldId": "octane_defects.raw_json.problem_finder_team_udf",
+          "role": "editable",
+          "localPropertyId": "problem_finder_team",
+          "required": false
+        },
+        {
+          "fieldId": "octane_defects.raw_json.model_series_udf",
+          "role": "editable",
+          "localPropertyId": "model_series",
+          "required": false
+        },
+        {
+          "fieldId": "octane_defects.raw_json.assigned_ecu_udf",
+          "role": "editable",
+          "localPropertyId": "assigned_ecu",
+          "required": false
+        },
+        {
+          "fieldId": "octane_defects.table_column.severity",
+          "role": "editable",
+          "localPropertyId": "severity",
+          "required": false
+        },
+        {
+          "fieldId": "octane_defects.table_column.phase",
+          "role": "editable",
+          "localPropertyId": "phase",
+          "required": false
+        },
+        {
+          "fieldId": "octane_defects.raw_json.software_version_udf",
+          "role": "editable",
+          "localPropertyId": "software_version",
+          "required": false
+        }
       ],
       "inputSchema": {
         "type": "object",
-        "required": ["defect_id", "changes", "rationale"],
+        "required": [
+          "defect_id",
+          "changes",
+          "rationale"
+        ],
         "properties": {
-          "defect_id": { "type": "string" },
-          "changes": { "type": "object" },
-          "rationale": { "type": "string" }
+          "defect_id": {
+            "type": "string"
+          },
+          "changes": {
+            "type": "object"
+          },
+          "rationale": {
+            "type": "string"
+          }
         }
       },
       "apiBinding": {
@@ -119,11 +254,330 @@
         "requiresDryRun": true,
         "requiresHumanApproval": true,
         "requiresActorScope": true,
-        "sideEffects": ["field_update", "octane_write", "audit_log"]
+        "sideEffects": [
+          "field_update",
+          "octane_write",
+          "audit_log"
+        ]
       },
-      "policies": ["actor.scope.mandatory"],
-      "audit": { "runAudit": true, "toolCallAudit": true, "externalRequestAudit": true, "rollbackStrategy": "manual" },
-      "governance": { "status": "draft", "owner": "Quality Governance", "decisionRef": "docs/ontology/octane-field-catalog.md" }
+      "policies": [
+        "actor.scope.mandatory"
+      ],
+      "audit": {
+        "runAudit": true,
+        "toolCallAudit": true,
+        "externalRequestAudit": true,
+        "rollbackStrategy": "manual"
+      },
+      "governance": {
+        "status": "draft",
+        "owner": "Quality Governance",
+        "decisionRef": "docs/ontology/octane-field-catalog.md"
+      }
+    },
+    {
+      "id": "quality.defect.update_status",
+      "version": "1.0.0",
+      "labels": {
+        "zh-CN": "更新缺陷状态",
+        "en-US": "Update Defect Status"
+      },
+      "description": "Governed transactional writeback that updates a defect status (e.g. Open→Closed) through the two-phase approval flow.",
+      "targetEntityId": "quality.defect",
+      "operation": "update",
+      "capabilityState": "available",
+      "intentHints": [
+        "关闭缺陷",
+        "更新状态",
+        "close defect",
+        "update status"
+      ],
+      "fieldBindings": [
+        {
+          "fieldId": "octane_defects.table_column.defect_id",
+          "role": "target",
+          "localPropertyId": "defect_id",
+          "required": true
+        },
+        {
+          "fieldId": "octane_defects.table_column.status",
+          "role": "editable",
+          "localPropertyId": "status",
+          "required": true
+        }
+      ],
+      "mutation": {
+        "fields": [
+          "status",
+          "resolution_time"
+        ],
+        "writeback": {
+          "dataset": "analytics.defect_writeback",
+          "transactional": true
+        }
+      },
+      "submissionCriteria": [
+        {
+          "kind": "userGroup",
+          "userGroup": "dtsv_team"
+        },
+        {
+          "kind": "approval",
+          "approvalKind": "defect_write",
+          "ttlMin": 15
+        }
+      ],
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "defect_id",
+          "status"
+        ],
+        "properties": {
+          "defect_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "Open",
+              "Closed",
+              "Rejected",
+              "In Progress"
+            ]
+          },
+          "resolution_time": {
+            "type": "string"
+          }
+        }
+      },
+      "apiBinding": {
+        "system": "octane",
+        "sourceId": "analytics.full_picture_defects",
+        "method": "PATCH",
+        "endpointTemplate": "/api/agent/actions/defect_writeback"
+      },
+      "execution": {
+        "mode": "enabled",
+        "executor": "server/agentRuntime/actionRuntime.mjs",
+        "requiresDryRun": true,
+        "requiresHumanApproval": true,
+        "requiresActorScope": true,
+        "sideEffects": [
+          "field_update",
+          "octane_write",
+          "audit_log"
+        ]
+      },
+      "policies": [
+        "actor.scope.mandatory"
+      ],
+      "audit": {
+        "runAudit": true,
+        "toolCallAudit": true,
+        "externalRequestAudit": true,
+        "rollbackStrategy": "manual"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Agent Platform",
+        "decisionRef": "docs/plans/2026-08-16-agent-upgrade-program.md"
+      }
+    },
+    {
+      "id": "quality.defect.link_duplicate",
+      "version": "1.0.0",
+      "labels": {
+        "zh-CN": "标记重复缺陷",
+        "en-US": "Link Duplicate Defect"
+      },
+      "description": "Links a defect to its duplicate master with evidence from the governed duplicate search.",
+      "targetEntityId": "quality.defect",
+      "operation": "update",
+      "capabilityState": "available",
+      "intentHints": [
+        "标记重复",
+        "关联重复",
+        "link duplicate"
+      ],
+      "fieldBindings": [
+        {
+          "fieldId": "octane_defects.table_column.defect_id",
+          "role": "target",
+          "localPropertyId": "defect_id",
+          "required": true
+        },
+        {
+          "fieldId": "octane_defects.table_column.relation_to",
+          "role": "editable",
+          "localPropertyId": "relation_to",
+          "required": true
+        }
+      ],
+      "mutation": {
+        "fields": [
+          "relation_to"
+        ],
+        "writeback": {
+          "dataset": "analytics.defect_writeback",
+          "transactional": true
+        }
+      },
+      "submissionCriteria": [
+        {
+          "kind": "userGroup",
+          "userGroup": "dtsv_team"
+        },
+        {
+          "kind": "approval",
+          "approvalKind": "defect_write",
+          "ttlMin": 15
+        }
+      ],
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "defect_id",
+          "duplicate_of",
+          "evidence_summary"
+        ],
+        "properties": {
+          "defect_id": {
+            "type": "string"
+          },
+          "duplicate_of": {
+            "type": "string"
+          },
+          "evidence_summary": {
+            "type": "string"
+          }
+        }
+      },
+      "apiBinding": {
+        "system": "octane",
+        "sourceId": "analytics.full_picture_defects",
+        "method": "POST",
+        "endpointTemplate": "/api/agent/actions/defect_writeback"
+      },
+      "execution": {
+        "mode": "enabled",
+        "executor": "server/agentRuntime/actionRuntime.mjs",
+        "requiresDryRun": true,
+        "requiresHumanApproval": true,
+        "requiresActorScope": true,
+        "sideEffects": [
+          "field_update",
+          "audit_log"
+        ]
+      },
+      "policies": [
+        "actor.scope.mandatory"
+      ],
+      "audit": {
+        "runAudit": true,
+        "toolCallAudit": true,
+        "externalRequestAudit": true,
+        "rollbackStrategy": "manual"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Agent Platform",
+        "decisionRef": "docs/plans/2026-08-16-agent-upgrade-program.md"
+      }
+    },
+    {
+      "id": "testing.testcase.propose",
+      "version": "1.0.0",
+      "labels": {
+        "zh-CN": "生成测试用例提案",
+        "en-US": "Propose Test Case"
+      },
+      "description": "Creates a governed test-case proposal (never autonomous creation) replacing the ad-hoc testCaseProposal path.",
+      "targetEntityId": "testing.test_case",
+      "operation": "create",
+      "capabilityState": "available",
+      "intentHints": [
+        "生成用例",
+        "用例提案",
+        "propose testcase"
+      ],
+      "fieldBindings": [
+        {
+          "fieldId": "test_cases.table_column.name",
+          "role": "editable",
+          "localPropertyId": "name",
+          "required": true
+        }
+      ],
+      "mutation": {
+        "fields": [
+          "name",
+          "test_name"
+        ],
+        "writeback": {
+          "dataset": "analytics.defect_writeback",
+          "transactional": true
+        }
+      },
+      "submissionCriteria": [
+        {
+          "kind": "userGroup",
+          "userGroup": "dtsv_team"
+        },
+        {
+          "kind": "approval",
+          "approvalKind": "testcase_proposal",
+          "ttlMin": 30
+        }
+      ],
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "name",
+          "anchor_ref"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "test_name": {
+            "type": "string"
+          },
+          "anchor_ref": {
+            "type": "string"
+          }
+        }
+      },
+      "apiBinding": {
+        "system": "octane",
+        "sourceId": "analytics.testing_coverage",
+        "method": "POST",
+        "endpointTemplate": "/api/agent/actions/testcase_proposals"
+      },
+      "execution": {
+        "mode": "enabled",
+        "executor": "server/agentRuntime/actionRuntime.mjs",
+        "requiresDryRun": true,
+        "requiresHumanApproval": true,
+        "requiresActorScope": true,
+        "sideEffects": [
+          "audit_log"
+        ]
+      },
+      "policies": [
+        "actor.scope.mandatory"
+      ],
+      "audit": {
+        "runAudit": true,
+        "toolCallAudit": true,
+        "externalRequestAudit": true,
+        "rollbackStrategy": "not_applicable"
+      },
+      "governance": {
+        "status": "approved",
+        "owner": "Agent Platform",
+        "decisionRef": "docs/plans/2026-08-16-agent-upgrade-program.md"
+      }
     }
   ]
 }

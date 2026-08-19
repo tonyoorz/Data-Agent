@@ -219,6 +219,30 @@ export function validateOntologyBundle(bundle) {
     if (action.operation === "delete" && action.capabilityState !== "blocked") {
       fail("ONTOLOGY_DELETE_ACTION_MUST_BE_BLOCKED", action.id);
     }
+    if (action.mutation) {
+      const propertyIds = new Set((entity.properties || []).map((property) => property.id));
+      for (const field of action.mutation.fields || []) {
+        if (!propertyIds.has(field)) fail("ONTOLOGY_ACTION_MUTATION_FIELD_NOT_FOUND", `${action.id}:${field}`);
+      }
+      if (!sourceIds.has(action.mutation.writeback?.dataset)) {
+        fail("ONTOLOGY_ACTION_WRITEBACK_SOURCE_NOT_FOUND", `${action.id}:${action.mutation.writeback?.dataset}`);
+      }
+      if (action.mutation.writeback?.transactional !== true) {
+        fail("ONTOLOGY_ACTION_WRITEBACK_MUST_BE_TRANSACTIONAL", action.id);
+      }
+    }
+    const knownGroups = new Set(["dtsv_team", "quality_governance", "testing_governance"]);
+    for (const criterion of action.submissionCriteria || []) {
+      if (criterion.kind === "userGroup" && !knownGroups.has(criterion.userGroup)) {
+        fail("ONTOLOGY_ACTION_USER_GROUP_UNKNOWN", `${action.id}:${criterion.userGroup}`);
+      }
+      if (criterion.kind === "approval" && !criterion.approvalKind) {
+        fail("ONTOLOGY_ACTION_APPROVAL_KIND_REQUIRED", action.id);
+      }
+    }
+    if (action.execution?.mode === "enabled" && !(action.submissionCriteria || []).some((c) => c.kind === "approval")) {
+      fail("ONTOLOGY_ACTION_ENABLED_NEEDS_APPROVAL_CRITERION", action.id);
+    }
     if (action.execution?.mode === "enabled" && ["create", "update", "delete", "comment"].includes(action.operation)) {
       if (!action.execution.requiresDryRun || !action.execution.requiresHumanApproval || !action.execution.requiresActorScope) {
         fail("ONTOLOGY_WRITE_ACTION_GUARDRAILS_REQUIRED", action.id);

@@ -26,7 +26,7 @@ describe("Ontology compiler", () => {
       dimensionCount: 51,
       metricCount: 31,
       businessRuleCount: 3,
-      actionCount: 3,
+      actionCount: 6,
     });
     expect(first.bundle.businessRules).toEqual(expect.arrayContaining([
       expect.objectContaining({

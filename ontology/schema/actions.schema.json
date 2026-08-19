@@ -1,82 +1,331 @@
 {
-  "$id": "https://vizion-lab.local/ontology/schema/actions.schema.json",
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "type": "object",
-  "required": ["schemaVersion", "ontologyVersion", "actions"],
-  "additionalProperties": false,
-  "properties": {
-    "schemaVersion": { "const": "1.0" },
-    "ontologyVersion": { "const": "v1" },
-    "actions": {
+ "$id": "https://vizion-lab.local/ontology/schema/actions.schema.json",
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "type": "object",
+ "required": [
+  "schemaVersion",
+  "ontologyVersion",
+  "actions"
+ ],
+ "additionalProperties": false,
+ "properties": {
+  "schemaVersion": {
+   "const": "1.0"
+  },
+  "ontologyVersion": {
+   "const": "v1"
+  },
+  "actions": {
+   "type": "array",
+   "minItems": 1,
+   "items": {
+    "type": "object",
+    "required": [
+     "id",
+     "version",
+     "labels",
+     "description",
+     "targetEntityId",
+     "operation",
+     "capabilityState",
+     "intentHints",
+     "fieldBindings",
+     "inputSchema",
+     "apiBinding",
+     "execution",
+     "policies",
+     "audit",
+     "governance"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]+(\\.[a-z][a-z0-9_]+)+$"
+     },
+     "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+     },
+     "labels": {
+      "$ref": "common.schema.json#/$defs/labels"
+     },
+     "description": {
+      "type": "string",
+      "minLength": 1
+     },
+     "targetEntityId": {
+      "type": "string",
+      "minLength": 1
+     },
+     "operation": {
+      "enum": [
+       "create",
+       "update",
+       "delete",
+       "comment"
+      ]
+     },
+     "capabilityState": {
+      "enum": [
+       "available",
+       "dry_run_only",
+       "disabled",
+       "blocked"
+      ]
+     },
+     "intentHints": {
       "type": "array",
-      "minItems": 1,
       "items": {
+       "type": "string",
+       "minLength": 1
+      },
+      "uniqueItems": true
+     },
+     "fieldBindings": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "fieldId",
+        "role",
+        "required"
+       ],
+       "additionalProperties": false,
+       "properties": {
+        "fieldId": {
+         "type": "string",
+         "minLength": 1
+        },
+        "role": {
+         "enum": [
+          "target",
+          "editable",
+          "filter",
+          "evidence"
+         ]
+        },
+        "localPropertyId": {
+         "type": "string",
+         "minLength": 1
+        },
+        "required": {
+         "type": "boolean"
+        }
+       }
+      }
+     },
+     "inputSchema": {
+      "type": "object"
+     },
+     "apiBinding": {
+      "type": "object",
+      "required": [
+       "system",
+       "sourceId",
+       "method",
+       "endpointTemplate"
+      ],
+      "additionalProperties": false,
+      "properties": {
+       "system": {
+        "enum": [
+         "octane"
+        ]
+       },
+       "sourceId": {
+        "type": "string",
+        "minLength": 1
+       },
+       "method": {
+        "enum": [
+         "POST",
+         "PUT",
+         "PATCH",
+         "DELETE"
+        ]
+       },
+       "endpointTemplate": {
+        "type": "string",
+        "minLength": 1
+       }
+      }
+     },
+     "execution": {
+      "type": "object",
+      "required": [
+       "mode",
+       "executor",
+       "requiresDryRun",
+       "requiresHumanApproval",
+       "requiresActorScope",
+       "sideEffects"
+      ],
+      "additionalProperties": false,
+      "properties": {
+       "mode": {
+        "enum": [
+         "enabled",
+         "dry_run_only",
+         "disabled",
+         "blocked"
+        ]
+       },
+       "executor": {
+        "type": "string",
+        "minLength": 1
+       },
+       "requiresDryRun": {
+        "type": "boolean"
+       },
+       "requiresHumanApproval": {
+        "type": "boolean"
+       },
+       "requiresActorScope": {
+        "type": "boolean"
+       },
+       "sideEffects": {
+        "type": "array",
+        "items": {
+         "enum": [
+          "octane_write",
+          "audit_log",
+          "comment_create",
+          "field_update",
+          "destructive_delete"
+         ]
+        },
+        "uniqueItems": true
+       }
+      }
+     },
+     "policies": {
+      "type": "array",
+      "items": {
+       "type": "string",
+       "minLength": 1
+      },
+      "uniqueItems": true
+     },
+     "audit": {
+      "type": "object",
+      "required": [
+       "runAudit",
+       "toolCallAudit",
+       "externalRequestAudit",
+       "rollbackStrategy"
+      ],
+      "additionalProperties": false,
+      "properties": {
+       "runAudit": {
+        "type": "boolean"
+       },
+       "toolCallAudit": {
+        "type": "boolean"
+       },
+       "externalRequestAudit": {
+        "type": "boolean"
+       },
+       "rollbackStrategy": {
+        "enum": [
+         "not_applicable",
+         "manual",
+         "not_supported"
+        ]
+       }
+      }
+     },
+     "governance": {
+      "$ref": "common.schema.json#/$defs/governance"
+     },
+     "mutation": {
+      "type": "object",
+      "required": [
+       "fields",
+       "writeback"
+      ],
+      "additionalProperties": false,
+      "properties": {
+       "fields": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+         "type": "string",
+         "minLength": 1
+        },
+        "uniqueItems": true
+       },
+       "writeback": {
         "type": "object",
-        "required": ["id", "version", "labels", "description", "targetEntityId", "operation", "capabilityState", "intentHints", "fieldBindings", "inputSchema", "apiBinding", "execution", "policies", "audit", "governance"],
+        "required": [
+         "dataset",
+         "transactional"
+        ],
         "additionalProperties": false,
         "properties": {
-          "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]+(\\.[a-z][a-z0-9_]+)+$" },
-          "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
-          "labels": { "$ref": "common.schema.json#/$defs/labels" },
-          "description": { "type": "string", "minLength": 1 },
-          "targetEntityId": { "type": "string", "minLength": 1 },
-          "operation": { "enum": ["create", "update", "delete", "comment"] },
-          "capabilityState": { "enum": ["available", "dry_run_only", "disabled", "blocked"] },
-          "intentHints": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
-          "fieldBindings": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "required": ["fieldId", "role", "required"],
-              "additionalProperties": false,
-              "properties": {
-                "fieldId": { "type": "string", "minLength": 1 },
-                "role": { "enum": ["target", "editable", "filter", "evidence"] },
-                "localPropertyId": { "type": "string", "minLength": 1 },
-                "required": { "type": "boolean" }
-              }
-            }
-          },
-          "inputSchema": { "type": "object" },
-          "apiBinding": {
-            "type": "object",
-            "required": ["system", "sourceId", "method", "endpointTemplate"],
-            "additionalProperties": false,
-            "properties": {
-              "system": { "enum": ["octane"] },
-              "sourceId": { "type": "string", "minLength": 1 },
-              "method": { "enum": ["POST", "PUT", "PATCH", "DELETE"] },
-              "endpointTemplate": { "type": "string", "minLength": 1 }
-            }
-          },
-          "execution": {
-            "type": "object",
-            "required": ["mode", "executor", "requiresDryRun", "requiresHumanApproval", "requiresActorScope", "sideEffects"],
-            "additionalProperties": false,
-            "properties": {
-              "mode": { "enum": ["enabled", "dry_run_only", "disabled", "blocked"] },
-              "executor": { "type": "string", "minLength": 1 },
-              "requiresDryRun": { "type": "boolean" },
-              "requiresHumanApproval": { "type": "boolean" },
-              "requiresActorScope": { "type": "boolean" },
-              "sideEffects": { "type": "array", "items": { "enum": ["octane_write", "audit_log", "comment_create", "field_update", "destructive_delete"] }, "uniqueItems": true }
-            }
-          },
-          "policies": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
-          "audit": {
-            "type": "object",
-            "required": ["runAudit", "toolCallAudit", "externalRequestAudit", "rollbackStrategy"],
-            "additionalProperties": false,
-            "properties": {
-              "runAudit": { "type": "boolean" },
-              "toolCallAudit": { "type": "boolean" },
-              "externalRequestAudit": { "type": "boolean" },
-              "rollbackStrategy": { "enum": ["not_applicable", "manual", "not_supported"] }
-            }
-          },
-          "governance": { "$ref": "common.schema.json#/$defs/governance" }
+         "dataset": {
+          "type": "string",
+          "minLength": 1
+         },
+         "transactional": {
+          "type": "boolean"
+         }
         }
+       }
       }
+     },
+     "submissionCriteria": {
+      "type": "array",
+      "items": {
+       "type": "object",
+       "required": [
+        "kind"
+       ],
+       "additionalProperties": false,
+       "properties": {
+        "kind": {
+         "enum": [
+          "userGroup",
+          "actorAttribute",
+          "timeWindow",
+          "scenario",
+          "approval"
+         ]
+        },
+        "userGroup": {
+         "type": "string",
+         "minLength": 1
+        },
+        "attribute": {
+         "type": "string",
+         "minLength": 1
+        },
+        "calendarId": {
+         "type": "string",
+         "minLength": 1
+        },
+        "window": {
+         "type": "string",
+         "minLength": 1
+        },
+        "scenario": {
+         "type": "string",
+         "minLength": 1
+        },
+        "approvalKind": {
+         "type": "string",
+         "minLength": 1
+        },
+        "ttlMin": {
+         "type": "integer",
+         "minimum": 1,
+         "maximum": 1440
+        }
+       }
+      }
+     }
     }
+   }
   }
+ }
 }

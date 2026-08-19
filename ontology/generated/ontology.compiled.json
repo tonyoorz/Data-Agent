@@ -272,6 +272,310 @@
       ],
       "targetEntityId": "quality.defect",
       "version": "0.1.0"
+    },
+    {
+      "apiBinding": {
+        "endpointTemplate": "/api/agent/actions/defect_writeback",
+        "method": "POST",
+        "sourceId": "analytics.full_picture_defects",
+        "system": "octane"
+      },
+      "audit": {
+        "externalRequestAudit": true,
+        "rollbackStrategy": "manual",
+        "runAudit": true,
+        "toolCallAudit": true
+      },
+      "capabilityState": "available",
+      "description": "Links a defect to its duplicate master with evidence from the governed duplicate search.",
+      "execution": {
+        "executor": "server/agentRuntime/actionRuntime.mjs",
+        "mode": "enabled",
+        "requiresActorScope": true,
+        "requiresDryRun": true,
+        "requiresHumanApproval": true,
+        "sideEffects": [
+          "field_update",
+          "audit_log"
+        ]
+      },
+      "fieldBindings": [
+        {
+          "fieldId": "octane_defects.table_column.defect_id",
+          "localPropertyId": "defect_id",
+          "required": true,
+          "role": "target"
+        },
+        {
+          "fieldId": "octane_defects.table_column.relation_to",
+          "localPropertyId": "relation_to",
+          "required": true,
+          "role": "editable"
+        }
+      ],
+      "governance": {
+        "decisionRef": "docs/plans/2026-08-16-agent-upgrade-program.md",
+        "owner": "Agent Platform",
+        "status": "approved"
+      },
+      "id": "quality.defect.link_duplicate",
+      "inputSchema": {
+        "properties": {
+          "defect_id": {
+            "type": "string"
+          },
+          "duplicate_of": {
+            "type": "string"
+          },
+          "evidence_summary": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "defect_id",
+          "duplicate_of",
+          "evidence_summary"
+        ],
+        "type": "object"
+      },
+      "intentHints": [
+        "标记重复",
+        "关联重复",
+        "link duplicate"
+      ],
+      "labels": {
+        "en-US": "Link Duplicate Defect",
+        "zh-CN": "标记重复缺陷"
+      },
+      "mutation": {
+        "fields": [
+          "relation_to"
+        ],
+        "writeback": {
+          "dataset": "analytics.defect_writeback",
+          "transactional": true
+        }
+      },
+      "operation": "update",
+      "policies": [
+        "actor.scope.mandatory"
+      ],
+      "submissionCriteria": [
+        {
+          "kind": "userGroup",
+          "userGroup": "dtsv_team"
+        },
+        {
+          "approvalKind": "defect_write",
+          "kind": "approval",
+          "ttlMin": 15
+        }
+      ],
+      "targetEntityId": "quality.defect",
+      "version": "1.0.0"
+    },
+    {
+      "apiBinding": {
+        "endpointTemplate": "/api/agent/actions/defect_writeback",
+        "method": "PATCH",
+        "sourceId": "analytics.full_picture_defects",
+        "system": "octane"
+      },
+      "audit": {
+        "externalRequestAudit": true,
+        "rollbackStrategy": "manual",
+        "runAudit": true,
+        "toolCallAudit": true
+      },
+      "capabilityState": "available",
+      "description": "Governed transactional writeback that updates a defect status (e.g. Open→Closed) through the two-phase approval flow.",
+      "execution": {
+        "executor": "server/agentRuntime/actionRuntime.mjs",
+        "mode": "enabled",
+        "requiresActorScope": true,
+        "requiresDryRun": true,
+        "requiresHumanApproval": true,
+        "sideEffects": [
+          "field_update",
+          "octane_write",
+          "audit_log"
+        ]
+      },
+      "fieldBindings": [
+        {
+          "fieldId": "octane_defects.table_column.defect_id",
+          "localPropertyId": "defect_id",
+          "required": true,
+          "role": "target"
+        },
+        {
+          "fieldId": "octane_defects.table_column.status",
+          "localPropertyId": "status",
+          "required": true,
+          "role": "editable"
+        }
+      ],
+      "governance": {
+        "decisionRef": "docs/plans/2026-08-16-agent-upgrade-program.md",
+        "owner": "Agent Platform",
+        "status": "approved"
+      },
+      "id": "quality.defect.update_status",
+      "inputSchema": {
+        "properties": {
+          "defect_id": {
+            "type": "string"
+          },
+          "resolution_time": {
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "Open",
+              "Closed",
+              "Rejected",
+              "In Progress"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "defect_id",
+          "status"
+        ],
+        "type": "object"
+      },
+      "intentHints": [
+        "关闭缺陷",
+        "更新状态",
+        "close defect",
+        "update status"
+      ],
+      "labels": {
+        "en-US": "Update Defect Status",
+        "zh-CN": "更新缺陷状态"
+      },
+      "mutation": {
+        "fields": [
+          "status",
+          "resolution_time"
+        ],
+        "writeback": {
+          "dataset": "analytics.defect_writeback",
+          "transactional": true
+        }
+      },
+      "operation": "update",
+      "policies": [
+        "actor.scope.mandatory"
+      ],
+      "submissionCriteria": [
+        {
+          "kind": "userGroup",
+          "userGroup": "dtsv_team"
+        },
+        {
+          "approvalKind": "defect_write",
+          "kind": "approval",
+          "ttlMin": 15
+        }
+      ],
+      "targetEntityId": "quality.defect",
+      "version": "1.0.0"
+    },
+    {
+      "apiBinding": {
+        "endpointTemplate": "/api/agent/actions/testcase_proposals",
+        "method": "POST",
+        "sourceId": "analytics.testing_coverage",
+        "system": "octane"
+      },
+      "audit": {
+        "externalRequestAudit": true,
+        "rollbackStrategy": "not_applicable",
+        "runAudit": true,
+        "toolCallAudit": true
+      },
+      "capabilityState": "available",
+      "description": "Creates a governed test-case proposal (never autonomous creation) replacing the ad-hoc testCaseProposal path.",
+      "execution": {
+        "executor": "server/agentRuntime/actionRuntime.mjs",
+        "mode": "enabled",
+        "requiresActorScope": true,
+        "requiresDryRun": true,
+        "requiresHumanApproval": true,
+        "sideEffects": [
+          "audit_log"
+        ]
+      },
+      "fieldBindings": [
+        {
+          "fieldId": "test_cases.table_column.name",
+          "localPropertyId": "name",
+          "required": true,
+          "role": "editable"
+        }
+      ],
+      "governance": {
+        "decisionRef": "docs/plans/2026-08-16-agent-upgrade-program.md",
+        "owner": "Agent Platform",
+        "status": "approved"
+      },
+      "id": "testing.testcase.propose",
+      "inputSchema": {
+        "properties": {
+          "anchor_ref": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "test_name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "anchor_ref"
+        ],
+        "type": "object"
+      },
+      "intentHints": [
+        "生成用例",
+        "用例提案",
+        "propose testcase"
+      ],
+      "labels": {
+        "en-US": "Propose Test Case",
+        "zh-CN": "生成测试用例提案"
+      },
+      "mutation": {
+        "fields": [
+          "name",
+          "test_name"
+        ],
+        "writeback": {
+          "dataset": "analytics.defect_writeback",
+          "transactional": true
+        }
+      },
+      "operation": "create",
+      "policies": [
+        "actor.scope.mandatory"
+      ],
+      "submissionCriteria": [
+        {
+          "kind": "userGroup",
+          "userGroup": "dtsv_team"
+        },
+        {
+          "approvalKind": "testcase_proposal",
+          "kind": "approval",
+          "ttlMin": 30
+        }
+      ],
+      "targetEntityId": "testing.test_case",
+      "version": "1.0.0"
     }
   ],
   "businessRules": [
@@ -5810,6 +6114,19 @@
       "revisionStrategy": "snapshot",
       "system": "analytics",
       "table": "octane_defect_outcomes"
+    },
+    {
+      "database": "database/source/qgate_raw.db",
+      "freshnessSloMinutes": 5,
+      "governance": {
+        "owner": "Agent Platform",
+        "status": "approved"
+      },
+      "id": "analytics.defect_writeback",
+      "readModel": "full_picture_outcomes",
+      "revisionStrategy": "watermark",
+      "system": "analytics",
+      "table": "defect_writeback_log"
     },
     {
       "database": "database/source/qgate_raw.db",
