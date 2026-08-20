@@ -51,7 +51,7 @@
 - [x] **P1-C1** Action Type schema 与编译器校验
 - [x] **P1-C2** ActionRuntime 事务写回
 - [x] **P1-C3** Action Log 审计对象
-- [ ] **P1-C4** Ontology-as-code round-trip
+- [x] **P1-C4** Ontology-as-code round-trip
 - [ ] **P1-C5** Submission criteria 引擎
 - [ ] **P1-D1** Verified Answers 注册表
 - [ ] **P1-D2** 语义缓存升级
