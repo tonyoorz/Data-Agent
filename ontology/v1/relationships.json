@@ -3,728 +3,728 @@
   "ontologyVersion": "v1",
   "relationships": [
     {
-      "id": "testing.test_run.executes.test_case",
-      "predicate": "executes",
-      "kind": "foreign_key",
-      "sourceEntity": "testing.test_run",
-      "targetEntity": "testing.test_case",
-      "direction": "outbound",
-      "cardinality": "many_to_one",
-      "reversible": true,
-      "sourceFields": {
-        "source": "test_id",
-        "target": "test_id"
-      },
-      "allowedJoinPaths": [
-        [
-          "testing.test_run",
-          "testing.test_case"
-        ]
-      ],
-      "governance": {
-        "status": "approved",
-        "owner": "Testing Analytics"
-      }
-    },
-    {
-      "id": "testing.test_case.validates.aida_node",
-      "predicate": "validates",
-      "kind": "foreign_key",
-      "sourceEntity": "testing.test_case",
-      "targetEntity": "requirements.aida_node",
-      "direction": "outbound",
-      "cardinality": "many_to_many",
-      "reversible": true,
-      "sourceFields": {
-        "source": "test_id",
-        "target": "aida_id"
-      },
-      "allowedJoinPaths": [
-        [
-          "testing.test_case",
-          "requirements.aida_node"
-        ]
-      ],
-      "explosionPolicy": "distinct_source",
-      "governance": {
-        "status": "approved",
-        "owner": "Requirements Analytics"
-      }
-    },
-    {
-      "id": "requirements.aida_node.parent_of.aida_node",
-      "predicate": "parent_of",
-      "kind": "foreign_key",
-      "sourceEntity": "requirements.aida_node",
-      "targetEntity": "requirements.aida_node",
-      "direction": "outbound",
-      "cardinality": "one_to_many",
-      "reversible": true,
-      "sourceFields": {
-        "source": "aida_id",
-        "target": "parent_id"
-      },
-      "allowedJoinPaths": [
-        [
-          "requirements.aida_node",
-          "requirements.aida_node"
-        ]
-      ],
-      "governance": {
-        "status": "approved",
-        "owner": "Requirements Analytics"
-      }
-    },
-    {
-      "id": "testing.test_run.traces_to.feature",
-      "predicate": "traces_to",
-      "kind": "foreign_key",
-      "sourceEntity": "testing.test_run",
-      "targetEntity": "requirements.feature",
-      "direction": "outbound",
-      "cardinality": "many_to_many",
-      "reversible": true,
-      "sourceFields": {
-        "source": "mr_id",
-        "target": "feature_id"
-      },
-      "allowedJoinPaths": [
-        [
-          "testing.test_run",
-          "requirements.feature"
-        ]
-      ],
-      "explosionPolicy": "distinct_source",
-      "governance": {
-        "status": "approved",
-        "owner": "Requirements Analytics"
-      }
-    },
-    {
-      "id": "testing.test_run.traces_to.story",
-      "predicate": "traces_to",
-      "kind": "foreign_key",
-      "sourceEntity": "testing.test_run",
-      "targetEntity": "requirements.story",
-      "direction": "outbound",
-      "cardinality": "many_to_many",
-      "reversible": true,
-      "sourceFields": {
-        "source": "mr_id",
-        "target": "story_id"
-      },
-      "allowedJoinPaths": [
-        [
-          "testing.test_run",
-          "requirements.story"
-        ]
-      ],
-      "explosionPolicy": "distinct_source",
-      "governance": {
-        "status": "approved",
-        "owner": "Requirements Analytics"
-      }
-    },
-    {
-      "id": "quality.defect.detected_in.test_run",
-      "predicate": "detected_in",
-      "kind": "foreign_key",
-      "sourceEntity": "quality.defect",
-      "targetEntity": "testing.test_run",
-      "direction": "outbound",
-      "cardinality": "many_to_one",
-      "reversible": true,
-      "sourceFields": {
-        "source": "detected_run_id",
-        "target": "mr_id"
-      },
-      "allowedJoinPaths": [
-        [
-          "quality.defect",
-          "testing.test_run"
-        ]
-      ],
-      "governance": {
-        "status": "approved",
-        "owner": "Quality Analytics"
-      }
-    },
-    {
-      "id": "quality.defect.affects.ecu",
-      "predicate": "affects",
-      "kind": "foreign_key",
-      "sourceEntity": "quality.defect",
-      "targetEntity": "product.ecu",
-      "direction": "outbound",
-      "cardinality": "many_to_one",
-      "reversible": true,
-      "sourceFields": {
-        "source": "assigned_ecu",
-        "target": "ecu_id"
-      },
-      "allowedJoinPaths": [
-        [
-          "quality.defect",
-          "product.ecu"
-        ]
-      ],
-      "governance": {
-        "status": "approved",
-        "owner": "Quality Analytics"
-      }
-    },
-    {
-      "id": "quality.defect.affects.aida_node",
-      "predicate": "affects",
-      "kind": "foreign_key",
-      "sourceEntity": "quality.defect",
-      "targetEntity": "requirements.aida_node",
-      "direction": "outbound",
-      "cardinality": "many_to_many",
-      "reversible": true,
-      "sourceFields": {
-        "source": "aida",
-        "target": "aida_id"
-      },
-      "allowedJoinPaths": [
-        [
-          "quality.defect",
-          "requirements.aida_node"
-        ]
-      ],
-      "explosionPolicy": "distinct_source",
-      "governance": {
-        "status": "approved",
-        "owner": "Quality Analytics"
-      }
-    },
-    {
-      "id": "product.pu.belongs_to.service_pack",
-      "predicate": "belongs_to",
-      "kind": "foreign_key",
-      "sourceEntity": "product.pu",
-      "targetEntity": "product.service_pack",
-      "direction": "outbound",
-      "cardinality": "many_to_one",
-      "reversible": true,
-      "sourceFields": {
-        "source": "service_pack_id",
-        "target": "service_pack_id"
-      },
-      "allowedJoinPaths": [
-        [
-          "product.pu",
-          "product.service_pack"
-        ]
-      ],
-      "governance": {
-        "status": "approved",
-        "owner": "Product Analytics"
-      }
-    },
-    {
-      "id": "product.i_step.implements.pu",
-      "predicate": "implements",
-      "kind": "foreign_key",
-      "sourceEntity": "product.i_step",
-      "targetEntity": "product.pu",
-      "direction": "outbound",
-      "cardinality": "many_to_many",
-      "reversible": true,
-      "sourceFields": {
-        "source": "pu_id",
-        "target": "pu_id"
-      },
-      "allowedJoinPaths": [
-        [
-          "product.i_step",
-          "product.pu"
-        ]
-      ],
-      "explosionPolicy": "distinct_target",
-      "governance": {
-        "status": "approved",
-        "owner": "Product Analytics"
-      }
-    },
-    {
-      "id": "product.platform.runs.os",
-      "predicate": "runs",
-      "kind": "foreign_key",
-      "sourceEntity": "product.platform",
-      "targetEntity": "product.os",
-      "direction": "outbound",
-      "cardinality": "many_to_one",
-      "reversible": true,
-      "sourceFields": {
-        "source": "os_id",
-        "target": "os_id"
-      },
-      "allowedJoinPaths": [
-        [
-          "product.platform",
-          "product.os"
-        ]
-      ],
-      "governance": {
-        "status": "approved",
-        "owner": "Product Analytics"
-      }
-    },
-    {
-      "id": "vehicle.model_series.uses.platform",
-      "predicate": "uses",
-      "kind": "foreign_key",
-      "sourceEntity": "vehicle.model_series",
-      "targetEntity": "product.platform",
-      "direction": "outbound",
-      "cardinality": "many_to_one",
-      "reversible": true,
-      "sourceFields": {
-        "source": "platform_id",
-        "target": "platform_id"
-      },
-      "allowedJoinPaths": [
-        [
-          "vehicle.model_series",
-          "product.platform"
-        ]
-      ],
-      "governance": {
-        "status": "approved",
-        "owner": "Vehicle Analytics"
-      }
-    },
-    {
-      "id": "organization.tester.belongs_to.team",
-      "predicate": "belongs_to",
-      "kind": "foreign_key",
-      "sourceEntity": "organization.tester",
-      "targetEntity": "organization.team",
-      "direction": "outbound",
-      "cardinality": "many_to_one",
-      "reversible": true,
-      "sourceFields": {
-        "source": "team_id",
-        "target": "team_id"
-      },
-      "allowedJoinPaths": [
-        [
-          "organization.tester",
-          "organization.team"
-        ]
-      ],
-      "governance": {
-        "status": "approved",
-        "owner": "Organization Analytics"
-      }
-    },
-    {
-      "id": "quality.qgate.evaluates.pu",
-      "predicate": "evaluates",
-      "kind": "foreign_key",
-      "sourceEntity": "quality.qgate",
-      "targetEntity": "product.pu",
-      "direction": "outbound",
-      "cardinality": "many_to_one",
-      "reversible": true,
-      "sourceFields": {
-        "source": "pu_id",
-        "target": "pu_id"
-      },
-      "allowedJoinPaths": [
-        [
-          "quality.qgate",
-          "product.pu"
-        ]
-      ],
-      "governance": {
-        "status": "draft",
-        "owner": "Quality Governance",
-        "decisionRef": "docs/main-agent-v2/metric-decisions.md"
-      }
-    },
-    {
-      "id": "evidence.artifact.supports.defect",
-      "predicate": "supports",
-      "kind": "foreign_key",
-      "sourceEntity": "evidence.artifact",
-      "targetEntity": "quality.defect",
-      "direction": "outbound",
-      "cardinality": "many_to_many",
-      "reversible": true,
-      "sourceFields": {
-        "source": "artifact_id",
-        "target": "defect_id"
-      },
       "allowedJoinPaths": [
         [
           "evidence.artifact",
           "quality.defect"
         ]
       ],
+      "cardinality": "many_to_many",
+      "direction": "outbound",
       "explosionPolicy": "distinct_target",
       "governance": {
-        "status": "approved",
-        "owner": "Agent Platform"
-      }
-    },
-    {
-      "id": "quality.defect.parent_of.quality.defect",
-      "predicate": "parent_of",
-      "kind": "foreign_key",
-      "sourceEntity": "quality.defect",
-      "targetEntity": "quality.defect",
-      "direction": "outbound",
-      "cardinality": "one_to_many",
-      "reversible": true,
-      "sourceFields": {
-        "source": "defect_id",
-        "target": "parent_id"
+        "owner": "Agent Platform",
+        "status": "approved"
       },
-      "allowedJoinPaths": [
-        [
-          "quality.defect",
-          "quality.defect"
-        ]
-      ],
-      "governance": {
-        "status": "approved",
-        "owner": "Quality Analytics"
-      }
-    },
-    {
-      "id": "quality.defect.has_history.quality.defect_history_event",
-      "predicate": "has_history",
+      "id": "evidence.artifact.supports.defect",
       "kind": "foreign_key",
-      "sourceEntity": "quality.defect",
-      "targetEntity": "quality.defect_history_event",
-      "direction": "outbound",
-      "cardinality": "one_to_many",
+      "predicate": "supports",
       "reversible": true,
+      "sourceEntity": "evidence.artifact",
       "sourceFields": {
-        "source": "defect_id",
+        "source": "artifact_id",
         "target": "defect_id"
       },
-      "allowedJoinPaths": [
-        [
-          "quality.defect",
-          "quality.defect_history_event"
-        ]
-      ],
-      "governance": {
-        "status": "approved",
-        "owner": "Quality Analytics"
-      }
+      "targetEntity": "quality.defect"
     },
     {
-      "id": "quality.defect.has_outcome.quality.defect_outcome",
-      "predicate": "has_outcome",
-      "kind": "foreign_key",
-      "sourceEntity": "quality.defect",
-      "targetEntity": "quality.defect_outcome",
-      "direction": "outbound",
-      "cardinality": "one_to_one",
-      "reversible": true,
-      "sourceFields": {
-        "source": "defect_id",
-        "target": "defect_id"
-      },
-      "allowedJoinPaths": [
-        [
-          "quality.defect",
-          "quality.defect_outcome"
-        ]
-      ],
-      "governance": {
-        "status": "approved",
-        "owner": "Quality Analytics"
-      }
-    },
-    {
-      "id": "traceability.testcase_summary.aggregates.testing.test_case",
-      "predicate": "aggregates",
-      "kind": "foreign_key",
-      "sourceEntity": "traceability.testcase_summary",
-      "targetEntity": "testing.test_case",
-      "direction": "outbound",
-      "cardinality": "many_to_one",
-      "reversible": true,
-      "sourceFields": {
-        "source": "test_id",
-        "target": "test_id"
-      },
-      "allowedJoinPaths": [
-        [
-          "traceability.testcase_summary",
-          "testing.test_case"
-        ]
-      ],
-      "governance": {
-        "status": "approved",
-        "owner": "Requirements Analytics"
-      }
-    },
-    {
-      "id": "traceability.link.belongs_to.testing.test_run",
-      "predicate": "belongs_to",
-      "kind": "foreign_key",
-      "sourceEntity": "traceability.link",
-      "targetEntity": "testing.test_run",
-      "direction": "outbound",
-      "cardinality": "many_to_one",
-      "reversible": true,
-      "sourceFields": {
-        "source": "run_id",
-        "target": "mr_id"
-      },
-      "allowedJoinPaths": [
-        [
-          "traceability.link",
-          "testing.test_run"
-        ]
-      ],
-      "governance": {
-        "status": "approved",
-        "owner": "Requirements Analytics"
-      }
-    },
-    {
-      "id": "quality.defect.evaluated_by.quality.qgate",
-      "predicate": "evaluated_by",
-      "kind": "foreign_key",
-      "sourceEntity": "quality.defect",
-      "targetEntity": "quality.qgate",
-      "direction": "outbound",
-      "cardinality": "many_to_one",
-      "reversible": true,
-      "sourceFields": {
-        "source": "phase",
-        "target": "qgate_type"
-      },
-      "allowedJoinPaths": [
-        [
-          "quality.defect",
-          "quality.qgate"
-        ]
-      ],
-      "governance": {
-        "status": "approved",
-        "owner": "Quality Analytics"
-      }
-    },
-    {
-      "id": "quality.defect.has_maturity_grade.quality.maturity_grade",
-      "predicate": "has_maturity_grade",
-      "kind": "foreign_key",
-      "sourceEntity": "quality.defect",
-      "targetEntity": "quality.maturity_grade",
-      "direction": "outbound",
-      "cardinality": "many_to_one",
-      "reversible": true,
-      "sourceFields": {
-        "source": "top_aida",
-        "target": "function_id"
-      },
-      "allowedJoinPaths": [
-        [
-          "quality.defect",
-          "quality.maturity_grade"
-        ]
-      ],
-      "governance": {
-        "status": "approved",
-        "owner": "Quality Analytics"
-      }
-    },
-    {
-      "id": "organization.function_team_mapping.belongs_to.organization.team",
-      "predicate": "belongs_to",
-      "kind": "foreign_key",
-      "sourceEntity": "organization.function_team_mapping",
-      "targetEntity": "organization.team",
-      "direction": "outbound",
-      "cardinality": "many_to_one",
-      "reversible": true,
-      "sourceFields": {
-        "source": "team",
-        "target": "team"
-      },
       "allowedJoinPaths": [
         [
           "organization.function_team_mapping",
           "organization.team"
         ]
       ],
+      "cardinality": "many_to_one",
+      "direction": "outbound",
       "governance": {
-        "status": "approved",
-        "owner": "DTSV Team"
-      }
-    },
-    {
-      "id": "quality.maturity_grade.measured_at.product.i_step",
-      "predicate": "measured_at",
+        "owner": "DTSV Team",
+        "status": "approved"
+      },
+      "id": "organization.function_team_mapping.belongs_to.organization.team",
       "kind": "foreign_key",
-      "sourceEntity": "quality.maturity_grade",
-      "targetEntity": "product.i_step",
-      "direction": "outbound",
-      "cardinality": "many_to_one",
+      "predicate": "belongs_to",
       "reversible": true,
+      "sourceEntity": "organization.function_team_mapping",
       "sourceFields": {
-        "source": "i_step",
-        "target": "i_step"
+        "source": "team",
+        "target": "team"
       },
-      "allowedJoinPaths": [
-        [
-          "quality.maturity_grade",
-          "product.i_step"
-        ]
-      ],
-      "governance": {
-        "status": "approved",
-        "owner": "Quality Analytics"
-      }
+      "targetEntity": "organization.team"
     },
     {
-      "id": "testing.test_event.includes.testing.test_run",
-      "predicate": "includes",
-      "kind": "foreign_key",
-      "sourceEntity": "testing.test_event",
-      "targetEntity": "testing.test_run",
-      "direction": "outbound",
-      "cardinality": "one_to_many",
-      "reversible": true,
-      "sourceFields": {
-        "source": "release",
-        "target": "release"
-      },
-      "allowedJoinPaths": [
-        [
-          "testing.test_event",
-          "testing.test_run"
-        ]
-      ],
-      "governance": {
-        "status": "approved",
-        "owner": "DTSV Team"
-      }
-    },
-    {
-      "id": "testing.test_run.executed_on.vehicle.test_vehicle",
-      "predicate": "executed_on",
-      "kind": "foreign_key",
-      "sourceEntity": "testing.test_run",
-      "targetEntity": "vehicle.test_vehicle",
-      "direction": "outbound",
-      "cardinality": "many_to_one",
-      "reversible": true,
-      "sourceFields": {
-        "source": "vin",
-        "target": "vin"
-      },
-      "allowedJoinPaths": [
-        [
-          "testing.test_run",
-          "vehicle.test_vehicle"
-        ]
-      ],
-      "governance": {
-        "status": "approved",
-        "owner": "Fleet Management"
-      }
-    },
-    {
-      "id": "testing.test_run.executed_on.product.test_rack",
-      "predicate": "executed_on",
-      "kind": "foreign_key",
-      "sourceEntity": "testing.test_run",
-      "targetEntity": "product.test_rack",
-      "direction": "outbound",
-      "cardinality": "many_to_one",
-      "reversible": true,
-      "sourceFields": {
-        "source": "testplatformid",
-        "target": "rack_id"
-      },
-      "allowedJoinPaths": [
-        [
-          "testing.test_run",
-          "product.test_rack"
-        ]
-      ],
-      "governance": {
-        "status": "approved",
-        "owner": "DTSV Team"
-      }
-    },
-    {
-      "id": "quality.defect.same_root_cause_cluster.quality.defect",
-      "predicate": "same_root_cause_cluster",
-      "kind": "derived",
-      "sourceEntity": "quality.defect",
-      "targetEntity": "quality.defect",
-      "direction": "outbound",
-      "cardinality": "many_to_many",
-      "reversible": true,
-      "derivedBy": "duplicate_search",
-      "explosionPolicy": "distinct_source",
-      "note": "Derived by defect similarity search (duplicate_search): cluster members share the same root cause. Computed offline, never materialized as columns - not expressible as a SQL join, so no sourceFields/allowedJoinPaths.",
-      "governance": {
-        "status": "draft",
-        "owner": "Quality Analytics"
-      }
-    },
-    {
-      "id": "quality.qgate.gate_passed.product.project",
-      "predicate": "gate_passed",
-      "kind": "event",
-      "sourceEntity": "quality.qgate",
-      "targetEntity": "product.project",
-      "direction": "outbound",
-      "cardinality": "many_to_one",
-      "reversible": true,
-      "happensAtField": "passed_at",
-      "pendingColumns": [
-        "passed_at",
-        "project_id"
-      ],
-      "note": "A passed Q-Gate is an event binding a gate occurrence to the project it gated. quality.qgate currently exposes no time attribute and no project column, so happensAtField points at the intended passed_at column; draft until the qgate read model lands both columns.",
-      "governance": {
-        "status": "draft",
-        "owner": "Quality Governance",
-        "decisionRef": "docs/main-agent-v2/metric-decisions.md"
-      }
-    },
-    {
-      "id": "organization.tester.member_of_history.organization.team",
-      "predicate": "member_of_history",
-      "kind": "time_varying",
-      "sourceEntity": "organization.tester",
-      "targetEntity": "organization.team",
-      "direction": "outbound",
-      "cardinality": "many_to_one",
-      "reversible": true,
-      "sourceFields": {
-        "source": "team_id",
-        "target": "team_id"
-      },
       "allowedJoinPaths": [
         [
           "organization.tester",
           "organization.team"
         ]
       ],
-      "validFrom": "valid_from",
-      "validTo": "valid_to",
+      "cardinality": "many_to_one",
+      "direction": "outbound",
+      "governance": {
+        "owner": "Organization Analytics",
+        "status": "approved"
+      },
+      "id": "organization.tester.belongs_to.team",
+      "kind": "foreign_key",
+      "predicate": "belongs_to",
+      "reversible": true,
+      "sourceEntity": "organization.tester",
+      "sourceFields": {
+        "source": "team_id",
+        "target": "team_id"
+      },
+      "targetEntity": "organization.team"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "organization.tester",
+          "organization.team"
+        ]
+      ],
+      "cardinality": "many_to_one",
+      "direction": "outbound",
+      "governance": {
+        "owner": "Organization Analytics",
+        "status": "draft"
+      },
+      "id": "organization.tester.member_of_history.organization.team",
+      "kind": "time_varying",
+      "note": "Team membership over time. The team_id join only reflects the current team snapshot; octane_manual_runs has no valid_from/valid_to columns yet, so membership intervals are not queryable - draft until history columns land.",
       "pendingColumns": [
         "valid_from",
         "valid_to"
       ],
-      "note": "Team membership over time. The team_id join only reflects the current team snapshot; octane_manual_runs has no valid_from/valid_to columns yet, so membership intervals are not queryable - draft until history columns land.",
+      "predicate": "member_of_history",
+      "reversible": true,
+      "sourceEntity": "organization.tester",
+      "sourceFields": {
+        "source": "team_id",
+        "target": "team_id"
+      },
+      "targetEntity": "organization.team",
+      "validFrom": "valid_from",
+      "validTo": "valid_to"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "product.i_step",
+          "product.pu"
+        ]
+      ],
+      "cardinality": "many_to_many",
+      "direction": "outbound",
+      "explosionPolicy": "distinct_target",
       "governance": {
-        "status": "draft",
-        "owner": "Organization Analytics"
-      }
+        "owner": "Product Analytics",
+        "status": "approved"
+      },
+      "id": "product.i_step.implements.pu",
+      "kind": "foreign_key",
+      "predicate": "implements",
+      "reversible": true,
+      "sourceEntity": "product.i_step",
+      "sourceFields": {
+        "source": "pu_id",
+        "target": "pu_id"
+      },
+      "targetEntity": "product.pu"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "product.platform",
+          "product.os"
+        ]
+      ],
+      "cardinality": "many_to_one",
+      "direction": "outbound",
+      "governance": {
+        "owner": "Product Analytics",
+        "status": "approved"
+      },
+      "id": "product.platform.runs.os",
+      "kind": "foreign_key",
+      "predicate": "runs",
+      "reversible": true,
+      "sourceEntity": "product.platform",
+      "sourceFields": {
+        "source": "os_id",
+        "target": "os_id"
+      },
+      "targetEntity": "product.os"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "product.pu",
+          "product.service_pack"
+        ]
+      ],
+      "cardinality": "many_to_one",
+      "direction": "outbound",
+      "governance": {
+        "owner": "Product Analytics",
+        "status": "approved"
+      },
+      "id": "product.pu.belongs_to.service_pack",
+      "kind": "foreign_key",
+      "predicate": "belongs_to",
+      "reversible": true,
+      "sourceEntity": "product.pu",
+      "sourceFields": {
+        "source": "service_pack_id",
+        "target": "service_pack_id"
+      },
+      "targetEntity": "product.service_pack"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "quality.defect",
+          "requirements.aida_node"
+        ]
+      ],
+      "cardinality": "many_to_many",
+      "direction": "outbound",
+      "explosionPolicy": "distinct_source",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "quality.defect.affects.aida_node",
+      "kind": "foreign_key",
+      "predicate": "affects",
+      "reversible": true,
+      "sourceEntity": "quality.defect",
+      "sourceFields": {
+        "source": "aida",
+        "target": "aida_id"
+      },
+      "targetEntity": "requirements.aida_node"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "quality.defect",
+          "product.ecu"
+        ]
+      ],
+      "cardinality": "many_to_one",
+      "direction": "outbound",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "quality.defect.affects.ecu",
+      "kind": "foreign_key",
+      "predicate": "affects",
+      "reversible": true,
+      "sourceEntity": "quality.defect",
+      "sourceFields": {
+        "source": "assigned_ecu",
+        "target": "ecu_id"
+      },
+      "targetEntity": "product.ecu"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "quality.defect",
+          "testing.test_run"
+        ]
+      ],
+      "cardinality": "many_to_one",
+      "direction": "outbound",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "quality.defect.detected_in.test_run",
+      "kind": "foreign_key",
+      "predicate": "detected_in",
+      "reversible": true,
+      "sourceEntity": "quality.defect",
+      "sourceFields": {
+        "source": "detected_run_id",
+        "target": "mr_id"
+      },
+      "targetEntity": "testing.test_run"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "quality.defect",
+          "quality.qgate"
+        ]
+      ],
+      "cardinality": "many_to_one",
+      "direction": "outbound",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "quality.defect.evaluated_by.quality.qgate",
+      "kind": "foreign_key",
+      "predicate": "evaluated_by",
+      "reversible": true,
+      "sourceEntity": "quality.defect",
+      "sourceFields": {
+        "source": "phase",
+        "target": "qgate_type"
+      },
+      "targetEntity": "quality.qgate"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "quality.defect",
+          "quality.defect_history_event"
+        ]
+      ],
+      "cardinality": "one_to_many",
+      "direction": "outbound",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "quality.defect.has_history.quality.defect_history_event",
+      "kind": "foreign_key",
+      "predicate": "has_history",
+      "reversible": true,
+      "sourceEntity": "quality.defect",
+      "sourceFields": {
+        "source": "defect_id",
+        "target": "defect_id"
+      },
+      "targetEntity": "quality.defect_history_event"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "quality.defect",
+          "quality.maturity_grade"
+        ]
+      ],
+      "cardinality": "many_to_one",
+      "direction": "outbound",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "quality.defect.has_maturity_grade.quality.maturity_grade",
+      "kind": "foreign_key",
+      "predicate": "has_maturity_grade",
+      "reversible": true,
+      "sourceEntity": "quality.defect",
+      "sourceFields": {
+        "source": "top_aida",
+        "target": "function_id"
+      },
+      "targetEntity": "quality.maturity_grade"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "quality.defect",
+          "quality.defect_outcome"
+        ]
+      ],
+      "cardinality": "one_to_one",
+      "direction": "outbound",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "quality.defect.has_outcome.quality.defect_outcome",
+      "kind": "foreign_key",
+      "predicate": "has_outcome",
+      "reversible": true,
+      "sourceEntity": "quality.defect",
+      "sourceFields": {
+        "source": "defect_id",
+        "target": "defect_id"
+      },
+      "targetEntity": "quality.defect_outcome"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "quality.defect",
+          "quality.defect"
+        ]
+      ],
+      "cardinality": "one_to_many",
+      "direction": "outbound",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "quality.defect.parent_of.quality.defect",
+      "kind": "foreign_key",
+      "predicate": "parent_of",
+      "reversible": true,
+      "sourceEntity": "quality.defect",
+      "sourceFields": {
+        "source": "defect_id",
+        "target": "parent_id"
+      },
+      "targetEntity": "quality.defect"
+    },
+    {
+      "cardinality": "many_to_many",
+      "derivedBy": "duplicate_search",
+      "direction": "outbound",
+      "explosionPolicy": "distinct_source",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "draft"
+      },
+      "id": "quality.defect.same_root_cause_cluster.quality.defect",
+      "kind": "derived",
+      "note": "Derived by defect similarity search (duplicate_search): cluster members share the same root cause. Computed offline, never materialized as columns - not expressible as a SQL join, so no sourceFields/allowedJoinPaths.",
+      "predicate": "same_root_cause_cluster",
+      "reversible": true,
+      "sourceEntity": "quality.defect",
+      "targetEntity": "quality.defect"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "quality.maturity_grade",
+          "product.i_step"
+        ]
+      ],
+      "cardinality": "many_to_one",
+      "direction": "outbound",
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "quality.maturity_grade.measured_at.product.i_step",
+      "kind": "foreign_key",
+      "predicate": "measured_at",
+      "reversible": true,
+      "sourceEntity": "quality.maturity_grade",
+      "sourceFields": {
+        "source": "i_step",
+        "target": "i_step"
+      },
+      "targetEntity": "product.i_step"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "quality.qgate",
+          "product.pu"
+        ]
+      ],
+      "cardinality": "many_to_one",
+      "direction": "outbound",
+      "governance": {
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md",
+        "owner": "Quality Governance",
+        "status": "draft"
+      },
+      "id": "quality.qgate.evaluates.pu",
+      "kind": "foreign_key",
+      "predicate": "evaluates",
+      "reversible": true,
+      "sourceEntity": "quality.qgate",
+      "sourceFields": {
+        "source": "pu_id",
+        "target": "pu_id"
+      },
+      "targetEntity": "product.pu"
+    },
+    {
+      "cardinality": "many_to_one",
+      "direction": "outbound",
+      "governance": {
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md",
+        "owner": "Quality Governance",
+        "status": "draft"
+      },
+      "happensAtField": "passed_at",
+      "id": "quality.qgate.gate_passed.product.project",
+      "kind": "event",
+      "note": "A passed Q-Gate is an event binding a gate occurrence to the project it gated. quality.qgate currently exposes no time attribute and no project column, so happensAtField points at the intended passed_at column; draft until the qgate read model lands both columns.",
+      "pendingColumns": [
+        "passed_at",
+        "project_id"
+      ],
+      "predicate": "gate_passed",
+      "reversible": true,
+      "sourceEntity": "quality.qgate",
+      "targetEntity": "product.project"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "requirements.aida_node",
+          "requirements.aida_node"
+        ]
+      ],
+      "cardinality": "one_to_many",
+      "direction": "outbound",
+      "governance": {
+        "owner": "Requirements Analytics",
+        "status": "approved"
+      },
+      "id": "requirements.aida_node.parent_of.aida_node",
+      "kind": "foreign_key",
+      "predicate": "parent_of",
+      "reversible": true,
+      "sourceEntity": "requirements.aida_node",
+      "sourceFields": {
+        "source": "aida_id",
+        "target": "parent_id"
+      },
+      "targetEntity": "requirements.aida_node"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "testing.test_case",
+          "requirements.aida_node"
+        ]
+      ],
+      "cardinality": "many_to_many",
+      "direction": "outbound",
+      "explosionPolicy": "distinct_source",
+      "governance": {
+        "owner": "Requirements Analytics",
+        "status": "approved"
+      },
+      "id": "testing.test_case.validates.aida_node",
+      "kind": "foreign_key",
+      "predicate": "validates",
+      "reversible": true,
+      "sourceEntity": "testing.test_case",
+      "sourceFields": {
+        "source": "test_id",
+        "target": "aida_id"
+      },
+      "targetEntity": "requirements.aida_node"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "testing.test_event",
+          "testing.test_run"
+        ]
+      ],
+      "cardinality": "one_to_many",
+      "direction": "outbound",
+      "governance": {
+        "owner": "DTSV Team",
+        "status": "approved"
+      },
+      "id": "testing.test_event.includes.testing.test_run",
+      "kind": "foreign_key",
+      "predicate": "includes",
+      "reversible": true,
+      "sourceEntity": "testing.test_event",
+      "sourceFields": {
+        "source": "release",
+        "target": "release"
+      },
+      "targetEntity": "testing.test_run"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "testing.test_run",
+          "product.test_rack"
+        ]
+      ],
+      "cardinality": "many_to_one",
+      "direction": "outbound",
+      "governance": {
+        "owner": "DTSV Team",
+        "status": "approved"
+      },
+      "id": "testing.test_run.executed_on.product.test_rack",
+      "kind": "foreign_key",
+      "predicate": "executed_on",
+      "reversible": true,
+      "sourceEntity": "testing.test_run",
+      "sourceFields": {
+        "source": "testplatformid",
+        "target": "rack_id"
+      },
+      "targetEntity": "product.test_rack"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "testing.test_run",
+          "vehicle.test_vehicle"
+        ]
+      ],
+      "cardinality": "many_to_one",
+      "direction": "outbound",
+      "governance": {
+        "owner": "Fleet Management",
+        "status": "approved"
+      },
+      "id": "testing.test_run.executed_on.vehicle.test_vehicle",
+      "kind": "foreign_key",
+      "predicate": "executed_on",
+      "reversible": true,
+      "sourceEntity": "testing.test_run",
+      "sourceFields": {
+        "source": "vin",
+        "target": "vin"
+      },
+      "targetEntity": "vehicle.test_vehicle"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "testing.test_run",
+          "testing.test_case"
+        ]
+      ],
+      "cardinality": "many_to_one",
+      "direction": "outbound",
+      "governance": {
+        "owner": "Testing Analytics",
+        "status": "approved"
+      },
+      "id": "testing.test_run.executes.test_case",
+      "kind": "foreign_key",
+      "predicate": "executes",
+      "reversible": true,
+      "sourceEntity": "testing.test_run",
+      "sourceFields": {
+        "source": "test_id",
+        "target": "test_id"
+      },
+      "targetEntity": "testing.test_case"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "testing.test_run",
+          "requirements.feature"
+        ]
+      ],
+      "cardinality": "many_to_many",
+      "direction": "outbound",
+      "explosionPolicy": "distinct_source",
+      "governance": {
+        "owner": "Requirements Analytics",
+        "status": "approved"
+      },
+      "id": "testing.test_run.traces_to.feature",
+      "kind": "foreign_key",
+      "predicate": "traces_to",
+      "reversible": true,
+      "sourceEntity": "testing.test_run",
+      "sourceFields": {
+        "source": "mr_id",
+        "target": "feature_id"
+      },
+      "targetEntity": "requirements.feature"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "testing.test_run",
+          "requirements.story"
+        ]
+      ],
+      "cardinality": "many_to_many",
+      "direction": "outbound",
+      "explosionPolicy": "distinct_source",
+      "governance": {
+        "owner": "Requirements Analytics",
+        "status": "approved"
+      },
+      "id": "testing.test_run.traces_to.story",
+      "kind": "foreign_key",
+      "predicate": "traces_to",
+      "reversible": true,
+      "sourceEntity": "testing.test_run",
+      "sourceFields": {
+        "source": "mr_id",
+        "target": "story_id"
+      },
+      "targetEntity": "requirements.story"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "traceability.link",
+          "testing.test_run"
+        ]
+      ],
+      "cardinality": "many_to_one",
+      "direction": "outbound",
+      "governance": {
+        "owner": "Requirements Analytics",
+        "status": "approved"
+      },
+      "id": "traceability.link.belongs_to.testing.test_run",
+      "kind": "foreign_key",
+      "predicate": "belongs_to",
+      "reversible": true,
+      "sourceEntity": "traceability.link",
+      "sourceFields": {
+        "source": "run_id",
+        "target": "mr_id"
+      },
+      "targetEntity": "testing.test_run"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "traceability.testcase_summary",
+          "testing.test_case"
+        ]
+      ],
+      "cardinality": "many_to_one",
+      "direction": "outbound",
+      "governance": {
+        "owner": "Requirements Analytics",
+        "status": "approved"
+      },
+      "id": "traceability.testcase_summary.aggregates.testing.test_case",
+      "kind": "foreign_key",
+      "predicate": "aggregates",
+      "reversible": true,
+      "sourceEntity": "traceability.testcase_summary",
+      "sourceFields": {
+        "source": "test_id",
+        "target": "test_id"
+      },
+      "targetEntity": "testing.test_case"
+    },
+    {
+      "allowedJoinPaths": [
+        [
+          "vehicle.model_series",
+          "product.platform"
+        ]
+      ],
+      "cardinality": "many_to_one",
+      "direction": "outbound",
+      "governance": {
+        "owner": "Vehicle Analytics",
+        "status": "approved"
+      },
+      "id": "vehicle.model_series.uses.platform",
+      "kind": "foreign_key",
+      "predicate": "uses",
+      "reversible": true,
+      "sourceEntity": "vehicle.model_series",
+      "sourceFields": {
+        "source": "platform_id",
+        "target": "platform_id"
+      },
+      "targetEntity": "product.platform"
     }
   ]
 }

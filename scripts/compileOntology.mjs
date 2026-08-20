@@ -7,7 +7,7 @@ import { validateOntologyBundle } from "../server/ontology/validator.mjs";
 
 const compilerVersion = "ontology-compiler-v1";
 const defaultRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const documentDefinitions = Object.freeze([
+export const documentDefinitions = Object.freeze([
   { file: "sources.json", schema: "sources.schema.json", key: "sources" },
   { file: "entities.json", schema: "entities.schema.json", key: "entities" },
   { file: "relationships.json", schema: "relationships.schema.json", key: "relationships" },

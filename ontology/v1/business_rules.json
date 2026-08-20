@@ -1,198 +1,152 @@
 {
   "schemaVersion": "1.0",
   "ontologyVersion": "v1",
-  "businessRules": [
-    {
-      "id": "business.defect_created_count.creation_time",
-      "version": "1.0.0",
-      "kind": "require",
-      "appliesTo": { "metricIds": ["defect.created_count"] },
-      "effect": {
-        "requiredTimeField": "time.defect_creation_date",
-        "message": "Created/submitted/opened defect questions use octane_defects.creation_time semantics."
-      },
-      "governance": { "status": "approved", "owner": "Quality Analytics" }
-    },
-    {
-      "id": "business.severe_defect.classification",
-      "version": "1.0.0",
-      "kind": "derive",
-      "appliesTo": { "metricIds": ["defect.severe_count"], "intents": ["aggregate", "trend", "compare", "rank", "list", "drilldown"] },
-      "effect": {
-        "derivedFilter": {
-          "dimensionId": "quality.reporting_class",
-          "operator": "in",
-          "values": ["Showstopper_Candidate", "Showstopper_Confirmed"]
-        },
-        "message": "Severe defects use approved Showstopper candidate or confirmed classification."
-      },
-      "governance": { "status": "approved", "owner": "Quality Analytics" }
-    },
-    {
-      "id": "business.severe_defect.business_impact",
-      "version": "1.0.0",
-      "kind": "derive",
-      "appliesTo": { "metricIds": ["defect.severe_count"], "intents": ["aggregate", "trend", "compare", "rank", "list", "drilldown"] },
-      "effect": {
-        "derivedFilter": {
-          "dimensionId": "quality.business_impact",
-          "operator": "in",
-          "values": ["04-deficient", "05-unsatisfactory", "06-customer irritated"]
-        },
-        "message": "Severe defects use approved BI levels from deficient through customer irritated."
-      },
-      "governance": { "status": "approved", "owner": "Quality Analytics" }
-    }
-  ],
   "description": "从8份业务文档提取的纯业务逻辑规则。这些规则不属于数据约束，而是业务领域知识。",
   "rules": [
     {
-      "id": "br.top_issue_vs_showstopper",
-      "title": "Top Issue vs Showstopper 区别",
-      "source": "Defectmanagement",
       "definition": {
-        "top_issue": "功能成熟度增长阶段(I-420~I-470)。评估缺陷是否阻止功能达到AIDA规划中预期的Reifegrad。",
-        "showstopper": "所有功能已实现后(I-480~I-490)。识别上线前必须修复的、客户不可接受的缺陷。"
+        "showstopper": "所有功能已实现后(I-480~I-490)。识别上线前必须修复的、客户不可接受的缺陷。",
+        "top_issue": "功能成熟度增长阶段(I-420~I-470)。评估缺陷是否阻止功能达到AIDA规划中预期的Reifegrad。"
+      },
+      "id": "br.top_issue_vs_showstopper",
+      "octaneFields": {
+        "showstopper": "reporting_class LIKE '%Showstopper%' OR user_tags LIKE '%Showstopper_Candidat%'",
+        "topIssue": "reporting_class LIKE '%Top Issue%'"
       },
       "semanticNotes": "Top Issue关注'功能完整度'(Can we reach RG5?)，Showstopper关注'客户可用性'(Can we go live?)。",
-      "octaneFields": {
-        "topIssue": "reporting_class LIKE '%Top Issue%'",
-        "showstopper": "reporting_class LIKE '%Showstopper%' OR user_tags LIKE '%Showstopper_Candidat%'"
-      }
+      "source": "Defectmanagement",
+      "title": "Top Issue vs Showstopper 区别"
     },
     {
-      "id": "br.maturity_grade_definition",
-      "title": "E/E成熟度等级模型(RG)",
-      "source": "BEAT_TopIssues",
       "definition": {
         "RG4": "功能达到可测试状态",
         "RG5_Green": "所有子功能已实现，端到端可测，客户视角完整",
-        "RG5_Yellow": "功能本身完整但有基础功能阻塞(PMG ticket)",
         "RG5_Red": "功能不完整",
+        "RG5_Yellow": "功能本身完整但有基础功能阻塞(PMG ticket)",
         "RG6": "Ready for Customer = Showstopper-free，可上线"
       },
+      "id": "br.maturity_grade_definition",
       "measurement": "DTSV从RG4开始介入。在BEAT系统中每周报告成熟度。",
       "octaneFields": {
         "planning": "AIDA中每个Report Element(BE)有基于I-Step的成熟度增长计划"
-      }
+      },
+      "source": "BEAT_TopIssues",
+      "title": "E/E成熟度等级模型(RG)"
     },
     {
-      "id": "br.qgate_process",
-      "title": "Q-Gate流程",
-      "source": "Defectmanagement",
       "definition": {
         "trigger": "Phase=02-In Pre-Analysis AND 无Blocking Reason",
         "types": {
-          "functional": "覆盖FV团队负责的所有功能",
+          "carfunctions": "Ex-Box相关功能",
           "ecu_resterampe": "FiF不属于特定团队但ECU属于CoCo。TEAM=IUK_TSP_xxx或DIPS_TSP_xxx (xxx=AZV, Connectivity_Audio, Carfunctions, Entertainment, HMI, Navi)",
-          "mobile_app": "Assigned ECU=APP_Mobile_2_0 AND FiF=Itinerary(Mobile App) AND Defect Category=Mobile App Client. Team=DIPS_TSP_MobileApps",
-          "carfunctions": "Ex-Box相关功能"
+          "functional": "覆盖FV团队负责的所有功能",
+          "mobile_app": "Assigned ECU=APP_Mobile_2_0 AND FiF=Itinerary(Mobile App) AND Defect Category=Mobile App Client. Team=DIPS_TSP_MobileApps"
         }
-      }
+      },
+      "id": "br.qgate_process",
+      "source": "Defectmanagement",
+      "title": "Q-Gate流程"
     },
     {
-      "id": "br.blocked_rejected_process",
-      "title": "Blocked和Rejected缺陷处理",
-      "source": "Defectmanagement",
       "definition": {
         "blocked": "Phase=01-New + Blocking Reason。被FO退回。由Problem Finder Team处理。",
         "rejected_directly": "Phase从01-New直接到09-Concluded without action",
         "resolved_forward": "Phase从08-Resolved到06-Concluded",
         "tqr_required": "FO退票时必须填写TQR。常见错误：退票原因是缺trace但TQR选了'02-not ok error description'"
-      }
-    },
-    {
-      "id": "br.owner_field_semantics",
-      "title": "Owner字段语义",
+      },
+      "id": "br.blocked_rejected_process",
       "source": "Defectmanagement",
-      "definition": "Owner永远是解决方案负责人(Solution Responsible)，不是问题发现者(Problem Finder)。",
-      "commonError": "将Problem Finder设为Owner，因为他'是下一个要做事情的人'。这是错误的。",
-      "correctUsage": "Owner = 负责修复缺陷的人/团队。detected_by/problem_finder_team = 发现缺陷的人/团队。"
+      "title": "Blocked和Rejected缺陷处理"
     },
     {
-      "id": "br.china_team_structure",
-      "title": "DTSV中国团队结构",
-      "source": "CN_Introduction",
+      "commonError": "将Problem Finder设为Owner，因为他'是下一个要做事情的人'。这是错误的。",
+      "correctUsage": "Owner = 负责修复缺陷的人/团队。detected_by/problem_finder_team = 发现缺陷的人/团队。",
+      "definition": "Owner永远是解决方案负责人(Solution Responsible)，不是问题发现者(Problem Finder)。",
+      "id": "br.owner_field_semantics",
+      "source": "Defectmanagement",
+      "title": "Owner字段语义"
+    },
+    {
       "definition": {
         "domains": [
           {
-            "person": "Tianhua Xie",
-            "domain": "Global Digital Services, Base Connectivity"
+            "domain": "Global Digital Services, Base Connectivity",
+            "person": "Tianhua Xie"
           },
           {
-            "person": "Tony Wang",
-            "domain": "Navigation (IuK18/IuK22 Lead)"
+            "domain": "Navigation (IuK18/IuK22 Lead)",
+            "person": "Tony Wang"
           },
           {
-            "person": "Jerry Li",
-            "domain": "HMI/Voice Interface/Personalization/Car-Functions"
+            "domain": "HMI/Voice Interface/Personalization/Car-Functions",
+            "person": "Jerry Li"
           },
           {
-            "person": "Zhimei Yan",
-            "domain": "PaDi/RSU (IuK23 Lead)"
+            "domain": "PaDi/RSU (IuK23 Lead)",
+            "person": "Zhimei Yan"
           },
           {
-            "person": "Huanran Wang",
-            "domain": "China DIPS IDC + MGU MyLife"
+            "domain": "China DIPS IDC + MGU MyLife",
+            "person": "Huanran Wang"
           },
           {
-            "person": "Miao Xu",
-            "domain": "AZV/Kombi/Entertainment/Carplay/Telephony & Audio (Taiwan Lead)"
+            "domain": "AZV/Kombi/Entertainment/Carplay/Telephony & Audio (Taiwan Lead)",
+            "person": "Miao Xu"
           },
           {
-            "person": "Juzhen Xin",
-            "domain": "MyBMW/MyMini/TMALL/Smart Access (Hongkong Lead)"
+            "domain": "MyBMW/MyMini/TMALL/Smart Access (Hongkong Lead)",
+            "person": "Juzhen Xin"
           }
         ],
         "weeklyWorkflow": "FRI=flash+quick check, SAT-SUN=weekend test drive, MON-THU=guided(70%)+free(30%) testing, TUE=intensive test drive"
-      }
+      },
+      "id": "br.china_team_structure",
+      "source": "CN_Introduction",
+      "title": "DTSV中国团队结构"
     },
     {
-      "id": "br.kpi_definitions",
-      "title": "DTSV关键绩效指标(KPI)",
-      "source": "CN_TestStrategy",
       "definition": [
         {
+          "formula": "AIDA requirements覆盖率",
           "name": "Function Coverage",
-          "target": "100%",
-          "formula": "AIDA requirements覆盖率"
+          "target": "100%"
         },
         {
+          "formula": "有测试执行的RG5功能/RG5功能总数",
           "name": "Regression Coverage",
-          "target": "100%",
-          "formula": "有测试执行的RG5功能/RG5功能总数"
+          "target": "100%"
         },
         {
+          "formula": "已测试车型/支持车型",
           "name": "Config Coverage 1 (Models)",
-          "target": "100%",
-          "formula": "已测试车型/支持车型"
+          "target": "100%"
         },
         {
+          "formula": "硬件变体覆盖(High/Mid/Base/Premium)",
           "name": "Config Coverage 2 (Variants)",
-          "target": "100%",
-          "formula": "硬件变体覆盖(High/Mid/Base/Premium)"
+          "target": "100%"
         },
         {
+          "formula": "I490前10%PROD平台retrofit, CoCo产品全覆盖",
           "name": "Config Coverage 3 (Environment)",
-          "target": "10% PROD",
-          "formula": "I490前10%PROD平台retrofit, CoCo产品全覆盖"
+          "target": "10% PROD"
         },
         {
+          "formula": "R1/(R1+R2)*100%",
           "name": "DDP",
-          "target": ">=99%",
-          "formula": "R1/(R1+R2)*100%"
+          "target": ">=99%"
         },
         {
+          "formula": "直接拒绝的子缺陷比例",
           "name": "CWA Rate",
-          "target": "<=10%",
-          "formula": "直接拒绝的子缺陷比例"
+          "target": "<=10%"
         }
-      ]
+      ],
+      "id": "br.kpi_definitions",
+      "source": "CN_TestStrategy",
+      "title": "DTSV关键绩效指标(KPI)"
     },
     {
-      "id": "br.iso25010_test_scope",
-      "title": "ISO 25010 DTSV测试范围",
-      "source": "CN_TestStrategy",
       "definition": {
         "in_scope": [
           "Functional Correctness",
@@ -217,51 +171,141 @@
           "Route calculations",
           "HMI startup time"
         ]
-      }
-    },
-    {
-      "id": "br.defect_tags",
-      "title": "缺陷附加标签(Requirement Objects)",
-      "source": "Defectmanagement",
-      "definition": {
-        "TSP_IuK_Text": "翻译和拼写错误缺陷的标识",
-        "TSP_IuK_Speedlock": "速度锁框架相关缺陷",
-        "TSP_IuK_Egomodel": "Egomodel相关缺陷(无独立BE/FiF)",
-        "Super_SST": "不应在任何情况下关闭的Showstopper标记",
-        "Vehicle Issue": "因车辆问题被退回的缺陷(仅DTSV)"
-      }
-    },
-    {
-      "id": "br.release_naming",
-      "title": "Release命名规则",
-      "source": "Testmanagement",
-      "definition": "格式：R-YY-CW (如R-24-02 = 2024年第2周)。对应Octane Release字段 = SWIP Release号。",
-      "capacitySplit": "每个Release Test Event按IuK和DiPS分容量，并按国家分配(DE/CN/JP/KR/US/BR/TW/HK)"
-    },
-    {
-      "id": "br.aida_be_mapping",
-      "title": "AIDA Berichtselement (BE) → IuK Domain 映射",
-      "source": "Responsibilities",
-      "definition": "DTSV负责所有在AIDA中标记为'IuK'的Berichtselemente(BE)。包括Integration & Verification和Maturity Grade Evaluation。当AIDA中新增/删除/修改IuK标签时，影响DTSV的职责范围。",
-      "changeProcess": "Change Request (CR) 需要经过验证和审批"
-    },
-    {
-      "id": "br.test_strategy_cn",
-      "title": "中国测试策略",
+      },
+      "id": "br.iso25010_test_scope",
       "source": "CN_TestStrategy",
+      "title": "ISO 25010 DTSV测试范围"
+    },
+    {
       "definition": {
+        "Super_SST": "不应在任何情况下关闭的Showstopper标记",
+        "TSP_IuK_Egomodel": "Egomodel相关缺陷(无独立BE/FiF)",
+        "TSP_IuK_Speedlock": "速度锁框架相关缺陷",
+        "TSP_IuK_Text": "翻译和拼写错误缺陷的标识",
+        "Vehicle Issue": "因车辆问题被退回的缺陷(仅DTSV)"
+      },
+      "id": "br.defect_tags",
+      "source": "Defectmanagement",
+      "title": "缺陷附加标签(Requirement Objects)"
+    },
+    {
+      "capacitySplit": "每个Release Test Event按IuK和DiPS分容量，并按国家分配(DE/CN/JP/KR/US/BR/TW/HK)",
+      "definition": "格式：R-YY-CW (如R-24-02 = 2024年第2周)。对应Octane Release字段 = SWIP Release号。",
+      "id": "br.release_naming",
+      "source": "Testmanagement",
+      "title": "Release命名规则"
+    },
+    {
+      "changeProcess": "Change Request (CR) 需要经过验证和审批",
+      "definition": "DTSV负责所有在AIDA中标记为'IuK'的Berichtselemente(BE)。包括Integration & Verification和Maturity Grade Evaluation。当AIDA中新增/删除/修改IuK标签时，影响DTSV的职责范围。",
+      "id": "br.aida_be_mapping",
+      "source": "Responsibilities",
+      "title": "AIDA Berichtselement (BE) → IuK Domain 映射"
+    },
+    {
+      "definition": {
+        "reportingPhases": {
+          "SHOWSTOPPER": "功能实现后，highlight critical pre-SOP bugs",
+          "TOP-ISSUE": "成熟度增长阶段，highlight maturity-blocking issues"
+        },
         "scope": "Black box test on system level. Focus: China Mainland, Taiwan, Hong Kong/Macao markets.",
-        "testRatio": "Guided testing 70% vs Free/exploratory testing 30%",
         "specialTests": [
           "Flexible app release validation",
           "Backward compatibility timeline validation",
           "RL circle validation"
         ],
-        "reportingPhases": {
-          "TOP-ISSUE": "成熟度增长阶段，highlight maturity-blocking issues",
-          "SHOWSTOPPER": "功能实现后，highlight critical pre-SOP bugs"
-        }
-      }
+        "testRatio": "Guided testing 70% vs Free/exploratory testing 30%"
+      },
+      "id": "br.test_strategy_cn",
+      "source": "CN_TestStrategy",
+      "title": "中国测试策略"
+    }
+  ],
+  "businessRules": [
+    {
+      "appliesTo": {
+        "metricIds": [
+          "defect.created_count"
+        ]
+      },
+      "effect": {
+        "message": "Created/submitted/opened defect questions use octane_defects.creation_time semantics.",
+        "requiredTimeField": "time.defect_creation_date"
+      },
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "business.defect_created_count.creation_time",
+      "kind": "require",
+      "version": "1.0.0"
+    },
+    {
+      "appliesTo": {
+        "intents": [
+          "aggregate",
+          "trend",
+          "compare",
+          "rank",
+          "list",
+          "drilldown"
+        ],
+        "metricIds": [
+          "defect.severe_count"
+        ]
+      },
+      "effect": {
+        "derivedFilter": {
+          "dimensionId": "quality.business_impact",
+          "operator": "in",
+          "values": [
+            "04-deficient",
+            "05-unsatisfactory",
+            "06-customer irritated"
+          ]
+        },
+        "message": "Severe defects use approved BI levels from deficient through customer irritated."
+      },
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "business.severe_defect.business_impact",
+      "kind": "derive",
+      "version": "1.0.0"
+    },
+    {
+      "appliesTo": {
+        "intents": [
+          "aggregate",
+          "trend",
+          "compare",
+          "rank",
+          "list",
+          "drilldown"
+        ],
+        "metricIds": [
+          "defect.severe_count"
+        ]
+      },
+      "effect": {
+        "derivedFilter": {
+          "dimensionId": "quality.reporting_class",
+          "operator": "in",
+          "values": [
+            "Showstopper_Candidate",
+            "Showstopper_Confirmed"
+          ]
+        },
+        "message": "Severe defects use approved Showstopper candidate or confirmed classification."
+      },
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "business.severe_defect.classification",
+      "kind": "derive",
+      "version": "1.0.0"
     }
   ]
 }

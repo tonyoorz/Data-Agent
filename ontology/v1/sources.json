@@ -3,214 +3,214 @@
   "ontologyVersion": "v1",
   "sources": [
     {
-      "id": "analytics.full_picture_defects",
-      "system": "analytics",
       "database": "database/source/qgate_raw.db",
-      "table": "octane_defects",
-      "readModel": "full_picture_outcomes",
-      "revisionStrategy": "snapshot",
       "freshnessSloMinutes": 1440,
       "governance": {
-        "status": "approved",
-        "owner": "Quality Analytics"
-      }
-    },
-    {
-      "id": "analytics.testing_coverage",
-      "system": "analytics",
-      "database": "database/source/qgate_raw.db",
-      "table": "octane_manual_runs",
-      "readModel": "testing_coverage_hot",
-      "revisionStrategy": "snapshot",
-      "freshnessSloMinutes": 1440,
-      "governance": {
-        "status": "approved",
-        "owner": "Testing Analytics"
-      }
-    },
-    {
-      "id": "analytics.traceability",
-      "system": "analytics",
-      "database": "database/source/qgate_raw.db",
-      "table": "octane_traceability_links",
-      "readModel": "traceability_models",
-      "revisionStrategy": "snapshot",
-      "freshnessSloMinutes": 1440,
-      "governance": {
-        "status": "approved",
-        "owner": "Requirements Analytics"
-      }
-    },
-    {
-      "id": "analytics.traceability_links",
-      "system": "analytics",
-      "database": "database/source/qgate_raw.db",
-      "table": "semantic_trace_edges",
-      "readModel": "traceability_links",
-      "revisionStrategy": "snapshot",
-      "freshnessSloMinutes": 1440,
-      "governance": {
-        "status": "draft",
-        "owner": "Requirements Analytics",
-        "decisionRef": "docs/main-agent-v2/metric-decisions.md"
-      }
-    },
-    {
-      "id": "analytics.traceability_testcases",
-      "system": "analytics",
-      "database": "database/source/qgate_raw.db",
-      "table": "semantic_traceability_testcases",
-      "readModel": "traceability_testcases",
-      "revisionStrategy": "snapshot",
-      "freshnessSloMinutes": 1440,
-      "governance": {
-        "status": "draft",
-        "owner": "Requirements Analytics",
-        "decisionRef": "docs/main-agent-v2/metric-decisions.md"
-      }
-    },
-    {
-      "id": "analytics.qgate",
-      "system": "analytics",
-      "database": "database/source/qgate_raw.db",
-      "table": "qgate_results",
-      "readModel": "qgate_kpi",
-      "revisionStrategy": "snapshot",
-      "freshnessSloMinutes": 1440,
-      "governance": {
-        "status": "draft",
-        "owner": "Quality Governance",
-        "decisionRef": "docs/main-agent-v2/metric-decisions.md"
-      }
-    },
-    {
-      "id": "analytics.defect_history",
-      "system": "analytics",
-      "database": "database/source/qgate_raw.db",
-      "table": "octane_defect_history",
-      "readModel": "defect_history_events",
-      "revisionStrategy": "snapshot",
-      "freshnessSloMinutes": 1440,
-      "governance": {
-        "status": "draft",
-        "owner": "Quality Governance",
-        "decisionRef": "docs/main-agent-v2/metric-decisions.md"
-      }
-    },
-    {
-      "id": "analytics.defect_outcomes",
-      "system": "analytics",
-      "database": "database/source/qgate_raw.db",
-      "table": "octane_defect_outcomes",
-      "readModel": "defect_outcomes",
-      "revisionStrategy": "snapshot",
-      "freshnessSloMinutes": 1440,
-      "governance": {
-        "status": "draft",
-        "owner": "Quality Governance",
-        "decisionRef": "docs/main-agent-v2/metric-decisions.md"
-      }
-    },
-    {
-      "id": "duplicate.defect_index",
-      "system": "duplicate-search",
-      "database": "backend/database/ticket_embeddings.db",
-      "table": "embedding_cache",
-      "readModel": "duplicate_candidates",
-      "revisionStrategy": "content_hash",
-      "freshnessSloMinutes": 10080,
-      "governance": {
-        "status": "approved",
-        "owner": "Quality Analytics"
-      }
-    },
-    {
-      "id": "artifact.runtime_store",
-      "system": "artifact",
-      "readModel": "agent_artifacts",
-      "revisionStrategy": "content_hash",
-      "governance": {
-        "status": "approved",
-        "owner": "Agent Platform"
-      }
-    },
-    {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
       "id": "analytics.beat",
-      "system": "analytics",
-      "database": "database/source/qgate_raw.db",
-      "table": "beat_maturity_grades",
       "readModel": "maturity_grades",
       "revisionStrategy": "snapshot",
+      "system": "analytics",
+      "table": "beat_maturity_grades"
+    },
+    {
+      "database": "database/source/qgate_raw.db",
       "freshnessSloMinutes": 1440,
       "governance": {
-        "status": "approved",
-        "owner": "Quality Analytics"
-      }
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md",
+        "owner": "Quality Governance",
+        "status": "draft"
+      },
+      "id": "analytics.defect_history",
+      "readModel": "defect_history_events",
+      "revisionStrategy": "snapshot",
+      "system": "analytics",
+      "table": "octane_defect_history"
     },
     {
-      "id": "analytics.team_mapping",
-      "system": "analytics",
       "database": "database/source/qgate_raw.db",
-      "table": "function_team_mapping",
-      "readModel": "function_team_mapping",
-      "revisionStrategy": "snapshot",
-      "freshnessSloMinutes": 10080,
-      "governance": {
-        "status": "approved",
-        "owner": "DTSV Team"
-      }
-    },
-    {
-      "id": "analytics.test_events",
-      "system": "analytics",
-      "database": "database/source/qgate_raw.db",
-      "table": "test_events",
-      "readModel": "test_events",
-      "revisionStrategy": "snapshot",
       "freshnessSloMinutes": 1440,
       "governance": {
-        "status": "approved",
-        "owner": "DTSV Team"
-      }
-    },
-    {
-      "id": "analytics.test_racks",
-      "system": "analytics",
-      "database": "database/source/qgate_raw.db",
-      "table": "test_racks",
-      "readModel": "test_racks",
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md",
+        "owner": "Quality Governance",
+        "status": "draft"
+      },
+      "id": "analytics.defect_outcomes",
+      "readModel": "defect_outcomes",
       "revisionStrategy": "snapshot",
-      "freshnessSloMinutes": 10080,
-      "governance": {
-        "status": "approved",
-        "owner": "DTSV Team"
-      }
+      "system": "analytics",
+      "table": "octane_defect_outcomes"
     },
     {
-      "id": "analytics.test_vehicles",
-      "system": "analytics",
       "database": "database/source/qgate_raw.db",
-      "table": "test_vehicles",
-      "readModel": "test_vehicles",
-      "revisionStrategy": "snapshot",
-      "freshnessSloMinutes": 1440,
-      "governance": {
-        "status": "approved",
-        "owner": "Fleet Management"
-      }
-    },
-    {
-      "id": "analytics.defect_writeback",
-      "system": "analytics",
-      "database": "database/source/qgate_raw.db",
-      "table": "defect_writeback_log",
-      "readModel": "full_picture_outcomes",
-      "revisionStrategy": "watermark",
       "freshnessSloMinutes": 5,
       "governance": {
-        "status": "approved",
-        "owner": "Agent Platform"
-      }
+        "owner": "Agent Platform",
+        "status": "approved"
+      },
+      "id": "analytics.defect_writeback",
+      "readModel": "full_picture_outcomes",
+      "revisionStrategy": "watermark",
+      "system": "analytics",
+      "table": "defect_writeback_log"
+    },
+    {
+      "database": "database/source/qgate_raw.db",
+      "freshnessSloMinutes": 1440,
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "analytics.full_picture_defects",
+      "readModel": "full_picture_outcomes",
+      "revisionStrategy": "snapshot",
+      "system": "analytics",
+      "table": "octane_defects"
+    },
+    {
+      "database": "database/source/qgate_raw.db",
+      "freshnessSloMinutes": 1440,
+      "governance": {
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md",
+        "owner": "Quality Governance",
+        "status": "draft"
+      },
+      "id": "analytics.qgate",
+      "readModel": "qgate_kpi",
+      "revisionStrategy": "snapshot",
+      "system": "analytics",
+      "table": "qgate_results"
+    },
+    {
+      "database": "database/source/qgate_raw.db",
+      "freshnessSloMinutes": 10080,
+      "governance": {
+        "owner": "DTSV Team",
+        "status": "approved"
+      },
+      "id": "analytics.team_mapping",
+      "readModel": "function_team_mapping",
+      "revisionStrategy": "snapshot",
+      "system": "analytics",
+      "table": "function_team_mapping"
+    },
+    {
+      "database": "database/source/qgate_raw.db",
+      "freshnessSloMinutes": 1440,
+      "governance": {
+        "owner": "DTSV Team",
+        "status": "approved"
+      },
+      "id": "analytics.test_events",
+      "readModel": "test_events",
+      "revisionStrategy": "snapshot",
+      "system": "analytics",
+      "table": "test_events"
+    },
+    {
+      "database": "database/source/qgate_raw.db",
+      "freshnessSloMinutes": 10080,
+      "governance": {
+        "owner": "DTSV Team",
+        "status": "approved"
+      },
+      "id": "analytics.test_racks",
+      "readModel": "test_racks",
+      "revisionStrategy": "snapshot",
+      "system": "analytics",
+      "table": "test_racks"
+    },
+    {
+      "database": "database/source/qgate_raw.db",
+      "freshnessSloMinutes": 1440,
+      "governance": {
+        "owner": "Fleet Management",
+        "status": "approved"
+      },
+      "id": "analytics.test_vehicles",
+      "readModel": "test_vehicles",
+      "revisionStrategy": "snapshot",
+      "system": "analytics",
+      "table": "test_vehicles"
+    },
+    {
+      "database": "database/source/qgate_raw.db",
+      "freshnessSloMinutes": 1440,
+      "governance": {
+        "owner": "Testing Analytics",
+        "status": "approved"
+      },
+      "id": "analytics.testing_coverage",
+      "readModel": "testing_coverage_hot",
+      "revisionStrategy": "snapshot",
+      "system": "analytics",
+      "table": "octane_manual_runs"
+    },
+    {
+      "database": "database/source/qgate_raw.db",
+      "freshnessSloMinutes": 1440,
+      "governance": {
+        "owner": "Requirements Analytics",
+        "status": "approved"
+      },
+      "id": "analytics.traceability",
+      "readModel": "traceability_models",
+      "revisionStrategy": "snapshot",
+      "system": "analytics",
+      "table": "octane_traceability_links"
+    },
+    {
+      "database": "database/source/qgate_raw.db",
+      "freshnessSloMinutes": 1440,
+      "governance": {
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md",
+        "owner": "Requirements Analytics",
+        "status": "draft"
+      },
+      "id": "analytics.traceability_links",
+      "readModel": "traceability_links",
+      "revisionStrategy": "snapshot",
+      "system": "analytics",
+      "table": "semantic_trace_edges"
+    },
+    {
+      "database": "database/source/qgate_raw.db",
+      "freshnessSloMinutes": 1440,
+      "governance": {
+        "decisionRef": "docs/main-agent-v2/metric-decisions.md",
+        "owner": "Requirements Analytics",
+        "status": "draft"
+      },
+      "id": "analytics.traceability_testcases",
+      "readModel": "traceability_testcases",
+      "revisionStrategy": "snapshot",
+      "system": "analytics",
+      "table": "semantic_traceability_testcases"
+    },
+    {
+      "governance": {
+        "owner": "Agent Platform",
+        "status": "approved"
+      },
+      "id": "artifact.runtime_store",
+      "readModel": "agent_artifacts",
+      "revisionStrategy": "content_hash",
+      "system": "artifact"
+    },
+    {
+      "database": "backend/database/ticket_embeddings.db",
+      "freshnessSloMinutes": 10080,
+      "governance": {
+        "owner": "Quality Analytics",
+        "status": "approved"
+      },
+      "id": "duplicate.defect_index",
+      "readModel": "duplicate_candidates",
+      "revisionStrategy": "content_hash",
+      "system": "duplicate-search",
+      "table": "embedding_cache"
     }
   ]
 }

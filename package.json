@@ -24,7 +24,10 @@
     "ontology:reconcile": "node scripts/ontologyReconcile.mjs",
     "ontology:sync-vault": "node scripts/sync-vault-graph.mjs",
     "test:ontology": "vitest run src/test/server/ontology && python -m pytest backend/tests/test_ontology_contract.py -q",
-    "test:eval": "node scripts/evalRegression.mjs"
+    "test:eval": "node scripts/evalRegression.mjs",
+    "ontology:export": "node scripts/ontoExport.mjs",
+    "ontology:apply": "node scripts/ontoApply.mjs",
+    "ontology:apply:check": "node scripts/ontoApply.mjs --check"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
