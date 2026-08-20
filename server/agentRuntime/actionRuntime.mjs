@@ -9,6 +9,7 @@
  */
 import { createApprovalFlow } from "./approvalFlow.mjs";
 import { createSessionEventLog } from "./sessionEventLog.mjs";
+import { evaluateSubmissionCriteria, actorToCriteriaContext } from "./submissionCriteria.mjs";
 
 function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -34,6 +35,8 @@ export function createActionRuntime({
   writeStore, // { begin(), insert(dataset, row), commit(tx), rollback(tx) } — injected for testability
   now = () => new Date(),
   userGroupsByActor = () => new Set(["dtsv_team"]),
+  actorAttributesByActor = () => ({}),
+  scenario = "production",
   readBeforeValues = async () => ({}), // async (action, payload) => {field: value} — powers diff.before
 } = {}) {
   if (!registry) throw new Error("ONTOLOGY_REGISTRY_REQUIRED");
@@ -43,11 +46,15 @@ export function createActionRuntime({
   const actionLog = []; // append-only quality.action_log audit objects
   let logSeq = 0;
 
-  function evaluateUserGroups(action, actor) {
-    const groups = userGroupsByActor(actor);
-    const required = (action.submissionCriteria || []).filter((c) => c.kind === "userGroup");
-    const unmet = required.filter((c) => !groups.has(c.userGroup)).map((c) => `userGroup:${c.userGroup}`);
-    return { allowed: unmet.length === 0, unmet };
+  /** P1-C5: evaluate all non-approval criteria via the submission criteria engine. */
+  function evaluateCriteria(action, actor) {
+    const groups = [...userGroupsByActor(actor)];
+    const ctx = actorToCriteriaContext(actor, { scenario, now: now().toISOString() });
+    ctx.groups = groups;
+    ctx.attributes = { ...actorAttributesByActor(actor), ...(actor?.attributes || {}) };
+    const criteria = (action.submissionCriteria || []).filter((c) => c.kind !== "approval");
+    const verdict = evaluateSubmissionCriteria(criteria, ctx);
+    return { allowed: verdict.allowed, unmet: verdict.unmet.map((u) => u.message) };
   }
 
   function approvalCriterion(action) {
@@ -107,7 +114,7 @@ export function createActionRuntime({
       if (action.execution?.mode !== "enabled") throw new Error(`ACTION_NOT_ENABLED:${actionId}`);
       if (!isRecord(payload)) throw new Error("ACTION_PAYLOAD_INVALID");
 
-      const groups = evaluateUserGroups(action, actor);
+      const groups = evaluateCriteria(action, actor);
       if (!groups.allowed) {
         const submission = { submissionId: `sub_rejected_${now().getTime().toString(36)}`, status: "rejected", unmet: groups.unmet, actionId };
         await log.append({ type: "action/rejected", sessionId, payload: submission });
