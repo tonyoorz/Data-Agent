@@ -10,6 +10,7 @@ import { createFileAgentRuntimeStore } from "./agentRuntime/runtimeAuditStore.mj
 import { createSessionEventLog } from "./agentRuntime/sessionEventLog.mjs";
 import { createEvalMetricsService, deriveOfflineVsOnline, readOfflineBaseline } from "./agentRuntime/evalMetrics.mjs";
 import { createApprovalFlow } from "./agentRuntime/approvalFlow.mjs";
+import { createActionRuntime, createInMemoryWriteStore } from "./agentRuntime/actionRuntime.mjs";
 import { createFeedbackLoop, createSemanticCache } from "./agentRuntime/feedbackAndCache.mjs";
 import { createSandboxSqlGuard, isSandboxSqlEnabled } from "./ontology/sandboxSql.mjs";
 import { createOntologyRegistry } from "./ontology/registry.mjs";
@@ -53,6 +54,11 @@ const agentRuntimeStore = createFileAgentRuntimeStore();
 const sessionEventLog = createSessionEventLog();
 const evalMetricsService = createEvalMetricsService({ sessionEventLog });
 const approvalFlow = createApprovalFlow({ eventLog: sessionEventLog });
+const actionRuntime = createActionRuntime({
+  registry: createOntologyRegistry(),
+  eventLog: sessionEventLog,
+  writeStore: createInMemoryWriteStore(),
+});
 const feedbackLoop = createFeedbackLoop();
 const semanticCache = createSemanticCache();
 // Governed sandbox SQL (strategic item): lazily built, default OFF via VIZION_SANDBOX_SQL=1.
@@ -673,6 +679,48 @@ const server = http.createServer(async (request, response) => {
           decidedBy: body?.decidedBy || "user",
         });
         sendJson(response, outcome?.status === "ok" ? 200 : 404, { success: outcome?.status === "ok", outcome });
+      } catch (error) {
+        sendJson(response, 500, { success: false, error: String(error?.message || error) });
+      }
+      return;
+    }
+
+    // --- Action runtime (P1-C2): governed transactional writeback ---
+    if (request.method === "POST" && /^\/api\/ai\/actions\/[A-Za-z0-9._-]+\/submit$/.test(url.pathname)) {
+      if (!await requireInternalAuxiliaryActor(request, response)) return;
+      const actionId = url.pathname.split("/").at(-2);
+      const body = await readJsonBody(request);
+      try {
+        const submission = await actionRuntime.submitAction({
+          actionId,
+          payload: body?.payload ?? {},
+          actor: body?.actor ?? { actorId: "anonymous", scopes: {} },
+          sessionId: body?.sessionId || "anonymous",
+        });
+        sendJson(response, 200, { success: true, submission });
+      } catch (error) {
+        sendJson(response, 400, { success: false, error: String(error?.message || error) });
+      }
+      return;
+    }
+
+    if (request.method === "POST" && /^\/api\/ai\/actions\/[A-Za-z0-9._-]+\/approve$/.test(url.pathname)) {
+      if (!await requireInternalAuxiliaryActor(request, response)) return;
+      const actionId = url.pathname.split("/").at(-2);
+      const body = await readJsonBody(request);
+      const decision = typeof body?.decision === "string" ? body.decision.trim().toLowerCase() : "approved";
+      if (!["approved", "rejected"].includes(decision)) {
+        sendJson(response, 400, { success: false, error: "decision must be approved|rejected" });
+        return;
+      }
+      try {
+        const outcome = await actionRuntime.decide({
+          submissionId: body?.submissionId,
+          decision,
+          decidedBy: body?.decidedBy || "user",
+          sessionId: body?.sessionId || "anonymous",
+        });
+        sendJson(response, outcome?.status === "not_found" ? 404 : 200, { success: outcome?.status !== "not_found", actionId, outcome });
       } catch (error) {
         sendJson(response, 500, { success: false, error: String(error?.message || error) });
       }

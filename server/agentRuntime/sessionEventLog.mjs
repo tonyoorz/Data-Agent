@@ -23,6 +23,11 @@ export const SESSION_EVENT_TYPES = Object.freeze([
   "turn/end",
   "approval/request",
   "approval/decision",
+  "action/submitted",
+  "action/decided",
+  "action/executed",
+  "action/rollback",
+  "action/rejected",
   "feedback/thumb",
   "error/runtime",
 ]);
