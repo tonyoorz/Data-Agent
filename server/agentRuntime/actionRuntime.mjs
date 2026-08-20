@@ -14,17 +14,34 @@ function isRecord(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+function primaryKeyOf(registry, entityId) {
+  const entity = (registry.bundle.entities || []).find((item) => item.id === entityId);
+  return entity?.primaryKey || null;
+}
+
+/** Build a {field: {before, after}} diff restricted to the action's mutation fields. */
+function buildDiff(action, payload, beforeValues = {}) {
+  const fields = action.mutation?.fields || [];
+  return Object.fromEntries(fields.map((field) => [
+    field,
+    { before: beforeValues[field] ?? null, after: isRecord(payload) ? payload[field] ?? null : null },
+  ]));
+}
+
 export function createActionRuntime({
   registry,
   eventLog,
   writeStore, // { begin(), insert(dataset, row), commit(tx), rollback(tx) } — injected for testability
   now = () => new Date(),
   userGroupsByActor = () => new Set(["dtsv_team"]),
+  readBeforeValues = async () => ({}), // async (action, payload) => {field: value} — powers diff.before
 } = {}) {
   if (!registry) throw new Error("ONTOLOGY_REGISTRY_REQUIRED");
   const log = eventLog || createSessionEventLog({ now });
   const approvalFlow = createApprovalFlow({ eventLog: log, now });
   const submissions = new Map(); // submissionId -> submission record
+  const actionLog = []; // append-only quality.action_log audit objects
+  let logSeq = 0;
 
   function evaluateUserGroups(action, actor) {
     const groups = userGroupsByActor(actor);
@@ -37,7 +54,7 @@ export function createActionRuntime({
     return (action.submissionCriteria || []).find((c) => c.kind === "approval") || null;
   }
 
-  async function writeTransactionally(action, payload, submissionId) {
+  async function writeTransactionally(action, payload, submissionId, meta = {}) {
     const tx = writeStore.begin(submissionId);
     try {
       const row = {
@@ -51,7 +68,30 @@ export function createActionRuntime({
       };
       writeStore.insert(tx, action.mutation.writeback.dataset, row);
       writeStore.commit(tx);
-      return { status: "committed", row };
+
+      // P1-C3: every committed writeback generates an immutable [LOG] audit object
+      // (quality.action_log): action_rid, action_version, timestamp, actor,
+      // target primary key, diff (before/after), approver.
+      const beforeValues = await readBeforeValues(action, payload);
+      const pk = primaryKeyOf(registry, action.targetEntityId);
+      logSeq += 1;
+      const logObject = {
+        log_rid: `log_${now().getTime().toString(36)}_${logSeq.toString(36)}`,
+        seq: logSeq,
+        submission_id: submissionId,
+        action_rid: action.id,
+        action_version: action.version,
+        committed_at: row.committed_at,
+        actor_id: meta.actor?.actorId || "anonymous",
+        approver: meta.approver || null,
+        target_entity: action.targetEntityId,
+        target_key: pk && isRecord(payload) && payload[pk] != null ? String(payload[pk]) : "",
+        diff: JSON.stringify(buildDiff(action, payload, beforeValues)),
+        status: "committed",
+        session_id: meta.sessionId || "anonymous",
+      };
+      actionLog.push(logObject);
+      return { status: "committed", row, logObject };
     } catch (error) {
       writeStore.rollback(tx);
       throw error;
@@ -93,15 +133,19 @@ export function createActionRuntime({
         status: criterion ? "pending_approval" : "executed",
         approvalId: approval?.approvalId ?? null,
         payload,
+        actor: actor || { actorId: "anonymous" },
         createdAt: now().toISOString(),
         writeback: null,
+        logRid: null,
       };
       submissions.set(submissionId, submission);
       await log.append({ type: "action/submitted", sessionId, payload: { submissionId, actionId, status: submission.status } });
       if (!criterion) {
-        const result = await writeTransactionally(action, payload, submissionId);
+        const result = await writeTransactionally(action, payload, submissionId, { actor, sessionId });
         submission.status = "executed";
         submission.writeback = { dataset: action.mutation.writeback.dataset, committedRow: result.row };
+        submission.logRid = result.logObject.log_rid;
+        await log.append({ type: "action/executed", sessionId, payload: { submissionId, actionId: action.id, dataset: action.mutation.writeback.dataset, logRid: submission.logRid } });
       }
       return { ...submission };
     },
@@ -123,10 +167,15 @@ export function createActionRuntime({
       }
 
       try {
-        const result = await writeTransactionally(action, submission.payload, submissionId);
+        const result = await writeTransactionally(action, submission.payload, submissionId, {
+          actor: submission.actor,
+          approver: decidedBy,
+          sessionId,
+        });
         submission.status = "executed";
         submission.writeback = { dataset: action.mutation.writeback.dataset, committedRow: result.row };
-        await log.append({ type: "action/executed", sessionId, payload: { submissionId, actionId: action.id, dataset: action.mutation.writeback.dataset } });
+        submission.logRid = result.logObject.log_rid;
+        await log.append({ type: "action/executed", sessionId, payload: { submissionId, actionId: action.id, dataset: action.mutation.writeback.dataset, logRid: submission.logRid, approver: decidedBy } });
       } catch (error) {
         submission.status = "failed_rolled_back";
         submission.error = error?.message ?? String(error);
@@ -138,6 +187,23 @@ export function createActionRuntime({
     getSubmission(submissionId) {
       const submission = submissions.get(submissionId);
       return submission ? { ...submission } : null;
+    },
+
+    /** P1-C3: timeline query over quality.action_log objects (newest first). */
+    queryLog({ entity, since, limit = 50, actionId } = {}) {
+      const sinceMs = since ? new Date(since).getTime() : null;
+      const rows = actionLog
+        .filter((entry) => !entity || entry.target_entity === entity)
+        .filter((entry) => !actionId || entry.action_rid === actionId)
+        .filter((entry) => sinceMs == null || Number.isNaN(sinceMs) || new Date(entry.committed_at).getTime() >= sinceMs)
+        .sort((a, b) => (a.committed_at === b.committed_at ? b.seq - a.seq : b.committed_at.localeCompare(a.committed_at)))
+        .slice(0, Math.max(1, Math.min(Number(limit) || 50, 200)));
+      return rows.map((entry) => ({ ...entry }));
+    },
+
+    getLogByRid(logRid) {
+      const entry = actionLog.find((item) => item.log_rid === logRid);
+      return entry ? { ...entry } : null;
     },
   };
 }

@@ -727,6 +727,17 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    // --- Action log timeline (P1-C3): quality.action_log audit query ---
+    if (request.method === "GET" && url.pathname === "/api/ai/actions/log") {
+      if (!await requireInternalAuxiliaryActor(request, response)) return;
+      const entity = url.searchParams.get("entity") || undefined;
+      const since = url.searchParams.get("since") || undefined;
+      const actionId = url.searchParams.get("actionId") || undefined;
+      const limit = url.searchParams.get("limit") || undefined;
+      sendJson(response, 200, { success: true, log: actionRuntime.queryLog({ entity, since, actionId, limit }) });
+      return;
+    }
+
     // --- Session event log (P0-1): durable model-visible stream ---
     if (request.method === "GET" && /^\/api\/ai\/sessions\/[A-Za-z0-9._-]+\/events$/.test(url.pathname)) {
       if (!await requireInternalAuxiliaryActor(request, response)) return;

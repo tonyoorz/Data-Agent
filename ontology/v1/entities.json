@@ -2410,6 +2410,116 @@
         "status": "approved",
         "owner": "Fleet Management"
       }
+    },
+    {
+      "id": "quality.action_log",
+      "version": "1.0.0",
+      "labels": {
+        "zh-CN": "操作日志",
+        "en-US": "Action Log"
+      },
+      "descriptions": {
+        "zh-CN": "Action 写回自动生成的不可变审计日志对象（Palantir Action Log 对齐）。",
+        "en-US": "Immutable audit log object auto-generated for every governed action writeback (Palantir Action Log alignment)."
+      },
+      "aliases": [
+        "action log",
+        "操作日志",
+        "审计日志",
+        "audit log",
+        "写回日志"
+      ],
+      "source": {
+        "sourceId": "analytics.defect_writeback",
+        "system": "analytics",
+        "readModel": "full_picture_outcomes",
+        "table": "defect_writeback_log"
+      },
+      "primaryKey": "log_rid",
+      "sensitivity": "internal",
+      "allowedOperations": [
+        "read",
+        "aggregate"
+      ],
+      "properties": [
+        {
+          "id": "log_rid",
+          "type": "string",
+          "nullable": false,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "submission_id",
+          "type": "string",
+          "nullable": false,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "action_rid",
+          "type": "string",
+          "nullable": false,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "action_version",
+          "type": "string",
+          "nullable": false,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "committed_at",
+          "type": "datetime",
+          "nullable": false,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "actor_id",
+          "type": "string",
+          "nullable": false,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "approver",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "target_entity",
+          "type": "string",
+          "nullable": false,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "target_key",
+          "type": "string",
+          "nullable": false,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "diff",
+          "type": "string",
+          "nullable": false,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "status",
+          "type": "string",
+          "nullable": false,
+          "sensitivity": "internal"
+        },
+        {
+          "id": "session_id",
+          "type": "string",
+          "nullable": true,
+          "sensitivity": "internal"
+        }
+      ],
+      "governance": {
+        "status": "approved",
+        "owner": "Agent Platform",
+        "decisionRef": "docs/plans/2026-08-16-agent-upgrade-program.md"
+      }
     }
   ]
 }

@@ -16,6 +16,7 @@ flowchart LR
     product_pu["PU\n(product.pu)"]
     product_service_pack["Service Pack\n(product.service_pack)"]
     product_test_rack["测试台架\n(product.test_rack)"]
+    quality_action_log["操作日志\n(quality.action_log)"]
     quality_defect["缺陷\n(quality.defect)"]
     quality_defect_history_event["缺陷历史事件\n(quality.defect_history_event)"]
     quality_defect_outcome["缺陷结果\n(quality.defect_outcome)"]
