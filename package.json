@@ -25,6 +25,8 @@
     "test:watch": "vitest",
     "test:agent-evals": "vitest run src/test/server/mainAgentGolden.test.ts src/test/server/ontology/semanticGolden.test.ts src/test/server/ontology/semanticQualityGolden.test.ts src/test/server/mainAgentExecutionGolden.test.ts src/test/server/mainAgentPolicyGolden.test.ts src/test/server/mainAgentToolRecovery.test.ts src/test/server/answerValidator.test.ts",
     "eval:scorecard": "node ./scripts/runScorecard.mjs",
+    "verify:integration": "node ./scripts/verifyIntegration.mjs",
+    "verify:integration:quick": "node ./scripts/verifyIntegration.mjs --quick",
     "agent:qualification": "node ./scripts/agentQualification.mjs",
     "agent:qualification:verify": "node ./scripts/agentQualification.mjs --verify --require-full --require-build",
     "report:qgate-kpi": "node ./scripts/runPython.mjs -m backend.analytics_cli generate-qgate-kpi-reports",

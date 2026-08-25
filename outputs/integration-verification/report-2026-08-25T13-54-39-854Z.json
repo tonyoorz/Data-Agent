@@ -1,0 +1,87 @@
+{
+  "generatedAt": "2026-08-25T13:54:39.854Z",
+  "mode": "quick",
+  "ok": false,
+  "passed": 5,
+  "failed": 1,
+  "checks": [
+    {
+      "id": "V1",
+      "description": "统一系统快照与跨层契约全部通过",
+      "ok": true,
+      "durationMs": 30,
+      "evidence": {
+        "fingerprint": "d3b58a9651847e91627f9c4c7f2617aae5d1b29abab468857422a1cbd07e8456",
+        "runtimeReadyMetrics": 9,
+        "adapters": [
+          "python.semantic.defects",
+          "python.semantic.test_runs",
+          "python.semantic.testcases"
+        ],
+        "contracts": [
+          "HARNESS_TOOL_SOURCE_OF_TRUTH",
+          "HARNESS_INTENT_WIRING",
+          "SEMANTIC_KERNEL_FAIL_CLOSED",
+          "RUNTIME_PUBLICATION_CONSISTENT",
+          "READY_METRICS_GOVERNED",
+          "ORCHESTRATOR_INJECTABLE_BOUNDARY"
+        ]
+      }
+    },
+    {
+      "id": "V2",
+      "description": "本体编译与指纹校验（pi fail-closed 门）",
+      "ok": true,
+      "durationMs": 149,
+      "evidence": {
+        "fingerprint": "d3b58a9651847e91627f9c4c7f2617aae5d1b29abab468857422a1cbd07e8456",
+        "counts": {
+          "sourceCount": 15,
+          "entityCount": 28,
+          "relationshipCount": 27,
+          "dimensionCount": 51,
+          "metricCount": 31,
+          "termCount": 82,
+          "businessRuleCount": 3,
+          "policyCount": 3,
+          "constraintCount": 5,
+          "actionCount": 3
+        }
+      }
+    },
+    {
+      "id": "V3",
+      "description": "集成单元测试（统一门面 + 离线智能问数 turn）",
+      "ok": true,
+      "durationMs": 1835,
+      "evidence": {
+        "testsPassed": 4
+      }
+    },
+    {
+      "id": "V4",
+      "description": "Python 语义契约测试（数据面）",
+      "ok": true,
+      "durationMs": 1938,
+      "evidence": {
+        "testsPassed": 65
+      }
+    },
+    {
+      "id": "V5",
+      "description": "Agent 行为 golden 评测（路由/策略/执行）",
+      "ok": true,
+      "durationMs": 899,
+      "evidence": {
+        "testsPassed": 5
+      }
+    },
+    {
+      "id": "V8",
+      "description": "实时端到端：harness→签名语义调用→FastAPI 数据面→热库",
+      "ok": false,
+      "durationMs": 556,
+      "error": "missing agent.tool.completed"
+    }
+  ]
+}

@@ -25,7 +25,10 @@ dist-ssr
 backend/database/octane_data.db
 backend/database/*.sqlite
 backend/database/*.db
+backend/database/*.db-shm
+backend/database/*.db-wal
 backend/cache/
+.venv/
 __pycache__/
 .octane-browser-profile/
 .octane-browser-profile-refresh/
