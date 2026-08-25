@@ -61,5 +61,11 @@ scripts/speech_analysis_intermediate.json
 scripts/speech_comment_evidence.json
 scripts/speech_overjudge_evidence_and_prompts.md
 scripts/speech_sem_prompt_recommendations.md
+artifacts/agent-qualification/
+evals/scorecard/output/
 !database/**/.gitkeep
 .worktrees/
+
+# AI tool session state
+.superpowers/
+.workbuddy/

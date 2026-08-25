@@ -3663,6 +3663,9 @@
       "measure": "approved_age_days_rule",
       "missingDataPolicy": "preserve_missing",
       "requiredFilters": [],
+      "runtime": {
+        "status": "planned"
+      },
       "sourceReadModel": "full_picture_outcomes",
       "sourceRevisionStrategy": "snapshot",
       "unit": "days"
@@ -3685,16 +3688,7 @@
         "quality.business_impact",
         "quality.status",
         "quality.china_scope",
-        "quality.solution_cluster",
-        "quality.defect_category",
-        "quality.reporting_class",
-        "quality.user_tags",
-        "quality.market",
-        "quality.blocking_reason",
-        "quality.detected_in_release",
-        "quality.parent_child_type",
-        "vehicle.lead_model",
-        "time.defect_last_modified"
+        "quality.reporting_class"
       ],
       "capabilities": {
         "comparison": true,
@@ -3718,6 +3712,11 @@
       "measure": "count_distinct(defect_id)",
       "missingDataPolicy": "zero_when_empty_result",
       "requiredFilters": [],
+      "runtime": {
+        "adapterId": "python.semantic.defects",
+        "adapterVersion": "1.0.0",
+        "status": "ready"
+      },
       "sourceReadModel": "full_picture_outcomes",
       "sourceRevisionStrategy": "snapshot",
       "unit": "count"
@@ -3735,16 +3734,7 @@
         "quality.severity",
         "quality.business_impact",
         "quality.china_scope",
-        "quality.solution_cluster",
-        "quality.defect_category",
-        "quality.reporting_class",
-        "quality.user_tags",
-        "quality.market",
-        "quality.blocking_reason",
-        "quality.detected_in_release",
-        "quality.parent_child_type",
-        "vehicle.lead_model",
-        "time.defect_last_modified"
+        "quality.reporting_class"
       ],
       "capabilities": {
         "comparison": true,
@@ -3768,6 +3758,11 @@
       "measure": "count_distinct(defect_id)",
       "missingDataPolicy": "zero_when_empty_result",
       "requiredFilters": [],
+      "runtime": {
+        "adapterId": "python.semantic.defects",
+        "adapterVersion": "1.0.0",
+        "status": "ready"
+      },
       "sourceReadModel": "full_picture_outcomes",
       "sourceRevisionStrategy": "snapshot",
       "unit": "count"
@@ -3815,6 +3810,9 @@
       "measure": "count_distinct(defect_id where approved_long_runner_rule)",
       "missingDataPolicy": "preserve_missing",
       "requiredFilters": [],
+      "runtime": {
+        "status": "planned"
+      },
       "sourceReadModel": "full_picture_outcomes",
       "sourceRevisionStrategy": "snapshot",
       "unit": "count"
@@ -3862,6 +3860,9 @@
       "measure": "count_distinct(defect_id where approved_open_rule)",
       "missingDataPolicy": "preserve_missing",
       "requiredFilters": [],
+      "runtime": {
+        "status": "planned"
+      },
       "sourceReadModel": "full_picture_outcomes",
       "sourceRevisionStrategy": "snapshot",
       "unit": "count"
@@ -3908,6 +3909,9 @@
       "measure": "count_distinct(defect_id where approved_rejection_rule)",
       "missingDataPolicy": "preserve_missing",
       "requiredFilters": [],
+      "runtime": {
+        "status": "planned"
+      },
       "sourceReadModel": "full_picture_outcomes",
       "sourceRevisionStrategy": "snapshot",
       "unit": "count"
@@ -3954,6 +3958,9 @@
       "missingDataPolicy": "exclude_null_denominator",
       "numerator": "defect.rejected_count",
       "requiredFilters": [],
+      "runtime": {
+        "status": "planned"
+      },
       "sourceReadModel": "full_picture_outcomes",
       "sourceRevisionStrategy": "snapshot",
       "unit": "percent"
@@ -4000,6 +4007,9 @@
       "missingDataPolicy": "exclude_null_denominator",
       "numerator": "approved_duplicate_link_count",
       "requiredFilters": [],
+      "runtime": {
+        "status": "planned"
+      },
       "sourceReadModel": "full_picture_outcomes",
       "sourceRevisionStrategy": "snapshot",
       "unit": "percent"
@@ -4046,6 +4056,9 @@
       "missingDataPolicy": "exclude_null_denominator",
       "numerator": "defect.resolved_count",
       "requiredFilters": [],
+      "runtime": {
+        "status": "planned"
+      },
       "sourceReadModel": "full_picture_outcomes",
       "sourceRevisionStrategy": "snapshot",
       "unit": "percent"
@@ -4093,6 +4106,9 @@
       "measure": "count_distinct(defect_id where approved_resolved_rule)",
       "missingDataPolicy": "preserve_missing",
       "requiredFilters": [],
+      "runtime": {
+        "status": "planned"
+      },
       "sourceReadModel": "full_picture_outcomes",
       "sourceRevisionStrategy": "snapshot",
       "unit": "count"
@@ -4107,10 +4123,7 @@
         "quality.phase",
         "quality.business_impact",
         "quality.reporting_class",
-        "quality.status",
-        "quality.solution_cluster",
-        "quality.defect_category",
-        "vehicle.lead_model"
+        "quality.status"
       ],
       "capabilities": {
         "comparison": true,
@@ -4134,6 +4147,11 @@
       "measure": "count_distinct(defect_id WHERE classification IN ('Showstopper_Candidate', 'Showstopper_Confirmed') AND problem_severity IN ('04-deficient', '05-unsatisfactory', '06-customer irritated'))",
       "missingDataPolicy": "zero_when_empty_result",
       "requiredFilters": [],
+      "runtime": {
+        "adapterId": "python.semantic.defects",
+        "adapterVersion": "1.0.0",
+        "status": "ready"
+      },
       "sourceReadModel": "full_picture_outcomes",
       "sourceRevisionStrategy": "snapshot",
       "unit": "count"
@@ -4164,6 +4182,9 @@
       "measure": "count_distinct(defect_id WHERE reporting_class LIKE '%Showstopper%' OR user_tags LIKE '%Showstopper%')",
       "missingDataPolicy": "not_applicable",
       "requiredFilters": [],
+      "runtime": {
+        "status": "planned"
+      },
       "sourceReadModel": "full_picture_outcomes",
       "sourceRevisionStrategy": "snapshot",
       "unit": "count"
@@ -4194,6 +4215,9 @@
       "measure": "count_distinct(defect_id WHERE reporting_class LIKE '%Top Issue%' OR user_tags LIKE '%TopIssue%')",
       "missingDataPolicy": "not_applicable",
       "requiredFilters": [],
+      "runtime": {
+        "status": "planned"
+      },
       "sourceReadModel": "full_picture_outcomes",
       "sourceRevisionStrategy": "snapshot",
       "unit": "count"
@@ -4224,6 +4248,9 @@
       "measure": "count_distinct(model_series WHERE tested=true) / count_distinct(model_series) * 100",
       "missingDataPolicy": "not_applicable",
       "requiredFilters": [],
+      "runtime": {
+        "status": "planned"
+      },
       "sourceReadModel": "test_vehicles",
       "sourceRevisionStrategy": "snapshot",
       "unit": "percent"
@@ -4254,6 +4281,9 @@
       "measure": "count_distinct(hw_variant WHERE tested=true) / count_distinct(hw_variant) * 100",
       "missingDataPolicy": "not_applicable",
       "requiredFilters": [],
+      "runtime": {
+        "status": "planned"
+      },
       "sourceReadModel": "test_vehicles",
       "sourceRevisionStrategy": "snapshot",
       "unit": "percent"
@@ -4284,6 +4314,9 @@
       "measure": "count_distinct(defect_id WHERE phase NOT IN ('06-Concluded','09-Concluded without action') AND creation_time < release_date) / count_distinct(defect_id) * 100",
       "missingDataPolicy": "not_applicable",
       "requiredFilters": [],
+      "runtime": {
+        "status": "planned"
+      },
       "sourceReadModel": "full_picture_outcomes",
       "sourceRevisionStrategy": "snapshot",
       "unit": "percent"
@@ -4314,6 +4347,9 @@
       "measure": "count_distinct(defect_id WHERE parent_child_type='child' AND phase='09-Concluded without action') / count_distinct(defect_id WHERE parent_child_type='child') * 100",
       "missingDataPolicy": "not_applicable",
       "requiredFilters": [],
+      "runtime": {
+        "status": "planned"
+      },
       "sourceReadModel": "full_picture_outcomes",
       "sourceRevisionStrategy": "snapshot",
       "unit": "percent"
@@ -4344,6 +4380,9 @@
       "measure": "count_distinct(aida_id WHERE has_requirement=true) / count_distinct(aida_id) * 100",
       "missingDataPolicy": "not_applicable",
       "requiredFilters": [],
+      "runtime": {
+        "status": "planned"
+      },
       "sourceReadModel": "traceability_models",
       "sourceRevisionStrategy": "snapshot",
       "unit": "percent"
@@ -4374,6 +4413,9 @@
       "measure": "count_distinct(test_id WHERE rg_level='RG5' AND run_count > 0) / count_distinct(test_id WHERE rg_level='RG5') * 100",
       "missingDataPolicy": "not_applicable",
       "requiredFilters": [],
+      "runtime": {
+        "status": "planned"
+      },
       "sourceReadModel": "testing_coverage_hot",
       "sourceRevisionStrategy": "snapshot",
       "unit": "percent"
@@ -4421,6 +4463,9 @@
       "missingDataPolicy": "exclude_null_denominator",
       "numerator": "defect.count",
       "requiredFilters": [],
+      "runtime": {
+        "status": "planned"
+      },
       "sourceReadModel": "full_picture_outcomes",
       "sourceRevisionStrategy": "snapshot",
       "unit": "ratio"
@@ -4433,16 +4478,7 @@
         "product.pu",
         "product.ecu",
         "quality.severity",
-        "quality.solution_cluster",
-        "quality.defect_category",
-        "quality.reporting_class",
-        "quality.user_tags",
-        "quality.market",
-        "quality.blocking_reason",
-        "quality.detected_in_release",
-        "quality.parent_child_type",
-        "vehicle.lead_model",
-        "time.defect_last_modified"
+        "quality.reporting_class"
       ],
       "capabilities": {
         "comparison": true,
@@ -4468,6 +4504,11 @@
       "requiredFilters": [
         "org.problem_finder_team"
       ],
+      "runtime": {
+        "adapterId": "python.semantic.defects",
+        "adapterVersion": "1.0.0",
+        "status": "ready"
+      },
       "sourceReadModel": "full_picture_outcomes",
       "sourceRevisionStrategy": "snapshot",
       "unit": "count"
@@ -4505,6 +4546,9 @@
       "requiredFilters": [
         "org.problem_finder_team"
       ],
+      "runtime": {
+        "status": "planned"
+      },
       "sourceReadModel": "full_picture_outcomes",
       "sourceRevisionStrategy": "snapshot",
       "unit": "ratio"
@@ -4517,12 +4561,7 @@
         "org.team",
         "product.project",
         "product.pu",
-        "requirements.aida",
-        "testing.domain",
-        "testing.test_phase",
-        "testing.testing_tool_type",
-        "product.release",
-        "time.run_started"
+        "requirements.aida"
       ],
       "capabilities": {
         "comparison": true,
@@ -4546,6 +4585,11 @@
       "measure": "count_distinct(mr_id)",
       "missingDataPolicy": "zero_when_empty_result",
       "requiredFilters": [],
+      "runtime": {
+        "adapterId": "python.semantic.test_runs",
+        "adapterVersion": "1.0.0",
+        "status": "ready"
+      },
       "sourceReadModel": "testing_coverage_hot",
       "sourceRevisionStrategy": "snapshot",
       "unit": "count"
@@ -4589,6 +4633,9 @@
       "missingDataPolicy": "exclude_null_denominator",
       "numerator": "testing.failed_run_count",
       "requiredFilters": [],
+      "runtime": {
+        "status": "planned"
+      },
       "sourceReadModel": "testing_coverage_hot",
       "sourceRevisionStrategy": "snapshot",
       "unit": "percent"
@@ -4601,12 +4648,7 @@
         "org.team",
         "product.project",
         "product.pu",
-        "requirements.aida",
-        "testing.domain",
-        "testing.test_phase",
-        "testing.testing_tool_type",
-        "product.release",
-        "time.run_started"
+        "requirements.aida"
       ],
       "capabilities": {
         "comparison": true,
@@ -4630,6 +4672,11 @@
       "measure": "count_distinct(mr_id where status='Failed')",
       "missingDataPolicy": "zero_when_empty_result",
       "requiredFilters": [],
+      "runtime": {
+        "adapterId": "python.semantic.test_runs",
+        "adapterVersion": "1.0.0",
+        "status": "ready"
+      },
       "sourceReadModel": "testing_coverage_hot",
       "sourceRevisionStrategy": "snapshot",
       "unit": "count"
@@ -4673,6 +4720,9 @@
       "missingDataPolicy": "exclude_null_denominator",
       "numerator": "testing.passed_run_count",
       "requiredFilters": [],
+      "runtime": {
+        "status": "planned"
+      },
       "sourceReadModel": "testing_coverage_hot",
       "sourceRevisionStrategy": "snapshot",
       "unit": "percent"
@@ -4685,12 +4735,7 @@
         "org.team",
         "product.project",
         "product.pu",
-        "requirements.aida",
-        "testing.domain",
-        "testing.test_phase",
-        "testing.testing_tool_type",
-        "product.release",
-        "time.run_started"
+        "requirements.aida"
       ],
       "capabilities": {
         "comparison": true,
@@ -4714,6 +4759,11 @@
       "measure": "count_distinct(mr_id where status='Passed')",
       "missingDataPolicy": "zero_when_empty_result",
       "requiredFilters": [],
+      "runtime": {
+        "adapterId": "python.semantic.test_runs",
+        "adapterVersion": "1.0.0",
+        "status": "ready"
+      },
       "sourceReadModel": "testing_coverage_hot",
       "sourceRevisionStrategy": "snapshot",
       "unit": "count"
@@ -4748,6 +4798,9 @@
       "missingDataPolicy": "exclude_null_denominator",
       "numerator": "approved_covered_requirement_count",
       "requiredFilters": [],
+      "runtime": {
+        "status": "planned"
+      },
       "sourceReadModel": "traceability_models",
       "sourceRevisionStrategy": "snapshot",
       "unit": "percent"
@@ -4761,12 +4814,7 @@
         "product.project",
         "product.pu",
         "requirements.aida",
-        "testing.run_status",
-        "testing.domain",
-        "testing.test_phase",
-        "testing.testing_tool_type",
-        "product.release",
-        "time.run_started"
+        "testing.run_status"
       ],
       "capabilities": {
         "comparison": true,
@@ -4790,6 +4838,11 @@
       "measure": "count_distinct(mr_id)",
       "missingDataPolicy": "zero_when_empty_result",
       "requiredFilters": [],
+      "runtime": {
+        "adapterId": "python.semantic.test_runs",
+        "adapterVersion": "1.0.0",
+        "status": "ready"
+      },
       "sourceReadModel": "testing_coverage_hot",
       "sourceRevisionStrategy": "snapshot",
       "unit": "count"
@@ -4822,6 +4875,11 @@
       "measure": "count_distinct(test_id)",
       "missingDataPolicy": "zero_when_empty_result",
       "requiredFilters": [],
+      "runtime": {
+        "adapterId": "python.semantic.testcases",
+        "adapterVersion": "1.0.0",
+        "status": "ready"
+      },
       "sourceReadModel": "testing_coverage_hot",
       "sourceRevisionStrategy": "snapshot",
       "unit": "count"
@@ -4864,6 +4922,9 @@
       "missingDataPolicy": "exclude_null_denominator",
       "numerator": "approved_traced_run_count",
       "requiredFilters": [],
+      "runtime": {
+        "status": "planned"
+      },
       "sourceReadModel": "testing_coverage_hot",
       "sourceRevisionStrategy": "snapshot",
       "unit": "percent"

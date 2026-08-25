@@ -57,6 +57,10 @@ const QGateKpiReport = () => {
         <iframe
           title="QGate KPI Dashboard report"
           src={report.iframeUrl}
+          // allow-scripts WITHOUT allow-same-origin: the report renders from an
+          // opaque origin so even a successful script injection cannot reach
+          // same-origin cookies/localStorage or call authenticated /api/*.
+          sandbox="allow-scripts"
           className="h-full w-full border-0 bg-white"
         />
       ) : (

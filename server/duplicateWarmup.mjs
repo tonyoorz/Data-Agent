@@ -19,6 +19,10 @@ function buildStatus(state, details = {}) {
   };
 }
 
+export function shouldWarmDuplicateSearch(env = process.env) {
+  return String(env?.VIZION_AGENT_AUTH_MODE || "oidc").trim().toLowerCase() === "internal";
+}
+
 export function createDuplicateWarmupManager({ runDuplicateBridge, logger = console }) {
   let status = buildStatus("cold");
   let inFlightWarmup = null;

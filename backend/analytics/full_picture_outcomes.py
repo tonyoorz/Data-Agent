@@ -8,6 +8,7 @@ import sqlite3
 from typing import Sequence
 
 from backend.analytics.dashboard_snapshot import build_full_picture_snapshot_version
+from backend.analytics.db import ensure_wal_pragmas
 
 
 OUTCOME_SCHEMA_SQL = """
@@ -38,7 +39,7 @@ SQLITE_MAX_VARIABLES = 900
 def ensure_outcome_store(db_path: Path | str) -> Path:
 	resolved_path = Path(db_path)
 	resolved_path.parent.mkdir(parents=True, exist_ok=True)
-	conn = sqlite3.connect(resolved_path)
+	conn = ensure_wal_pragmas(sqlite3.connect(resolved_path))
 	try:
 		conn.executescript(OUTCOME_SCHEMA_SQL)
 		conn.commit()
@@ -239,7 +240,7 @@ def refresh_materialized_outcomes(
 
 	from backend.analytics import read_models
 
-	hot_conn = sqlite3.connect(resolved_hot_path)
+	hot_conn = ensure_wal_pragmas(sqlite3.connect(resolved_hot_path))
 	try:
 		refresh_state_row = _load_refresh_state(hot_conn)
 		existing_row_count_row = hot_conn.execute(
@@ -367,7 +368,7 @@ def load_materialized_outcomes(
 	}
 	loaded = {defect_id: dict(default_row) for defect_id in requested_ids}
 
-	conn = sqlite3.connect(resolved_hot_path)
+	conn = ensure_wal_pragmas(sqlite3.connect(resolved_hot_path))
 	conn.row_factory = sqlite3.Row
 	try:
 		if _load_refresh_state(conn) is None:

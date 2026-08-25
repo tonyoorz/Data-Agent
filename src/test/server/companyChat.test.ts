@@ -1,12 +1,27 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { requestCompanyChatCompletion, streamCompanyChatCompletion } from "../../../server/companyChat.mjs";
+import {
+  controlledChatErrorDiagnostic,
+  requestCompanyChatCompletion,
+  resetCompanyChatCircuitBreakerForTests,
+  streamCompanyChatCompletion,
+  toSafeCompanyChatError,
+} from "../../../server/companyChat.mjs";
 import { createOntologyRegistry } from "../../../server/ontology/registry.mjs";
 
 describe("streamCompanyChatCompletion", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    resetCompanyChatCircuitBreakerForTests();
     process.env.DUPSEARCH_CHAT_ACCESS_CODE = "test-access-code";
+    delete process.env.DUPSEARCH_CHAT_API_BASE;
+    delete process.env.DUPSEARCH_CHAT_API_KEY;
+    delete process.env.DUPSEARCH_CHAT_MODEL_OPTIONS;
+    delete process.env.DUPSEARCH_CHAT_MAX_ATTEMPTS;
+    delete process.env.DUPSEARCH_CHAT_RETRY_DELAY_MS;
+    delete process.env.DUPSEARCH_CHAT_TIMEOUT_MS;
+    delete process.env.VIZION_ANSWER_RELEASE_MAX_BYTES;
+    delete process.env.VIZION_ANSWER_RELEASE_TIMEOUT_MS;
   });
 
   it("forwards upstream SSE chunks without waiting for response.json", async () => {
@@ -58,6 +73,7 @@ describe("streamCompanyChatCompletion", () => {
       expect.objectContaining({
         method: "POST",
         body: expect.stringContaining('"stream":true'),
+        redirect: "error",
       }),
     );
     expect(json).not.toHaveBeenCalled();
@@ -83,6 +99,154 @@ describe("streamCompanyChatCompletion", () => {
         tokenUsage: { inputTokens: 100, outputTokens: 20, totalTokens: 120 },
       }),
     );
+  });
+
+  it("parses CRLF-delimited upstream SSE frames without corrupting the answer", async () => {
+    const encoder = new TextEncoder();
+    const response = { writeHead: vi.fn(), write: vi.fn(), end: vi.fn() };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode(
+            'data: {"choices":[{"delta":{"content":"CRLF_OK"}}]}\r\n\r\n' +
+            'data: [DONE]\r\n\r\n',
+          ));
+          controller.close();
+        },
+      }),
+    }));
+
+    await streamCompanyChatCompletion({
+      messages: [{ role: "user", content: "hello" }],
+      model: "deepseek-v4-flash",
+      response,
+    });
+
+    const streamedText = response.write.mock.calls.map(([chunk]) => String(chunk)).join("");
+    expect(streamedText).toContain("CRLF_OK");
+    expect(streamedText.match(/data: \[DONE\]/g)).toHaveLength(1);
+    expect(response.end).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not read or log an upstream response body while mapping a stable client code", async () => {
+    process.env.DUPSEARCH_CHAT_MAX_ATTEMPTS = "1";
+    const secretBody = `authorization: Bearer top-secret-token api_key=private-key ${"x".repeat(5000)}`;
+    const readBody = vi.fn(async () => secretBody);
+    const cancel = vi.fn(async () => undefined);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: false,
+      status: 502,
+      statusText: "Bad Gateway",
+      body: { cancel },
+      text: readBody,
+    }));
+
+    let observedError: unknown;
+    try {
+      await requestCompanyChatCompletion({
+        messages: [{ role: "user", content: "hello" }],
+        model: "deepseek-v4-flash",
+      });
+    } catch (error) {
+      observedError = error;
+    }
+
+    expect(toSafeCompanyChatError(observedError)).toEqual({
+      statusCode: 502,
+      payload: { success: false, error: "CHAT_UPSTREAM_REQUEST_FAILED" },
+    });
+    expect(String((observedError as Error)?.message)).toBe("CHAT_UPSTREAM_REQUEST_FAILED");
+    const diagnostic = controlledChatErrorDiagnostic(observedError);
+    expect(readBody).not.toHaveBeenCalled();
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(diagnostic).toBe(
+      "error_code=CHAT_UPSTREAM_REQUEST_FAILED upstream_status=502 upstream_status_text=Bad Gateway",
+    );
+    expect(diagnostic).not.toContain("top-secret-token");
+    expect(diagnostic).not.toContain("private-key");
+    expect(Buffer.byteLength(diagnostic, "utf8")).toBeLessThanOrEqual(2048);
+  });
+
+  it("blocks an unapproved client model before any provider request", async () => {
+    process.env.DUPSEARCH_CHAT_ACCESS_CODE = "";
+    process.env.DUPSEARCH_CHAT_API_KEY = "model-key";
+    process.env.DUPSEARCH_CHAT_API_BASE = "https://model.example.test/v1";
+    process.env.DUPSEARCH_CHAT_MODEL_OPTIONS = "approved-model";
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    let observedError: unknown;
+    try {
+      await requestCompanyChatCompletion({
+        messages: [{ role: "user", content: "hello" }],
+        model: "unapproved-expensive-model",
+      });
+    } catch (error) {
+      observedError = error;
+    }
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(toSafeCompanyChatError(observedError)).toEqual({
+      statusCode: 400,
+      payload: { success: false, error: "CHAT_MODEL_NOT_ALLOWED" },
+    });
+  });
+
+  it("does not include arbitrary unknown error messages in controlled diagnostics", () => {
+    const error = new Error("Bearer secret-from-an-untrusted-error");
+    expect(controlledChatErrorDiagnostic(error)).toBe(
+      "error_code=AGENT_CHAT_REQUEST_FAILED error_name=Error",
+    );
+  });
+
+  it("maps known OCR boundary failures to stable attachment-safe responses", () => {
+    expect(toSafeCompanyChatError({ code: "IMAGE_OCR_INPUT_INVALID" })).toEqual({
+      statusCode: 400,
+      payload: { success: false, error: "IMAGE_OCR_INPUT_INVALID" },
+    });
+    expect(toSafeCompanyChatError({ code: "IMAGE_OCR_UPSTREAM_TIMEOUT" })).toEqual({
+      statusCode: 504,
+      payload: { success: false, error: "IMAGE_OCR_UPSTREAM_TIMEOUT" },
+    });
+  });
+
+  it("keeps non-claim chat streaming while the upstream response is still open", async () => {
+    const encoder = new TextEncoder();
+    const response = { writeHead: vi.fn(), write: vi.fn(), end: vi.fn() };
+    let resolveNextRead;
+    const reader = {
+      read: vi.fn()
+        .mockResolvedValueOnce({
+          done: false,
+          value: encoder.encode('data: {"choices":[{"delta":{"content":"LIVE_CHAT"}}]}\n\n'),
+        })
+        .mockImplementationOnce(() => new Promise((resolve) => {
+          resolveNextRead = resolve;
+        })),
+      cancel: vi.fn(async () => {}),
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: { getReader: () => reader },
+      text: async () => "",
+    }));
+
+    const streaming = streamCompanyChatCompletion({
+      messages: [{ role: "user", content: "你好" }],
+      model: "deepseek-v4-flash",
+      response,
+    });
+    await vi.waitFor(() => expect(reader.read).toHaveBeenCalledTimes(2));
+
+    expect(response.write.mock.calls.map(([chunk]) => String(chunk)).join("")).toContain("LIVE_CHAT");
+    expect(response.end).not.toHaveBeenCalled();
+
+    resolveNextRead({ done: false, value: encoder.encode("data: [DONE]\n\n") });
+    await streaming;
+    expect(response.end).toHaveBeenCalledTimes(1);
   });
 
   it("converts image message parts to OCR text before calling the text chat model", async () => {
@@ -113,7 +277,7 @@ describe("streamCompanyChatCompletion", () => {
           role: "user",
           content: [
             { type: "text", text: "read this image" },
-            { type: "image_url", image_url: { url: "data:image/png;base64,aW1hZ2U=" } },
+            { type: "image_url", image_url: { url: "data:image/png;base64,iVBORw0KGgo=" } },
           ],
         },
       ],
@@ -124,7 +288,7 @@ describe("streamCompanyChatCompletion", () => {
 
     expect(imageOcrRunner).toHaveBeenCalledWith(
       expect.objectContaining({
-        imageUrl: "data:image/png;base64,aW1hZ2U=",
+        imageUrl: "data:image/png;base64,iVBORw0KGgo=",
         index: 1,
       }),
     );
@@ -609,43 +773,7 @@ describe("streamCompanyChatCompletion", () => {
     expect(streamedText).toContain("SAM-HERE: 86");
   });
 
-  it("adds a deterministic citation footer for legacy tool evidence", async () => {
-    const encoder = new TextEncoder();
-    const response = { writeHead: vi.fn(), write: vi.fn(), end: vi.fn() };
-    const registry = createOntologyRegistry();
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      body: new ReadableStream({
-        start(controller) {
-          controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"缺陷数是 12"}}]}\n\n' + 'data: [DONE]\n\n'));
-          controller.close();
-        },
-      }),
-      text: async () => "",
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    await streamCompanyChatCompletion({
-      messages: [{ role: "user", content: "缺陷数是多少？" }],
-      model: "deepseek-v4-flash",
-      context: "# Main agent tool result\nTool: query_analytics\nResult: 12",
-      response,
-      answerValidation: {
-        registry,
-        evidence: [{ toolCallId: "legacy-1", tool: "query_analytics" }],
-      },
-    });
-
-    const streamedText = response.write.mock.calls
-      .map(([chunk]) => Buffer.from(chunk).toString("utf8"))
-      .join("");
-    expect(streamedText).toContain("缺陷数是 12");
-    expect(streamedText).toContain('source=\\"legacy-1\\"');
-    expect(streamedText).not.toContain("ANSWER_CITATION_REQUIRED");
-    expect(streamedText.indexOf('"type":"answer-validation"')).toBeLessThan(streamedText.indexOf("data: [DONE]"));
-  });
-
-  it("blocks an unsupported governed numeric Claim before it reaches SSE", async () => {
+  it("never releases an uncited numeric answer before claim validation", async () => {
     const encoder = new TextEncoder();
     const response = {
       writeHead: vi.fn(),
@@ -658,7 +786,10 @@ describe("streamCompanyChatCompletion", () => {
       body: new ReadableStream({
         start(controller) {
           controller.enqueue(
-            encoder.encode('data: {"choices":[{"delta":{"content":"<cite source=\\"call-1\\">缺陷数是 999999</cite>"}}]}\n\n' + 'data: [DONE]\n\n'),
+            encoder.encode(
+              'data: {"choices":[{"delta":{"content":"LEAK_UNCITED: 缺陷数是 12"}}]}\n\n' +
+                'data: [DONE]\n\n',
+            ),
           );
           controller.close();
         },
@@ -676,15 +807,26 @@ describe("streamCompanyChatCompletion", () => {
       response,
       answerValidation: {
         registry,
-        semanticEvidence: [{
+        releaseRequired: true,
+        expectedActorScopeHash: "scope-a",
+        expectedSourceRevisionIds: ["snap-1"],
+        evidence: [{
           toolCallId: "call-1",
           tool: "query_semantic_metrics",
+          ok: true,
           ontologyVersion: "v1",
           schemaFingerprint: registry.fingerprint,
-          evidence: { kind: "semantic_metric_result", metricValues: { "defect.count": 1 } },
-          data: [{ defect_id: "D-1", "defect.count": 1 }],
+          analysisRef: "analysis-1",
+          sourceRevision: { revisionId: "snap-1", status: "pinned" },
+          scope: { actorScopeHash: "scope-a" },
+          quality: { completeness: "complete", warnings: [] },
+          evidence: {
+            kind: "semantic_metric_result",
+            analysisRef: "analysis-1",
+            sourceRevisionId: "snap-1",
+            metricValues: { "defect.count": 12 },
+          },
         }],
-        evidenceGate: { status: "pass" },
       },
       onAnswerValidation,
     });
@@ -692,12 +834,17 @@ describe("streamCompanyChatCompletion", () => {
     const streamedText = response.write.mock.calls
       .map(([chunk]) => Buffer.from(chunk).toString("utf8"))
       .join("");
+    expect(streamedText).not.toContain("LEAK_UNCITED");
+    expect(streamedText).not.toContain("缺陷数是 12");
+    expect(streamedText).toContain("受治理证据不可用");
     expect(streamedText).toContain('"type":"answer-validation"');
-    expect(streamedText).toContain("ANSWER_NUMERIC_CLAIM_UNSUPPORTED:call-1");
-    expect(streamedText).not.toContain("999999");
-    expect(streamedText).toContain("未发布未经证据验证的数据结论");
-    expect(streamedText.indexOf('"type":"answer-validation"')).toBeLessThan(streamedText.indexOf("未发布未经证据验证的数据结论"));
-    expect(streamedText.indexOf("未发布未经证据验证的数据结论")).toBeLessThan(streamedText.indexOf("data: [DONE]"));
+    expect(streamedText).toContain("ANSWER_CITATION_REQUIRED");
+    expect(streamedText.match(/data: \[DONE\]/g)).toHaveLength(1);
+    expect(streamedText.indexOf('"type":"answer-validation"')).toBeLessThan(streamedText.indexOf("data: [DONE]"));
+    expect(onAnswerValidation).toHaveBeenCalledWith(expect.objectContaining({
+      valid: false,
+      violations: expect.arrayContaining(["ANSWER_CITATION_REQUIRED", "ANSWER_CLAIM_CITATION_REQUIRED:1"]),
+    }));
   });
 
   it("releases a supported governed Claim only after validation", async () => {
@@ -708,7 +855,12 @@ describe("streamCompanyChatCompletion", () => {
       ok: true,
       body: new ReadableStream({
         start(controller) {
-          controller.enqueue(encoder.encode('data: {"choices":[{"delta":{"content":"<cite source=\\"call-1\\">缺陷数是 1</cite>"}}]}\n\n' + 'data: [DONE]\n\n'));
+          controller.enqueue(
+            encoder.encode(
+              'data: {"choices":[{"delta":{"content":"<cite source=\\"call-1\\">缺陷数是 1</cite>"}}]}\n\n' +
+                'data: [DONE]\n\n',
+            ),
+          );
           controller.close();
         },
       }),
@@ -766,7 +918,26 @@ describe("streamCompanyChatCompletion", () => {
       response,
       answerValidation: {
         registry,
-        evidence: [{ toolCallId: "call-1", tool: "query_semantic_metrics", ontologyVersion: "v1", schemaFingerprint: registry.fingerprint }],
+        releaseRequired: true,
+        expectedActorScopeHash: "scope-a",
+        expectedSourceRevisionIds: ["snap-1"],
+        evidence: [{
+          toolCallId: "call-1",
+          tool: "query_semantic_metrics",
+          ok: true,
+          ontologyVersion: "v1",
+          schemaFingerprint: registry.fingerprint,
+          analysisRef: "analysis-1",
+          sourceRevision: { revisionId: "snap-1", status: "pinned" },
+          scope: { actorScopeHash: "scope-a" },
+          quality: { completeness: "complete", warnings: [] },
+          evidence: {
+            kind: "semantic_metric_result",
+            analysisRef: "analysis-1",
+            sourceRevisionId: "snap-1",
+            metricValues: { "defect.count": 12 },
+          },
+        }],
       },
       onAnswerValidation,
     });
@@ -774,19 +945,363 @@ describe("streamCompanyChatCompletion", () => {
     const streamedText = response.write.mock.calls
       .map(([chunk]) => Buffer.from(chunk).toString("utf8"))
       .join("");
+    expect(streamedText).not.toContain("LEAK_CAUSAL");
+    expect(streamedText).not.toContain("ECU A 导致缺陷数上升");
+    expect(streamedText).toContain("受治理证据不可用");
     expect(streamedText).toContain("ANSWER_CAUSAL_CLAIM_UNSUPPORTED");
     expect(onAnswerValidation).toHaveBeenCalledWith(expect.objectContaining({
       valid: false,
-      violations: ["ANSWER_CAUSAL_CLAIM_UNSUPPORTED"],
+      violations: expect.arrayContaining(["ANSWER_CAUSAL_CLAIM_UNSUPPORTED", "ANSWER_CLAIM_CITATION_REQUIRED:1"]),
     }));
+  });
+
+  it("discards an answer with an unknown citation source", async () => {
+    const encoder = new TextEncoder();
+    const response = { writeHead: vi.fn(), write: vi.fn(), end: vi.fn() };
+    const registry = createOntologyRegistry();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode(
+            'data: {"choices":[{"delta":{"content":"LEAK_BAD_CITATION <cite source=\\"invented-call\\">12</cite>"}}]}\n\n' +
+            'data: [DONE]\n\n',
+          ));
+          controller.close();
+        },
+      }),
+      text: async () => "",
+    }));
+
+    await streamCompanyChatCompletion({
+      messages: [{ role: "user", content: "缺陷数是多少？" }],
+      model: "deepseek-v4-flash",
+      response,
+      answerValidation: {
+        releaseRequired: true,
+        registry,
+        expectedActorScopeHash: "scope-a",
+        expectedSourceRevisionIds: ["snap-1"],
+        evidence: [{
+          toolCallId: "call-1",
+          tool: "query_semantic_metrics",
+          ok: true,
+          ontologyVersion: "v1",
+          schemaFingerprint: registry.fingerprint,
+          analysisRef: "analysis-1",
+          sourceRevision: { revisionId: "snap-1", status: "pinned" },
+          scope: { actorScopeHash: "scope-a" },
+          quality: { completeness: "complete", warnings: [] },
+          evidence: { kind: "semantic_metric_result", analysisRef: "analysis-1", sourceRevisionId: "snap-1" },
+        }],
+      },
+    });
+
+    const streamedText = response.write.mock.calls.map(([chunk]) => String(chunk)).join("");
+    expect(streamedText).not.toContain("LEAK_BAD_CITATION");
+    expect(streamedText).toContain("ANSWER_CITATION_UNKNOWN_TOOL_CALL:invented-call");
+    expect(streamedText).toContain("受治理证据不可用");
+  });
+
+  it("releases a valid cited answer only after validation completes", async () => {
+    const encoder = new TextEncoder();
+    const response = { writeHead: vi.fn(), write: vi.fn(), end: vi.fn() };
+    const registry = createOntologyRegistry();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode(
+            'data: {"choices":[{"delta":{"content":"<cite source=\\"call-1\\">缺陷数"}}]}\n\n' +
+            'data: {"choices":[{"delta":{"content":"是 12</cite>"}}]}\n\n' +
+            'data: [DONE]\n\n',
+          ));
+          controller.close();
+        },
+      }),
+      text: async () => "",
+    }));
+
+    await streamCompanyChatCompletion({
+      messages: [{ role: "user", content: "缺陷数是多少？" }],
+      model: "deepseek-v4-flash",
+      response,
+      answerValidation: {
+        releaseRequired: true,
+        registry,
+        expectedActorScopeHash: "scope-a",
+        expectedSourceRevisionIds: ["snap-1"],
+        evidence: [{
+          toolCallId: "call-1",
+          tool: "query_semantic_metrics",
+          ok: true,
+          ontologyVersion: "v1",
+          schemaFingerprint: registry.fingerprint,
+          analysisRef: "analysis-1",
+          sourceRevision: { revisionId: "snap-1", status: "pinned" },
+          scope: { actorScopeHash: "scope-a" },
+          quality: { completeness: "complete", warnings: [] },
+          evidence: {
+            kind: "semantic_metric_result",
+            analysisRef: "analysis-1",
+            sourceRevisionId: "snap-1",
+            metricValues: { "defect.count": 12 },
+          },
+        }],
+      },
+    });
+
+    const streamedText = response.write.mock.calls.map(([chunk]) => String(chunk)).join("");
+    expect(streamedText).toContain("缺陷数是 12");
+    expect(streamedText).not.toContain("受治理证据不可用");
+    expect(streamedText).toContain('"valid":true');
+    expect(streamedText.indexOf('"type":"answer-validation"')).toBeLessThan(streamedText.indexOf("缺陷数"));
+    expect(streamedText.indexOf("缺陷数")).toBeLessThan(streamedText.indexOf("data: [DONE]"));
+  });
+
+  it("does not write a valid claim token until the terminal frame triggers validation", async () => {
+    const encoder = new TextEncoder();
+    const response = { writeHead: vi.fn(), write: vi.fn(), end: vi.fn() };
+    const registry = createOntologyRegistry();
+    let resolveNextRead;
+    const reader = {
+      read: vi.fn()
+        .mockResolvedValueOnce({
+          done: false,
+          value: encoder.encode('data: {"choices":[{"delta":{"content":"<cite source=\\"call-1\\">BUFFERED_CLAIM</cite>"}}]}\n\n'),
+        })
+        .mockImplementationOnce(() => new Promise((resolve) => {
+          resolveNextRead = resolve;
+        })),
+      cancel: vi.fn(async () => {}),
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: { getReader: () => reader },
+      text: async () => "",
+    }));
+
+    const streaming = streamCompanyChatCompletion({
+      messages: [{ role: "user", content: "缺陷数是多少？" }],
+      model: "deepseek-v4-flash",
+      response,
+      answerValidation: {
+        releaseRequired: true,
+        registry,
+        expectedActorScopeHash: "scope-a",
+        expectedSourceRevisionIds: ["snap-1"],
+        evidence: [{
+          toolCallId: "call-1", tool: "query_semantic_metrics", ok: true,
+          ontologyVersion: "v1", schemaFingerprint: registry.fingerprint, analysisRef: "analysis-1",
+          sourceRevision: { revisionId: "snap-1", status: "pinned" }, scope: { actorScopeHash: "scope-a" },
+          quality: { completeness: "complete", warnings: [] },
+          evidence: { kind: "semantic_metric_result", analysisRef: "analysis-1", sourceRevisionId: "snap-1" },
+        }],
+      },
+    });
+    await vi.waitFor(() => expect(reader.read).toHaveBeenCalledTimes(2));
+
+    expect(response.write.mock.calls.map(([chunk]) => String(chunk)).join("")).not.toContain("BUFFERED_CLAIM");
+    resolveNextRead({ done: false, value: encoder.encode("data: [DONE]\n\n") });
+    await streaming;
+
+    const streamedText = response.write.mock.calls.map(([chunk]) => String(chunk)).join("");
+    expect(streamedText).toContain("BUFFERED_CLAIM");
+    expect(streamedText).toContain('"valid":true');
+  });
+
+  it("fails closed before release when actor scope or source revision binding differs", async () => {
+    const encoder = new TextEncoder();
+    const response = { writeHead: vi.fn(), write: vi.fn(), end: vi.fn() };
+    const registry = createOntologyRegistry();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode(
+            'data: {"choices":[{"delta":{"content":"LEAK_WRONG_SCOPE <cite source=\\"call-1\\">12</cite>"}}]}\n\n' +
+            'data: [DONE]\n\n',
+          ));
+          controller.close();
+        },
+      }),
+      text: async () => "",
+    }));
+
+    await streamCompanyChatCompletion({
+      messages: [{ role: "user", content: "缺陷数是多少？" }],
+      model: "deepseek-v4-flash",
+      response,
+      answerValidation: {
+        releaseRequired: true,
+        registry,
+        expectedActorScopeHash: "scope-b",
+        expectedSourceRevisionIds: ["snap-2"],
+        evidence: [{
+          toolCallId: "call-1",
+          tool: "query_semantic_metrics",
+          ok: true,
+          ontologyVersion: "v1",
+          schemaFingerprint: registry.fingerprint,
+          analysisRef: "analysis-1",
+          sourceRevision: { revisionId: "snap-1", status: "pinned" },
+          scope: { actorScopeHash: "scope-a" },
+          quality: { completeness: "complete", warnings: [] },
+          evidence: { kind: "semantic_metric_result", analysisRef: "analysis-1", sourceRevisionId: "snap-1" },
+        }],
+      },
+    });
+
+    const streamedText = response.write.mock.calls.map(([chunk]) => String(chunk)).join("");
+    expect(streamedText).not.toContain("LEAK_WRONG_SCOPE");
+    expect(streamedText).toContain("SEMANTIC_SCOPE_EVIDENCE_MISMATCH");
+    expect(streamedText).toContain("SEMANTIC_SOURCE_REVISION_EXPECTATION_MISMATCH");
+  });
+
+  it("fails closed when the answer-validation registry is unavailable", async () => {
+    const encoder = new TextEncoder();
+    const response = { writeHead: vi.fn(), write: vi.fn(), end: vi.fn() };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode(
+            'data: {"choices":[{"delta":{"content":"LEAK_NO_REGISTRY <cite source=\\"call-1\\">12</cite>"}}]}\n\n' +
+            'data: [DONE]\n\n',
+          ));
+          controller.close();
+        },
+      }),
+      text: async () => "",
+    }));
+
+    await streamCompanyChatCompletion({
+      messages: [{ role: "user", content: "缺陷数是多少？" }],
+      model: "deepseek-v4-flash",
+      response,
+      answerValidation: {
+        releaseRequired: true,
+        expectedActorScopeHash: "scope-a",
+        expectedSourceRevisionIds: ["snap-1"],
+        evidence: [{
+          toolCallId: "call-1", tool: "query_semantic_metrics", ok: true,
+          ontologyVersion: "v1", schemaFingerprint: "fingerprint-1", analysisRef: "analysis-1",
+          sourceRevision: { revisionId: "snap-1", status: "pinned" }, scope: { actorScopeHash: "scope-a" },
+          quality: { completeness: "complete", warnings: [] },
+          evidence: { kind: "semantic_metric_result", analysisRef: "analysis-1", sourceRevisionId: "snap-1" },
+        }],
+      },
+    });
+
+    const streamedText = response.write.mock.calls.map(([chunk]) => String(chunk)).join("");
+    expect(streamedText).not.toContain("LEAK_NO_REGISTRY");
+    expect(streamedText).toContain("ANSWER_VALIDATION_REGISTRY_UNAVAILABLE");
+    expect(streamedText).toContain("受治理证据不可用");
+  });
+
+  it("blocks an oversized claim buffer with a typed validation result", async () => {
+    process.env.VIZION_ANSWER_RELEASE_MAX_BYTES = "32";
+    const encoder = new TextEncoder();
+    const response = { writeHead: vi.fn(), write: vi.fn(), end: vi.fn() };
+    const registry = createOntologyRegistry();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode(
+            'data: {"choices":[{"delta":{"content":"LEAK_OVERSIZED_' + "x".repeat(80) + ' <cite source=\\"call-1\\">12</cite>"}}]}\n\n',
+          ));
+          controller.close();
+        },
+      }),
+      text: async () => "",
+    }));
+
+    await streamCompanyChatCompletion({
+      messages: [{ role: "user", content: "缺陷数是多少？" }],
+      model: "deepseek-v4-flash",
+      response,
+      answerValidation: {
+        releaseRequired: true,
+        registry,
+        expectedActorScopeHash: "scope-a",
+        expectedSourceRevisionIds: ["snap-1"],
+        evidence: [{
+          toolCallId: "call-1", tool: "query_semantic_metrics", ok: true,
+          ontologyVersion: "v1", schemaFingerprint: registry.fingerprint, analysisRef: "analysis-1",
+          sourceRevision: { revisionId: "snap-1", status: "pinned" }, scope: { actorScopeHash: "scope-a" },
+          quality: { completeness: "complete", warnings: [] },
+          evidence: { kind: "semantic_metric_result", analysisRef: "analysis-1", sourceRevisionId: "snap-1" },
+        }],
+      },
+    });
+
+    const streamedText = response.write.mock.calls.map(([chunk]) => String(chunk)).join("");
+    expect(streamedText).not.toContain("LEAK_OVERSIZED");
+    expect(streamedText).toContain("ANSWER_RELEASE_BUFFER_LIMIT_EXCEEDED");
+    expect(streamedText).toContain("data: [DONE]");
+  });
+
+  it("blocks a timed-out claim buffer without releasing partial model text", async () => {
+    process.env.VIZION_ANSWER_RELEASE_TIMEOUT_MS = "20";
+    const encoder = new TextEncoder();
+    const response = { writeHead: vi.fn(), write: vi.fn(), end: vi.fn() };
+    const registry = createOntologyRegistry();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode(
+            'data: {"choices":[{"delta":{"content":"LEAK_TIMEOUT <cite source=\\"call-1\\">12</cite>"}}]}\n\n',
+          ));
+        },
+        cancel() {},
+      }),
+      text: async () => "",
+    }));
+
+    await streamCompanyChatCompletion({
+      messages: [{ role: "user", content: "缺陷数是多少？" }],
+      model: "deepseek-v4-flash",
+      response,
+      answerValidation: {
+        releaseRequired: true,
+        registry,
+        expectedActorScopeHash: "scope-a",
+        expectedSourceRevisionIds: ["snap-1"],
+        evidence: [{
+          toolCallId: "call-1", tool: "query_semantic_metrics", ok: true,
+          ontologyVersion: "v1", schemaFingerprint: registry.fingerprint, analysisRef: "analysis-1",
+          sourceRevision: { revisionId: "snap-1", status: "pinned" }, scope: { actorScopeHash: "scope-a" },
+          quality: { completeness: "complete", warnings: [] },
+          evidence: { kind: "semantic_metric_result", analysisRef: "analysis-1", sourceRevisionId: "snap-1" },
+        }],
+      },
+    });
+
+    const streamedText = response.write.mock.calls.map(([chunk]) => String(chunk)).join("");
+    expect(streamedText).not.toContain("LEAK_TIMEOUT");
+    expect(streamedText).toContain("ANSWER_RELEASE_TIMEOUT");
+    expect(streamedText.match(/data: \[DONE\]/g)).toHaveLength(1);
+    expect(response.end).toHaveBeenCalledTimes(1);
   });
 });
 
 describe("requestCompanyChatCompletion", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    resetCompanyChatCircuitBreakerForTests();
     process.env.DUPSEARCH_CHAT_ACCESS_CODE = "test-access-code";
     process.env.DUPSEARCH_CHAT_RETRY_DELAY_MS = "0";
+    delete process.env.DUPSEARCH_CHAT_MAX_ATTEMPTS;
+    delete process.env.DUPSEARCH_CHAT_TIMEOUT_MS;
   });
 
   it("retries retryable upstream failures before returning a non-streaming completion", async () => {
@@ -810,23 +1325,46 @@ describe("requestCompanyChatCompletion", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  it("honors a call-specific one-attempt resilience budget", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 500,
-      statusText: "Server Error",
-      text: async () => "upstream failed",
-    });
+  it("keeps the deadline active through response body parsing", async () => {
+    process.env.DUPSEARCH_CHAT_MAX_ATTEMPTS = "1";
+    process.env.DUPSEARCH_CHAT_TIMEOUT_MS = "10";
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init?: RequestInit) => ({
+      ok: true,
+      status: 200,
+      json: () => new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          reject(Object.assign(new Error("private body timeout"), { name: "AbortError" }));
+        });
+      }),
+    })));
 
-    vi.stubGlobal("fetch", fetchMock);
+    let observedError: unknown;
+    try {
+      await requestCompanyChatCompletion({
+        messages: [{ role: "user", content: "hello" }],
+        model: "deepseek-v4-flash",
+      });
+    } catch (error) {
+      observedError = error;
+    }
+
+    expect(toSafeCompanyChatError(observedError)).toEqual({
+      statusCode: 504,
+      payload: { success: false, error: "CHAT_UPSTREAM_TIMEOUT" },
+    });
+    expect(controlledChatErrorDiagnostic(observedError)).not.toContain("private body timeout");
+  });
+
+  it("maps terminal provider transport failures to a stable gateway error", async () => {
+    process.env.DUPSEARCH_CHAT_MAX_ATTEMPTS = "1";
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      throw new Error("private provider host details");
+    }));
 
     await expect(requestCompanyChatCompletion({
-      messages: [{ role: "user", content: "classify this analytics question" }],
+      messages: [{ role: "user", content: "hello" }],
       model: "deepseek-v4-flash",
-      resilience: { maxAttempts: 1, timeoutMs: 1500, retryDelayMs: 0 },
-    })).rejects.toThrow("Chat request failed (500)");
-
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    })).rejects.toMatchObject({ code: "CHAT_UPSTREAM_REQUEST_FAILED", statusCode: 502 });
   });
 
   it("returns tool calls from non-streaming company chat responses", async () => {

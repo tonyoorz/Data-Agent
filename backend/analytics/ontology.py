@@ -7,6 +7,12 @@ import os
 from pathlib import Path
 from typing import Any
 
+from backend.analytics.semantic_runtime import (
+    RuntimePublicationError,
+    validate_metric_runtime_publication,
+    validate_runtime_publication,
+)
+
 
 class OntologyLoadError(RuntimeError):
     """Raised when the compiled Ontology cannot be trusted."""
@@ -30,12 +36,23 @@ class OntologyCatalog:
     fingerprint: str
     bundle: dict[str, Any]
 
-    def get_metric(self, metric_id: str, *, approved_only: bool = False) -> dict[str, Any]:
+    def get_metric(
+        self,
+        metric_id: str,
+        *,
+        approved_only: bool = False,
+        runtime_ready_only: bool = False,
+    ) -> dict[str, Any]:
         metric = next((item for item in self.bundle["metrics"] if item["id"] == metric_id), None)
         if metric is None:
             raise OntologyLoadError(f"ONTOLOGY_METRIC_NOT_FOUND:{metric_id}")
         if approved_only and metric["governance"]["status"] != "approved":
             raise OntologyLoadError(f"ONTOLOGY_METRIC_NOT_APPROVED:{metric_id}")
+        if runtime_ready_only:
+            try:
+                validate_metric_runtime_publication(metric)
+            except RuntimePublicationError as exc:
+                raise OntologyLoadError(str(exc)) from exc
         return metric
 
     def get_dimension(self, dimension_id: str) -> dict[str, Any]:
@@ -131,6 +148,10 @@ def load_ontology(
         raise OntologyLoadError(f"ONTOLOGY_COMPILED_JSON_INVALID:{exc}") from exc
     if bundle.get("schemaVersion") != "1.0" or bundle.get("ontologyVersion") != "v1":
         raise OntologyLoadError("ONTOLOGY_VERSION_INVALID")
+    try:
+        validate_runtime_publication(bundle)
+    except RuntimePublicationError as exc:
+        raise OntologyLoadError(str(exc)) from exc
 
     computed = ontology_fingerprint(bundle)
     declared_value = declared.read_text(encoding="utf-8").strip()

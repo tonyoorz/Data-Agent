@@ -1,6 +1,6 @@
 # LangGraph Agent Runtime
 
-Vizion Lab uses the LangGraph runtime as the default internal AI Chat path. The legacy tool loop is still available as an explicit fallback, but new agent orchestration should be added through the LangGraph graph boundary.
+Vizion Lab uses one LangGraph runtime for the internal AI Chat path. New agent orchestration must be added through this graph boundary so actor scope, evidence validation, and terminal audit share one production contract.
 
 ## Runtime Mode
 
@@ -8,19 +8,10 @@ Vizion Lab uses the LangGraph runtime as the default internal AI Chat path. The 
 npm run dev:server
 ```
 
-Supported values:
+Supported value:
 
 - `langgraph`: default; uses `server/agentRuntime/langGraphChatRuntime.mjs` to orchestrate context resolution, tool routing, tool planning, and final streaming inputs.
-- `legacy`: explicit fallback; uses the existing `mainAgentToolLoop` directly from `server/index.mjs`.
-
-Unknown or empty values fall back to `langgraph`.
-
-To force the legacy path during rollback testing:
-
-```powershell
-$env:VIZION_AGENT_RUNTIME = "legacy"
-npm run dev:server
-```
+`legacy`, unknown, and empty values normalize to `langgraph`. `server/index.mjs` contains no alternate legacy chat branch; rollback changes must preserve the same governed runtime boundary.
 
 ## Architecture
 
@@ -41,7 +32,7 @@ The runtime intentionally reuses the existing tool/data layer:
 
 - `server/mainAgentTools.mjs` remains the tool registry and executor.
 - `server/mainAgentToolPlanning.mjs` owns shared tool selection, planning prompt context, policy-gated execution helpers, and empty-result diagnosis helpers used by LangGraph and the compatibility adapter.
-- `server/mainAgentToolLoop.mjs` remains only as the legacy compatibility bounded tool-planning loop used by the explicit `VIZION_AGENT_RUNTIME=legacy` fallback.
+- `server/mainAgentToolLoop.mjs` remains a direct test/development harness adapter and is not a server-entry runtime.
 - `server/mainAgentIntentRouter.mjs` and `server/mainAgentToolsets.mjs` define compact intent profiles and allowed toolsets used by the LangGraph routing node.
 - `/api/semantic/query` remains the ontology-governed semantic data plane.
 - `/api/ontology/context` remains the testcase-context path.
@@ -53,10 +44,10 @@ The current migration makes the graph boundary the default runtime and keeps the
 - LangGraph `StateGraph` for orchestration.
 - Explicit graph nodes: `initialize`, `resolve_context`, `route_tools`, `plan_tool_calls`, `execute_tool_calls`, `finalize`.
 - Conditional graph edges skip tool planning when routing says tools are not needed, stop when the model produces no tool calls, continue after tool execution, and finalize on `max_steps`, policy blocks, or clarification requests.
-- In-process `MemorySaver` checkpointing.
-- Explicit `threadId` support from `body.threadId`, `body.conversationId`, or `body.sessionId`; AI Chat sends its persisted conversation ID so semantic continuations remain in one graph thread.
-- Explicit `runId` support from `body.runId`, with generated IDs when omitted.
-- Server-owned internal `actorScope` persistence; browser-supplied actor fields are not trusted by the gateway.
+- In-process `MemorySaver` checkpointing with an actor/scope-bound internal thread key.
+- Explicit client conversation identifiers from `body.threadId`, `body.conversationId`, or `body.sessionId`; raw values are not used as cross-actor checkpoint keys or persisted audit identifiers.
+- Explicit `runId` support from `body.runId`, with generated IDs when omitted; the audit store persists only a scope-bound opaque run reference.
+- Server-resolved actor scope from the internal local principal or verified OIDC identity; browser-supplied actor fields are removed by the gateway.
 - Runtime SSE events emitted as `agent-runtime-event`.
 - Governed semantic final answers are buffered up to 64 KiB and published only after server-side citation, numeric-value, record-identifier, causal-language, and evidence-gate validation. A rejected claim is replaced with a deterministic limitation response; rejected model values and record IDs are not echoed in SSE validation metadata.
 - Legacy tool results retain their existing informational citation audit and are not treated as governed semantic evidence until tool convergence moves them behind the Semantic Kernel.
@@ -67,7 +58,7 @@ The current migration makes the graph boundary the default runtime and keeps the
 - JSON thread snapshots in `threads/<thread>.json`; these are audit/resume hints, not LangGraph-compatible durable checkpoints.
 - JSONL run event audit in `run-events.jsonl`.
 - JSONL tool-call audit in `tool-calls.jsonl`.
-- Explicit feature-flag fallback to the legacy compatibility runtime.
+- One server-entry runtime; unsupported or historical runtime flags normalize to LangGraph.
 
 The store location can be overridden:
 
@@ -106,15 +97,21 @@ The Node API binds to `127.0.0.1` by default and rejects non-loopback `VIZION_AP
 
 The gateway derives `scopeHash` from this server configuration. A later authenticated multi-user deployment can replace this principal at the same actor-scope boundary without changing the Semantic Kernel or tool contracts.
 
+## Authentication and Actor Scope
+
+`internal` mode is limited to local development or a trusted single-user machine. Shared and production deployments use `VIZION_AGENT_AUTH_MODE=oidc`. Node requires `sub` and `exp`, then verifies issuer, audience, signature, and temporal validity through the configured HTTPS JWKS endpoint before mapping `sub` and `groups[]` to one unambiguous server-owned scope grant. It strips all client-supplied actor fields, signs a short-lived actor capability for Agent-only FastAPI calls, and derives actor-scoped thread/run references. Missing identity, ambiguous grants, cross-scope continuation, missing capability, and internal-only tools fail closed.
+
+See [README.md](../../README.md#governed-agent-deployment) for the contract and the [pre-production release runbook](../deployment/preproduction-agent-release.md) for gateway routing, identity validation, and rollout gates.
+
 ## Production Follow-Up
 
-For multi-user intranet production, the next hardening step is to replace the in-process checkpointer and file-backed audit store with database-backed persistence:
+Remaining production engineering and operational work must preserve OIDC actor scope rather than return to a shared principal:
 
 - durable LangGraph checkpoint backend instead of in-process `MemorySaver`
 - indexed thread/run/tool audit tables
-- evidence references
-- actor scope from authenticated user identity instead of the shared internal principal
-- cancel/retry state
-- retention and cleanup policy for audit records
+- encrypted centralized evidence/audit retention with the existing scope-bound identifiers
+- deployment-specific sign-in/session bootstrap and IdP lifecycle validation
+- OpenTelemetry/SLO integration and live production-snapshot evaluation
+- durable cancel/retry state and compatibility-tested migrations
 
 Keep the ontology layer as the business semantic contract; LangGraph should orchestrate tools, not redefine metrics or policies.

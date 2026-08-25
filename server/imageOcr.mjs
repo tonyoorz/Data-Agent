@@ -2,9 +2,44 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
+import { resolveLocalWorkerEnvironment } from "./localWorkerEnvironment.mjs";
+import {
+  assertChatAttachmentLimits,
+  createBoundedTaskRunner,
+  isValidatedImagePart,
+  parseImageDataUrl,
+  runBoundedAttachmentTask,
+} from "./attachmentBoundary.mjs";
+import {
+  readBoundedResponseJson,
+  readBoundedResponseText,
+} from "./boundedResponseBody.mjs";
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "..");
+const DEFAULT_REMOTE_OCR_TIMEOUT_MS = 60_000;
+const MAX_REMOTE_OCR_TIMEOUT_MS = 300_000;
+const DEFAULT_LOCAL_OCR_TIMEOUT_MS = 120_000;
+const MAX_OCR_RESPONSE_BYTES = 1024 * 1024;
+const MAX_LOCAL_OCR_STDERR_BYTES = 64 * 1024;
+const MAX_OCR_TEXT_BYTES = 512 * 1024;
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1"]);
+const LOCAL_PROVIDERS = new Set(["local-rapidocr", "rapidocr"]);
+const REMOTE_PROVIDERS = new Set(["remote", "external"]);
+const AUTH_SCHEME_PATTERN = /^[A-Za-z][A-Za-z0-9_-]{0,31}$/u;
+
+export class ImageOcrBoundaryError extends Error {
+  constructor(code) {
+    super(code);
+    this.name = "ImageOcrBoundaryError";
+    this.code = code;
+  }
+}
+
+function ocrFail(code) {
+  throw new ImageOcrBoundaryError(code);
+}
 
 function readFirst(env, keys) {
   for (const key of keys) {
@@ -49,40 +84,100 @@ function normalizeOcrText(payload) {
 }
 
 export function resolveImageOcrConfig(env = process.env) {
-  const url = readFirst(env, ["DUPSEARCH_OCR_URL", "OCR_URL"]);
+  const rawUrl = readFirst(env, ["DUPSEARCH_OCR_URL", "OCR_URL"]);
+  const provider = readFirst(env, ["DUPSEARCH_OCR_PROVIDER", "OCR_PROVIDER"]).toLowerCase()
+    || "local-rapidocr";
+  if (!LOCAL_PROVIDERS.has(provider) && !REMOTE_PROVIDERS.has(provider)) {
+    ocrFail("IMAGE_OCR_PROVIDER_INVALID");
+  }
+  const url = REMOTE_PROVIDERS.has(provider) && rawUrl ? secureOcrUrl(rawUrl) : "";
+  const authScheme = readFirst(env, ["DUPSEARCH_OCR_AUTH_SCHEME", "OCR_AUTH_SCHEME"]) || "Bearer";
+  if (!AUTH_SCHEME_PATTERN.test(authScheme)) {
+    ocrFail("IMAGE_OCR_AUTH_SCHEME_INVALID");
+  }
   return {
-    provider: readFirst(env, ["DUPSEARCH_OCR_PROVIDER", "OCR_PROVIDER"]).toLowerCase() || (url ? "remote" : "local-rapidocr"),
+    provider,
     url,
     apiKey: readFirst(env, ["DUPSEARCH_OCR_API_KEY", "OCR_API_KEY"]),
-    authScheme: readFirst(env, ["DUPSEARCH_OCR_AUTH_SCHEME", "OCR_AUTH_SCHEME"]) || "Bearer",
+    authScheme,
     localPython: readFirst(env, ["DUPSEARCH_LOCAL_OCR_PYTHON", "LOCAL_OCR_PYTHON"]) || defaultLocalOcrPython(env),
     localScript: readFirst(env, ["DUPSEARCH_LOCAL_OCR_SCRIPT", "LOCAL_OCR_SCRIPT"]) || path.join(repoRoot, "backend", "local_ocr.py"),
-    localTimeoutMs: Number(readFirst(env, ["DUPSEARCH_LOCAL_OCR_TIMEOUT_MS", "LOCAL_OCR_TIMEOUT_MS"]) || 120000),
+    localTimeoutMs: resolveFiniteTimeout(
+      readFirst(env, ["DUPSEARCH_LOCAL_OCR_TIMEOUT_MS", "LOCAL_OCR_TIMEOUT_MS"]),
+      DEFAULT_LOCAL_OCR_TIMEOUT_MS,
+      MAX_REMOTE_OCR_TIMEOUT_MS,
+      "IMAGE_OCR_LOCAL_TIMEOUT_INVALID",
+    ),
+    remoteTimeoutMs: resolveFiniteTimeout(
+      readFirst(env, ["DUPSEARCH_OCR_TIMEOUT_MS", "OCR_TIMEOUT_MS"]),
+      DEFAULT_REMOTE_OCR_TIMEOUT_MS,
+      MAX_REMOTE_OCR_TIMEOUT_MS,
+      "IMAGE_OCR_REMOTE_TIMEOUT_INVALID",
+    ),
     rapidOcrDetModel: readFirst(env, ["DUPSEARCH_RAPIDOCR_DET_MODEL", "RAPIDOCR_DET_MODEL"]),
     rapidOcrRecModel: readFirst(env, ["DUPSEARCH_RAPIDOCR_REC_MODEL", "RAPIDOCR_REC_MODEL"]),
     rapidOcrClsModel: readFirst(env, ["DUPSEARCH_RAPIDOCR_CLS_MODEL", "RAPIDOCR_CLS_MODEL"]),
   };
 }
 
+function resolveFiniteTimeout(value, fallback, maximum, errorCode) {
+  const configured = String(value || "").trim();
+  if (!configured) return fallback;
+  if (!/^\d+$/u.test(configured)) ocrFail(errorCode);
+  const timeoutMs = Number(configured);
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > maximum) {
+    ocrFail(errorCode);
+  }
+  return timeoutMs;
+}
+
+function secureOcrUrl(value) {
+  let parsed;
+  try {
+    parsed = new URL(String(value || ""));
+  } catch {
+    ocrFail("IMAGE_OCR_URL_INVALID");
+  }
+  const hostname = parsed.hostname.toLowerCase();
+  if (
+    (parsed.protocol !== "https:" && !(parsed.protocol === "http:" && LOOPBACK_HOSTS.has(hostname)))
+    || parsed.username
+    || parsed.password
+    || parsed.search
+    || parsed.hash
+  ) {
+    ocrFail("IMAGE_OCR_URL_INVALID");
+  }
+  return parsed.toString();
+}
+
 function parseDataUrl(imageUrl) {
-  const match = String(imageUrl || "").match(/^data:([^;,]+)?;base64,(.*)$/s);
-  if (!match) {
-    return null;
+  let parsed;
+  try {
+    parsed = parseImageDataUrl(imageUrl);
+  } catch {
+    ocrFail("IMAGE_OCR_INPUT_INVALID");
   }
 
   return {
-    mimeType: match[1] || "image/png",
-    imageBase64: match[2] || "",
+    mimeType: parsed.mimeType,
+    imageBase64: parsed.base64,
   };
 }
 
 async function parseOcrResponse(response) {
   const contentType = String(response.headers?.get?.("content-type") || "").toLowerCase();
   if (contentType.includes("application/json") || (!contentType && typeof response.json === "function")) {
-    return normalizeOcrText(await response.json());
+    return normalizeOcrText(await readBoundedResponseJson(response, {
+      maxBytes: MAX_OCR_RESPONSE_BYTES,
+      errorCode: "IMAGE_OCR_UPSTREAM_RESPONSE_TOO_LARGE",
+    }));
   }
 
-  return normalizeOcrText(await response.text());
+  return normalizeOcrText(await readBoundedResponseText(response, {
+    maxBytes: MAX_OCR_RESPONSE_BYTES,
+    errorCode: "IMAGE_OCR_UPSTREAM_RESPONSE_TOO_LARGE",
+  }));
 }
 
 export async function runLocalRapidOcr({ imageBase64, mimeType, imageUrl, config }) {
@@ -98,10 +193,7 @@ export async function runLocalRapidOcr({ imageBase64, mimeType, imageUrl, config
   return await new Promise((resolve, reject) => {
     const child = spawn(config.localPython, [config.localScript], {
       cwd: repoRoot,
-      env: {
-        ...process.env,
-        PYTHONIOENCODING: "utf-8",
-      },
+      env: resolveLocalWorkerEnvironment(process.env),
       stdio: ["pipe", "pipe", "pipe"],
     });
 
@@ -116,9 +208,19 @@ export async function runLocalRapidOcr({ imageBase64, mimeType, imageUrl, config
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
     child.stdout.on("data", (chunk) => {
+      if (Buffer.byteLength(stdout, "utf8") + Buffer.byteLength(chunk, "utf8") > MAX_OCR_RESPONSE_BYTES) {
+        child.kill("SIGTERM");
+        reject(new ImageOcrBoundaryError("IMAGE_OCR_LOCAL_OUTPUT_LIMIT_EXCEEDED"));
+        return;
+      }
       stdout += chunk;
     });
     child.stderr.on("data", (chunk) => {
+      if (Buffer.byteLength(stderr, "utf8") + Buffer.byteLength(chunk, "utf8") > MAX_LOCAL_OCR_STDERR_BYTES) {
+        child.kill("SIGTERM");
+        reject(new ImageOcrBoundaryError("IMAGE_OCR_LOCAL_OUTPUT_LIMIT_EXCEEDED"));
+        return;
+      }
       stderr += chunk;
     });
     child.on("error", (error) => {
@@ -147,51 +249,81 @@ export async function recognizeImageText({ imageUrl }, env = process.env, depend
   const config = resolveImageOcrConfig(env);
   const parsedDataUrl = parseDataUrl(imageUrl);
 
-  if (config.provider === "local-rapidocr" || config.provider === "rapidocr") {
+  if (LOCAL_PROVIDERS.has(config.provider)) {
     const result = await (dependencies.localRapidOcrRunner || runLocalRapidOcr)({
-      imageBase64: parsedDataUrl?.imageBase64 || "",
-      mimeType: parsedDataUrl?.mimeType || "image/png",
-      imageUrl: parsedDataUrl ? "" : String(imageUrl || ""),
+      imageBase64: parsedDataUrl.imageBase64,
+      mimeType: parsedDataUrl.mimeType,
+      imageUrl: "",
       config,
     });
     const text = normalizeOcrText(result);
     if (!text) {
       throw new Error("Local RapidOCR returned empty text");
     }
+    if (Buffer.byteLength(text, "utf8") > MAX_OCR_TEXT_BYTES) {
+      ocrFail("IMAGE_OCR_TEXT_LIMIT_EXCEEDED");
+    }
 
     return { text };
   }
 
   if (!config.url) {
-    throw new Error("Image OCR provider is not configured. Set DUPSEARCH_OCR_URL or OCR_URL.");
+    ocrFail("IMAGE_OCR_URL_REQUIRED");
   }
 
-  const response = await fetch(config.url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(config.apiKey
-        ? {
-            Authorization: `${config.authScheme} ${config.apiKey}`.trim(),
-          }
-        : {}),
-    },
-    body: JSON.stringify({
-      image: parsedDataUrl?.imageBase64 || "",
-      mime: parsedDataUrl?.mimeType || "",
-      imageUrl: parsedDataUrl ? undefined : String(imageUrl || ""),
-    }),
-  });
-
-  if (!response.ok) {
-    const message = await response.text().catch(() => "");
-    throw new Error(`Image OCR request failed (${response.status}): ${message || response.statusText}`);
+  if (!config.apiKey) ocrFail("IMAGE_OCR_API_KEY_REQUIRED");
+  const fetchImpl = dependencies.fetchImpl || globalThis.fetch;
+  if (typeof fetchImpl !== "function") ocrFail("IMAGE_OCR_UPSTREAM_UNAVAILABLE");
+  const timeoutSignal = dependencies.timeoutSignal || ((timeoutMs) => AbortSignal.timeout(timeoutMs));
+  const signal = dependencies.signal || timeoutSignal(config.remoteTimeoutMs);
+  let response;
+  try {
+    response = await fetchImpl(config.url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `${config.authScheme} ${config.apiKey}`,
+      },
+      body: JSON.stringify({
+        image: parsedDataUrl.imageBase64,
+        mime: parsedDataUrl.mimeType,
+      }),
+      redirect: "error",
+      signal,
+    });
+  } catch (error) {
+    if (error?.code === "IMAGE_OCR_UPSTREAM_RESPONSE_TOO_LARGE") {
+      ocrFail("IMAGE_OCR_UPSTREAM_RESPONSE_TOO_LARGE");
+    }
+    if (signal?.aborted || error?.name === "AbortError" || error?.name === "TimeoutError") {
+      ocrFail("IMAGE_OCR_UPSTREAM_TIMEOUT");
+    }
+    ocrFail("IMAGE_OCR_UPSTREAM_UNAVAILABLE");
   }
 
-  const text = await parseOcrResponse(response);
-  if (!text) {
-    throw new Error("Image OCR provider returned empty text");
+  if (!response?.ok) {
+    try {
+      response?.body?.cancel?.().catch?.(() => {});
+    } catch {
+      // Ignore disposal errors while preserving the stable boundary error.
+    }
+    ocrFail("IMAGE_OCR_UPSTREAM_HTTP_ERROR");
   }
+
+  let text;
+  try {
+    text = await parseOcrResponse(response);
+  } catch (error) {
+    if (error?.code === "IMAGE_OCR_UPSTREAM_RESPONSE_TOO_LARGE") {
+      ocrFail("IMAGE_OCR_UPSTREAM_RESPONSE_TOO_LARGE");
+    }
+    if (signal?.aborted || error?.name === "AbortError" || error?.name === "TimeoutError") {
+      ocrFail("IMAGE_OCR_UPSTREAM_TIMEOUT");
+    }
+    ocrFail("IMAGE_OCR_UPSTREAM_INVALID_RESPONSE");
+  }
+  if (!text) ocrFail("IMAGE_OCR_UPSTREAM_EMPTY_RESPONSE");
+  if (Buffer.byteLength(text, "utf8") > MAX_OCR_TEXT_BYTES) ocrFail("IMAGE_OCR_TEXT_LIMIT_EXCEEDED");
 
   return { text };
 }
@@ -206,10 +338,6 @@ function defaultLocalOcrPython(env = process.env) {
   ];
 
   return candidates.map((value) => String(value || "").trim()).find(Boolean) || "python";
-}
-
-function isImagePart(part) {
-  return part && typeof part === "object" && typeof part?.image_url?.url === "string";
 }
 
 function partToText(part) {
@@ -228,24 +356,28 @@ export async function expandImageMessagesWithOcr(messages, env = process.env, de
     return messages;
   }
 
+  assertChatAttachmentLimits(messages, dependencies.attachmentLimits);
   const imageOcrRunner = dependencies.imageOcrRunner || ((input) => recognizeImageText(input, env));
+  const runBounded = dependencies.maxConcurrency === undefined
+    ? runBoundedAttachmentTask
+    : createBoundedTaskRunner(dependencies.maxConcurrency);
 
   return await Promise.all(
     messages.map(async (message) => {
-      if (message?.role !== "user" || !Array.isArray(message?.content) || !message.content.some(isImagePart)) {
+      if (message?.role !== "user" || !Array.isArray(message?.content) || !message.content.some(isValidatedImagePart)) {
         return message;
       }
 
       const textParts = message.content.map(partToText).filter((part) => part.trim());
-      const imageParts = message.content.filter(isImagePart);
+      const imageParts = message.content.filter(isValidatedImagePart);
       const ocrBlocks = [];
 
       for (let i = 0; i < imageParts.length; i += 1) {
         const imageUrl = imageParts[i].image_url.url;
-        const result = await imageOcrRunner({
+        const result = await runBounded(() => imageOcrRunner({
           imageUrl,
           index: i + 1,
-        });
+        }));
         const text = normalizeOcrText(result);
         if (!text) {
           throw new Error(`Image ${i + 1} OCR returned empty text`);

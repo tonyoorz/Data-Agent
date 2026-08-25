@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Vizion Lab · 成熟度差距分析</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0e1a; --bg-soft: #0f1424; --bg-card: #131a2e; --bg-card-hover: #182240;
+    --border: #232c47; --border-soft: #1a2238;
+    --text: #e8edf7; --text-dim: #9aa6c4; --text-faint: #5d6a8c;
+    --accent: #6d8bff; --accent-2: #8b7dff;
+    --green: #4ade80; --cyan: #22d3ee; --amber: #fbbf24; --pink: #f472b6; --red: #f87171; --orange: #fb923c;
+    --radius: 14px;
+    --c-strong: #4ade80; --c-adequate: #fbbf24; --c-weak: #fb923c; --c-missing: #f87171;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); line-height: 1.65; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+  body::before { content: ''; position: fixed; inset: 0; background: radial-gradient(ellipse 80% 50% at 20% 0%, rgba(109,139,255,.10), transparent 60%), radial-gradient(ellipse 60% 50% at 90% 10%, rgba(139,125,255,.08), transparent 55%); pointer-events: none; z-index: 0; }
+  .wrap { position: relative; z-index: 1; max-width: 1200px; margin: 0 auto; padding: 0 24px; }
+  code { font-family: 'JetBrains Mono', monospace; font-size: .88em; background: rgba(109,139,255,.12); color: #b9c8ff; padding: 1px 6px; border-radius: 5px; }
+  header.hero { padding: 88px 0 48px; text-align: center; border-bottom: 1px solid var(--border-soft); }
+  .eyebrow { display: inline-flex; align-items: center; gap: 8px; font-family: 'JetBrains Mono', monospace; font-size: 12.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--amber); background: rgba(251,191,36,.10); border: 1px solid rgba(251,191,36,.28); padding: 7px 16px; border-radius: 100px; margin-bottom: 26px; }
+  h1.title { font-size: clamp(32px, 5.5vw, 54px); font-weight: 800; letter-spacing: -.025em; line-height: 1.1; background: linear-gradient(120deg, #fff 0%, #c9d4f5 50%, #8b7dff 100%); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 18px; }
+  .subtitle { font-size: clamp(15px, 2vw, 18px); color: var(--text-dim); max-width: 720px; margin: 0 auto; }
+
+  /* SCORECARD */
+  .scorecard { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px,1fr)); gap: 14px; margin: 48px 0 8px; }
+  .sc { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px 18px; text-align: center; position: relative; overflow: hidden; }
+  .sc::before { content:''; position:absolute; top:0; left:0; right:0; height:3px; }
+  .sc.s-strong::before { background: var(--c-strong); } .sc.s-adequate::before { background: var(--c-adequate); }
+  .sc.s-weak::before { background: var(--c-weak); } .sc.s-missing::before { background: var(--c-missing); }
+  .sc .sc-dim { font-size: 12.5px; color: var(--text-dim); margin-bottom: 8px; min-height: 32px; display:flex; align-items:center; justify-content:center; }
+  .sc .sc-verdict { font-size: 11px; font-family: 'JetBrains Mono', monospace; letter-spacing: .1em; text-transform: uppercase; font-weight: 600; padding: 3px 10px; border-radius: 6px; display: inline-block; }
+  .sc.s-strong .sc-verdict { color: var(--c-strong); background: rgba(74,222,128,.12); }
+  .sc.s-adequate .sc-verdict { color: var(--c-adequate); background: rgba(251,191,36,.12); }
+  .sc.s-weak .sc-verdict { color: var(--c-weak); background: rgba(251,146,60,.12); }
+  .sc.s-missing .sc-verdict { color: var(--c-missing); background: rgba(248,113,113,.12); }
+
+  /* RADAR */
+  .radar-box { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 36px; margin: 40px 0; display: flex; flex-direction: column; align-items: center; gap: 24px; }
+  .radar-cap { font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--text-faint); letter-spacing: .1em; text-transform: uppercase; }
+  svg.radar { max-width: 100%; height: auto; }
+  .radar-legend { display: flex; gap: 24px; flex-wrap: wrap; justify-content: center; }
+  .rl-item { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-dim); }
+  .rl-sw { width: 22px; height: 3px; border-radius: 2px; }
+
+  /* SECTIONS */
+  section { padding: 52px 0; border-top: 1px solid var(--border-soft); scroll-margin-top: 20px; }
+  .sec-head { margin-bottom: 32px; }
+  .sec-tag { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--amber); letter-spacing: .12em; text-transform: uppercase; margin-bottom: 8px; display: block; }
+  h2 { font-size: clamp(24px, 3.5vw, 32px); font-weight: 700; letter-spacing: -.02em; margin-bottom: 10px; }
+  .sec-desc { color: var(--text-dim); font-size: 15.5px; max-width: 820px; }
+
+  /* GAP CARD */
+  .gap { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 0; margin-bottom: 20px; overflow: hidden; border-left: 4px solid var(--gap-color, var(--accent)); }
+  .gap.p0 { --gap-color: var(--red); } .gap.p1 { --gap-color: var(--orange); } .gap.p2 { --gap-color: var(--amber); } .gap.p3 { --gap-color: var(--cyan); }
+  .gap-head { padding: 22px 26px 18px; display: flex; align-items: flex-start; gap: 16px; }
+  .gap-pri { flex-shrink: 0; font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 6px; letter-spacing: .06em; }
+  .gap.p0 .gap-pri { background: rgba(248,113,113,.15); color: var(--red); }
+  .gap.p1 .gap-pri { background: rgba(251,146,60,.15); color: var(--orange); }
+  .gap.p2 .gap-pri { background: rgba(251,191,36,.15); color: var(--amber); }
+  .gap.p3 .gap-pri { background: rgba(34,211,238,.15); color: var(--cyan); }
+  .gap-title { flex: 1; }
+  .gap-title h3 { font-size: 17px; font-weight: 600; margin-bottom: 5px; }
+  .gap-title .meta { font-size: 12.5px; color: var(--text-faint); font-family: 'JetBrains Mono', monospace; }
+  .gap-body { padding: 0 26px 22px; }
+  .gap-row { display: flex; gap: 10px; padding: 9px 0; font-size: 14px; }
+  .gap-row .lab { flex-shrink: 0; width: 72px; font-size: 12px; font-family: 'JetBrains Mono', monospace; color: var(--text-faint); text-transform: uppercase; letter-spacing: .05em; padding-top: 2px; }
+  .gap-row .val { color: var(--text-dim); }
+  .gap-row .val b { color: var(--text); }
+  .gap-act { margin-top: 14px; background: rgba(74,222,128,.06); border: 1px solid rgba(74,222,128,.2); border-radius: 10px; padding: 14px 16px; }
+  .gap-act .at { font-size: 12px; font-family: 'JetBrains Mono', monospace; color: var(--green); letter-spacing: .08em; text-transform: uppercase; margin-bottom: 6px; }
+  .gap-act p { font-size: 13.5px; color: var(--text-dim); }
+
+  /* BENCHMARK TABLE */
+  .bench { width: 100%; border-collapse: collapse; font-size: 13.5px; margin-top: 8px; }
+  .bench th, .bench td { padding: 12px 14px; text-align: left; border-bottom: 1px solid var(--border-soft); }
+  .bench th { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-faint); text-transform: uppercase; letter-spacing: .08em; font-weight: 500; }
+  .bench td { color: var(--text-dim); }
+  .bench tr:hover { background: rgba(109,139,255,.04); }
+  .bench .you { color: var(--cyan); font-weight: 600; }
+  .num { font-family: 'JetBrains Mono', monospace; }
+
+  .roadmap-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px,1fr)); gap: 16px; margin-top: 24px; }
+  .phase { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 22px; position: relative; }
+  .phase .ph-num { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-faint); letter-spacing: .1em; }
+  .phase .ph-name { font-size: 16px; font-weight: 600; margin: 6px 0 12px; }
+  .phase ul { list-style: none; }
+  .phase li { font-size: 13px; color: var(--text-dim); padding: 5px 0 5px 18px; position: relative; }
+  .phase li::before { content: '▸'; position: absolute; left: 0; color: var(--accent); }
+
+  .callout { background: linear-gradient(135deg, rgba(251,146,60,.08), rgba(248,113,113,.05)); border: 1px solid rgba(251,146,60,.25); border-radius: var(--radius); padding: 22px 26px; margin-top: 28px; display: flex; gap: 16px; }
+  .callout .ic { font-size: 22px; flex-shrink: 0; }
+  .callout p { font-size: 14px; color: var(--text-dim); }
+  .callout b { color: var(--text); }
+
+  nav.toc { position: sticky; top: 0; z-index: 50; background: rgba(10,14,26,.82); backdrop-filter: blur(14px); border-bottom: 1px solid var(--border-soft); margin: 0 -24px 40px; padding: 12px 24px; }
+  .toc-inner { max-width: 1152px; margin: 0 auto; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+  .toc-inner::-webkit-scrollbar { display: none; }
+  .toc a { font-size: 13px; font-weight: 500; color: var(--text-dim); text-decoration: none; padding: 7px 14px; border-radius: 8px; white-space: nowrap; transition: .15s; }
+  .toc a:hover { color: var(--text); background: var(--bg-card); }
+  .toc a.active { color: var(--amber); background: rgba(251,191,36,.12); }
+
+  footer { padding: 56px 0 44px; border-top: 1px solid var(--border-soft); text-align: center; color: var(--text-faint); font-size: 13px; }
+  footer .mono { font-family: 'JetBrains Mono', monospace; }
+  .src-list { margin-top: 18px; font-size: 11.5px; line-height: 1.9; color: var(--text-faint); }
+  .src-list a { color: var(--accent); text-decoration: none; }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <span class="eyebrow">⚠️ Gap Analysis · 企业级数据 Agent 成熟度评估</span>
+    <h1 class="title">Vizion Lab vs. 企业级<br/>数据 Agent 差距分析</h1>
+    <p class="subtitle">对照 2026 年主流企业数据 Agent（Snowflake Cortex / Databricks Genie / dbt Semantic Layer / Vanna）与 Text-to-SQL SOTA（BIRD ~82% · Spider 2.0 ~20%），基于你实际代码库的逐项审计。</p>
+  </div>
+</header>
+
+<div class="wrap">
+
+<div class="scorecard">
+  <div class="sc s-adequate"><div class="sc-dim">语义层 / 本体治理</div><div class="sc-verdict">ADEQUATE</div></div>
+  <div class="sc s-strong"><div class="sc-dim">护栏与治理（本体层）</div><div class="sc-verdict">STRONG</div></div>
+  <div class="sc s-weak"><div class="sc-dim">评估基础设施</div><div class="sc-verdict">WEAK</div></div>
+  <div class="sc s-missing"><div class="sc-dim">可观测性与追踪</div><div class="sc-verdict">MISSING</div></div>
+  <div class="sc s-adequate"><div class="sc-dim">缓存与性能</div><div class="sc-verdict">ADEQUATE</div></div>
+  <div class="sc s-missing"><div class="sc-dim">生产健壮性</div><div class="sc-verdict">MISSING</div></div>
+</div>
+
+<!-- RADAR CHART -->
+<div class="radar-box">
+  <div class="radar-cap">六维成熟度雷达 · 你的系统 vs 企业基线</div>
+  <svg class="radar" viewBox="0 0 520 440" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <radialGradient id="youFill"><stop offset="0%" stop-color="#22d3ee" stop-opacity="0.35"/><stop offset="100%" stop-color="#22d3ee" stop-opacity="0.05"/></radialGradient>
+      <radialGradient id="entFill"><stop offset="0%" stop-color="#f472b6" stop-opacity="0.12"/><stop offset="100%" stop-color="#f472b6" stop-opacity="0"/></radialGradient>
+    </defs>
+    <!-- center 260,220 ; R max 150 -->
+    <g transform="translate(260,220)">
+      <!-- grid rings -->
+      <polygon points="0,-37 32,-19 32,19 0,37 -32,19 -32,-19" fill="none" stroke="#232c47" stroke-width="1"/>
+      <polygon points="0,-75 65,-37 65,37 0,75 -65,37 -65,-37" fill="none" stroke="#232c47" stroke-width="1"/>
+      <polygon points="0,-113 98,-56 98,56 0,113 -98,56 -98,-56" fill="none" stroke="#232c47" stroke-width="1"/>
+      <polygon points="0,-150 130,-75 130,75 0,150 -130,75 -130,-75" fill="none" stroke="#2d3756" stroke-width="1.2"/>
+      <!-- axes -->
+      <line x1="0" y1="0" x2="0" y2="-150" stroke="#2d3756"/>
+      <line x1="0" y1="0" x2="130" y2="-75" stroke="#2d3756"/>
+      <line x1="0" y1="0" x2="130" y2="75" stroke="#2d3756"/>
+      <line x1="0" y1="0" x2="0" y2="150" stroke="#2d3756"/>
+      <line x1="0" y1="0" x2="-130" y2="75" stroke="#2d3756"/>
+      <line x1="0" y1="0" x2="-130" y2="-75" stroke="#2d3756"/>
+
+      <!-- Enterprise baseline polygon (all 8/10 = R*0.8) -->
+      <!-- SemanticLayer 9, Guardrails 9, Eval 8, Observability 9, Caching 8, Robustness 9 -->
+      <polygon id="entPoly" fill="url(#entFill)" stroke="#f472b6" stroke-width="2" stroke-dasharray="6 4"
+        points="0,-135 117,-67 104,60 0,135 -104,60 -117,-67"/>
+
+      <!-- YOUR system: Semantic 6, Guardrails 7, Eval 3, Observability 1.5, Caching 6, Robustness 2 -->
+      <polygon id="youPoly" fill="url(#youFill)" stroke="#22d3ee" stroke-width="2.5"
+        points="0,-90 91,-52 39,22 0,30 -78,45 -39,-22"/>
+
+      <!-- vertex dots (you) -->
+      <circle cx="0" cy="-90" r="4" fill="#22d3ee"/>
+      <circle cx="91" cy="-52" r="4" fill="#22d3ee"/>
+      <circle cx="39" cy="22" r="4" fill="#22d3ee"/>
+      <circle cx="0" cy="30" r="4" fill="#f87171"/>
+      <circle cx="-78" cy="45" r="4" fill="#f87171"/>
+      <circle cx="-39" cy="-22" r="4" fill="#22d3ee"/>
+
+      <!-- labels -->
+      <text x="0" y="-168" text-anchor="middle" fill="#e8edf7" font-size="13" font-weight="600" font-family="Inter">语义层</text>
+      <text x="0" y="-154" text-anchor="middle" fill="#5d6a8c" font-size="10" font-family="JetBrains Mono">6 / 9</text>
+      <text x="156" y="-80" text-anchor="middle" fill="#e8edf7" font-size="13" font-weight="600" font-family="Inter">护栏治理</text>
+      <text x="156" y="-66" text-anchor="middle" fill="#4ade80" font-size="10" font-family="JetBrains Mono">7 / 9</text>
+      <text x="156" y="92" text-anchor="middle" fill="#e8edf7" font-size="13" font-weight="600" font-family="Inter">评估</text>
+      <text x="156" y="106" text-anchor="middle" fill="#fb923c" font-size="10" font-family="JetBrains Mono">3 / 8</text>
+      <text x="0" y="178" text-anchor="middle" fill="#e8edf7" font-size="13" font-weight="600" font-family="Inter">可观测性</text>
+      <text x="0" y="192" text-anchor="middle" fill="#f87171" font-size="10" font-family="JetBrains Mono">1.5 / 9</text>
+      <text x="-156" y="92" text-anchor="middle" fill="#e8edf7" font-size="13" font-weight="600" font-family="Inter">缓存性能</text>
+      <text x="-156" y="106" text-anchor="middle" fill="#fbbf24" font-size="10" font-family="JetBrains Mono">6 / 8</text>
+      <text x="-156" y="-80" text-anchor="middle" fill="#e8edf7" font-size="13" font-weight="600" font-family="Inter">生产健壮性</text>
+      <text x="-156" y="-66" text-anchor="middle" fill="#f87171" font-size="10" font-family="JetBrains Mono">2 / 9</text>
+    </g>
+  </svg>
+  <div class="radar-legend">
+    <div class="rl-item"><span class="rl-sw" style="background:#22d3ee"></span>Vizion Lab（你的系统）</div>
+    <div class="rl-item"><span class="rl-sw" style="background:#f472b6;border:1px dashed #f472b6"></span>企业级基线（Cortex / Genie / dbt）</div>
+  </div>
+</div>
+
+<div class="callout">
+  <span class="ic">🎯</span>
+  <p><b>一句话结论：</b>你的<b>本体治理与语义规范</b>已达到甚至超过多数商业产品的<b>声明层</b>水平（28 实体/50 维度/30 指标 + 指纹 + 范围策略 + 写动作治理），这是最大的差异化优势。但分水岭在于——成熟企业数据 Agent 在 2026 年的竞争已不在「基础模型」，而在 <b>(1) 语义层的可执行深度、(2) 仓库级访问控制、(3) 执行结果校验 + 安全失败、(4) OTel 可观测性 + CI 回归评测</b>。你在后四项存在系统性短板。</p>
+</div>
+
+</div>
+
+<nav class="toc"><div class="toc-inner">
+  <a href="#benchmark" class="active">基准对照</a>
+  <a href="#critical">P0 关键</a>
+  <a href="#high">P1 高</a>
+  <a href="#medium">P2 中</a>
+  <a href="#opportunity">P3 机会</a>
+  <a href="#strengths">已有优势</a>
+  <a href="#roadmap">路线图</a>
+</div></nav>
+
+<div class="wrap">
+
+<!-- ===================== BENCHMARK ===================== -->
+<section id="benchmark">
+  <div class="sec-head">
+    <span class="sec-tag">Benchmark · 基准对照</span>
+    <h2>2026 行业基准 vs 你的现状</h2>
+    <p class="sec-desc">成熟企业数据 Agent 在受治理问题上可达 90%+ 准确率；无治理的「脏数据」上原始模型仅 70-82%，真实企业 schema（Spider 2.0）上暴跌到 ~20%。下表对照关键阈值。</p>
+  </div>
+  <div style="overflow-x:auto">
+  <table class="bench">
+    <thead><tr><th>维度</th><th>企业成熟阈值</th><th>2026 SOTA / 最佳实践</th><th class="you">你的现状</th></tr></thead>
+    <tbody>
+      <tr><td>受治理问题准确率</td><td class="num">90%+</td><td>Cortex 90%+ · Genie 91.6% · dbt SL 98-100% · AtScale 100%</td><td class="you">未度量（无执行级评测）</td></tr>
+      <tr><td>BIRD 脏数据准确率</td><td class="num">70%+</td><td>~82% agentic · CHASE-SQL 73% · Arctic-R1-32B 71.8%</td><td class="you">未度量</td></tr>
+      <tr><td>语义层可执行指标</td><td>声明即可执行</td><td>dbt/Cube 派生指标+时间聚合+多粒度自动计算</td><td class="you">8/30 可执行（73% 声明但不可执行）</td></tr>
+      <tr><td>评测闭环</td><td>结果集对比 + LLM-judge + CI 回归</td><td>Genie/Snowflake 方法论 · RAGAS faithfulness</td><td class="you">仅语义帧 golden（113 例），无 CI</td></tr>
+      <tr><td>可观测性</td><td>OTel + token/cost + p50/90/99</td><td>Langfuse / Arize Phoenix / MLflow</td><td class="you">stdout JSONL + 本地文件，无追踪后端</td></tr>
+      <tr><td>访问控制</td><td>仓库级行/列安全 + RBAC</td><td>Snowflake Horizon / Unity Catalog</td><td class="you">本体层 RBAC 强；API 层无认证</td></tr>
+      <tr><td>API 安全</td><td>认证 + 限流 + CORS 收紧</td><td>表配项</td><td class="you">全开放 · CORS * · 无限流</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<!-- ===================== P0 CRITICAL ===================== -->
+<section id="critical">
+  <div class="sec-head">
+    <span class="sec-tag">Priority 0 · 关键安全/阻断</span>
+    <h2>🔴 P0 — 阻断生产部署</h2>
+    <p class="sec-desc">这三项是「裸奔」级别的缺口，任何多租户或互联网暴露部署前必须解决。</p>
+  </div>
+
+  <div class="gap p0">
+    <div class="gap-head">
+      <span class="gap-pri">P0 · 安全</span>
+      <div class="gap-title">
+        <h3>API 端点全部无认证 + CORS 全开放</h3>
+        <div class="meta">server/index.mjs:185-289 · backend/analytics/api.py:52</div>
+      </div>
+    </div>
+    <div class="gap-body">
+      <div class="gap-row"><span class="lab">现状</span><span class="val">Node 服务（<code>:3004</code>）无任何鉴权；FastAPI（<code>:3003</code>）无中间件、无 <code>Depends</code>、无 <code>HTTPBearer</code>；CORS <code>Access-Control-Allow-Origin: *</code>。所有 <code>/api/ai/chat</code>、<code>/api/semantic/query</code> 完全开放。</span></div>
+      <div class="gap-row"><span class="lab">企业级</span><span class="val">Cortex/Genie 继承<b>仓库级 RBAC</b>；生成 SQL 天然遵守所有访问控制；数据不离开治理边界。Vanna 2.0 内置认证、配额、审计。</span></div>
+      <div class="gap-row"><span class="lab">风险</span><span class="val"><b>未授权数据访问、成本被刷爆、PII 泄露。</b>即便本体层有 actorScope，也无人验证调用方身份。</span></div>
+      <div class="gap-act"><div class="at">▸ 行动</div><p>① 给两套 API 加 API-Key / JWT 中间件（从 <code>authorization</code> 头解析 actorScope）。② CORS 收紧到已知前端 origin。③ 限流（express-rate-limit / slowapi）。④ actorScope 必须来自已认证 token，而非请求体自报。</p></div>
+    </div>
+  </div>
+
+  <div class="gap p0">
+    <div class="gap-head">
+      <span class="gap-pri">P0 · 可观测</span>
+      <div class="gap-title">
+        <h3>无 token / 成本追踪 — 无法运营、预算、计费</h3>
+        <div class="meta">全仓 grep <code>prompt_tokens|completion_tokens|cost|total_tokens</code> = 0 命中</div>
+      </div>
+    </div>
+    <div class="gap-body">
+      <div class="gap-row"><span class="lab">现状</span><span class="val">LLM 响应的 usage 元数据从不被记录。<code>logMetric</code> 记了延迟和工具调用数，但<b>不记 token 与成本</b>。无法知道单次问答花了多少、谁花得多、是否超预算。</span></div>
+      <div class="gap-row"><span class="lab">企业级</span><span class="val">Langfuse / Arize Phoenix 按<span class="val"> <b>每次调用</b>追踪 token/cost，聚合到每用户/每 prompt 版本；MLflow Evaluation Datasets 在 CI 里追踪成本回归。</span></span></div>
+      <div class="gap-row"><span class="lab">影响</span><span class="val">企业最敏感的指标之一。无成本可见性 = 无法定价、无法配额、无法发现异常消耗。</span></div>
+      <div class="gap-act"><div class="at">▸ 行动</div><p>① 在 <code>companyChat.mjs</code> 解析并持久化 <code>usage.prompt_tokens/completion_tokens</code>，乘以模型单价 → cost。② 注入 <code>[vizion-metric]</code>。③ 接 Langfuse（自托管，MIT）做成本看板。</p></div>
+    </div>
+  </div>
+
+  <div class="gap p0">
+    <div class="gap-head">
+      <span class="gap-pri">P0 · 评测</span>
+      <div class="gap-title">
+        <h3>无执行级准确率评测 + 无 CI 闸门</h3>
+        <div class="meta">.github/workflows/ 不存在 · semantic-golden 仅校验语义帧不校验结果行</div>
+      </div>
+    </div>
+    <div class="gap-body">
+      <div class="gap-row"><span class="lab">现状</span><span class="val">113 例 golden 仅断言<b>语义解析</b>（意图/指标/维度）是否对，<b>从不校验生成的 SQL 返回的行是否正确</b>。<code>.github/</code> 只有 skills 目录，<b>零 CI workflow</b>。重复检索的 nDCG/MRR 模块（<code>duplicate_search_eval.py</code>）只被单测用合成数据调过。</span></div>
+      <div class="gap-row"><span class="lab">企业级</span><span class="val">Genie 对比<b>结果集</b>（非文本匹配，接受不同排序，数值 4 位有效数字相等，至多 5000 行）；Snowflake 用列匹配 precision/recall；RAGAS faithfulness 把每个数值论断锚定到执行结果。全部跑在 CI 回归里。</span></div>
+      <div class="gap-row"><span class="lab">风险</span><span class="val"><b>你不知道系统准确率到底是多少。</b>「优雅失败」的前提是能度量失败。无 CI = 任何改动都可能静默破坏准确率。</span></div>
+      <div class="gap-act"><div class="at">▸ 行动</div><p>① 建 NL→SQL 结果集 golden 集（20-50 例真实问题 + 期望行）。② 加 GitHub Actions 跑 <code>npm test</code> + pytest + 结果集对比。③ 接入 LLM-as-judge（faithfulness/relevancy）。④ 把 <code>build_eval_cases_from_feedback</code> 真正接入：👍/👎 → eval 用例 → CI 回归。</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== P1 HIGH ===================== -->
+<section id="high">
+  <div class="sec-head">
+    <span class="sec-tag">Priority 1 · 高优先级</span>
+    <h2>🟠 P1 — 差异化能力短板</h2>
+    <p class="sec-desc">这些不阻断单机运行，但决定你能否称为「企业级」而非「优秀原型」。</p>
+  </div>
+
+  <div class="gap p1">
+    <div class="gap-head">
+      <span class="gap-pri">P1 · 语义层</span>
+      <div class="gap-title">
+        <h3>73% 的声明指标不可执行 — 语义层「有规范无引擎」</h3>
+        <div class="meta">semantic_query.py:23-25,749-750 · 仅 8/30 指标在 DEFECT/TEST_RUN/TESTCASE_METRICS 白名单</div>
+      </div>
+    </div>
+    <div class="gap-body">
+      <div class="gap-row"><span class="lab">现状</span><span class="val"><code>defect.resolve_rate</code>、<code>kpi.defect_detection_ratio</code>、<code>kpi.regression_coverage</code>、<code>testing.pass_rate</code> 等 <b>22 个派生/比率/KPI 指标</b>有完整 <code>numerator/denominator/measure</code> 声明，但<b>无求值引擎</b>——查询直接抛 <code>SEMANTIC_METRIC_SET_NOT_EXECUTABLE</code>。也没有时间序列分桶（无 <code>DATE_TRUNC</code>/<code>strftime</code> 聚合），<code>trend</code> 意图能解析但不能按时段分组。</span></div>
+      <div class="gap-row"><span class="lab">企业级</span><span class="val">dbt Semantic Layer / Cube 把派生指标、时间分桶（day/week/month/quarter）、多粒度连接<b>真正计算出来</b>。这正是「metrics layer」值钱的地方——也是 Cortex 90%+ 的根基（生成针对受治理定义，而非裸 schema）。</span></div>
+      <div class="gap-row"><span class="lab">影响</span><span class="val">用户问「DDP 是多少」「按周看缺陷趋势」会直接失败。语义层展示了它答不了的问题。</span></div>
+      <div class="gap-act"><div class="at">▸ 行动</div><p>① 实现派生指标求值器：解析 <code>numerator/denominator</code> → 两次基指标查询 → 比值。② 加 <code>time_bucket</code> 维度：在 executor 里按 day/week/month <code>strftime</code> GROUP BY。③ 先把这 8→15 个高频 KPI 做实，覆盖率即显著提升。</p></div>
+    </div>
+  </div>
+
+  <div class="gap p1">
+    <div class="gap-head">
+      <span class="gap-pri">P1 · 可观测</span>
+      <div class="gap-title">
+        <h3>无分布式追踪后端 — 多步 agent 流程不可调试</h3>
+        <div class="meta">package.json / requirements.txt 无 OpenTelemetry / Langfuse / Phoenix / Sentry / dd-trace</div>
+      </div>
+    </div>
+    <div class="gap-body">
+      <div class="gap-row"><span class="lab">现状</span><span class="val">有结构化日志（<code>[vizion-metric]</code> JSONL）和本地审计文件（<code>logs/agent-runtime/*.jsonl</code>），但全是扁平 stdout + 本地文件。<b>无 span/trace 嵌套</b>、无错误分类法、<b>无回放机制</b>（无法把记录的 run 重新灌进图重跑调试）。</span></div>
+      <div class="gap-row"><span class="lab">企业级</span><span class="val">OpenTelemetry GenAI 已成标准（<code>gen_ai.*</code> span）；Langfuse/Phoenix 把「意图路由→规划→工具循环→流式回答」展开成可钻取的时间线 + 嵌套 span。</span></div>
+      <div class="gap-act"><div class="at">▸ 行动</div><p>① 接 <code>@arizeai/openinference-vercel-ai</code> 或 Langfuse SDK，在 LangGraph 每个节点起 span。② 建错误分类法（intent_misroute / tool_blocked / empty_result / model_error / timeout）。③ 利用已有 <code>run-events.jsonl</code> 实现回放命令：读日志 → 重注入消息 → 复现。</p></div>
+    </div>
+  </div>
+
+  <div class="gap p1">
+    <div class="gap-head">
+      <span class="gap-pri">P1 · 健壮</span>
+      <div class="gap-title">
+        <h3>对话记忆易失 — MemorySaver 不持久，重启即丢</h3>
+        <div class="meta">langGraphChatRuntime.mjs:1,222,405 · 仅 MemorySaver，无 SqliteSaver/PostgresSaver</div>
+      </div>
+    </div>
+    <div class="gap-body">
+      <div class="gap-row"><span class="lab">现状</span><span class="val">LangGraph 用 <code>MemorySaver</code>（进程内存），thread checkpoint 虽写到磁盘 JSON，但<b>无代码在重启时从它 rehydrate</b>。进程重启 → 所有会话历史丢失。</span></div>
+      <div class="gap-row"><span class="lab">企业级</span><span class="val">多轮记忆持久化是表配项（Vanna/Cortex/Genie 全支持）；会话可跨实例、跨重启恢复。</span></div>
+      <div class="gap-act"><div class="at">▸ 行动</div><p>① 换 <code>SqliteSaver</code>（LangGraph 原生）替换 MemorySaver，或复用已写的 thread checkpoint JSON 实现 rehydrate。② LLM 上游加重试/backoff（当前 grep 无 retry）。</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== P2 MEDIUM ===================== -->
+<section id="medium">
+  <div class="sec-head">
+    <span class="sec-tag">Priority 2 · 中优先级</span>
+    <h2>🟡 P2 — 成熟度提升</h2>
+    <p class="sec-desc">提升规模化、性能与数据安全的进阶项。</p>
+  </div>
+
+  <div class="gap p2">
+    <div class="gap-head">
+      <span class="gap-pri">P2 · 治理</span>
+      <div class="gap-title">
+        <h3>行级安全 + 成本上限缺失</h3>
+        <div class="meta">langGraphChatRuntime.mjs:77 · rowPolicyIds 已声明但无求值代码 · 无 token 成本上限</div>
+      </div>
+    </div>
+    <div class="gap-body">
+      <div class="gap-row"><span class="lab">现状</span><span class="val">本体层 RBAC/scope/敏感字段脱敏已很强（这是 STRONG 项）。但 <code>rowPolicyIds</code> 是<b>死字段</b>——无代码把它翻译成 SQL 谓词；<code>query.max_limit=200</code> 只限行数，<b>无 token/成本/执行时长上限</b>。</span></div>
+      <div class="gap-row"><span class="lab">企业级</span><span class="val">Snowflake Horizon 行访问策略、动态列掩码在<b>查询时</b>求值；Genie 截断对比在 5000 行。</span></div>
+      <div class="gap-act"><div class="at">▸ 行动</div><p>① 实现 <code>rowPolicyIds</code> → SQL WHERE 注入（你已有 scopePolicy 基建，扩展即可）。② 加 per-actor token 预算上限 + 查询超时。</p></div>
+    </div>
+  </div>
+
+  <div class="gap p2">
+    <div class="gap-head">
+      <span class="gap-pri">P2 · 性能</span>
+      <div class="gap-title">
+        <h3>无共享缓存层 + 无 SQLite 连接池 + 无语义缓存</h3>
+        <div class="meta">全仓无 redis/ioredis/memcache · analytics 每次 read 新建 sqlite3.connect</div>
+      </div>
+    </div>
+    <div class="gap-body">
+      <div class="gap-row"><span class="lab">现状</span><span class="val">缓存都在进程内（Node Map / 本地 SQLite/pickle）。<code>aiContext</code> 5 分钟 TTL、嵌入增量缓存、字段目录 memo 都是<b>单实例</b>，多副本不共享。无语义缓存（按查询文本 key，无法命中改写问句）。</span></div>
+      <div class="gap-row"><span class="lab">企业级</span><span class="val">GPTCache / pgvector 语义缓存；Redis 跨实例；Cube 的 pre-aggregations 物化指标。</span></div>
+      <div class="gap-act"><div class="at">▸ 行动</div><p>① 加语义缓存：问题 embedding 相似度 + TTL 命中改写问句。② SQLite 开 WAL + 简单连接池。③ 高频 KPI 物化到 hot 库（复用已有 <code>dashboard_snapshot</code> 机制）。</p></div>
+    </div>
+  </div>
+
+  <div class="gap p2">
+    <div class="gap-head">
+      <span class="gap-pri">P2 · 评测</span>
+      <div class="gap-title">
+        <h3>无 LLM-as-judge + 反馈未回流评测</h3>
+        <div class="meta">grep llm_as_judge/judge = 0 · build_eval_cases_from_feedback 仅测试调用</div>
+      </div>
+    </div>
+    <div class="gap-body">
+      <div class="gap-row"><span class="lab">现状</span><span class="val">👍/👎 反馈已采集（<code>feedback_store.py</code>），<code>build_eval_cases_from_feedback</code> 也写了，但<b>从未接成闭环</b>——反馈没变成回归用例。无 LLM-as-judge 自动评分。</span></div>
+      <div class="gap-act"><div class="at">▸ 行动</div><p>① 定时把确认反馈导出为 eval 用例（README 已有命令）。② 加 faithfulness/answer-relevancy LLM-judge。③ 形成「生产流量 → 标注 → eval 集 → CI 回归 → 改进」闭环。</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== P3 OPPORTUNITY ===================== -->
+<section id="opportunity">
+  <div class="sec-head">
+    <span class="sec-tag">Priority 3 · 战略机会</span>
+    <h2>🔵 P3 — 拉开身位的创新</h2>
+    <p class="sec-desc">基于你已有架构可低成本切入的前沿方向。</p>
+  </div>
+
+  <div class="gap p3">
+    <div class="gap-head">
+      <span class="gap-pri">P3 · 前沿</span>
+      <div class="gap-title">
+        <h3>多路径生成 + 自我纠错（CHASE-SQL / MARS-SQL）</h3>
+        <div class="meta">你的 agent/ 历史（仅 .pyc）曾有 multi_executor 3 路径 + QueryFixer，但当前 Node 运行时未启用</div>
+      </div>
+    </div>
+    <div class="gap-body">
+      <div class="gap-row"><span class="lab">机会</span><span class="val">CHASE-SQL（3 路径生成 + 偏好优化选择，BIRD 73%）和 MARS-SQL（可训练多智能体自纠）是 2025-26 SOTA。你的 Python agent <b>曾经实现过</b>多路执行 + 结果签名一致性比较 + LLM 仲裁 + 自纠重试（β=3），但这些能力没迁移到当前 Node 运行时。</span></div>
+      <div class="gap-act"><div class="at">▸ 行动</div><p>把历史 Python 的多路径/自纠能力，以「生成多候选 → 执行结果对比 → 选优」的形式移植到语义查询执行器，作为派生指标引擎（P1）的姊妹项。</p></div>
+    </div>
+  </div>
+
+  <div class="gap p3">
+    <div class="gap-head">
+      <span class="gap-pri">P3 · 前沿</span>
+      <div class="gap-title">
+        <h3>知识图谱接地 — 把 schema 准确率从 16% → 54%</h3>
+        <div class="meta">Sequeda et al. 2023: GPT-4 零样本 16.7% → KG 接地 54.2%</div>
+      </div>
+    </div>
+    <div class="gap-body">
+      <div class="gap-row"><span class="lab">机会</span><span class="val">你已有 27 条关系 + 实体/维度/指标的图结构本体。RAGAS 研究表明把它作为 KG 检索接地（而非纯文本 prompt），可大幅提升 schema linking 准确率。你的 <code>/api/ontology/fields/search</code> 字段目录已是雏形。</span></div>
+      <div class="gap-act"><div class="at">▸ 行动</div><p>把本体关系图建成向量索引，规划阶段检索相关子图注入 prompt，而非塞全量 schema。</p></div>
+    </div>
+  </div>
+
+  <div class="gap p3">
+    <div class="gap-head">
+      <span class="gap-pri">P3 · 体验</span>
+      <div class="gap-title">
+        <h3>安全失败 + 多步计划断点续跑</h3>
+      </div>
+    </div>
+    <div class="gap-body">
+      <div class="gap-row"><span class="lab">机会</span><span class="val">企业级共识：「在 90% 准确率<b>优雅失败</b>」比「90% 硬答但可能幻觉」更安全。你已有空结果自愈诊断（<code>diagnose_analytics_empty</code>），但多步计划中途失败仍是单错误抛出，无断点续跑。</span></div>
+      <div class="gap-act"><div class="at">▸ 行动</div><p>① 多步 plan 加 checkpoint，失败可从断点续。② 明确「不确定时拒绝并解释」路径，降低幻觉。</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== STRENGTHS ===================== -->
+<section id="strengths">
+  <div class="sec-head">
+    <span class="sec-tag">Strengths · 已有优势（别拆掉）</span>
+    <h2>🟢 你做对了什么</h2>
+    <p class="sec-desc">这些是大多数原型没有的、真正企业级的能力——改进时务必保留。</p>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px">
+    <div style="background:var(--bg-card);border:1px solid var(--border);border-left:3px solid var(--green);border-radius:12px;padding:22px">
+      <h3 style="font-size:15px;margin-bottom:8px">🛡️ 三层只读强制 + 写动作治理</h3>
+      <p style="font-size:13.5px;color:var(--text-dim)">SQLite <code>?mode=ro</code> + <code>PRAGMA query_only</code> + 本体操作白名单。写动作（删/改/评论）编译期强制 blocked 或 dry-run+人工批准+三重审计。<b>这是真正的企业级护栏。</b></p>
+    </div>
+    <div style="background:var(--bg-card);border:1px solid var(--border);border-left:3px solid var(--green);border-radius:12px;padding:22px">
+      <h3 style="font-size:15px;margin-bottom:8px">🔒 PII / 敏感字段 SHA-256 脱敏</h3>
+      <p style="font-size:13.5px;color:var(--text-dim)"><code>confidential/restricted</code> 维度按 actor 脱敏；scopePolicy 强制 <code>SEMANTIC_SENSITIVE_FIELD_DENIED</code>。VIN 等保密字段处理到位。</p>
+    </div>
+    <div style="background:var(--bg-card);border:1px solid var(--border);border-left:3px solid var(--green);border-radius:12px;padding:22px">
+      <h3 style="font-size:15px;margin-bottom:8px">📐 指纹 + 版本钉定的证据链</h3>
+      <p style="font-size:13.5px;color:var(--text-dim)">每个回答携带 <code>ontologyVersion/schemaFingerprint/sourceRevision/quality</code>，声明-证据绑定约束（coverage=1）。这是 Cortex/Genie 级的 claim-evidence binding。</p>
+    </div>
+    <div style="background:var(--bg-card);border:1px solid var(--border);border-left:3px solid var(--green);border-radius:12px;padding:22px">
+      <h3 style="font-size:15px;margin-bottom:8px">🧠 混合检索 + RRF + 反馈重排</h3>
+      <p style="font-size:13.5px;color:var(--text-dim)">BGE 稠密 + TF-IDF 稀疏 → 倒数排名融合 + 提示加权 + ClickBoostReRanker（NDCG 回归守护才部署）。带 nDCG/MRR 评测模块。<b>重复检索这块比多数商业产品还完整。</b></p>
+    </div>
+    <div style="background:var(--bg-card);border:1px solid var(--border);border-left:3px solid var(--green);border-radius:12px;padding:22px">
+      <h3 style="font-size:15px;margin-bottom:8px">🏗️ 工具/流式严格分离 + 策略门</h3>
+      <p style="font-size:13.5px;color:var(--text-dim)">工具只在规划节点跑，流式回答无工具权限且主动剥离 DSML 伪工具标记。意图白名单限定 LLM 可选工具——防止越权工具调用。</p>
+    </div>
+    <div style="background:var(--bg-card);border:1px solid var(--border);border-left:3px solid var(--green);border-radius:12px;padding:22px">
+      <h3 style="font-size:15px;margin-bottom:8px">📚 CI 守护的本体编译管线</h3>
+      <p style="font-size:13.5px;color:var(--text-dim)">9 源文档 → Ajv schema 校验 → 跨文档引用完整性 → 指纹 → <code>--check</code> 防 stale。声明层治理成熟度极高。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== ROADMAP ===================== -->
+<section id="roadmap">
+  <div class="sec-head">
+    <span class="sec-tag">Roadmap · 建议实施顺序</span>
+    <h2>实施路线图</h2>
+    <p class="sec-desc">按「先止血、再补能力、最后拉开身位」排序。每阶段目标可独立验证。</p>
+  </div>
+  <div class="roadmap-grid">
+    <div class="phase" style="border-top:3px solid var(--red)">
+      <div class="ph-num">PHASE 0 · 1-2 周</div>
+      <div class="ph-name">止血：可运营</div>
+      <ul>
+        <li>API 认证 + 限流 + CORS 收紧</li>
+        <li>token/cost 追踪（companyChat.mjs）</li>
+        <li>建 GitHub Actions CI（test + pytest）</li>
+        <li>MemorySaver → 持久 checkpointer</li>
+      </ul>
+    </div>
+    <div class="phase" style="border-top:3px solid var(--orange)">
+      <div class="ph-num">PHASE 1 · 3-5 周</div>
+      <div class="ph-name">补能力：可度量</div>
+      <ul>
+        <li>执行级结果集 golden（20-50 例）+ CI 回归</li>
+        <li>派生指标求值器（8→15 个 KPI 可执行）</li>
+        <li>时间序列分桶（trend 真正可用）</li>
+        <li>接 Langfuse/Phoenix 追踪 + 回放</li>
+      </ul>
+    </div>
+    <div class="phase" style="border-top:3px solid var(--amber)">
+      <div class="ph-num">PHASE 2 · 4-6 周</div>
+      <div class="ph-name">规模化：可上量</div>
+      <ul>
+        <li>行级安全 rowPolicyIds 求值</li>
+        <li>语义缓存 + 共享缓存层</li>
+        <li>反馈 → eval 闭环 + LLM-judge</li>
+        <li>多步计划断点续跑</li>
+      </ul>
+    </div>
+    <div class="phase" style="border-top:3px solid var(--cyan)">
+      <div class="ph-num">PHASE 3 · 持续</div>
+      <div class="ph-name">拉开身位</div>
+      <ul>
+        <li>多路径生成 + 自纠（迁移历史能力）</li>
+        <li>知识图谱接地检索</li>
+        <li>RL/反馈微调（MARS-SQL 路线）</li>
+        <li>headless BI 对外 API</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="callout" style="background:linear-gradient(135deg,rgba(74,222,128,.08),rgba(34,211,238,.05));border-color:rgba(74,222,128,.25)">
+    <span class="ic">💡</span>
+    <p><b>核心洞察：</b>2026 年企业数据 Agent 的分水岭<b>不在基础模型</b>——而是 <b>(1) 受治理语义层的可执行深度、(2) 仓库级访问控制、(3) 执行结果校验 + 安全失败、(4) OTel 可观测性 + CI 回归评测</b>。你的第 (2) 项已很强，第 (1) 项声明层优秀但引擎层滞后，第 (3)(4) 项是系统性短板。补齐 (3)(4) 后，你这套本体治理架构有潜力达到 Cortex/Genie 90%+ 的受治理准确率。</p>
+  </div>
+</section>
+
+</div>
+
+<footer>
+  <div class="wrap">
+    <p class="mono">Vizion Lab · Maturity Gap Analysis</p>
+    <p style="margin-top:6px;opacity:.7">基于代码审计 + 2026-07 行业研究 · 分支 <code>feature/2026-07-28-main-agent-orchestrator-sync</code></p>
+    <div class="src-list">
+      行业基准来源：<a href="https://colrows.com/blogs/text-to-sql-accuracy-cliff/">ColRows 准确率悬崖</a> ·
+      <a href="https://www.snowflake.com/en/blog/engineering/cortex-analyst-text-to-sql-accuracy-bi/">Snowflake Cortex 准确率</a> ·
+      <a href="https://arxiv.org/abs/2410.01943">CHASE-SQL</a> ·
+      <a href="https://arxiv.org/html/2511.01008v1">MARS-SQL</a> ·
+      <a href="https://bird-bench.github.io/">BIRD</a> ·
+      <a href="https://docs.databricks.com/aws/en/genie-agents/monitor">Databricks Genie 评测</a> ·
+      <a href="https://langfuse.com/docs">Langfuse</a> ·
+      <a href="https://github.com/Arize-ai/phoenix">Arize Phoenix</a> ·
+      <a href="https://docs.ragas.io/">RAGAS</a> ·
+      <a href="https://opentelemetry.io/docs/specs/semconv/gen-ai/">OpenTelemetry GenAI</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+  const links = [...document.querySelectorAll('.toc a')];
+  const sections = links.map(l => document.querySelector(l.getAttribute('href')));
+  const obs = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.toggle('active', l.getAttribute('href') === '#' + e.target.id));
+        const a = links.find(l => l.getAttribute('href') === '#' + e.target.id);
+        if (a) a.scrollIntoView({ block: 'nearest', inline: 'center' });
+      }
+    });
+  }, { rootMargin: '-30% 0px -60% 0px' });
+  sections.forEach(s => s && obs.observe(s));
+</script>
+</body>
+</html>

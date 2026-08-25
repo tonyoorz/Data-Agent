@@ -13,7 +13,7 @@ from backend.analytics.config import (
     get_full_picture_source_db_path,
     get_full_picture_hot_db_path,
 )
-from backend.analytics.db import connect
+from backend.analytics.db import connect, ensure_wal_pragmas
 from backend.analytics.testing_coverage_reference import (
     build_feature_region_sql_expr,
     build_iso_test_week_sql_expr,
@@ -201,7 +201,7 @@ def _is_ready_hot_testing_db(db_path: Path) -> bool:
     if not db_path.exists() or not db_path.is_file():
         return False
 
-    conn = sqlite3.connect(db_path)
+    conn = ensure_wal_pragmas(sqlite3.connect(db_path))
     conn.row_factory = sqlite3.Row
     try:
         if not _table_exists(conn, HOT_TESTING_STORE_NAME):

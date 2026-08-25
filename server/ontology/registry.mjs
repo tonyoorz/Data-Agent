@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { fingerprintOntology } from "./fingerprint.mjs";
 import { validateOntologyBundle } from "./validator.mjs";
+import { validateMetricRuntimePublication } from "./runtimePublication.mjs";
 
 const defaultRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -54,6 +55,18 @@ export function createOntologyRegistry({
   const metrics = new Map(bundle.metrics.map((item) => [item.id, Object.freeze(item)]));
   const relationships = new Map(bundle.relationships.map((item) => [item.id, Object.freeze(item)]));
   const businessRules = new Map((bundle.businessRules || []).map((item) => [item.id, Object.freeze(item)]));
+
+  // The 12 doc-level business rules (br.*) live in business_rules.json alongside
+  // the structured businessRules, but are free-form domain knowledge rather than
+  // executable effects. They are read as a non-fingerprinted sidecar so adding/
+  // editing them does NOT change the ontology fingerprint (and therefore does not
+  // invalidate existing queryPlan schemaFingerprint assertions or golden tests).
+  const businessKnowledgeRulesPath = path.join(root, "ontology/v1/business_rules.json");
+  const businessKnowledgeRules = fs.existsSync(businessKnowledgeRulesPath)
+    ? Object.freeze((JSON.parse(fs.readFileSync(businessKnowledgeRulesPath, "utf8")).rules || [])
+      .filter((item) => item && typeof item === "object")
+      .map((item) => Object.freeze(item)))
+    : Object.freeze([]);
   const policies = new Map(bundle.policies.map((item) => [item.id, Object.freeze(item)]));
   const constraints = new Map(bundle.constraints.map((item) => [item.id, Object.freeze(item)]));
   const terms = bundle.terms.flatMap((term) => term.phrases.map((phrase) => ({ term, phrase, normalized: phrase.toLocaleLowerCase("zh-CN") })))
@@ -66,9 +79,13 @@ export function createOntologyRegistry({
     bundle: Object.freeze(bundle),
     getEntity(id) { return requireItem(entities, id, "ENTITY"); },
     getDimension(id) { return requireItem(dimensions, id, "DIMENSION"); },
-    getMetric(id, { approvedOnly = false } = {}) {
+    getMetric(id, { approvedOnly = false, runtimeReadyOnly = false } = {}) {
       const metric = requireItem(metrics, id, "METRIC");
       if (approvedOnly && metric.governance.status !== "approved") fail("ONTOLOGY_METRIC_NOT_APPROVED", id);
+      if (runtimeReadyOnly) {
+        const publication = validateMetricRuntimePublication(metric);
+        if (!publication.ready) fail("ONTOLOGY_METRIC_NOT_RUNTIME_READY", id);
+      }
       return metric;
     },
     getRelationship(id) { return requireItem(relationships, id, "RELATIONSHIP"); },
@@ -119,6 +136,9 @@ export function createOntologyRegistry({
     },
     listBusinessRules({ status, kind } = {}) {
       return [...businessRules.values()].filter((rule) => (!status || rule.governance.status === status) && (!kind || rule.kind === kind));
+    },
+    listBusinessKnowledgeRules() {
+      return businessKnowledgeRules;
     },
     matchTerms(query) {
       const normalizedQuery = String(query || "").toLocaleLowerCase("zh-CN");

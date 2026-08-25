@@ -6,6 +6,7 @@ from pathlib import Path
 import sqlite3
 
 from backend.analytics.full_picture_outcomes import ensure_outcome_store
+from backend.analytics.db import ensure_wal_pragmas
 from backend.analytics.testing_coverage_reference import (
     build_feature_region_sql_expr,
     build_iso_test_week_sql_expr,
@@ -254,7 +255,7 @@ def refresh_materialized_testing_coverage(
     source_signature = _compute_source_signature(source_db_path)
     snapshot_version = _build_testing_coverage_snapshot_version(source_signature)
 
-    hot_conn = sqlite3.connect(resolved_hot_path)
+    hot_conn = ensure_wal_pragmas(sqlite3.connect(resolved_hot_path))
     try:
         refresh_state_row = hot_conn.execute(
             f"""

@@ -2,7 +2,14 @@ import { createHash } from "node:crypto";
 import Ajv2020 from "ajv/dist/2020.js";
 import { canonicalJson, fingerprintSourceQuery, normalizeSourceQuery } from "./fingerprint.mjs";
 import { compileSemanticQuery } from "./queryCompiler.mjs";
-import { createQueryPlanId, defaultRecordFieldsForEntity, deriveBusinessRuleFrame, fingerprintQueryPlanSteps, validatePlan } from "./queryPlanner.mjs";
+import {
+  createQueryPlanId,
+  defaultRecordFieldsForEntity,
+  deriveBusinessRuleFrame,
+  fingerprintQueryPlan,
+  fingerprintQueryPlanSteps,
+  validatePlan,
+} from "./queryPlanner.mjs";
 import { validateSemanticFrame } from "./semanticFrame.mjs";
 
 const analysisPlanIdSchema = { type: "string", pattern: "^analysis-[a-f0-9]{16}$" };
@@ -81,10 +88,6 @@ function rowBudget(frame, visualization) {
   if (["line", "bar", "grouped_bar"].includes(visualization)) return Math.min(Math.max(limit, 1), 50);
   if (visualization === "table") return Math.min(Math.max(limit, 1), 100);
   return 0;
-}
-
-function sourcePlanFingerprint(queryPlan) {
-  return createHash("sha256").update(canonicalJson(queryPlan)).digest("hex");
 }
 
 function analysisPlanId(frame, sourceFingerprint) {
@@ -187,7 +190,7 @@ export function createGovernedAnalysisPlanner({ registry } = {}) {
       const inputs = validateInputs(frame, queryPlan, registry);
       frame = inputs.frame;
       queryPlan = inputs.queryPlan;
-      const sourceFingerprint = sourcePlanFingerprint(queryPlan);
+      const sourceFingerprint = fingerprintQueryPlan(queryPlan);
       const base = {
         schemaVersion: "1.0",
         analysisPlanId: analysisPlanId(frame, sourceFingerprint),

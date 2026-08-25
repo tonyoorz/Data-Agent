@@ -1,0 +1,93 @@
+name: eval
+
+# CI for the DTSV main agent (task 28).
+#
+# Two jobs:
+#   - node:    lint + vite build + full vitest suite + scorecard. Every vitest
+#              case mocks upstream fetch (vi.stubGlobal), so the suite is offline-
+#              safe and needs no Octane / company-chat credentials. The scorecard
+#              runner also degrades gracefully (its offline layer imports
+#              mainAgentToolPlanning, which works once npm ci has installed jose).
+#   - python:  the ontology contract test only. It is pure schema validation
+#              against the Node-compiled generated/ artifacts and needs no data.
+#              requirements.txt pulls pandas/duckdb/playwright; we skip the
+#              playwright browser download since no contract test drives a browser.
+#
+# The scorecard artifact is uploaded on every run (even failures) so regressions
+# in the offline baseline can be inspected alongside the runtime metrics.
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  node:
+    name: node (lint · build · test · scorecard)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: install
+        run: npm ci
+
+      - name: lint
+        run: npm run lint
+
+      - name: build
+        run: npm run build
+
+      - name: vitest (full suite)
+        run: npm test
+
+      - name: scorecard
+        run: npm run eval:scorecard
+
+      - name: upload scorecard
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scorecard
+          path: evals/scorecard/output/
+          if-no-files-found: warn
+
+  python-contract:
+    name: python (ontology contract)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: install node deps (for ontology compile)
+        run: npm ci
+
+      - name: compile ontology
+        run: npm run ontology:compile
+
+      - name: install python deps
+        run: |
+          python -m pip install --upgrade pip
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 pip install -r requirements.txt
+
+      - name: ontology contract test
+        run: python -m pytest backend/tests/test_ontology_contract.py -q

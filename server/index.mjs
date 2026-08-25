@@ -6,25 +6,54 @@ import { fileURLToPath } from "node:url";
 import duplicateBridgeRuntime from "./duplicateBridgeRuntime.cjs";
 import { streamLangGraphChatResponse } from "./agentRuntime/langGraphChatHandler.mjs";
 import { createLangGraphChatRuntime, resolveAgentRuntimeMode } from "./agentRuntime/langGraphChatRuntime.mjs";
+import { MemorySaver } from "@langchain/langgraph";
 import { createFileAgentRuntimeStore } from "./agentRuntime/runtimeAuditStore.mjs";
+import { buildAgentStreamAuditEvent } from "./agentRuntime/streamAudit.mjs";
 import { resolveAgentOperationsResponse } from "./agentOperations.mjs";
-import { resolveAiAnalyticsContext } from "./aiAnalyticsContext.mjs";
-import { resolveMainAgentToolContext } from "./mainAgentToolLoop.mjs";
-import { shouldPlanMainAgentTools } from "./mainAgentToolPlanning.mjs";
-import { createDuplicateWarmupManager } from "./duplicateWarmup.mjs";
+import {
+  createDuplicateWarmupManager,
+  shouldWarmDuplicateSearch,
+} from "./duplicateWarmup.mjs";
 import { extractLatestUserQuery, resolveAiDefectContext } from "./aiContext.mjs";
-import { streamCompanyChatCompletion, writeSseEvent } from "./companyChat.mjs";
-import { createLocalHttpBoundary } from "./localHttpBoundary.mjs";
+import {
+  controlledChatErrorDiagnostic,
+  toSafeCompanyChatError,
+  writeSseEvent,
+} from "./companyChat.mjs";
 import { resolveRequestUrl } from "./httpRequestUrl.mjs";
-import { resolveInternalAuxiliaryActor, runAuthenticatedChatRequest, toSafeAgentAuthResponse } from "./agentAuth.mjs";
+import {
+  resolveInternalAuxiliaryActor,
+  runAuthenticatedAgentRequest,
+  runAuthenticatedChatRequest,
+  toSafeAgentAuthResponse,
+} from "./agentAuth.mjs";
 import { attachDuplicateSummary } from "./duplicateResultEnrichment.mjs";
+import { assertSupportedNodeVersion } from "../scripts/nodeVersion.mjs";
 import { loadLocalEnv } from "./loadLocalEnv.mjs";
 import {
+  resolveAnalyticsApiBase,
+  resolveAnalyticsProxyTimeoutMs,
+} from "./analyticsApiConfig.mjs";
+import { proxyAnalyticsJson } from "./analyticsProxy.mjs";
+import {
+  buildLocalCorsHeaders,
+  isJsonApiRequest,
+  isTrustedLocalApiRequest,
+  listenLocalApiServer,
+  readBoundedJsonBody,
+  resolveJsonBodyLimit,
+  resolveLocalApiPort,
+  toSafeLocalApiBodyResponse,
+} from "./localApiBinding.mjs";
+import {
+  buildQGateDashboardCsp,
+  createQGateDashboardNonce,
   defaultQGateReportsRoot,
   findLatestQGateDashboardReport,
   resolveQGateDashboardHtmlPath,
+  stampQGateScriptNonce,
 } from "./qgateReports.mjs";
-import { handleTranscribeRequest } from "./transcribe.mjs";
+import { handleTranscribeRequest, toSafeTranscriptionError } from "./transcribe.mjs";
 import { resolveChatModelConfig } from "./chatModelConfig.mjs";
 import testcaseBridgeRuntime from "./testcaseBridgeRuntime.cjs";
 
@@ -34,17 +63,41 @@ const { runTestCaseBridge, stopTestCaseBridgeRuntime } = testcaseBridgeRuntime;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, "..");
+assertSupportedNodeVersion();
 loadLocalEnv();
-const port = Number(process.env.VIZION_API_PORT || 3004);
-const localHttpBoundary = createLocalHttpBoundary(process.env);
+const analyticsApiBase = resolveAnalyticsApiBase();
+const analyticsProxyTimeoutMs = resolveAnalyticsProxyTimeoutMs();
+const port = resolveLocalApiPort(process.env.VIZION_API_PORT, 3004, "VIZION_API_PORT");
+const webPort = resolveLocalApiPort(process.env.VIZION_WEB_PORT, 8080, "VIZION_WEB_PORT");
+const jsonBodyLimitBytes = resolveJsonBodyLimit(process.env);
 const staticDir = fs.existsSync(path.join(repoRoot, "dist")) ? path.join(repoRoot, "dist") : "";
 const duplicateWarmupManager = createDuplicateWarmupManager({
   runDuplicateBridge,
   logger: console,
 });
 const agentRuntimeStore = createFileAgentRuntimeStore();
+
+// Persistent checkpointer so conversations survive process restarts (the default
+// MemorySaver is in-process only and loses state on restart). SqliteSaver needs
+// @langchain/langgraph-checkpoint-sqlite3 + better-sqlite3; if either is missing
+// or the API differs we fall back to MemorySaver so the server still boots.
+let agentCheckpointer;
+try {
+  const checkpointDbPath = process.env.VIZION_AGENT_CHECKPOINT_DB
+    || path.join(repoRoot, "data", "agent-checkpoints.db");
+  fs.mkdirSync(path.dirname(checkpointDbPath), { recursive: true });
+  const sqliteModule = await import("@langchain/langgraph-checkpoint-sqlite3");
+  const SqliteSaver = sqliteModule.SqliteSaver;
+  agentCheckpointer = await SqliteSaver.fromConnString(checkpointDbPath);
+  console.info(`[vizion] agent checkpointer: SqliteSaver @ ${checkpointDbPath}`);
+} catch (error) {
+  agentCheckpointer = new MemorySaver();
+  console.warn(`[vizion] SqliteSaver unavailable, using in-process MemorySaver: ${error?.message || error}`);
+}
+
 const langGraphChatRuntime = createLangGraphChatRuntime({
   runtimeStore: agentRuntimeStore,
+  checkpointer: agentCheckpointer,
 });
 
 function nowMs() {
@@ -63,7 +116,6 @@ function summarizeQuery(queryText) {
   const normalized = String(queryText || "").replace(/\s+/g, " ").trim();
   return {
     length: normalized.length,
-    preview: normalized.slice(0, 80),
   };
 }
 
@@ -71,18 +123,34 @@ function logMetric(event, payload) {
   console.info(`[vizion-metric] ${JSON.stringify({ event, ...payload })}`);
 }
 
-function shouldResolveGatewayAnalyticsContext({ runtimeMode, useAnalyticsContext } = {}) {
-  if (useAnalyticsContext !== true) {
-    return false;
-  }
-  return String(runtimeMode || "").trim().toLowerCase() !== "langgraph";
-}
-
 export async function handleAiChatRequest(request, response) {
   return runAuthenticatedChatRequest(request, {
     env: process.env,
-    readBody: () => readJsonBody(request),
+    readBody: () => readBoundedJsonBody(request, { maxBytes: jsonBodyLimitBytes }),
     runChat: (body) => handleAuthenticatedAiChatRequest(body, response),
+    sendAuthResponse: (authResponse) => sendJson(response, authResponse.statusCode, authResponse.payload),
+    sendBadRequestResponse: (badRequestResponse) => sendJson(
+      response,
+      badRequestResponse.statusCode,
+      badRequestResponse.payload,
+    ),
+  });
+}
+
+export async function handleAiTranscribeRequest(request, response) {
+  return runAuthenticatedAgentRequest(request, {
+    env: process.env,
+    readBody: () => readBoundedJsonBody(request, { maxBytes: jsonBodyLimitBytes }),
+    runRequest: async (body) => {
+      try {
+        const result = await handleTranscribeRequest(body);
+        sendJson(response, 200, result);
+      } catch (error) {
+        const safeError = toSafeTranscriptionError(error);
+        sendJson(response, safeError.statusCode, safeError.payload);
+      }
+    },
+    invalidBodyError: "INVALID_TRANSCRIBE_REQUEST_BODY",
     sendAuthResponse: (authResponse) => sendJson(response, authResponse.statusCode, authResponse.payload),
     sendBadRequestResponse: (badRequestResponse) => sendJson(
       response,
@@ -108,162 +176,64 @@ async function handleAuthenticatedAiChatRequest(body, response) {
   const requestId = buildRequestId("ai-chat");
   const queryText = extractLatestUserQuery(body?.messages);
   const runtimeMode = resolveAgentRuntimeMode(process.env);
-  const useDefectContext = body?.useDefectContext === true;
-  const useAnalyticsContext = body?.useAnalyticsContext === true;
-  const analyticsContext = shouldResolveGatewayAnalyticsContext({ runtimeMode, useAnalyticsContext })
-    ? await resolveAiAnalyticsContext({ messages: body?.messages })
-    : null;
-  let aiContext = null;
-  let mainAgentToolContext = null;
   let streamMetrics = null;
+  let runtimeResult = null;
 
   try {
-    if (runtimeMode === "langgraph") {
-      const graphResult = await streamLangGraphChatResponse({
-        body,
-        response,
-        runtime: langGraphChatRuntime,
-        toolDependencies: {
-          runDuplicateBridge,
-          ensureDuplicateWarmup: () => duplicateWarmupManager.ensureWarm({ reason: "langgraph-agent-tool" }),
-        },
-        onCompleted: async (completed) => {
-          await agentRuntimeStore.appendRunEvent({
-            runId: completed.runtimeResult?.runId || "",
-            threadId: completed.runtimeResult?.threadId || "",
-            actorScope: completed.runtimeResult?.actorScope || {},
-            type: "agent-stream-completed",
-            ...(Number.isFinite(Number(completed.streamMetrics?.streamTotalMs)) ? { latencyMs: Number(completed.streamMetrics.streamTotalMs) } : {}),
-            ...(completed.streamMetrics?.tokenUsage ? { tokenUsage: completed.streamMetrics.tokenUsage } : {}),
-            citationValidation: completed.answerValidation
-              ? completed.answerValidation.valid ? "pass" : "blocked"
-              : "not_required",
-          });
-        },
-      });
-      streamMetrics = graphResult.streamMetrics;
-      logMetric("ai_chat_request", {
-        requestId,
-        runtime: runtimeMode,
-        model: String(body?.model || ""),
-        query: summarizeQuery(graphResult.runtimeResult?.queryText || queryText),
-        aiContextEnabled: graphResult.runtimeResult?.metrics?.aiContextEnabled || false,
-        analyticsContextEnabled: graphResult.runtimeResult?.metrics?.analyticsContextEnabled || false,
-        mainAgentToolCallCount: graphResult.runtimeResult?.metrics?.mainAgentToolCallCount || 0,
-        aiContextTimings: graphResult.runtimeResult?.metrics?.aiContextTimings || null,
-        streamMetrics,
-        totalMs: roundMs(nowMs() - startedAt),
-      });
-      return;
-    }
-
-    if (useDefectContext && !analyticsContext?.skipDefectContext) {
-      writeSseEvent(response, {
-        type: "status",
-        message: "正在检索 qgate 相关缺陷…",
-      });
-
-      aiContext = await resolveAiDefectContext({
-        runDuplicateBridge,
-        ensureDuplicateWarmup: () => duplicateWarmupManager.ensureWarm({ reason: "ai-chat-defect-context" }),
-        messages: body?.messages,
-        topK: 5,
-      });
-    }
-
-    const baseContext = [body?.context, analyticsContext?.contextText, aiContext?.contextText].filter(Boolean).join("\n\n");
-    if (useAnalyticsContext && !analyticsContext?.skipDefectContext && shouldPlanMainAgentTools(body?.messages)) {
-      writeSseEvent(response, {
-        type: "status",
-        message: "正在判断是否需要调用 dashboard 工具…",
-      });
-      try {
-        mainAgentToolContext = await resolveMainAgentToolContext({
-          messages: body?.messages,
-          model: body?.model,
-          context: baseContext,
-          toolDependencies: {
-            runDuplicateBridge,
-            ensureDuplicateWarmup: () => duplicateWarmupManager.ensureWarm({ reason: "main-agent-tool-search-duplicates" }),
-          },
-        });
-        if (mainAgentToolContext.toolCalls.length) {
-          writeSseEvent(response, {
-            type: "status",
-            message: `已调用 ${mainAgentToolContext.toolCalls.length} 个 dashboard 工具，正在生成回答…`,
-          });
-        }
-      } catch (error) {
-        console.warn("[ai-chat] main agent tool planning failed", error);
-        writeSseEvent(response, {
-          type: "status",
-          message: "dashboard 工具暂不可用，改用已检索上下文回答…",
-        });
-      }
-    }
-
-    const mergedContext = [baseContext, mainAgentToolContext?.contextText].filter(Boolean).join("\n\n");
-    const finalMessages = [
-      ...(Array.isArray(body?.messages) ? body.messages : []),
-      ...(mainAgentToolContext?.toolConversationMessages || []),
-    ];
-    await streamCompanyChatCompletion({
-      messages: finalMessages,
-      model: body?.model,
-      context: mergedContext,
+    const graphResult = await streamLangGraphChatResponse({
+      body,
       response,
-      prefaceEvents: [
-        ...(mainAgentToolContext?.toolEvents || []),
-        ...(aiContext?.duplicateSearchResult
-          ? [
-              {
-                type: "context",
-                context: aiContext.contextText,
-                result: aiContext.duplicateSearchResult,
-                timings: aiContext.timings,
-              },
-            ]
-          : []),
-      ],
-      onMetrics: (metrics) => {
-        streamMetrics = metrics;
+      runtime: langGraphChatRuntime,
+      toolDependencies: {
+        runDuplicateBridge,
+        ensureDuplicateWarmup: () => duplicateWarmupManager.ensureWarm({ reason: "langgraph-agent-tool" }),
+      },
+      onCompleted: async (completed) => {
+        await agentRuntimeStore.appendRunEvent(buildAgentStreamAuditEvent(completed));
       },
     });
+    runtimeResult = graphResult.runtimeResult;
+    streamMetrics = graphResult.streamMetrics;
 
-    logMetric("ai_chat_request", {
+    const outcome = graphResult.terminal?.status
+      || (graphResult.answerValidation?.valid === false ? "blocked" : "completed");
+    logMetric(outcome === "failed" ? "ai_chat_request_failed" : "ai_chat_request", {
       requestId,
+      outcome,
       runtime: runtimeMode,
       model: String(body?.model || ""),
-      query: summarizeQuery(aiContext?.queryText || queryText),
-      aiContextEnabled: useDefectContext,
-      analyticsContextEnabled: useAnalyticsContext,
-      mainAgentToolCallCount: mainAgentToolContext?.toolCalls?.length || 0,
-      aiContextTimings: aiContext?.timings || null,
+      query: summarizeQuery(runtimeResult?.queryText || queryText),
+      aiContextEnabled: runtimeResult?.metrics?.aiContextEnabled || false,
+      analyticsContextEnabled: runtimeResult?.metrics?.analyticsContextEnabled || false,
+      mainAgentToolCallCount: runtimeResult?.metrics?.mainAgentToolCallCount || 0,
+      aiContextTimings: runtimeResult?.metrics?.aiContextTimings || null,
       streamMetrics,
       totalMs: roundMs(nowMs() - startedAt),
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown server error";
+    const safeError = toSafeCompanyChatError(error);
+    const diagnostic = controlledChatErrorDiagnostic(error);
     logMetric("ai_chat_request_failed", {
       requestId,
       runtime: runtimeMode,
       model: String(body?.model || ""),
-      query: summarizeQuery(aiContext?.queryText || queryText),
-      aiContextEnabled: useDefectContext,
-      analyticsContextEnabled: useAnalyticsContext,
-      mainAgentToolCallCount: mainAgentToolContext?.toolCalls?.length || 0,
-      aiContextTimings: aiContext?.timings || null,
+      query: summarizeQuery(runtimeResult?.queryText || queryText),
+      aiContextEnabled: runtimeResult?.metrics?.aiContextEnabled || body?.useDefectContext === true,
+      analyticsContextEnabled: runtimeResult?.metrics?.analyticsContextEnabled || body?.useAnalyticsContext === true,
+      mainAgentToolCallCount: runtimeResult?.metrics?.mainAgentToolCallCount || 0,
+      aiContextTimings: runtimeResult?.metrics?.aiContextTimings || null,
       streamMetrics,
       totalMs: roundMs(nowMs() - startedAt),
-      error: message,
+      errorCode: safeError.payload.error,
+      diagnostic,
     });
     if (response.headersSent) {
-      writeSseEvent(response, { type: "error", message });
+      writeSseEvent(response, { type: "error", message: safeError.payload.error });
       response.write("data: [DONE]\n\n");
       response.end();
       return;
     }
-    throw error;
+    sendJson(response, safeError.statusCode, safeError.payload);
   }
 }
 
@@ -272,27 +242,6 @@ function sendJson(response, statusCode, payload) {
     "Content-Type": "application/json; charset=utf-8",
   });
   response.end(JSON.stringify(payload));
-}
-
-async function readJsonBody(request) {
-  const chunks = [];
-  for await (const chunk of request) {
-    chunks.push(chunk);
-  }
-
-  const raw = Buffer.concat(chunks).toString("utf8").trim();
-  return raw ? JSON.parse(raw) : {};
-}
-
-async function proxyAnalyticsJson(pathname, searchParams, response) {
-  const analyticsUrl = new URL(pathname, "http://127.0.0.1:3003");
-  searchParams.forEach((value, key) => analyticsUrl.searchParams.append(key, value));
-  const analyticsResponse = await fetch(analyticsUrl);
-  const payload = await analyticsResponse.text();
-  response.writeHead(analyticsResponse.status, {
-    "Content-Type": analyticsResponse.headers.get("content-type") || "application/json; charset=utf-8",
-  });
-  response.end(payload);
 }
 
 async function generateTestCaseContent(defectInfo, fewShotText, chatConfig) {
@@ -373,7 +322,6 @@ async function generateTestCaseContent(defectInfo, fewShotText, chatConfig) {
     stepsText: String(parsed.stepsText || ""),
   };
 }
-
 function serveStaticAsset(request, response, url) {
   if (!staticDir || request.method !== "GET") {
     return false;
@@ -410,24 +358,20 @@ function serveStaticAsset(request, response, url) {
 }
 
 const server = http.createServer(async (request, response) => {
-  const admission = localHttpBoundary.evaluate({ method: request.method, headers: request.headers });
-  if (!admission.allowed) {
-    sendJson(response, admission.statusCode, { success: false, error: admission.code });
+  if (!isTrustedLocalApiRequest(request, { apiPort: port, webPort })) {
+    sendJson(response, 403, { success: false, error: "LOCAL_API_ORIGIN_REQUIRED" });
     return;
   }
-  if (admission.corsOrigin) {
-    response.setHeader("Access-Control-Allow-Origin", admission.corsOrigin);
-  }
-
   const url = resolveRequestUrl(request.url, request.headers.host);
 
   if (request.method === "OPTIONS") {
-    response.writeHead(204, {
-      ...(admission.corsOrigin ? { "Access-Control-Allow-Origin": admission.corsOrigin } : {}),
-      "Access-Control-Allow-Headers": "content-type, authorization",
-      "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-    });
+    response.writeHead(204, buildLocalCorsHeaders(request, { apiPort: port, webPort }));
     response.end();
+    return;
+  }
+
+  if (!isJsonApiRequest(request, url.pathname)) {
+    sendJson(response, 415, { success: false, error: "JSON_CONTENT_TYPE_REQUIRED" });
     return;
   }
 
@@ -467,7 +411,13 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (request.method === "GET" && url.pathname === "/api/qgate-reports/weekly-report") {
-      await proxyAnalyticsJson(url.pathname, url.searchParams, response);
+      await proxyAnalyticsJson({
+        pathname: url.pathname,
+        searchParams: url.searchParams,
+        response,
+        analyticsApiBase,
+        timeoutMs: analyticsProxyTimeoutMs,
+      });
       return;
     }
 
@@ -477,10 +427,14 @@ const server = http.createServer(async (request, response) => {
         url.searchParams.get("run"),
         url.searchParams.get("file"),
       );
+      const nonce = createQGateDashboardNonce();
+      const body = stampQGateScriptNonce(fs.readFileSync(filePath, "utf8"), nonce);
       response.writeHead(200, {
         "Content-Type": "text/html; charset=utf-8",
+        "Content-Security-Policy": buildQGateDashboardCsp(nonce),
+        "X-Content-Type-Options": "nosniff",
       });
-      response.end(fs.readFileSync(filePath));
+      response.end(body);
       return;
     }
 
@@ -488,7 +442,7 @@ const server = http.createServer(async (request, response) => {
       if (!await requireInternalAuxiliaryActor(request, response)) return;
       const startedAt = nowMs();
       const requestId = buildRequestId("ai-context");
-      const body = await readJsonBody(request);
+      const body = await readBoundedJsonBody(request, { maxBytes: jsonBodyLimitBytes });
       const aiContext = await resolveAiDefectContext({
         runDuplicateBridge,
         ensureDuplicateWarmup: () => duplicateWarmupManager.ensureWarm({ reason: "ai-context-endpoint" }),
@@ -519,7 +473,7 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === "POST" && url.pathname === "/api/duplicate-search/warmup") {
       if (!await requireInternalAuxiliaryActor(request, response)) return;
-      const body = await readJsonBody(request);
+      const body = await readBoundedJsonBody(request, { maxBytes: jsonBodyLimitBytes });
       const status = await duplicateWarmupManager.ensureWarm({
         reason: typeof body?.reason === "string" && body.reason.trim() ? body.reason.trim() : "manual",
       });
@@ -533,9 +487,7 @@ const server = http.createServer(async (request, response) => {
     }
 
     if (request.method === "POST" && url.pathname === "/api/ai/transcribe") {
-      const body = await readJsonBody(request);
-      const result = await handleTranscribeRequest(body);
-      sendJson(response, 200, result);
+      await handleAiTranscribeRequest(request, response);
       return;
     }
 
@@ -546,7 +498,7 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === "POST" && url.pathname === "/api/duplicate-search") {
       if (!await requireInternalAuxiliaryActor(request, response)) return;
-      const body = await readJsonBody(request);
+      const body = await readBoundedJsonBody(request, { maxBytes: jsonBodyLimitBytes });
       const query = typeof body?.query === "string" ? body.query.trim() : "";
       const selectedModel = typeof body?.model === "string" ? body.model.trim() : "";
       const topKRaw = Number(body?.top_k ?? 8);
@@ -582,7 +534,7 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === "POST" && url.pathname === "/api/duplicate-feedback") {
       if (!await requireInternalAuxiliaryActor(request, response)) return;
-      const body = await readJsonBody(request);
+      const body = await readBoundedJsonBody(request, { maxBytes: jsonBodyLimitBytes });
       const queryText = typeof body?.queryText === "string" ? body.queryText.trim() : "";
       const ticketId = typeof body?.ticketId === "string" ? body.ticketId.trim() : "";
       const signal = typeof body?.signal === "string" ? body.signal.trim().toLowerCase() : "";
@@ -624,7 +576,7 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === "POST" && url.pathname === "/api/create-testcase") {
       if (!await requireInternalAuxiliaryActor(request, response)) return;
-      const body = await readJsonBody(request);
+      const body = await readBoundedJsonBody(request, { maxBytes: jsonBodyLimitBytes });
       const defectId = typeof body?.defect_id === "string" ? body.defect_id.trim() : "";
 
       if (!defectId) {
@@ -680,7 +632,7 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === "POST" && url.pathname === "/api/create-testcase/commit") {
       if (!await requireInternalAuxiliaryActor(request, response)) return;
-      const body = await readJsonBody(request);
+      const body = await readBoundedJsonBody(request, { maxBytes: jsonBodyLimitBytes });
       const testCaseData = body?.test_case_data;
       const featureId = typeof body?.feature_id === "string" ? body.feature_id.trim() : "";
       const ownerId = typeof body?.owner_workspace_user_id === "string" ? body.owner_workspace_user_id.trim() : "";
@@ -709,14 +661,21 @@ const server = http.createServer(async (request, response) => {
 
     sendJson(response, 404, { success: false, error: `Not found: ${url.pathname}` });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown server error";
-    sendJson(response, 500, { success: false, error: message });
+    const safeBodyResponse = toSafeLocalApiBodyResponse(error);
+    if (safeBodyResponse) {
+      sendJson(response, safeBodyResponse.statusCode, safeBodyResponse.payload);
+      return;
+    }
+    console.error(`[vizion-local-api] ${controlledChatErrorDiagnostic(error)}`);
+    sendJson(response, 500, { success: false, error: "LOCAL_API_REQUEST_FAILED" });
   }
 });
 
-server.listen(port, localHttpBoundary.listenHost, () => {
-  console.log(`Vizion local API listening on http://${localHttpBoundary.listenHost}:${port}`);
-  duplicateWarmupManager.triggerBackgroundWarmup({ reason: "startup" });
+listenLocalApiServer(server, port, () => {
+  console.log(`Vizion local API listening on http://127.0.0.1:${port}`);
+  if (shouldWarmDuplicateSearch(process.env)) {
+    duplicateWarmupManager.triggerBackgroundWarmup({ reason: "startup" });
+  }
 });
 
 function shutdown() {

@@ -16,7 +16,7 @@ describe("project runtime isolation", () => {
     const packageJson = JSON.parse(readRepoFile("package.json"));
 
     expect(packageJson.scripts["report:qgate-kpi"]).toBe(
-      "python -m backend.analytics_cli generate-qgate-kpi-reports",
+      "node ./scripts/runPython.mjs -m backend.analytics_cli generate-qgate-kpi-reports",
     );
   });
 

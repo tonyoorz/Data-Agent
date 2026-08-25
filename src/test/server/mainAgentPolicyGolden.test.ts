@@ -21,6 +21,15 @@ const ACTORS = Object.freeze({
       projectIds: ["IDCEVO"],
     },
   },
+  "oidc-reader": {
+    actorId: "eval-oidc-reader",
+    scopeHash: "oidc-eval-reader",
+    scopes: {
+      allowedObjectTypes: ["quality.defect"],
+      teamIds: ["DTSV_China"],
+      projectIds: ["IDCEVO"],
+    },
+  },
 });
 
 function readCases() {
@@ -63,7 +72,7 @@ describe("Main agent policy golden suite", () => {
 
   it("repeats deterministic capability and policy-denial scenarios", async () => {
     const cases = readCases();
-    expect(cases.length).toBeGreaterThanOrEqual(6);
+    expect(cases.length).toBeGreaterThanOrEqual(7);
 
     for (const item of cases) {
       const actor = ACTORS[item.actor as keyof typeof ACTORS];
@@ -76,6 +85,23 @@ describe("Main agent policy golden suite", () => {
         const altered = `${token.slice(0, -1)}${token.endsWith("A") ? "B" : "A"}`;
         expect(() => verifyActorCapability(altered, { secret: EVAL_SECRET, now: EVAL_NOW }), item.caseId)
           .toThrow(item.expected.errorCode);
+        continue;
+      }
+      if (item.kind === "oidc_internal_only") {
+        const analyticsFetch = vi.fn();
+        const result = await executeMainAgentToolCall(toolCall(item.tool), {
+          analyticsFetch,
+          analyticsApiBase: "http://agent-eval.local",
+          actor,
+        });
+        expect(analyticsFetch, item.caseId).toHaveBeenCalledTimes(item.expected.requestCount);
+        expect(JSON.parse(result.toolMessage.content), item.caseId).toMatchObject({
+          ok: false,
+          failure: {
+            code: item.expected.errorCode,
+            dataBoundary: item.expected.dataBoundary,
+          },
+        });
         continue;
       }
 
@@ -91,14 +117,14 @@ describe("Main agent policy golden suite", () => {
         const requestBody = JSON.parse(String(init.body || "{}"));
         requestBodies.push(requestBody);
         assertSafeRequest(requestBody, item.caseId);
-        if (init.headers && parsedUrl.pathname.startsWith("/api/agent/")) {
+        if (init.headers && (parsedUrl.pathname.startsWith("/api/agent/") || parsedUrl.pathname.startsWith("/api/semantic/"))) {
           expect(verifyActorCapabilityHeader(init.headers as Record<string, string>, {
             secret: EVAL_SECRET,
             now: EVAL_NOW,
           }), item.caseId).toMatchObject({ scopeHash: item.expected.actorScopeHash });
         }
         if (parsedUrl.pathname.startsWith("/api/semantic/")) {
-          expect(requestBody.actorScope?.scopeHash, item.caseId).toBe(item.expected.actorScopeHash);
+          expect(requestBody, item.caseId).not.toHaveProperty("actorScope");
         }
         return response(next.status, next.body);
       });

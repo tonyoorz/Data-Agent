@@ -1,11 +1,12 @@
 import { semanticQuerySchema } from "./ontology/queryCompiler.mjs";
+import { resolveAnalyticsApiBase } from "./analyticsApiConfig.mjs";
+import { boundDefaultAnalyticsFetch } from "./boundedAnalyticsFetch.mjs";
 import { isOidcScopedActor } from "./agentAuth.mjs";
 import {
   ACTOR_CAPABILITY_HEADER,
   createActorCapability,
 } from "./agentActorCapability.mjs";
-
-const DEFAULT_ANALYTICS_API_BASE = process.env.VIZION_ANALYTICS_API_BASE || "http://127.0.0.1:3003";
+import { mainAgentToolDataBoundary } from "./mainAgentToolDataBoundary.mjs";
 
 const DASHBOARD_SUMMARY_FILTER_KEYS = new Set([
   "years",
@@ -1052,21 +1053,6 @@ function failedToolResult(toolCall, toolName, failure, contextText) {
   };
 }
 
-function buildActorScope(actor) {
-  const scopes = actor?.scopes || {};
-  return {
-    actorId: String(actor?.actorId || ""),
-    scopeHash: String(actor?.scopeHash || ""),
-    workspaceIds: Array.isArray(scopes.workspaceIds) ? scopes.workspaceIds.map(String) : [],
-    projectIds: Array.isArray(scopes.projectIds) ? scopes.projectIds.map(String) : [],
-    teamIds: Array.isArray(scopes.teamIds) ? scopes.teamIds.map(String) : [],
-    allowedObjectTypes: Array.isArray(scopes.allowedObjectTypes) ? scopes.allowedObjectTypes.map(String) : [],
-    allowedPropertyIds: Array.isArray(scopes.allowedPropertyIds) ? scopes.allowedPropertyIds.map(String) : [],
-    rowPolicyIds: Array.isArray(scopes.rowPolicyIds) ? scopes.rowPolicyIds.map(String) : [],
-    sensitiveFieldPolicyIds: Array.isArray(scopes.sensitiveFieldPolicyIds) ? scopes.sensitiveFieldPolicyIds.map(String) : [],
-  };
-}
-
 function buildToolMessage(toolCall, content) {
   return {
     role: "tool",
@@ -1115,23 +1101,17 @@ function formatSemanticContext(name, payload) {
   ].join("\n");
 }
 
-async function executeSemanticQuery(toolCall, { analyticsFetch, analyticsApiBase, actor }) {
+async function executeSemanticQuery(toolCall, dependencies) {
   const args = parseToolArguments(toolCall?.function?.arguments);
   const query = args.query;
-  const url = new URL("/api/semantic/query", analyticsApiBase).toString();
   const body = {
     schemaVersion: "1.0",
     queryId: String(toolCall?.id || `semantic-${Date.now()}`),
     ontologyVersion: query?.ontologyVersion,
     schemaFingerprint: query?.schemaFingerprint,
     query,
-    actorScope: buildActorScope(actor),
   };
-  const response = await analyticsFetch(url, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  const { response } = await postAgentAnalyticsJson("/api/semantic/query", body, dependencies);
   if (!response?.ok) {
     let failure = {};
     try {
@@ -1155,10 +1135,9 @@ async function executeSemanticQuery(toolCall, { analyticsFetch, analyticsApiBase
   };
 }
 
-async function executeSemanticRecords(toolCall, { analyticsFetch, analyticsApiBase, actor }) {
+async function executeSemanticRecords(toolCall, dependencies) {
   const args = parseToolArguments(toolCall?.function?.arguments);
   const query = args.query && typeof args.query === "object" ? args.query : null;
-  const url = new URL("/api/semantic/records", analyticsApiBase).toString();
   const body = {
     schemaVersion: "1.0",
     queryId: String(toolCall?.id || `semantic-records-${Date.now()}`),
@@ -1166,17 +1145,12 @@ async function executeSemanticRecords(toolCall, { analyticsFetch, analyticsApiBa
     schemaFingerprint: String(args.schema_fingerprint || query?.schemaFingerprint || ""),
     query,
     analysisRef: args.analysis_ref == null ? null : String(args.analysis_ref),
-    actorScope: buildActorScope(actor),
     selections: Array.isArray(args.selections) ? args.selections : [],
     fields: Array.isArray(args.fields) ? args.fields.map(String) : [],
     page: Number(args.page || 1),
     pageSize: Number(args.page_size || 20),
   };
-  const response = await analyticsFetch(url, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
+  const { response } = await postAgentAnalyticsJson("/api/semantic/records", body, dependencies);
   if (!response?.ok) {
     let failure = {};
     try {
@@ -2026,15 +2000,7 @@ function formatAnalyticsFallbackContext(url, payload) {
   ].join("\n");
 }
 
-async function executeAnalyticsFallback(toolCall, { analyticsFetch, analyticsApiBase, actor }) {
-  if (isOidcScopedActor(actor)) {
-    return failedToolResult(
-      toolCall,
-      "query_analytics_fallback",
-      { code: "OIDC_UNSCOPED_TOOL_DISABLED", statusCode: 403, retryable: false },
-      "# Main agent tool result\nTool: query_analytics_fallback\nResult: unavailable for scoped OIDC actors until a capability-enforced fallback route exists.",
-    );
-  }
+async function executeAnalyticsFallback(toolCall, { analyticsFetch, analyticsApiBase }) {
   const args = parseToolArguments(toolCall?.function?.arguments);
   const { url, response } = await postAnalyticsJson("/api/analytics/fallback/query", args, { analyticsFetch, analyticsApiBase });
   if (!response?.ok) {
@@ -2190,15 +2156,7 @@ function formatDuplicateSearchContext(payload) {
   ].filter(Boolean).join("\n");
 }
 
-async function executeDuplicateSearch(toolCall, { runDuplicateBridge, ensureDuplicateWarmup, actor }) {
-  if (isOidcScopedActor(actor)) {
-    return failedToolResult(
-      toolCall,
-      "search_duplicates",
-      { code: "OIDC_UNSCOPED_TOOL_DISABLED", statusCode: 403, retryable: false },
-      "# Main agent tool result\nTool: search_duplicates\nResult: unavailable for scoped OIDC actors until duplicate search has row-scope enforcement.",
-    );
-  }
+async function executeDuplicateSearch(toolCall, { runDuplicateBridge, ensureDuplicateWarmup }) {
   if (typeof runDuplicateBridge !== "function") {
     const content = JSON.stringify({ error: "Duplicate bridge is not available" });
     return {
@@ -2263,7 +2221,7 @@ function executeAskClarification(toolCall) {
 
 export async function executeMainAgentToolCall(toolCall, {
   analyticsFetch = globalThis.fetch,
-  analyticsApiBase = DEFAULT_ANALYTICS_API_BASE,
+  analyticsApiBase = resolveAnalyticsApiBase(),
   runDuplicateBridge,
   ensureDuplicateWarmup,
   actor,
@@ -2273,6 +2231,7 @@ export async function executeMainAgentToolCall(toolCall, {
   actorCapabilityEnv,
   now,
 } = {}) {
+  analyticsFetch = boundDefaultAnalyticsFetch(analyticsFetch);
   const agentAnalyticsDependencies = {
     analyticsFetch,
     analyticsApiBase,
@@ -2283,6 +2242,32 @@ export async function executeMainAgentToolCall(toolCall, {
     actorCapabilityEnv,
   };
   const name = toolCall?.function?.name || "";
+  const dataBoundary = mainAgentToolDataBoundary(name);
+  if (isOidcScopedActor(actor) && dataBoundary === "internal_only") {
+    return failedToolResult(
+      toolCall,
+      name,
+      {
+        code: "OIDC_INTERNAL_ONLY_TOOL_DENIED",
+        dataBoundary,
+        statusCode: 403,
+        retryable: false,
+      },
+      `# Main agent tool result\nTool: ${name}\nResult: unavailable for OIDC actors until a scope-aware capability backend exists.`,
+    );
+  }
+  if (isOidcScopedActor(actor) && dataBoundary !== "metadata" && dataBoundary !== "scoped_data") {
+    return failedToolResult(
+      toolCall,
+      name || "unknown_tool",
+      {
+        code: "OIDC_TOOL_DATA_BOUNDARY_UNCLASSIFIED",
+        statusCode: 403,
+        retryable: false,
+      },
+      `# Main agent tool result\nTool: ${name || "unknown_tool"}\nResult: denied because the OIDC data boundary is unclassified.`,
+    );
+  }
   try {
     if (name === "get_data_catalog") {
       return executeDataCatalog(toolCall);
@@ -2306,13 +2291,13 @@ export async function executeMainAgentToolCall(toolCall, {
       return await executeDiagnoseAnalyticsEmpty(toolCall, agentAnalyticsDependencies);
     }
     if (name === "query_analytics_fallback") {
-      return await executeAnalyticsFallback(toolCall, { analyticsFetch, analyticsApiBase, actor });
+      return await executeAnalyticsFallback(toolCall, { analyticsFetch, analyticsApiBase });
     }
     if (name === "query_semantic_records") {
-      return await executeSemanticRecords(toolCall, { analyticsFetch, analyticsApiBase, actor });
+      return await executeSemanticRecords(toolCall, agentAnalyticsDependencies);
     }
     if (name === "query_semantic_metrics" || name === "query_traceability") {
-      return await executeSemanticQuery(toolCall, { analyticsFetch, analyticsApiBase, actor });
+      return await executeSemanticQuery(toolCall, agentAnalyticsDependencies);
     }
     if (name === "query_dashboard_summary") {
       return await executeDashboardSummary(toolCall, { analyticsFetch, analyticsApiBase });
@@ -2342,7 +2327,7 @@ export async function executeMainAgentToolCall(toolCall, {
       return await executeFullPictureModule(toolCall, { analyticsFetch, analyticsApiBase, now });
     }
     if (name === "search_duplicates") {
-      return await executeDuplicateSearch(toolCall, { runDuplicateBridge, ensureDuplicateWarmup, actor });
+      return await executeDuplicateSearch(toolCall, { runDuplicateBridge, ensureDuplicateWarmup });
     }
     if (name === "ask_clarification") {
       return executeAskClarification(toolCall);

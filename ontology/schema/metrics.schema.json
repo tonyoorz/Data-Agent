@@ -12,11 +12,31 @@
       "minItems": 1,
       "items": {
         "type": "object",
-        "required": ["id", "definitionVersion", "labels", "description", "entityId", "grain", "unit", "defaultTimeDimension", "allowedDimensions", "requiredFilters", "missingDataPolicy", "capabilities", "sourceReadModel", "sourceRevisionStrategy", "governance"],
+        "required": ["id", "definitionVersion", "runtime", "labels", "description", "entityId", "grain", "unit", "defaultTimeDimension", "allowedDimensions", "requiredFilters", "missingDataPolicy", "capabilities", "sourceReadModel", "sourceRevisionStrategy", "governance"],
         "additionalProperties": false,
         "properties": {
           "id": { "type": "string", "pattern": "^[a-z][a-z0-9_]+(\\.[a-z][a-z0-9_]+)+$" },
           "definitionVersion": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+          "runtime": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": ["status"],
+                "additionalProperties": false,
+                "properties": { "status": { "const": "planned" } }
+              },
+              {
+                "type": "object",
+                "required": ["status", "adapterId", "adapterVersion"],
+                "additionalProperties": false,
+                "properties": {
+                  "status": { "const": "ready" },
+                  "adapterId": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]+$" },
+                  "adapterVersion": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" }
+                }
+              }
+            ]
+          },
           "labels": { "$ref": "common.schema.json#/$defs/labels" },
           "description": { "type": "string", "minLength": 1 },
           "entityId": { "type": "string", "minLength": 1 },

@@ -1,3 +1,5 @@
+import { SEMANTIC_RUNTIME_ADAPTERS, validateMetricRuntimePublication } from "./runtimePublication.mjs";
+
 function fail(code, details = "") {
   throw new Error(details ? `${code}:${details}` : code);
 }
@@ -106,6 +108,7 @@ export function validateOntologyBundle(bundle) {
     }
     const source = sourceByReadModel.get(metric.sourceReadModel);
     if (!source) fail("ONTOLOGY_METRIC_SOURCE_NOT_FOUND", metric.id);
+    validateMetricRuntimePublication(metric);
     if (governanceStatus(metric) === "approved") {
       if (governanceStatus(entity) !== "approved") fail("ONTOLOGY_APPROVED_METRIC_USES_UNAPPROVED_ENTITY", metric.id);
       if (governanceStatus(source) !== "approved") fail("ONTOLOGY_APPROVED_METRIC_USES_UNAPPROVED_SOURCE", metric.id);
@@ -115,6 +118,21 @@ export function validateOntologyBundle(bundle) {
         }
       }
     }
+  }
+
+  const runtimeReadyMetricIds = new Set(
+    metrics.filter((metric) => metric.runtime?.status === "ready").map((metric) => metric.id),
+  );
+  const boundRuntimeMetricIds = new Set(
+    Object.values(SEMANTIC_RUNTIME_ADAPTERS).flatMap((runtimeAdapter) => runtimeAdapter.metricIds),
+  );
+  const missingRuntimeMetrics = [...boundRuntimeMetricIds].filter((metricId) => !runtimeReadyMetricIds.has(metricId));
+  const extraRuntimeMetrics = [...runtimeReadyMetricIds].filter((metricId) => !boundRuntimeMetricIds.has(metricId));
+  if (missingRuntimeMetrics.length || extraRuntimeMetrics.length) {
+    fail(
+      "ONTOLOGY_RUNTIME_METRIC_PARITY_INVALID",
+      `missing=${missingRuntimeMetrics.sort().join(",")}:extra=${extraRuntimeMetrics.sort().join(",")}`,
+    );
   }
 
   for (const term of terms) {

@@ -2,6 +2,7 @@ import { validateSemanticFrame } from "./semanticFrame.mjs";
 import { composeSourceQuery, fingerprintSourceQuery } from "./fingerprint.mjs";
 import { resolveTimeScopes } from "./timeResolver.mjs";
 import { mandatoryScopeFilters } from "./scopePolicy.mjs";
+import { semanticMetricNotRuntimeReadyCode } from "./runtimePublication.mjs";
 
 function unique(values) {
   return [...new Set(values.filter(Boolean))];
@@ -79,12 +80,13 @@ function intentFrom(query) {
 
 function defaultMetricId(query, intent) {
   if (intent === "similarity" || intent === "trace") return null;
-  if (/测试执行|测试运行|manual run|run count/i.test(query)) return "testing.run_count";
-  if (/测试用例|用例数量|testcase/i.test(query)) return "testing.testcase_count";
   if (/通过的测试|passed runs?/i.test(query)) return "testing.passed_run_count";
   if (/失败的测试|failed runs?/i.test(query)) return "testing.failed_run_count";
-  if (/新增|新建|提交|创建|提票|报票|提了|高频|created/i.test(query)) return "defect.created_count";
-  return "defect.count";
+  if (/测试执行|测试运行|manual run|run count/i.test(query)) return "testing.run_count";
+  if (/测试用例|用例数量|testcase/i.test(query)) return "testing.testcase_count";
+  const defectCue = /缺陷|bug|defect|issue|ticket|qgate|top\s*issue|showstopper/i.test(query);
+  if (/高频/i.test(query) || (defectCue && /新增|新建|提交|创建|created|opened|raised/i.test(query))) return "defect.created_count";
+  return defectCue ? "defect.count" : null;
 }
 
 function topLimit(query, maximum = 200) {
@@ -234,12 +236,14 @@ export function createSemanticResolver({ registry, now = () => new Date().toISOS
       if (heuristicIntent === "aggregate" && traceMentionCount >= 2 && /关联|链路|追溯|哪些|没有|到|related|linked|without|which/i.test(text)) {
         heuristicIntent = "trace";
       }
-      const candidateIntent = candidate?.intent;
+      const candidateSelection = candidate?.catalogSelection;
+      const groundedCandidate = !candidateSelection || candidateSelection.mode === "matched_terms" ? candidate : null;
+      const candidateIntent = groundedCandidate?.intent;
       const hasExplicitMetric = matchedTerms.some((term) => term.resolution.metricId);
       const intent = heuristicIntent === "aggregate"
         ? followUp && !hasExplicitMetric ? priorFrame.intent : candidateIntent || heuristicIntent
         : heuristicIntent;
-      const candidateMetricIds = unique(candidate?.metricIds || []).map((id) => registry.getMetric(id).id);
+      const candidateMetricIds = unique(groundedCandidate?.metricIds || []).map((id) => registry.getMetric(id).id);
       let matchedMetricIds = unique(matchedTerms.map((term) => term.resolution.metricId));
       if (clarificationOverridesMetric) matchedMetricIds = clarificationMetricIds;
       const heuristicMetricId = defaultMetricId(text, intent);
@@ -260,7 +264,7 @@ export function createSemanticResolver({ registry, now = () => new Date().toISOS
         metricIds = [selectedFallback];
       }
       const metrics = metricIds.map((id) => registry.getMetric(id));
-      const candidateEntityIds = unique(candidate?.entityIds || []).map((id) => registry.getEntity(id).id);
+      const candidateEntityIds = unique(groundedCandidate?.entityIds || []).map((id) => registry.getEntity(id).id);
       const entityIds = intent === "trace"
         ? ["requirements.aida_node", "testing.test_case", "testing.test_run", "quality.defect"]
         : intent === "similarity"
@@ -283,7 +287,7 @@ export function createSemanticResolver({ registry, now = () => new Date().toISOS
           .map((term) => term.resolution.dimensionId)))
         .filter((dimensionId) => !governedValueDimensions.has(dimensionId) || intent === "compare" || explicitGroupingForDimension(text, matchedTerms, dimensionId));
       const explicitGroupingDimensionIds = matchedDimensionIds.filter((dimensionId) => explicitGroupingForDimension(text, matchedTerms, dimensionId));
-      const candidateDimensionIds = unique(candidate?.dimensionIds || []).map((id) => registry.getDimension(id).id)
+      const candidateDimensionIds = unique(groundedCandidate?.dimensionIds || []).map((id) => registry.getDimension(id).id)
         .filter((dimensionId) => !governedValueDimensions.has(dimensionId) || intent === "compare" || explicitGroupingForDimension(text, matchedTerms, dimensionId));
       const inheritedDimensionIds = usingInheritedMetric ? unique(priorFrame.dimensionIds || []).map((id) => registry.getDimension(id).id) : [];
       let dimensionIds = unique([
@@ -320,6 +324,14 @@ export function createSemanticResolver({ registry, now = () => new Date().toISOS
         ? [...resolvedTime.assumptions.filter((item) => item !== "TIME_DEFAULTS_TO_ANCHOR_YEAR_TO_DATE"), "THREAD_SEMANTIC_CONTEXT_INHERITED"]
         : resolvedTime.assumptions;
       const ambiguitiesByCode = new Map();
+      if (!metricIds.length && intent !== "trace" && intent !== "similarity") {
+        ambiguitiesByCode.set("METRIC_REQUIRED", {
+          code: "METRIC_REQUIRED",
+          kind: "metric_definition",
+          message: "没有识别到可治理的缺陷或测试指标。请明确要分析的指标，或说明这是当前 Ontology 之外的问题。",
+          options: ["补充其他明确口径", "取消本次查询"],
+        });
+      }
       for (const term of matchedTerms) {
         if (!term.resolution.ambiguityCode) continue;
         if (selectedFallback && term.resolution.metricId !== selectedFallback) continue;
@@ -337,6 +349,15 @@ export function createSemanticResolver({ registry, now = () => new Date().toISOS
         if (metric.governance.status !== "approved") {
           const ambiguity = ambiguityForMetric(metric);
           ambiguitiesByCode.set(ambiguity.code, ambiguity);
+        } else if (metric.runtime?.status !== "ready") {
+          const code = semanticMetricNotRuntimeReadyCode(metric.id);
+          ambiguitiesByCode.set(code, {
+            code,
+            kind: "runtime_publication",
+            message: `“${metric.labels["zh-CN"]}”已完成业务治理，但尚未发布到语义运行时。请选择已发布指标或稍后重试。`,
+            metricId: metric.id,
+            options: ["改用已发布指标", "取消本次查询"],
+          });
         }
       }
       if (intent === "trace" && clarificationSelection !== "查看当前授权范围的追溯概览" && /(?:这个|该|this)\s*(?:AIDA|Requirement|需求)/iu.test(text) && !filters.some((item) => item.source !== "policy" && item.dimensionId === "requirements.aida")) {

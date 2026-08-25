@@ -19,6 +19,33 @@ const DEFAULT_ENDPOINTS = {
   "qwen3.5-397b-a17b": "https://aistudio.bmwbrill.cn/api/service/164/ernie/v2/chat/completions",
   "glm-5": "https://aistudio.bmwbrill.cn/api/service/163/ernie/v2/chat/completions",
 };
+const LOOPBACK_MODEL_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]", "::1"]);
+
+function modelConfigError(code = "CHAT_MODEL_ENDPOINT_INVALID") {
+  const error = new Error(code);
+  error.code = code;
+  return error;
+}
+
+function secureModelUrl(value) {
+  let url;
+  try {
+    url = new URL(String(value || "").trim());
+  } catch {
+    throw modelConfigError();
+  }
+  if (
+    !["http:", "https:"].includes(url.protocol)
+    || (url.protocol === "http:" && !LOOPBACK_MODEL_HOSTS.has(url.hostname.toLowerCase()))
+    || Boolean(url.username)
+    || Boolean(url.password)
+    || Boolean(url.search)
+    || Boolean(url.hash)
+  ) {
+    throw modelConfigError();
+  }
+  return url.toString();
+}
 
 function readFirst(env, keys) {
   for (const key of keys) {
@@ -31,32 +58,45 @@ function readFirst(env, keys) {
   return "";
 }
 
+function readExplicit(env, keys) {
+  for (const key of keys) {
+    if (Object.hasOwn(env || {}, key)) {
+      return { configured: true, value: String(env?.[key] ?? "") };
+    }
+  }
+  return { configured: false, value: "" };
+}
+
 function parseEndpointMap(env) {
-  const raw = readFirst(env, ["DUPSEARCH_CHAT_MODEL_ENDPOINTS", "CHAT_MODEL_ENDPOINTS"]);
-  if (!raw) {
+  const explicit = readExplicit(env, ["DUPSEARCH_CHAT_MODEL_ENDPOINTS", "CHAT_MODEL_ENDPOINTS"]);
+  if (!explicit.configured) {
     return { ...DEFAULT_ENDPOINTS };
   }
+  const raw = explicit.value.trim();
+  if (!raw) throw modelConfigError();
 
+  let parsed;
   try {
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return { ...DEFAULT_ENDPOINTS };
-    }
-
-    const mapped = {};
-    for (const [key, value] of Object.entries(parsed)) {
-      const normalizedKey = String(key || "").trim().toLowerCase();
-      const normalizedValue = String(value || "").trim();
-      if (!normalizedKey || !normalizedValue) {
-        continue;
-      }
-      mapped[normalizedKey] = normalizedValue;
-    }
-
-    return Object.keys(mapped).length ? mapped : { ...DEFAULT_ENDPOINTS };
+    parsed = JSON.parse(raw);
   } catch {
-    return { ...DEFAULT_ENDPOINTS };
+    throw modelConfigError();
   }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw modelConfigError();
+  }
+
+  const mapped = {};
+  for (const [key, value] of Object.entries(parsed)) {
+    const normalizedKey = String(key || "").trim().toLowerCase();
+    const normalizedValue = String(value || "").trim();
+    if (!normalizedKey || !normalizedValue) {
+      throw modelConfigError();
+    }
+    secureModelUrl(normalizedValue.replaceAll("{access_code}", "validated-access-code"));
+    mapped[normalizedKey] = normalizedValue;
+  }
+  if (!Object.keys(mapped).length) throw modelConfigError();
+  return mapped;
 }
 
 function resolveGlmProxyBaseUrl(env) {
@@ -78,16 +118,18 @@ function usesGlmProxy(env) {
 }
 
 export function getChatModelOptions(env = process.env) {
-  const envRaw = readFirst(env, [
+  const explicit = readExplicit(env, [
     "DUPSEARCH_CHAT_MODEL_OPTIONS",
     "CHAT_MODEL_OPTIONS",
-    "VITE_DUPSEARCH_CHAT_MODEL_OPTIONS",
   ]);
-  const envModels = envRaw
-    ? envRaw.split(",").map((item) => item.trim()).filter(Boolean)
+  const envModels = explicit.configured
+    ? explicit.value.split(",").map((item) => item.trim()).filter(Boolean)
     : [];
+  if (explicit.configured && envModels.length === 0) {
+    throw modelConfigError("CHAT_MODEL_OPTIONS_INVALID");
+  }
   const defaultModels = usesGlmProxy(env) ? GLM_PROXY_DEFAULT_MODELS : LEGACY_DEFAULT_MODELS;
-  const merged = [...envModels, ...defaultModels];
+  const merged = explicit.configured ? envModels : defaultModels;
   const seen = new Set();
   const ordered = [];
 
@@ -117,28 +159,33 @@ export function resolveChatModelConfig(selectedModel, env = process.env) {
   const model = String(selectedModel || "").trim() || getDefaultChatModel(env);
   const glmProxyBaseUrl = resolveGlmProxyBaseUrl(env);
   const endpointMap = glmProxyBaseUrl ? {} : parseEndpointMap(env);
+  const allowedModels = new Set(getChatModelOptions(env).map((item) => item.toLowerCase()));
+  if (!allowedModels.has(model.toLowerCase())) {
+    throw modelConfigError("CHAT_MODEL_NOT_ALLOWED");
+  }
   const endpointTemplate = String(endpointMap[model.toLowerCase()] || "").trim();
   const accessCode = readFirst(env, [
     "DUPSEARCH_CHAT_ACCESS_CODE",
-    "ACCESS_CODE",
     "DEEPSEEK_ACCESS_CODE",
   ]);
-  const endpoint = endpointTemplate
-    ? endpointTemplate.replace("{access_code}", accessCode)
-    : "";
   const apiKey = readFirst(env, [
     "GLM_PROXY_API_KEY",
     "DUPSEARCH_CHAT_API_KEY",
-    "API_KEY",
     "DEEPSEEK_API_KEY",
   ]);
-  const authScheme = endpoint ? "ACCESSCODE" : "Bearer";
-  const credential = endpoint ? accessCode : apiKey;
-  const baseUrl = endpoint
+  const useInternalEndpoint = Boolean(endpointTemplate && accessCode);
+  const endpoint = useInternalEndpoint
+    ? secureModelUrl(endpointTemplate.replaceAll("{access_code}", encodeURIComponent(accessCode)))
+    : "";
+  const authScheme = useInternalEndpoint ? "ACCESSCODE" : "Bearer";
+  const credential = useInternalEndpoint ? accessCode : apiKey;
+  const baseUrl = useInternalEndpoint
     ? ""
-    : glmProxyBaseUrl ||
-      readFirst(env, ["DUPSEARCH_CHAT_API_BASE", "DEEPSEEK_API_BASE"]) ||
-      "https://api.deepseek.com/v1";
+    : secureModelUrl(
+      glmProxyBaseUrl
+        || readFirst(env, ["DUPSEARCH_CHAT_API_BASE", "DEEPSEEK_API_BASE"])
+        || "https://api.deepseek.com/v1",
+    );
 
   return {
     model,
@@ -148,7 +195,7 @@ export function resolveChatModelConfig(selectedModel, env = process.env) {
     authScheme,
     credential,
     baseUrl,
-    usesInternalEndpoint: Boolean(endpoint),
+    usesInternalEndpoint: useInternalEndpoint,
   };
 }
 
@@ -184,7 +231,7 @@ export function buildChatCompletionRequest({
       url: config.endpoint,
       headers: {
         accept: "application/json",
-        authorization: `${config.authScheme} ${config.credential}`.trim(),
+        ...(config.credential ? { authorization: `${config.authScheme} ${config.credential}` } : {}),
         "Content-Type": "application/json",
       },
       body: {
@@ -209,7 +256,7 @@ export function buildChatCompletionRequest({
     url,
     headers: {
       "Content-Type": "application/json",
-      Authorization: `${config.authScheme} ${config.credential}`.trim(),
+      ...(config.credential ? { Authorization: `${config.authScheme} ${config.credential}` } : {}),
     },
     body: {
       model: config.model,

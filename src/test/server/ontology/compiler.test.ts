@@ -23,11 +23,32 @@ describe("Ontology compiler", () => {
     expect(first.counts).toMatchObject({
       entityCount: 28,
       relationshipCount: 27,
-      dimensionCount: 50,
-      metricCount: 30,
-      businessRuleCount: 1,
+      dimensionCount: 51,
+      metricCount: 31,
+      businessRuleCount: 3,
       actionCount: 3,
     });
+    expect(first.bundle.metrics.filter((metric) => metric.runtime?.status === "ready").map((metric) => metric.id)).toEqual([
+      "defect.count",
+      "defect.created_count",
+      "defect.severe_count",
+      "team.defect_discovery_count",
+      "team.execution_count",
+      "testing.failed_run_count",
+      "testing.passed_run_count",
+      "testing.run_count",
+      "testing.testcase_count",
+    ]);
+    expect(first.bundle.metrics.every((metric) => ["ready", "planned"].includes(metric.runtime?.status))).toBe(true);
+    expect(first.bundle.metrics.filter((metric) => metric.runtime?.status === "ready")).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        runtime: {
+          status: "ready",
+          adapterId: "python.semantic.defects",
+          adapterVersion: "1.0.0",
+        },
+      }),
+    ]));
     expect(first.bundle.businessRules).toEqual(expect.arrayContaining([
       expect.objectContaining({
         id: "business.defect_created_count.creation_time",
@@ -35,6 +56,27 @@ describe("Ontology compiler", () => {
         effect: expect.objectContaining({ requiredTimeField: "time.defect_creation_date" }),
       }),
     ]));
+    expect(first.runtimeCapabilityReport).toMatchObject({
+      schemaVersion: "1.0",
+      ontologyFingerprint: first.fingerprint,
+      summary: {
+        approvedMetricCount: 17,
+        runtimeReadyMetricCount: 9,
+        approvedPlannedMetricCount: 8,
+      },
+      runtimeReadyMetricIds: [
+        "defect.count",
+        "defect.created_count",
+        "defect.severe_count",
+        "team.defect_discovery_count",
+        "team.execution_count",
+        "testing.failed_run_count",
+        "testing.passed_run_count",
+        "testing.run_count",
+        "testing.testcase_count",
+      ],
+    });
+    expect(JSON.parse(fs.readFileSync(first.runtimeCapabilityReportPath, "utf8"))).toEqual(first.runtimeCapabilityReport);
   });
 
   it("rejects invalid relationship endpoints and metric references", () => {
@@ -45,6 +87,26 @@ describe("Ontology compiler", () => {
     const second = JSON.parse(fs.readFileSync("ontology/generated/ontology.compiled.json", "utf8"));
     second.metrics[0].allowedDimensions.push("missing.dimension");
     expect(() => validateOntologyBundle(second)).toThrow("ONTOLOGY_METRIC_DIMENSION_NOT_FOUND");
+  });
+
+  it("rejects runtime-ready metrics whose publication binding cannot execute an allowed dimension", () => {
+    const bundle = JSON.parse(fs.readFileSync("ontology/generated/ontology.compiled.json", "utf8"));
+    const metric = bundle.metrics.find((item) => item.id === "testing.run_count");
+    metric.allowedDimensions.push("product.os");
+
+    expect(() => validateOntologyBundle(bundle)).toThrow(
+      "ONTOLOGY_RUNTIME_DIMENSION_NOT_SUPPORTED:testing.run_count:product.os",
+    );
+  });
+
+  it("rejects runtime publication drift when an executable adapter metric is marked planned", () => {
+    const bundle = JSON.parse(fs.readFileSync("ontology/generated/ontology.compiled.json", "utf8"));
+    const metric = bundle.metrics.find((item) => item.id === "defect.count");
+    metric.runtime = { status: "planned" };
+
+    expect(() => validateOntologyBundle(bundle)).toThrow(
+      "ONTOLOGY_RUNTIME_METRIC_PARITY_INVALID:missing=defect.count:extra=",
+    );
   });
 
   it("emits a Mermaid entity graph when emitGraph is true", () => {
@@ -69,5 +131,17 @@ describe("Ontology compiler", () => {
     fs.writeFileSync(path.join(outputDir, "fingerprint.txt"), "stale\n");
 
     expect(() => compileOntology({ outputDir, check: true })).toThrow("ONTOLOGY_GENERATED_OUTPUT_STALE");
+  });
+
+  it("rejects a stale runtime capability report independently of the ontology fingerprint", () => {
+    const outputDir = fs.mkdtempSync(path.join(os.tmpdir(), "ontology-runtime-report-"));
+    temporaryRoots.push(outputDir);
+    compileOntology({ outputDir });
+    const reportPath = path.join(outputDir, "runtime-capabilities.json");
+    const report = JSON.parse(fs.readFileSync(reportPath, "utf8"));
+    report.runtimeReadyMetricIds = [];
+    fs.writeFileSync(reportPath, `${JSON.stringify(report)}\n`);
+
+    expect(() => compileOntology({ outputDir, check: true })).toThrow("ONTOLOGY_RUNTIME_CAPABILITY_REPORT_STALE");
   });
 });

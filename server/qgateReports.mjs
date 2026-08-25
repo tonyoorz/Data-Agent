@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -66,6 +67,42 @@ export function resolveQGateDashboardHtmlPath(root, run, fileName) {
     throw new Error("QGate dashboard file not found");
   }
   return resolvedFile;
+}
+
+export function createQGateDashboardNonce() {
+  return randomBytes(18).toString("base64url");
+}
+
+export function buildQGateDashboardCsp(nonce) {
+  if (!nonce || typeof nonce !== "string") {
+    throw new TypeError("QGATE_DASHBOARD_NONCE_REQUIRED");
+  }
+  return [
+    "default-src 'none'",
+    `script-src 'nonce-${nonce}'`,
+    "style-src 'unsafe-inline'",
+    "img-src 'self'",
+    "font-src 'self'",
+    "connect-src 'none'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'none'",
+    "frame-ancestors 'none'",
+  ].join("; ");
+}
+
+export function stampQGateScriptNonce(html, nonce) {
+  if (typeof html !== "string") {
+    throw new TypeError("QGATE_DASHBOARD_HTML_REQUIRED");
+  }
+  if (!nonce || typeof nonce !== "string") {
+    throw new TypeError("QGATE_DASHBOARD_NONCE_REQUIRED");
+  }
+  // The generated dashboard has exactly one inline <script> (the renderer).
+  // String#replace with a string pattern rewrites only the first occurrence, so
+  // any injected </script><script> breakout stays un-noned and is blocked by
+  // the script-src 'nonce-...' policy.
+  return html.replace("<script>", `<script nonce="${nonce}">`);
 }
 
 function unavailable() {

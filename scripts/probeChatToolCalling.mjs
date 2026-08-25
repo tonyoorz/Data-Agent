@@ -21,6 +21,7 @@ const response = await fetch(requestConfig.url, {
   method: "POST",
   headers: requestConfig.headers,
   body: JSON.stringify(requestConfig.body),
+  redirect: "error",
 });
 
 const text = await response.text();

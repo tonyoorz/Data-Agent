@@ -1,15 +1,17 @@
+import { createHash } from "node:crypto";
+
 import { Annotation, END, MemorySaver, START, StateGraph } from "@langchain/langgraph";
 
 import { isOidcScopedActor } from "../agentAuth.mjs";
 import { resolveAiAnalyticsContext } from "../aiAnalyticsContext.mjs";
 import { extractLatestUserQuery, resolveAiDefectContext } from "../aiContext.mjs";
 import { buildCitationContractContext } from "../answerValidator.mjs";
-import { requestCompanyChatCompletion } from "../companyChat.mjs";
-import { isAnalyticsActorScopeConfigured } from "../internalActorScope.mjs";
+import { prepareCompanyChatMessages, requestCompanyChatCompletion } from "../companyChat.mjs";
 import { buildDataAccessUnavailableResponse, classifyDirectMainAgentIntent } from "../mainAgentDirectIntent.mjs";
+import { isAnalyticsActorScopeConfigured } from "../internalActorScope.mjs";
 import {
   buildSemanticContinuationContext,
-  evaluateSemanticEvidence,
+  evaluateClaimEvidence,
   formatSemanticEvidenceGate,
 } from "../mainAgentEvidence.mjs";
 import { buildRuntimeRunSummary } from "./runSummary.mjs";
@@ -34,8 +36,9 @@ import {
   completeCatalogBackedAnalyticsRetry,
 } from "../mainAgentToolRecovery.mjs";
 import { createOntologyRegistry } from "../ontology/registry.mjs";
-import { validateGovernedAnalysisPlan } from "../ontology/analysisPlanner.mjs";
-import { fingerprintQueryPlanSteps, validatePlan } from "../ontology/queryPlanner.mjs";
+import { createGovernedAnalysisPlanner, validateGovernedAnalysisPlan } from "../ontology/analysisPlanner.mjs";
+import { validateSemanticQuery } from "../ontology/queryCompiler.mjs";
+import { fingerprintQueryPlan, fingerprintQueryPlanSteps, validatePlan } from "../ontology/queryPlanner.mjs";
 
 const SUPPORTED_RUNTIME_MODES = new Set(["langgraph"]);
 
@@ -45,8 +48,10 @@ const append = (left, right) => [...(Array.isArray(left) ? left : []), ...(Array
 const ChatState = Annotation.Root({
   body: Annotation({ reducer: overwrite, default: () => ({}) }),
   toolDependencies: Annotation({ reducer: overwrite, default: () => ({}) }),
+  mediaDependencies: Annotation({ reducer: overwrite, default: () => ({}) }),
   runId: Annotation({ reducer: overwrite, default: () => "" }),
   threadId: Annotation({ reducer: overwrite, default: () => "" }),
+  threadPersistenceKey: Annotation({ reducer: overwrite, default: () => "" }),
   actorScope: Annotation({ reducer: overwrite, default: () => ({}) }),
   queryText: Annotation({ reducer: overwrite, default: () => "" }),
   model: Annotation({ reducer: overwrite, default: () => "" }),
@@ -56,6 +61,7 @@ const ChatState = Annotation.Root({
   plannedToolCalls: Annotation({ reducer: overwrite, default: () => [] }),
   plannedToolCallSource: Annotation({ reducer: overwrite, default: () => "" }),
   toolExecutionMode: Annotation({ reducer: overwrite, default: () => "model" }),
+  governedPlanBlockCode: Annotation({ reducer: overwrite, default: () => "" }),
   toolStepIndex: Annotation({ reducer: overwrite, default: () => 0 }),
   stoppedReason: Annotation({ reducer: overwrite, default: () => "" }),
   directResponse: Annotation({ reducer: overwrite, default: () => null }),
@@ -195,6 +201,38 @@ function canonicalJson(value) {
   return JSON.stringify(value);
 }
 
+const ACTOR_SCOPE_PERSISTENCE_KEYS = Object.freeze([
+  "workspaceIds",
+  "projectIds",
+  "teamIds",
+  "allowedObjectTypes",
+  "allowedPropertyIds",
+  "rowPolicyIds",
+  "sensitiveFieldPolicyIds",
+]);
+
+function normalizedPersistenceActorScope(actorScope) {
+  const rawScopes = isRecord(actorScope?.scopes) ? actorScope.scopes : {};
+  return {
+    actorId: String(actorScope?.actorId || ""),
+    scopeHash: String(actorScope?.scopeHash || ""),
+    scopes: Object.fromEntries(ACTOR_SCOPE_PERSISTENCE_KEYS.map((key) => [
+      key,
+      Array.from(new Set(stringList(rawScopes[key]))).sort(),
+    ])),
+  };
+}
+
+export function buildActorScopedThreadPersistenceKey(threadId, actorScope) {
+  const digest = createHash("sha256")
+    .update(canonicalJson({
+      actorScope: normalizedPersistenceActorScope(actorScope),
+      clientThreadId: String(threadId || ""),
+    }))
+    .digest("hex");
+  return `actor-thread-${digest}`;
+}
+
 function toolCallSignature(toolCall) {
   const toolName = String(toolCall?.function?.name || "").trim();
   if (!toolName) {
@@ -273,45 +311,86 @@ function isCompletedTopIssueGrowthRank(toolCall, result) {
     && ordersByDeltaDescending;
 }
 
-function buildReadySemanticPlanToolCalls({ analyticsContext, actorScope, selectedToolset } = {}) {
-  const analysisPlan = governedAnalysisAuditFromContext(analyticsContext);
-  const queryPlan = analyticsContext?.queryPlan;
+const GOVERNED_SEMANTIC_STEP_TOOLS = Object.freeze({
+  semantic_metric_query: "query_semantic_metrics",
+  semantic_record_query: "query_semantic_records",
+  traceability_query: "query_traceability",
+});
+
+function blockedGovernedPlan(code) {
+  return { status: "blocked", code, toolCalls: [] };
+}
+
+function rawGovernedAnalysisPlan(analyticsContext) {
+  return analyticsContext?.analysisPlan || analyticsContext?.shadowObservation?.analysisPlan;
+}
+
+function hasReadyGovernedPlanCandidate(analyticsContext) {
+  return rawGovernedAnalysisPlan(analyticsContext)?.status === "ready"
+    || analyticsContext?.queryPlan?.status === "valid";
+}
+
+function inspectReadySemanticPlan({ analyticsContext, actorScope, selectedToolset, ontologyRegistry } = {}) {
+  if (!hasReadyGovernedPlanCandidate(analyticsContext)) {
+    return { status: "absent", code: "", toolCalls: [] };
+  }
+
+  let analysisPlan;
+  let expectedAnalysisPlan;
+  let queryPlan;
+  try {
+    analysisPlan = validateGovernedAnalysisPlan(rawGovernedAnalysisPlan(analyticsContext));
+    queryPlan = validatePlan(analyticsContext?.queryPlan);
+    expectedAnalysisPlan = createGovernedAnalysisPlanner({ registry: ontologyRegistry }).createPlan({
+      frame: analyticsContext?.semanticFrame,
+      queryPlan,
+    });
+  } catch {
+    return blockedGovernedPlan("GOVERNED_QUERY_PLAN_SCHEMA_INVALID");
+  }
+
   const actorScopeHash = String(actorScope?.scopeHash || "");
-  if (
-    analysisPlan?.status !== "ready"
-    || queryPlan?.status !== "valid"
-    || !actorScopeHash
-    || String(queryPlan?.actorScopeHash || "") !== actorScopeHash
-    || String(analysisPlan?.sourcePlanId || "") !== String(queryPlan?.planId || "")
-  ) {
-    return [];
+  if (!actorScopeHash || queryPlan.actorScopeHash !== actorScopeHash) {
+    return blockedGovernedPlan("GOVERNED_QUERY_PLAN_SCOPE_MISMATCH");
+  }
+  if (queryPlan.status !== "valid" || queryPlan.violations.length || !queryPlan.steps.length) {
+    return blockedGovernedPlan("GOVERNED_QUERY_PLAN_NOT_EXECUTABLE");
+  }
+  if (analysisPlan.sourcePlanId !== queryPlan.planId
+    || analysisPlan.sourcePlanFingerprint !== fingerprintQueryPlan(queryPlan)) {
+    return blockedGovernedPlan("GOVERNED_QUERY_PLAN_SOURCE_MISMATCH");
+  }
+  if (analysisPlan.status !== "ready" || expectedAnalysisPlan.status !== "ready"
+    || canonicalJson(analysisPlan) !== canonicalJson(expectedAnalysisPlan)) {
+    return blockedGovernedPlan("GOVERNED_QUERY_PLAN_CONTRACT_MISMATCH");
+  }
+  if (queryPlan.executionFingerprint !== fingerprintQueryPlanSteps(queryPlan.steps)) {
+    return blockedGovernedPlan("GOVERNED_QUERY_PLAN_EXECUTION_FINGERPRINT_MISMATCH");
   }
 
-  const semanticSteps = (Array.isArray(queryPlan?.steps) ? queryPlan.steps : [])
-    .filter((step) => isRecord(step?.canonicalArgs)
-      && isRecord(step?.canonicalArgs?.query)
-      && ((step?.operation === "semantic_metric_query" && step?.toolName === "query_semantic_metrics")
-        || (step?.operation === "semantic_record_query" && step?.toolName === "query_semantic_records")));
-  if (semanticSteps.length !== 1) {
-    return [];
+  const toolCalls = [];
+  for (const step of queryPlan.steps) {
+    if (GOVERNED_SEMANTIC_STEP_TOOLS[step.operation] !== step.toolName) {
+      return blockedGovernedPlan("GOVERNED_QUERY_PLAN_STEP_UNSUPPORTED");
+    }
+    if (!isToolAllowed(step.toolName, selectedToolset)) {
+      return blockedGovernedPlan("GOVERNED_QUERY_PLAN_TOOLSET_DENIED");
+    }
+    try {
+      validateSemanticQuery(step.canonicalArgs?.query);
+    } catch {
+      return blockedGovernedPlan("GOVERNED_QUERY_PLAN_ARGS_INVALID");
+    }
+    toolCalls.push({
+      id: `${queryPlan.planId}-${step.stepId}`,
+      type: "function",
+      function: {
+        name: step.toolName,
+        arguments: JSON.stringify(step.canonicalArgs),
+      },
+    });
   }
-
-  const step = semanticSteps[0];
-  if (!isToolAllowed(step.toolName, selectedToolset)) {
-    return [];
-  }
-  const stepId = String(step?.stepId || "").trim();
-  if (!stepId) {
-    return [];
-  }
-  return [{
-    id: `${queryPlan.planId}-${stepId}`,
-    type: "function",
-    function: {
-      name: step.toolName,
-      arguments: JSON.stringify(step.canonicalArgs),
-    },
-  }];
+  return { status: "ready", code: "", toolCalls };
 }
 
 function toolAuditsFromContext(mainAgentToolContext, { runId, threadId, actorScope }) {
@@ -410,6 +489,60 @@ function governedAnalysisAuditFromContext(analyticsContext) {
   }
 }
 
+const ANALYSIS_RESULT_SEMANTIC_TOOLS = new Set(["query_semantic_metrics", "query_semantic_records"]);
+
+function deriveVisualizationFromRows(rows, metricKeys) {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return Array.isArray(metricKeys) && metricKeys.length ? "kpi" : "none";
+  }
+  if (rows.length === 1 && metricKeys.length) return "kpi";
+  return "table";
+}
+
+// Build a structured analysis-result event from the governed semantic tool payload so
+// the front end can render a chart matched to analysisPlanner.visualization instead of
+// parsing the truncated text summary. Emits only when a governed semantic metric/records
+// tool produced structured rows or summary metrics, so non-semantic turns are unaffected.
+export function buildAnalysisResultEvent(mainAgentToolContext, analyticsContext) {
+  const plan = governedAnalysisAuditFromContext(analyticsContext);
+  const toolMessages = mainAgentToolContext?.toolMessages || [];
+  for (const message of toolMessages) {
+    if (!message || message.role !== "tool") continue;
+    let parsed;
+    try {
+      parsed = JSON.parse(message.content || "");
+    } catch {
+      continue;
+    }
+    if (!parsed || parsed.ok !== true || !ANALYSIS_RESULT_SEMANTIC_TOOLS.has(parsed.tool)) continue;
+    const payload = parsed.result;
+    if (!payload || typeof payload !== "object") continue;
+    const data = Array.isArray(payload.data) ? payload.data : [];
+    const metrics = payload.summary && typeof payload.summary.metrics === "object" ? payload.summary.metrics : {};
+    const metricKeys = Object.keys(metrics);
+    if (data.length === 0 && metricKeys.length === 0) continue;
+    const rowKeys = data.length ? [...new Set(data.flatMap((row) => Object.keys(row || {})))] : [];
+    const columnIds = [...rowKeys, ...metricKeys.filter((key) => !rowKeys.includes(key))];
+    const columns = columnIds.map((id) => ({ id, label: id }));
+    const visualization = plan?.visualization || deriveVisualizationFromRows(data, metricKeys);
+    if (visualization === "none") continue;
+    const maxRows = Number.isInteger(plan?.maxRows) && plan.maxRows > 0 ? plan.maxRows : 100;
+    return {
+      type: "analysis-result",
+      analysisPlanId: plan?.analysisPlanId || "",
+      visualization,
+      columns,
+      rows: data.slice(0, maxRows),
+      metrics,
+      ontologyVersion: String(payload.ontologyVersion || ""),
+      schemaFingerprint: String(payload.schemaFingerprint || ""),
+      analysisRef: String(payload.analysisRef || ""),
+      sourceRevisionId: String(payload.sourceRevision?.revisionId || ""),
+    };
+  }
+  return null;
+}
+
 async function persistRuntimeState(runtimeStore, state) {
   if (!runtimeStore) {
     return;
@@ -435,6 +568,7 @@ async function persistRuntimeState(runtimeStore, state) {
     }));
   }
   await runtimeStore.writeThreadCheckpoint({
+    persistenceKey: state.threadPersistenceKey,
     runId,
     threadId,
     actorScope,
@@ -504,6 +638,29 @@ function compactToolRouting(toolRouting) {
   };
 }
 
+function emptyClaimReleaseGate() {
+  return { status: "not_required", violations: [], analysisRefs: [], sourceRevisionIds: [], warnings: [] };
+}
+
+function mergeContextReleaseGate(baseGate, state) {
+  const contextViolations = [
+    ...(state.analyticsContext?.claimRelease?.status === "unreleased"
+      && state.analyticsContext?.claimRelease?.contextId === "resolved_analytics_query"
+      ? ["CLAIM_CONTEXT_RELEASE_CONTRACT_MISSING:resolved_analytics_query"]
+      : []),
+    ...(state.defectContext?.duplicateSearchResult
+      ? ["CLAIM_CONTEXT_RELEASE_CONTRACT_MISSING:duplicate_search_context"]
+      : []),
+  ];
+  const normalizedBase = baseGate || emptyClaimReleaseGate();
+  if (!contextViolations.length) return normalizedBase;
+  return {
+    ...normalizedBase,
+    status: "blocked",
+    violations: [...new Set([...(normalizedBase.violations || []), ...contextViolations])],
+  };
+}
+
 function buildMainAgentToolContextFromState(state) {
   const toolCalls = (state.toolCalls || []).slice(Number(state.turnToolCallStart || 0));
   const toolMessages = (state.toolMessages || []).slice(Number(state.turnToolMessageStart || 0));
@@ -511,6 +668,18 @@ function buildMainAgentToolContextFromState(state) {
   const toolEvents = (state.toolEvents || []).slice(Number(state.turnToolEventStart || 0));
   const evidence = (state.toolEvidence || []).slice(Number(state.turnToolEvidenceStart || 0));
   const toolResultTexts = (state.toolResultTexts || []).slice(Number(state.turnToolResultStart || 0));
+  const evidenceGate = state.governedPlanBlockCode
+    ? {
+        status: "blocked",
+        violations: [state.governedPlanBlockCode],
+        analysisRefs: [],
+        sourceRevisionIds: [],
+        warnings: [],
+      }
+    : evaluateClaimEvidence(evidence, {
+        expectedActorScopeHash: state.actorScope?.scopeHash || "",
+        executedToolCalls: toolCalls,
+      });
   return {
     contextText: toolResultTexts.filter(Boolean).join("\n\n"),
     toolCalls,
@@ -518,7 +687,7 @@ function buildMainAgentToolContextFromState(state) {
     toolConversationMessages,
     toolEvents,
     evidence,
-    evidenceGate: evaluateSemanticEvidence(evidence),
+    evidenceGate,
     selectedToolset: state.toolRouting?.selectedToolset,
     stoppedReason: state.stoppedReason || "no_tool_calls",
   };
@@ -556,6 +725,7 @@ export function createLangGraphChatRuntime({
   ontologyRegistry = createDefaultOntologyRegistry(),
   shouldPlanTools = shouldPlanMainAgentTools,
   requestToolCompletion = requestCompanyChatCompletion,
+  prepareMessages = prepareCompanyChatMessages,
   executeToolCall,
   maxToolSteps = 4,
   checkpointer = new MemorySaver(),
@@ -565,10 +735,17 @@ export function createLangGraphChatRuntime({
   ensureAbortSignalCompatibility();
 
   async function initialize(state, config) {
-    const body = state.body && typeof state.body === "object" ? state.body : {};
+    const rawBody = state.body && typeof state.body === "object" ? state.body : {};
+    const preparedMessages = await prepareMessages(rawBody?.messages, state.mediaDependencies || {});
+    const body = preparedMessages === rawBody?.messages
+      ? rawBody
+      : { ...rawBody, messages: preparedMessages };
     const runId = isNonEmptyString(state.runId) ? String(state.runId).trim() : normalizeRunId(body, now);
     const threadId = isNonEmptyString(state.threadId) ? String(state.threadId).trim() : normalizeThreadId(body, now);
-    const actorScope = normalizeActorScope(body);
+    const actorScope = hasActorScope(state.actorScope) ? state.actorScope : normalizeActorScope(body);
+    const threadPersistenceKey = isNonEmptyString(state.threadPersistenceKey)
+      ? String(state.threadPersistenceKey).trim()
+      : buildActorScopedThreadPersistenceKey(threadId, actorScope);
     const queryText = extractLatestUserQuery(body?.messages);
     const event = emit(config, {
       type: "agent-runtime-started",
@@ -581,10 +758,12 @@ export function createLangGraphChatRuntime({
       body,
       runId,
       threadId,
+      threadPersistenceKey,
       actorScope,
       queryText,
       model: String(body?.model || ""),
       plannedToolCalls: [],
+      governedPlanBlockCode: "",
       toolExecutionMode: "model",
       toolStepIndex: 0,
       stoppedReason: "",
@@ -657,20 +836,27 @@ export function createLangGraphChatRuntime({
 
   async function routeTools(state, config) {
     const body = state.body || {};
+    const governedPlanCandidate = hasReadyGovernedPlanCandidate(state.analyticsContext);
     const selectedToolset = selectMainAgentToolset(body?.messages, state.toolCalls);
     const actorScopeConfigured = isAnalyticsActorScopeConfigured(state.actorScope);
-    const needsDataTools = body?.useAnalyticsContext === true
-      && (shouldPlanTools(body?.messages) || selectedToolset.policyHints?.includes("resolve_defect_reporter_before_aggregate"));
-    const directResponse = classifyDirectMainAgentIntent(state.queryText || extractLatestUserQuery(body?.messages))
-      || (!actorScopeConfigured && needsDataTools ? buildDataAccessUnavailableResponse() : null);
+    const needsDataTools = body?.useAnalyticsContext === true && (
+      governedPlanCandidate
+      || shouldPlanTools(body?.messages)
+      || selectedToolset.policyHints?.includes("resolve_defect_reporter_before_aggregate")
+    );
+    const directResponse = governedPlanCandidate
+      ? null
+      : classifyDirectMainAgentIntent(state.queryText || extractLatestUserQuery(body?.messages))
+        || (!actorScopeConfigured && needsDataTools ? buildDataAccessUnavailableResponse() : null);
     const governedPlanDenied = state.analyticsContext?.analysisPlan?.status === "denied";
-    const shouldUseTools =
-      !directResponse &&
-      actorScopeConfigured &&
-      !governedPlanDenied &&
-      body?.useAnalyticsContext === true &&
-      !state.analyticsContext?.skipDefectContext &&
-      (shouldPlanTools(body?.messages) || selectedToolset.policyHints?.includes("resolve_defect_reporter_before_aggregate"));
+    const shouldUseTools = actorScopeConfigured && body?.useAnalyticsContext === true && (
+      governedPlanCandidate
+      || (!directResponse
+        && !governedPlanDenied
+        && !state.analyticsContext?.skipDefectContext
+        && (shouldPlanTools(body?.messages)
+          || selectedToolset.policyHints?.includes("resolve_defect_reporter_before_aggregate")))
+    );
     const toolRouting = { shouldUseTools, selectedToolset };
     const compact = compactToolRouting(toolRouting);
     const event = emit(config, {
@@ -700,7 +886,7 @@ export function createLangGraphChatRuntime({
 
   async function planToolCalls(state, config) {
     const body = state.body || {};
-    const selectedToolset = state.toolRouting?.selectedToolset || selectMainAgentToolset(body?.messages);
+    const selectedToolset = state.toolRouting?.selectedToolset || selectMainAgentToolset(body?.messages, state.toolCalls);
     const events = Number(state.toolStepIndex || 0) === 0
       ? [emit(config, { type: "tool-planning-started", threadId: state.threadId })]
       : [];
@@ -757,18 +943,43 @@ export function createLangGraphChatRuntime({
         runtimeEvents: events,
       };
     }
-    const governedPlanToolCalls = buildReadySemanticPlanToolCalls({
+    const governedPlan = inspectReadySemanticPlan({
       analyticsContext: state.analyticsContext,
       actorScope: state.actorScope,
       selectedToolset,
+      ontologyRegistry,
     });
-    if (governedPlanToolCalls.length) {
+    if (governedPlan.status === "ready") {
       return {
-        plannedToolCalls: governedPlanToolCalls,
+        plannedToolCalls: governedPlan.toolCalls,
         plannedToolCallSource: "governed_semantic_plan",
         toolExecutionMode: "deterministic",
+        governedPlanBlockCode: "",
         stoppedReason: "",
         runtimeEvents: events,
+      };
+    }
+    if (governedPlan.status === "blocked") {
+      const blockedContext = [
+        "# Governed query plan gate",
+        "Status: BLOCKED",
+        `Code: ${governedPlan.code}`,
+        "GOVERNED_QUERY_PLAN_BLOCKED: do not execute tools or make data claims from this plan.",
+      ].join("\n");
+      return {
+        plannedToolCalls: [],
+        plannedToolCallSource: "governed_semantic_plan_blocked",
+        governedPlanBlockCode: governedPlan.code,
+        stoppedReason: "governed_plan_invalid",
+        toolResultTexts: [blockedContext],
+        runtimeEvents: [
+          ...events,
+          emit(config, {
+            type: "governed-query-plan-blocked",
+            threadId: state.threadId,
+            code: governedPlan.code,
+          }),
+        ],
       };
     }
     const deterministicPlan = Number(state.toolStepIndex || 0) === 0
@@ -787,8 +998,6 @@ export function createLangGraphChatRuntime({
         plannedToolCallSource: "canonical_query_plan",
         toolExecutionMode: "deterministic",
         stoppedReason: "",
-        toolCalls: plannedToolCalls,
-        toolConversationMessages: [{ role: "assistant", content: "", tool_calls: plannedToolCalls }],
         runtimeEvents: events,
       };
     }
@@ -882,9 +1091,10 @@ export function createLangGraphChatRuntime({
       };
     }
 
+    const governedExecution = state.plannedToolCallSource === "governed_semantic_plan";
     for (const toolCall of plannedToolCalls) {
       allToolCalls.push(toolCall);
-      const execution = await executeOne(toolCall, { deferCatalogStop: true });
+      const execution = await executeOne(toolCall, { deferCatalogStop: !governedExecution });
       const result = execution.result;
       if (execution.deferredCatalogStop) {
         const correction = buildGovernedSemanticPlanRetry({
@@ -956,7 +1166,11 @@ export function createLangGraphChatRuntime({
 
   async function finalize(state, config) {
     const body = state.body || {};
-    const mainAgentToolContext = state.toolRouting?.shouldUseTools ? buildMainAgentToolContextFromState(state) : null;
+    const rawMainAgentToolContext = state.toolRouting?.shouldUseTools ? buildMainAgentToolContextFromState(state) : null;
+    const evidenceGate = mergeContextReleaseGate(rawMainAgentToolContext?.evidenceGate, state);
+    const mainAgentToolContext = rawMainAgentToolContext
+      ? { ...rawMainAgentToolContext, evidenceGate }
+      : null;
     const citationContractContext = buildCitationContractContext({ evidence: mainAgentToolContext?.evidence, registry: ontologyRegistry });
     const context = mergeContext(
       state.baseContext,
@@ -989,13 +1203,18 @@ export function createLangGraphChatRuntime({
       aiContextEnabled: body?.useDefectContext === true,
       analyticsContextEnabled: body?.useAnalyticsContext === true,
       mainAgentToolCallCount: mainAgentToolContext?.toolCalls?.length || 0,
-      evidenceGate: mainAgentToolContext?.evidenceGate || { status: "not_required", violations: [], analysisRefs: [], sourceRevisionIds: [], warnings: [] },
+      evidenceGate,
       toolRouting: state.directResponse
         ? { ...compactToolRouting(state.toolRouting), intent: state.directResponse.intent }
         : compactToolRouting(state.toolRouting),
       aiContextTimings: state.defectContext?.timings || null,
     };
     const event = emit(config, { type: "agent-runtime-ready", runId: state.runId, threadId: state.threadId });
+    const runtimeEvents = [event];
+    const analysisResult = buildAnalysisResultEvent(mainAgentToolContext, state.analyticsContext);
+    if (analysisResult) {
+      runtimeEvents.push(emit(config, { ...analysisResult, threadId: state.threadId }));
+    }
     return {
       context,
       finalMessages,
@@ -1003,7 +1222,7 @@ export function createLangGraphChatRuntime({
       mainAgentToolContext,
       directResponse: state.directResponse || null,
       metrics,
-      runtimeEvents: [event],
+      runtimeEvents,
     };
   }
 
@@ -1041,17 +1260,19 @@ export function createLangGraphChatRuntime({
   return {
     kind: "langgraph",
     graph,
-    async invoke({ body = {}, toolDependencies = {} } = {}, { onEvent } = {}) {
+    async invoke({ body = {}, toolDependencies = {}, mediaDependencies = {} } = {}, { onEvent } = {}) {
       const runId = normalizeRunId(body, now);
       const threadId = normalizeThreadId(body, now);
+      const actorScope = normalizeActorScope(body);
+      const threadPersistenceKey = buildActorScopedThreadPersistenceKey(threadId, actorScope);
       let state;
       try {
         state = await graph.invoke(
-          { body, runId, threadId, toolDependencies },
+          { body, runId, threadId, threadPersistenceKey, actorScope, toolDependencies, mediaDependencies },
           {
             signal: createRunnableSignal(),
             configurable: {
-              thread_id: threadId,
+              thread_id: threadPersistenceKey,
               onEvent,
             },
           },
@@ -1060,7 +1281,7 @@ export function createLangGraphChatRuntime({
         await persistRuntimeFailure(runtimeStore, {
           runId,
           threadId,
-          actorScope: normalizeActorScope(body),
+          actorScope,
           queryText: extractLatestUserQuery(body?.messages),
           error,
         });

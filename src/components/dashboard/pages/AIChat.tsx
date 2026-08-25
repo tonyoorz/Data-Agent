@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import MessageRenderer from "../chat/MessageRenderer";
+import AnalysisResultChart, { type AnalysisResultPayload } from "../chat/AnalysisResultChart";
 import SlashMenu, { SLASH_COMMANDS, SlashCommand } from "../chat/SlashMenu";
 import { segmentsToPlainText, parseAgentStream } from "../chat/agentParser";
 import DuplicateSearchResults from "../chat/DuplicateSearchResults";
@@ -33,9 +34,22 @@ import {
   normalizeCompanyChatModel,
 } from "../chat/companyModels";
 import type { DuplicateSearchResult } from "../chat/duplicateSearchTypes";
+import { actorScopedChatStorageKey, LEGACY_CHAT_STORAGE_KEY } from "../chat/chatStorage";
 import type { TestCaseResult } from "../chat/testCaseTypes";
 import { Switch } from "@/components/ui/switch";
 import { supabase } from "@/integrations/supabase/client";
+
+async function authenticatedJsonHeaders() {
+  const sessionResult = await supabase.auth.getSession().catch(() => null);
+  const accessToken = sessionResult?.error ? "" : sessionResult?.data?.session?.access_token;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (typeof accessToken === "string" && accessToken.trim()) {
+    headers.Authorization = `Bearer ${accessToken.trim()}`;
+  }
+  return headers;
+}
 
 type Role = "user" | "assistant";
 type ChatMode = "chat" | "duplicate-search";
@@ -62,6 +76,7 @@ interface Msg {
   content: string;
   mode?: ChatMode;
   duplicateResult?: DuplicateSearchResult;
+  analysisResult?: AnalysisResultPayload;
   testcaseResult?: TestCaseResult;
   attachments?: Attachment[];
   meta?: MessageMeta;
@@ -86,15 +101,12 @@ type ToolStreamEvent = {
   outputSummary?: unknown;
 };
 
-const STORAGE_KEY = "dtsv.chat.v2";
-
 type ChatModelPricing = {
   currency: "CNY";
   inputPerMillion: number;
   outputPerMillion: number;
 };
 
-// Beacon Token-Based Model Resource prices verified on 2026-08-11, normalized from CNY per thousand tokens.
 const CHAT_MODEL_PRICING: Record<string, ChatModelPricing> = {
   "deepseek-v4-pro": { currency: "CNY", inputPerMillion: 12, outputPerMillion: 24 },
   "deepseek-v4-flash": { currency: "CNY", inputPerMillion: 1, outputPerMillion: 2 },
@@ -190,19 +202,10 @@ interface Props {
 }
 
 const AIChat = ({ moduleKey, moduleLabel }: Props) => {
-  const [conversations, setConversations] = useState<Conversation[]>(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as Conversation[];
-        if (Array.isArray(parsed) && parsed.length) return parsed;
-      }
-    } catch {
-      // Ignore malformed persisted state and start a fresh conversation.
-    }
-    return [newConversation()];
-  });
+  const [conversations, setConversations] = useState<Conversation[]>(() => [newConversation()]);
   const [activeId, setActiveId] = useState<string>(() => conversations[0].id);
+  const [conversationStorageKey, setConversationStorageKey] = useState<string | null>(null);
+  const [conversationStorageReady, setConversationStorageReady] = useState(false);
   const [input, setInput] = useState("");
   const [interactionMode, setInteractionMode] = useState<ChatMode>("chat");
   const [chatContextEnabled, setChatContextEnabled] = useState(false);
@@ -230,18 +233,112 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const storageGenerationRef = useRef(0);
+  const storageActorRef = useRef<string | null | undefined>(undefined);
 
   const active = conversations.find((c) => c.id === activeId) ?? conversations[0];
   const isEmpty = active.messages.length === 0;
 
-  // persist
   useEffect(() => {
+    let disposed = false;
+
+    const sessionActorId = (session: unknown) => {
+      const actorId = (session as { user?: { id?: unknown } } | null)?.user?.id;
+      return typeof actorId === "string" && actorId.trim() ? actorId.trim() : null;
+    };
+
+    const loadSessionStorage = async (
+      session: unknown,
+      generation: number,
+      blankConversation: Conversation,
+      replaceAnonymousState: boolean,
+    ) => {
+      const storageKey = await actorScopedChatStorageKey(session as Parameters<typeof actorScopedChatStorageKey>[0]);
+      if (disposed || generation !== storageGenerationRef.current) return;
+
+      let nextConversations = [blankConversation];
+      if (storageKey) {
+        try {
+          const raw = localStorage.getItem(storageKey);
+          const parsed = raw ? JSON.parse(raw) as Conversation[] : null;
+          if (Array.isArray(parsed) && parsed.length) nextConversations = parsed;
+        } catch {
+          // A malformed actor-scoped value is isolated to that actor and replaced on the next write.
+        }
+      }
+      setConversationStorageKey(storageKey);
+      if (storageKey || replaceAnonymousState) {
+        setConversations(nextConversations);
+        setActiveId(nextConversations[0].id);
+      }
+      setConversationStorageReady(true);
+    };
+
+    const activateChangedSession = (session: unknown) => {
+      const generation = storageGenerationRef.current + 1;
+      storageGenerationRef.current = generation;
+      storageActorRef.current = sessionActorId(session);
+      const blankConversation = newConversation();
+
+      // Hide the previous actor's state synchronously, before hashing or reading storage.
+      setConversationStorageReady(false);
+      setConversationStorageKey(null);
+      setConversations([blankConversation]);
+      setActiveId(blankConversation.id);
+      void loadSessionStorage(session, generation, blankConversation, true);
+    };
+
+    const bootstrapSessionStorage = async () => {
+      const generation = storageGenerationRef.current + 1;
+      storageGenerationRef.current = generation;
+      setConversationStorageReady(false);
+      setConversationStorageKey(null);
+
+      let session: unknown = null;
+      try {
+        const result = await supabase.auth.getSession();
+        session = result?.error ? null : result?.data?.session || null;
+      } catch {
+        session = null;
+      }
+      if (disposed || generation !== storageGenerationRef.current) return;
+
+      storageActorRef.current = sessionActorId(session);
+      // The initial render is already blank. If there is no actor, keep any
+      // ephemeral interaction that happened while the auth lookup completed.
+      await loadSessionStorage(session, generation, newConversation(), false);
+    };
+
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations));
+      // The legacy key was shared by every account on the origin and cannot be migrated safely.
+      localStorage.removeItem(LEGACY_CHAT_STORAGE_KEY);
     } catch {
       // Storage can be unavailable in privacy-restricted browser contexts.
     }
-  }, [conversations]);
+
+    void bootstrapSessionStorage();
+    const authSubscription = supabase.auth.onAuthStateChange((_event, session) => {
+      const nextActorId = sessionActorId(session);
+      if (storageActorRef.current === nextActorId) return;
+      activateChangedSession(session);
+    });
+
+    return () => {
+      disposed = true;
+      storageGenerationRef.current += 1;
+      authSubscription.data.subscription.unsubscribe();
+    };
+  }, []);
+
+  // Persist only after the authenticated actor namespace has been resolved.
+  useEffect(() => {
+    if (!conversationStorageReady || !conversationStorageKey) return;
+    try {
+      localStorage.setItem(conversationStorageKey, JSON.stringify(conversations));
+    } catch {
+      // Storage can be unavailable in privacy-restricted browser contexts.
+    }
+  }, [conversationStorageKey, conversationStorageReady, conversations]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({
@@ -303,15 +400,6 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
       body: JSON.stringify({ reason: "duplicate-search-mode" }),
     }).catch(() => undefined);
   }, [interactionMode]);
-
-  // Warmup test case RAG index on mount (pre-builds 16K embedding index)
-  useEffect(() => {
-    void fetch("/api/create-testcase/warmup", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reason: "ai-chat-mount" }),
-    }).catch(() => undefined);
-  }, []);
 
   const sortedConvos = useMemo(() => {
     return [...conversations].sort((a, b) => {
@@ -397,9 +485,7 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
   const transcribeAudioBlob = async (blob: Blob) => {
     const response = await fetch("/api/ai/transcribe", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: await authenticatedJsonHeaders(),
       body: JSON.stringify({
         audio: await blobToBase64(blob),
         mime: blob.type || "audio/webm",
@@ -505,9 +591,10 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
   };
 
   // ----- core send -----
-  const buildGatewayMessages = (history: Msg[]) =>
-    history.map((m) => {
-      if (m.role === "user" && m.attachments?.some((a) => a.dataUrl && (a.kind === "image" || a.mimeType === "application/pdf"))) {
+  const buildGatewayMessages = (history: Msg[]) => {
+    const latestUserIndex = history.findLastIndex((message) => message.role === "user");
+    return history.map((m, index) => {
+      if (index === latestUserIndex && m.role === "user" && m.attachments?.some((a) => a.dataUrl && (a.kind === "image" || a.mimeType === "application/pdf"))) {
         const parts: GatewayContentPart[] = [{ type: "text", text: m.content || "(附件)" }];
         for (const a of m.attachments) {
           if (a.kind === "image" && a.dataUrl) {
@@ -528,6 +615,7 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
       }
       return { role: m.role, content: m.content };
     });
+  };
 
   const buildDuplicateFallbackSummary = (result: DuplicateSearchResult) => {
     const normalizeText = (value: string | undefined, maxLength = 120) =>
@@ -625,20 +713,9 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
         updatedAt: Date.now(),
       }));
     }
-    const contextStr = moduleLabel
-      ? `User is currently viewing the "${moduleLabel}" module (key: ${moduleKey}). Reference this module in <cite> when relevant.`
-      : undefined;
-
     try {
       const url = "/api/ai/chat";
-      const sessionResult = await supabase.auth.getSession().catch(() => null);
-      const accessToken = sessionResult?.error ? "" : sessionResult?.data?.session?.access_token;
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-      };
-      if (typeof accessToken === "string" && accessToken.trim()) {
-        headers.Authorization = `Bearer ${accessToken}`;
-      }
+      const headers = await authenticatedJsonHeaders();
       const resp = await fetch(url, {
         method: "POST",
         headers,
@@ -646,7 +723,6 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
           threadId: active.id,
           messages: buildGatewayMessages(history),
           model,
-          context: contextStr,
           useDefectContext: chatContextEnabled,
           useAnalyticsContext: true,
         }),
@@ -745,6 +821,32 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
               const toolStep = formatToolEventStep(parsed);
               if (toolStep) {
                 animator.pushImmediate(toolStep);
+              }
+              continue;
+            }
+
+            if (parsed?.type === "agent-runtime-event" && parsed?.event) {
+              const inner = parsed.event;
+              if (inner.type === "analysis-result" && inner.visualization) {
+                const analysisResult: AnalysisResultPayload = {
+                  visualization: inner.visualization,
+                  columns: Array.isArray(inner.columns) ? inner.columns : [],
+                  rows: Array.isArray(inner.rows) ? inner.rows : [],
+                  metrics:
+                    inner.metrics && typeof inner.metrics === "object"
+                      ? (inner.metrics as Record<string, number>)
+                      : {},
+                  ...(typeof inner.analysisRef === "string" && inner.analysisRef
+                    ? { analysisRef: inner.analysisRef }
+                    : {}),
+                };
+                updateActive((c) => ({
+                  ...c,
+                  messages: c.messages.map((m) =>
+                    m.id === assistantMsgId ? { ...m, analysisResult } : m,
+                  ),
+                  updatedAt: Date.now(),
+                }));
               }
               continue;
             }
@@ -1423,6 +1525,9 @@ const AIChat = ({ moduleKey, moduleLabel }: Props) => {
                         ) : m.role === "assistant" ? (
                           <div className="space-y-3">
                             <MessageRenderer content={m.content} streaming={streaming && isLastAsst} />
+                            {m.analysisResult ? (
+                              <AnalysisResultChart result={m.analysisResult} />
+                            ) : null}
                             {showDuplicateResults ? (
                               <DuplicateSearchResults
                                 result={m.duplicateResult}

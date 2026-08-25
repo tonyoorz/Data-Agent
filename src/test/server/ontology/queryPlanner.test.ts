@@ -126,6 +126,36 @@ describe("Ontology query planner", () => {
     expect(plan.violations).toContain("DEFECT_DENSITY_DENOMINATOR_REQUIRED");
   });
 
+  it("does not publish an approved metric whose runtime adapter is still planned", () => {
+    const query = "DTSV 缺陷检测率";
+    const frame = resolver.resolve({ query, actor });
+    const expectedViolation = "SEMANTIC_METRIC_NOT_RUNTIME_READY:kpi.defect_detection_ratio";
+
+    expect(frame.metricIds).toEqual(["kpi.defect_detection_ratio"]);
+    expect(frame.ambiguities).toContainEqual(expect.objectContaining({
+      code: expectedViolation,
+      kind: "runtime_publication",
+      metricId: "kpi.defect_detection_ratio",
+    }));
+    expect(planner.createPlan({ frame, actor, query })).toMatchObject({
+      status: "needs_clarification",
+      steps: [],
+      violations: expect.arrayContaining([expectedViolation]),
+    });
+  });
+
+  it("rechecks runtime publication in the planner when a caller removes resolver ambiguities", () => {
+    const query = "DTSV 缺陷检测率";
+    const resolved = resolver.resolve({ query, actor });
+    const plan = planner.createPlan({ frame: { ...resolved, ambiguities: [] }, actor, query });
+
+    expect(plan).toMatchObject({
+      status: "needs_clarification",
+      steps: [],
+      violations: ["SEMANTIC_METRIC_NOT_RUNTIME_READY:kpi.defect_detection_ratio"],
+    });
+  });
+
   it("splits multiple approved metrics into deterministic dependent steps", () => {
     const frame = resolver.resolve({
       query: "今年缺陷总数和新增缺陷数",
@@ -152,6 +182,33 @@ describe("Ontology query planner", () => {
     expect(frame.filters).toContainEqual(expect.objectContaining({ source: "policy", dimensionId: "org.team" }));
     const tampered = { ...frame, filters: frame.filters.filter((filter) => filter.dimensionId !== "org.team") };
     expect(() => planner.createPlan({ frame: tampered, actor, query: "本月测试执行数" })).toThrow("SEMANTIC_POLICY_FILTER_REQUIRED:org.team");
+  });
+
+  it("revalidates metric dimensions at the planner boundary", () => {
+    const frame = resolver.resolve({ query: "本月测试执行数", actor });
+    const tampered = {
+      ...frame,
+      dimensionIds: ["product.os"],
+      ambiguities: [],
+    };
+
+    expect(() => planner.createPlan({ frame: tampered, actor, query: "本月测试执行数" }))
+      .toThrow("SEMANTIC_DIMENSION_NOT_ALLOWED:testing.run_count:product.os");
+  });
+
+  it("revalidates metric filters at the planner boundary", () => {
+    const frame = resolver.resolve({ query: "本月测试执行数", actor });
+    const tampered = {
+      ...frame,
+      filters: [
+        ...frame.filters,
+        { dimensionId: "product.os", operator: "in", values: ["OS9"], source: "user" },
+      ],
+      ambiguities: [],
+    };
+
+    expect(() => planner.createPlan({ frame: tampered, actor, query: "本月测试执行数" }))
+      .toThrow("SEMANTIC_DIMENSION_NOT_ALLOWED:testing.run_count:product.os");
   });
 
   it("routes trace and similarity intents only to their typed tools", () => {

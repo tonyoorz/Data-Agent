@@ -2,7 +2,11 @@ import { buildChatCompletionRequest, resolveChatModelConfig } from "./chatModelC
 import { compactChatMessages } from "./chatMessageBudget.mjs";
 import { expandMessagesWithDocumentText } from "./documentText.mjs";
 import { expandImageMessagesWithOcr } from "./imageOcr.mjs";
+import { assertChatAttachmentLimits } from "./attachmentBoundary.mjs";
 import { validateAnswerTextCitations } from "./answerValidator.mjs";
+import { evaluateClaimEvidence } from "./mainAgentEvidence.mjs";
+import { readBoundedResponseJson } from "./boundedResponseBody.mjs";
+import { createCircuitBreaker } from "./circuitBreaker.mjs";
 
 const SYSTEM_PROMPT = `You are DTSV Intelligence — a senior data analyst embedded in a quality engineering dashboard.
 
@@ -112,6 +116,27 @@ function chatResilienceOptions(env = process.env, overrides = {}) {
   };
 }
 
+// Cross-request circuit breaker for the chat model upstream. companyChat's own
+// retry handles single-request hiccups; this trips after N consecutive upstream
+// failures (transport errors or 5xx/408/429 responses) so a sustained outage
+// fast-fails instead of every caller paying the full retry budget. A non-throwing
+// 5xx response still counts as a failure but is returned to the caller unchanged
+// so upstreamFailure() keeps producing its upstream_status diagnostic.
+const companyChatBreaker = createCircuitBreaker({
+  service: "companyChat",
+  failureThreshold: positiveInteger(process.env.VIZION_CHAT_BREAKER_THRESHOLD, 5),
+  resetTimeoutMs: positiveInteger(process.env.VIZION_CHAT_BREAKER_RESET_MS, 30000),
+  isFailure(error, result) {
+    if (error) return true;
+    const status = Number(result?.response?.status || 0);
+    return status === 408 || status === 429 || status >= 500;
+  },
+});
+
+export function resetCompanyChatCircuitBreakerForTests() {
+  companyChatBreaker.reset();
+}
+
 function isRetryableStatus(status) {
   return status === 408 || status === 429 || status >= 500;
 }
@@ -127,34 +152,194 @@ function waitForRetry(ms) {
   });
 }
 
-async function fetchWithResilience(url, init, { env = process.env, resilience = {} } = {}) {
+function isTimeoutLikeError(error, signal) {
+  return signal?.aborted === true
+    || error?.name === "AbortError"
+    || error?.name === "TimeoutError";
+}
+
+function normalizeUpstreamTransportError(error, signal) {
+  if (error instanceof CompanyChatBoundaryError) {
+    return error;
+  }
+  if (isTimeoutLikeError(error, signal)) {
+    return new CompanyChatBoundaryError(
+      "CHAT_UPSTREAM_TIMEOUT",
+      "error_code=CHAT_UPSTREAM_TIMEOUT",
+    );
+  }
+  return new CompanyChatBoundaryError(
+    "CHAT_UPSTREAM_REQUEST_FAILED",
+    `error_code=CHAT_UPSTREAM_REQUEST_FAILED error_name=${String(error?.name || "UnknownError")}`,
+  );
+}
+
+async function fetchWithResilience(url, init, options = {}) {
+  // Wrap the retry loop in the cross-request circuit breaker. When the breaker
+  // is open we fast-fail as a CHAT_UPSTREAM_REQUEST_FAILED degradation (502)
+  // instead of waiting out the timeout/retry budget on every caller.
+  try {
+    return await companyChatBreaker.call(() => fetchWithResilienceOnce(url, init, options));
+  } catch (error) {
+    if (error?.circuitOpen) {
+      throw new CompanyChatBoundaryError(
+        "CHAT_UPSTREAM_REQUEST_FAILED",
+        "error_code=CHAT_UPSTREAM_REQUEST_FAILED circuit_open=true",
+      );
+    }
+    throw error;
+  }
+}
+
+async function fetchWithResilienceOnce(url, init, { env = process.env, resilience = {} } = {}) {
   const { maxAttempts, timeoutMs, retryDelayMs } = chatResilienceOptions(env, resilience);
   let lastError;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
     const timeout = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
-    try {
-      const response = await fetch(url, { ...init, ...(controller ? { signal: controller.signal } : {}) });
-      if (response.ok || !isRetryableStatus(response.status) || attempt >= maxAttempts) return response;
-      const text = await response.text().catch(() => "");
-      lastError = new Error(`Chat request failed (${response.status}): ${text || response.statusText}`);
-      lastError.status = response.status;
-      lastError.retryable = true;
-    } catch (error) {
-      lastError = error;
-      if (!isRetryableFetchError(error) || attempt >= maxAttempts) throw error;
-    } finally {
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
       if (timeout) clearTimeout(timeout);
+    };
+    try {
+      const response = await fetch(url, {
+        ...init,
+        redirect: "error",
+        ...(controller ? { signal: controller.signal } : {}),
+      });
+      if (response.ok || !isRetryableStatus(response.status) || attempt >= maxAttempts) {
+        return {
+          response,
+          signal: controller?.signal,
+          release,
+        };
+      }
+      // Upstream bodies are untrusted and may contain credentials or private data.
+      // Retry decisions and diagnostics need only the protocol status metadata.
+      lastError = upstreamFailure(response);
+      lastError.retryable = true;
+      release();
+    } catch (error) {
+      release();
+      lastError = normalizeUpstreamTransportError(error, controller?.signal);
+      if (!isRetryableFetchError(error) || attempt >= maxAttempts) throw lastError;
     }
     await waitForRetry(retryDelayMs);
   }
-  throw lastError || new Error("Chat request failed after retries");
+  throw lastError || new CompanyChatBoundaryError(
+    "CHAT_UPSTREAM_REQUEST_FAILED",
+    "error_code=CHAT_UPSTREAM_REQUEST_FAILED retries_exhausted=true",
+  );
 }
 
 const PSEUDO_TOOL_FALLBACK_CONTENT = "工具调用阶段已结束；无法继续调用工具。我会基于已有工具结果说明数据限制。";
+export const GOVERNED_EVIDENCE_UNAVAILABLE_CONTENT = "受治理证据不可用，因此本次不会发布数据事实或结论。请重试或缩小查询范围。";
+const DEFAULT_ANSWER_RELEASE_MAX_BYTES = 256 * 1024;
+const DEFAULT_ANSWER_RELEASE_TIMEOUT_MS = 30_000;
+const DEFAULT_CHAT_RESPONSE_MAX_BYTES = 2 * 1024 * 1024;
+const DEFAULT_CHAT_STREAM_FRAME_MAX_BYTES = 512 * 1024;
+const ANSWER_RELEASE_CHUNK_CHARACTERS = 120;
 const TOOL_FALLBACK_MAX_LINES = 12;
-const CLAIM_GATE_FALLBACK_CONTENT = "系统未发布未经证据验证的数据结论。请缩小查询范围后重试。";
-const MAX_GOVERNED_ANSWER_BYTES = 64 * 1024;
+const CONTROLLED_CHAT_DIAGNOSTIC_MAX_BYTES = 2048;
+
+const SAFE_CHAT_ERROR_STATUS = Object.freeze({
+  CHAT_MODEL_CONFIGURATION_UNAVAILABLE: 503,
+  CHAT_MODEL_ENDPOINT_INVALID: 503,
+  CHAT_MODEL_NOT_ALLOWED: 400,
+  CHAT_MODEL_OPTIONS_INVALID: 503,
+  CHAT_UPSTREAM_REQUEST_FAILED: 502,
+  CHAT_UPSTREAM_TIMEOUT: 504,
+  CHAT_UPSTREAM_INVALID_RESPONSE: 502,
+  CHAT_UPSTREAM_RESPONSE_TOO_LARGE: 502,
+  CHAT_UPSTREAM_EMPTY_RESPONSE: 502,
+  IMAGE_OCR_INPUT_INVALID: 400,
+  IMAGE_OCR_ATTACHMENT_LIMIT_EXCEEDED: 413,
+  IMAGE_OCR_TOTAL_BYTES_EXCEEDED: 413,
+  IMAGE_OCR_PROVIDER_INVALID: 503,
+  IMAGE_OCR_URL_INVALID: 503,
+  IMAGE_OCR_URL_REQUIRED: 503,
+  IMAGE_OCR_API_KEY_REQUIRED: 503,
+  IMAGE_OCR_AUTH_SCHEME_INVALID: 503,
+  IMAGE_OCR_LOCAL_TIMEOUT_INVALID: 503,
+  IMAGE_OCR_REMOTE_TIMEOUT_INVALID: 503,
+  IMAGE_OCR_UPSTREAM_TIMEOUT: 504,
+  IMAGE_OCR_UPSTREAM_UNAVAILABLE: 502,
+  IMAGE_OCR_UPSTREAM_HTTP_ERROR: 502,
+  IMAGE_OCR_UPSTREAM_INVALID_RESPONSE: 502,
+  IMAGE_OCR_UPSTREAM_EMPTY_RESPONSE: 502,
+  IMAGE_OCR_UPSTREAM_RESPONSE_TOO_LARGE: 502,
+  IMAGE_OCR_LOCAL_OUTPUT_LIMIT_EXCEEDED: 413,
+  IMAGE_OCR_TEXT_LIMIT_EXCEEDED: 413,
+  CHAT_ATTACHMENT_INPUT_INVALID: 400,
+  CHAT_ATTACHMENT_LIMIT_EXCEEDED: 413,
+  CHAT_ATTACHMENT_BYTES_EXCEEDED: 413,
+  CHAT_ATTACHMENT_WORKER_OUTPUT_EXCEEDED: 413,
+  CHAT_ATTACHMENT_TEXT_EXCEEDED: 413,
+  AGENT_CHAT_REQUEST_FAILED: 500,
+});
+
+class CompanyChatBoundaryError extends Error {
+  constructor(code, diagnostic = "") {
+    super(code);
+    this.name = "CompanyChatBoundaryError";
+    this.code = code;
+    this.statusCode = SAFE_CHAT_ERROR_STATUS[code] || 500;
+    this.diagnostic = controlledDiagnosticText(diagnostic || code);
+  }
+}
+
+function truncateUtf8(value, maximumBytes) {
+  const bytes = Buffer.from(String(value || ""), "utf8");
+  if (bytes.length <= maximumBytes) return bytes.toString("utf8");
+  return bytes.subarray(0, maximumBytes).toString("utf8").replace(/\uFFFD$/u, "");
+}
+
+function controlledDiagnosticText(value) {
+  const redacted = String(value || "")
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/giu, "Bearer [REDACTED]")
+    .replace(/\b(authorization|api[_-]?key|access[_-]?code|token|secret|password)\b\s*[:=]\s*([^\s,;]+)/giu, "$1=[REDACTED]")
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
+  return truncateUtf8(redacted, CONTROLLED_CHAT_DIAGNOSTIC_MAX_BYTES);
+}
+
+export function controlledChatErrorDiagnostic(error) {
+  if (error instanceof CompanyChatBoundaryError) {
+    return error.diagnostic;
+  }
+  if (Object.hasOwn(SAFE_CHAT_ERROR_STATUS, error?.code)) {
+    return controlledDiagnosticText(`error_code=${String(error.code)}`);
+  }
+  const errorName = typeof error?.name === "string" ? error.name : "UnknownError";
+  return controlledDiagnosticText(`error_code=AGENT_CHAT_REQUEST_FAILED error_name=${errorName}`);
+}
+
+export function toSafeCompanyChatError(error) {
+  const code = Object.hasOwn(SAFE_CHAT_ERROR_STATUS, error?.code)
+    ? String(error.code)
+    : "AGENT_CHAT_REQUEST_FAILED";
+  return {
+    statusCode: SAFE_CHAT_ERROR_STATUS[code],
+    payload: { success: false, error: code },
+  };
+}
+
+function upstreamFailure(response) {
+  try {
+    response?.body?.cancel?.().catch?.(() => {});
+  } catch {
+    // Ignore disposal errors; only stable protocol metadata crosses this boundary.
+  }
+  const status = Number(response?.status || 0) || 502;
+  const statusText = String(response?.statusText || "");
+  return new CompanyChatBoundaryError(
+    "CHAT_UPSTREAM_REQUEST_FAILED",
+    `error_code=CHAT_UPSTREAM_REQUEST_FAILED upstream_status=${status} upstream_status_text=${statusText}`,
+  );
+}
 
 const PSEUDO_TOOL_START_MARKERS = [
   { marker: "<｜DSML｜tool_calls", kind: "tool_calls" },
@@ -342,46 +527,28 @@ function sanitizeFinalAnswerContent(content, state) {
   return output;
 }
 
-function recordVisibleContent(state, content) {
+function addVisibleContent(response, state, content) {
   const text = String(content || "");
-  if (!text) return;
+  if (!text || state.releaseViolation) {
+    return;
+  }
+  if (state.releaseRequired) {
+    const nextBytes = state.releaseBytes + Buffer.byteLength(text, "utf8");
+    if (nextBytes > state.releaseMaxBytes) {
+      state.releaseViolation = "ANSWER_RELEASE_BUFFER_LIMIT_EXCEEDED";
+      state.visibleContentParts = [];
+      state.releaseBytes = 0;
+      state.emittedVisibleContent = false;
+      return;
+    }
+    state.releaseBytes = nextBytes;
+    state.visibleContentParts.push(text);
+    state.emittedVisibleContent = true;
+    return;
+  }
+  writeSseEvent(response, { choices: [{ delta: { content: text } }] });
+  state.visibleContentParts.push(text);
   state.emittedVisibleContent = true;
-  if (state.gateEnabled && state.visibleContentBytes + Buffer.byteLength(text, "utf8") > MAX_GOVERNED_ANSWER_BYTES) {
-    state.gateOverflow = true;
-    return;
-  }
-  state.visibleContentBytes += Buffer.byteLength(text, "utf8");
-  state.visibleContentParts?.push(text);
-}
-
-function emitFinalPayload(response, state, payload) {
-  if (!state.gateEnabled) {
-    writeSseEvent(response, payload);
-    return;
-  }
-  const bytes = Buffer.byteLength(JSON.stringify(payload), "utf8");
-  if (state.gateOverflow || state.bufferedPayloadBytes + bytes > MAX_GOVERNED_ANSWER_BYTES) {
-    state.gateOverflow = true;
-    state.bufferedPayloads = [];
-    return;
-  }
-  state.bufferedPayloadBytes += bytes;
-  state.bufferedPayloads.push({ payload });
-}
-
-function emitRawFinalData(response, state, data) {
-  if (!state.gateEnabled) {
-    response.write(`data: ${data}\n\n`);
-    return;
-  }
-  const bytes = Buffer.byteLength(String(data || ""), "utf8");
-  if (state.gateOverflow || state.bufferedPayloadBytes + bytes > MAX_GOVERNED_ANSWER_BYTES) {
-    state.gateOverflow = true;
-    state.bufferedPayloads = [];
-    return;
-  }
-  state.bufferedPayloadBytes += bytes;
-  state.bufferedPayloads.push({ rawData: data });
 }
 
 function flushPendingSanitizedContent(response, state) {
@@ -391,8 +558,7 @@ function flushPendingSanitizedContent(response, state) {
     if (looksLikePseudoToolPrefix(pending)) {
       state.suppressedPseudoToolCall = true;
     } else {
-      emitFinalPayload(response, state, { choices: [{ delta: { content: pending } }] });
-      recordVisibleContent(state, pending);
+      addVisibleContent(response, state, pending);
     }
   }
 
@@ -405,8 +571,7 @@ function flushPendingSanitizedContent(response, state) {
     state.droppedStopTokenFragment = true;
     return;
   }
-  emitFinalPayload(response, state, { choices: [{ delta: { content: pendingStopToken } }] });
-  recordVisibleContent(state, pendingStopToken);
+  addVisibleContent(response, state, pendingStopToken);
 }
 
 function hasOnlyEmptyContentDelta(payload) {
@@ -426,50 +591,50 @@ function writePseudoToolFallbackIfNeeded(response, state) {
     return;
   }
   const fallbackContent = buildToolResultFallbackContent(state.context);
-  emitFinalPayload(response, state, { choices: [{ delta: { content: fallbackContent } }] });
-  recordVisibleContent(state, fallbackContent);
+  addVisibleContent(response, state, fallbackContent);
   state.fallbackEmitted = true;
 }
 
-function citationFooter(answerValidation) {
-  const toolCallId = (Array.isArray(answerValidation?.evidence) ? answerValidation.evidence : [])
-    .map((item) => String(item?.toolCallId || "").trim())
-    .find((value) => /^[A-Za-z0-9._:-]+$/.test(value));
-  return toolCallId ? `\n\nEvidence source: <cite source="${toolCallId}">governed tool result</cite>` : "";
-}
-
-function validateAnswerIfNeeded(response, state) {
-  if (!state.answerValidation || state.answerValidationEmitted) return null;
-  state.answerValidationEmitted = true;
-  const evidence = state.answerValidation.semanticEvidence || state.answerValidation.evidence;
-  let validation = validateAnswerTextCitations({
-    text: (state.visibleContentParts || []).join(""),
-    evidence,
-    registry: state.answerValidation.registry,
-    evidenceGate: state.answerValidation.evidenceGate,
-  });
-  if (!state.gateEnabled && validation.violations.length === 1 && validation.violations[0] === "ANSWER_CITATION_REQUIRED") {
-    const footer = citationFooter(state.answerValidation);
-    if (footer) {
-      emitFinalPayload(response, state, { choices: [{ delta: { content: footer } }] });
-      state.visibleContentParts?.push(footer);
-      state.emittedVisibleContent = true;
-      validation = validateAnswerTextCitations({
-        text: state.visibleContentParts.join(""),
-        evidence,
-        registry: state.answerValidation.registry,
-        evidenceGate: state.answerValidation.evidenceGate,
-      });
-    }
+function computeAnswerValidation(state) {
+  if (state.releaseViolation) {
+    return { valid: false, violations: [state.releaseViolation] };
   }
-  if (!state.gateOverflow) return validation;
-  return {
-    valid: false,
-    violations: [...new Set([...(validation.violations || []), "ANSWER_VALIDATION_BUFFER_LIMIT"])],
-  };
+  const violations = [];
+  let evidenceGate = state.answerValidation?.evidenceGate;
+  if (state.releaseBindingRequired) {
+    let registryConstraintAvailable = false;
+    try {
+      registryConstraintAvailable = Boolean(state.answerValidation?.registry?.getConstraint?.("answer.claim_evidence_binding"));
+    } catch {
+      registryConstraintAvailable = false;
+    }
+    if (!registryConstraintAvailable) {
+      violations.push("ANSWER_VALIDATION_REGISTRY_UNAVAILABLE");
+    }
+    evidenceGate = evaluateClaimEvidence(state.answerValidation?.evidence, {
+      expectedActorScopeHash: state.answerValidation?.expectedActorScopeHash,
+      expectedSourceRevisionIds: state.answerValidation?.expectedSourceRevisionIds,
+      requireReleaseBinding: true,
+      executedToolCalls: state.answerValidation?.executedToolCalls,
+    });
+    if (evidenceGate.status === "not_required") {
+      violations.push("SEMANTIC_CLAIM_EVIDENCE_MISSING");
+    }
+    violations.push(...evidenceGate.violations);
+  }
+  const citationValidation = validateAnswerTextCitations({
+    text: (state.visibleContentParts || []).join(""),
+    evidence: state.answerValidation?.semanticEvidence || state.answerValidation?.evidence,
+    registry: state.answerValidation?.registry,
+    evidenceGate,
+  });
+  violations.push(...citationValidation.violations);
+  const uniqueViolations = [...new Set(violations)];
+  return { valid: uniqueViolations.length === 0, violations: uniqueViolations };
 }
 
-function notifyAnswerValidation(state, validation) {
+function emitAnswerValidation(response, state, validation) {
+  writeSseEvent(response, { type: "answer-validation", ...validation });
   try {
     state.onAnswerValidation?.(validation);
   } catch {
@@ -477,53 +642,68 @@ function notifyAnswerValidation(state, validation) {
   }
 }
 
-function publishBufferedPayloads(response, state) {
-  for (const item of state.bufferedPayloads || []) {
-    if (Object.hasOwn(item, "rawData")) {
-      response.write(`data: ${item.rawData}\n\n`);
-    } else {
-      writeSseEvent(response, item.payload);
-    }
+function writeAnswerValidationIfNeeded(response, state) {
+  if (!state.answerValidation || state.answerValidationEmitted) {
+    return null;
+  }
+  state.answerValidationEmitted = true;
+  const validation = computeAnswerValidation(state);
+  emitAnswerValidation(response, state, validation);
+  return validation;
+}
+
+function writeContentChunks(response, content) {
+  const chunks = String(content || "").match(new RegExp(`.{1,${ANSWER_RELEASE_CHUNK_CHARACTERS}}`, "gs")) || [String(content || "")];
+  for (const chunk of chunks) {
+    writeSseEvent(response, { choices: [{ delta: { content: chunk } }] });
   }
 }
 
-function finalizeSanitizedStream(response, state) {
-  if (state.terminalPublished) return;
+function finalizeAnswerRelease(response, state) {
+  if (state.terminalEmitted) {
+    return;
+  }
   flushPendingSanitizedContent(response, state);
   writePseudoToolFallbackIfNeeded(response, state);
-  const validation = validateAnswerIfNeeded(response, state);
-  if (state.gateEnabled) {
-    writeSseEvent(response, { type: "answer-validation", ...(validation || { valid: false, violations: ["ANSWER_VALIDATION_MISSING"] }) });
-    notifyAnswerValidation(state, validation || { valid: false, violations: ["ANSWER_VALIDATION_MISSING"] });
-    if (validation?.valid) {
-      publishBufferedPayloads(response, state);
-    } else {
-      writeSseEvent(response, { choices: [{ delta: { content: CLAIM_GATE_FALLBACK_CONTENT } }] });
-    }
-  } else if (validation) {
-    writeSseEvent(response, { type: "answer-validation", ...validation });
-    notifyAnswerValidation(state, validation);
+  const validation = computeAnswerValidation(state);
+  state.answerValidationEmitted = true;
+  emitAnswerValidation(response, state, validation);
+  if (validation.valid) {
+    writeContentChunks(response, state.visibleContentParts.join(""));
+  } else {
+    writeContentChunks(response, GOVERNED_EVIDENCE_UNAVAILABLE_CONTENT);
   }
   response.write("data: [DONE]\n\n");
-  state.terminalPublished = true;
+  state.terminalEmitted = true;
 }
 
 function writeSanitizedSseFrame(response, frame, state) {
+  if (state.terminalEmitted) {
+    return true;
+  }
   const dataLines = String(frame || "")
     .split(/\r?\n/)
     .filter((line) => line.startsWith("data:"))
     .map((line) => line.slice(5).trimStart());
   if (!dataLines.length) {
-    if (frame) {
+    if (frame && !state.releaseRequired) {
       response.write(`${frame}\n\n`);
     }
-    return;
+    return false;
   }
 
   const data = dataLines.join("\n");
   if (data === "[DONE]") {
-    finalizeSanitizedStream(response, state);
-    return;
+    if (state.releaseRequired) {
+      finalizeAnswerRelease(response, state);
+    } else {
+      flushPendingSanitizedContent(response, state);
+      writePseudoToolFallbackIfNeeded(response, state);
+      writeAnswerValidationIfNeeded(response, state);
+      response.write("data: [DONE]\n\n");
+      state.terminalEmitted = true;
+    }
+    return true;
   }
 
   let payload;
@@ -532,10 +712,9 @@ function writeSanitizedSseFrame(response, frame, state) {
   } catch {
     const sanitized = stripModelStopTokenFragments(sanitizeFinalAnswerContent(data, state), state);
     if (sanitized) {
-      emitRawFinalData(response, state, sanitized);
-      recordVisibleContent(state, sanitized);
+      addVisibleContent(response, state, sanitized);
     }
-    return;
+    return false;
   }
 
   const tokenUsage = normalizeTokenUsage(payload?.usage);
@@ -554,13 +733,37 @@ function writeSanitizedSseFrame(response, frame, state) {
     }
     choice.delta.content = sanitized;
     if (sanitized) {
-      recordVisibleContent(state, sanitized);
+      if (state.releaseRequired) {
+        addVisibleContent(response, state, sanitized);
+      } else {
+        state.visibleContentParts.push(sanitized);
+        state.emittedVisibleContent = true;
+      }
     }
   }
 
-  if (!hasOnlyEmptyContentDelta(payload)) {
-    emitFinalPayload(response, state, payload);
+  if (!state.releaseRequired && !hasOnlyEmptyContentDelta(payload)) {
+    writeSseEvent(response, payload);
   }
+  return false;
+}
+
+function findSseFrameBoundary(buffer) {
+  const candidates = [
+    { index: String(buffer || "").indexOf("\n\n"), length: 2 },
+    { index: String(buffer || "").indexOf("\r\n\r\n"), length: 4 },
+  ].filter((candidate) => candidate.index >= 0)
+    .sort((left, right) => left.index - right.index || right.length - left.length);
+  return candidates[0] || null;
+}
+
+export async function prepareCompanyChatMessages(
+  messages,
+  { imageOcrRunner, documentTextRunner, env = process.env } = {},
+) {
+  assertChatAttachmentLimits(messages);
+  const documentExpandedMessages = await expandMessagesWithDocumentText(messages, env, { documentTextRunner });
+  return await expandImageMessagesWithOcr(documentExpandedMessages, env, { imageOcrRunner });
 }
 
 export async function requestCompanyChatCompletion({
@@ -575,13 +778,13 @@ export async function requestCompanyChatCompletion({
 }) {
   const config = resolveChatModelConfig(model || "", process.env);
   if (!config.credential) {
-    throw new Error(
-      "Company model credentials are not configured. Set DUPSEARCH_CHAT_ACCESS_CODE or DUPSEARCH_CHAT_API_KEY.",
+    throw new CompanyChatBoundaryError(
+      "CHAT_MODEL_CONFIGURATION_UNAVAILABLE",
+      "Company model credentials are not configured.",
     );
   }
 
-  const documentExpandedMessages = await expandMessagesWithDocumentText(messages, process.env, { documentTextRunner });
-  const preparedMessages = await expandImageMessagesWithOcr(documentExpandedMessages, process.env, { imageOcrRunner });
+  const preparedMessages = await prepareCompanyChatMessages(messages, { imageOcrRunner, documentTextRunner });
   const mergedMessages = buildMergedMessages(compactChatMessages(preparedMessages), context);
 
   const requestConfig = buildChatCompletionRequest({
@@ -592,30 +795,54 @@ export async function requestCompanyChatCompletion({
     toolChoice,
   });
 
-  const response = await fetchWithResilience(requestConfig.url, {
-    method: "POST",
-    headers: requestConfig.headers,
-    body: JSON.stringify(requestConfig.body),
-  }, { resilience });
+  let upstream;
+  try {
+    upstream = await fetchWithResilience(requestConfig.url, {
+      method: "POST",
+      headers: requestConfig.headers,
+      body: JSON.stringify(requestConfig.body),
+    }, { resilience });
 
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new Error(`Chat request failed (${response.status}): ${text || response.statusText}`);
+    if (!upstream.response.ok) {
+      throw upstreamFailure(upstream.response);
+    }
+
+    let payload;
+    try {
+      payload = await readBoundedResponseJson(upstream.response, {
+        maxBytes: positiveInteger(process.env.DUPSEARCH_CHAT_RESPONSE_MAX_BYTES, DEFAULT_CHAT_RESPONSE_MAX_BYTES),
+        errorCode: "CHAT_UPSTREAM_RESPONSE_TOO_LARGE",
+      });
+    } catch (error) {
+      if (isTimeoutLikeError(error, upstream.signal)) {
+        throw normalizeUpstreamTransportError(error, upstream.signal);
+      }
+      if (error?.code === "CHAT_UPSTREAM_RESPONSE_TOO_LARGE") {
+        throw new CompanyChatBoundaryError(
+          "CHAT_UPSTREAM_RESPONSE_TOO_LARGE",
+          "error_code=CHAT_UPSTREAM_RESPONSE_TOO_LARGE",
+        );
+      }
+      throw new CompanyChatBoundaryError(
+        "CHAT_UPSTREAM_INVALID_RESPONSE",
+        "error_code=CHAT_UPSTREAM_INVALID_RESPONSE",
+      );
+    }
+    const message = payload?.choices?.[0]?.message || {};
+    const content = normalizeAssistantContent(message.content);
+    const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+    if (!content && toolCalls.length === 0) {
+      throw new CompanyChatBoundaryError("CHAT_UPSTREAM_EMPTY_RESPONSE", "Chat model returned empty content");
+    }
+
+    return {
+      content,
+      toolCalls,
+      answerModel: config.model,
+    };
+  } finally {
+    upstream?.release();
   }
-
-  const payload = await response.json();
-  const message = payload?.choices?.[0]?.message || {};
-  const content = normalizeAssistantContent(message.content);
-  const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
-  if (!content && toolCalls.length === 0) {
-    throw new Error("Chat model returned empty content");
-  }
-
-  return {
-    content,
-    toolCalls,
-    answerModel: config.model,
-  };
 }
 
 export async function streamCompanyChatCompletion({
@@ -633,13 +860,13 @@ export async function streamCompanyChatCompletion({
   const startedAt = nowMs();
   const config = resolveChatModelConfig(model || "", process.env);
   if (!config.credential) {
-    throw new Error(
-      "Company model credentials are not configured. Set DUPSEARCH_CHAT_ACCESS_CODE or DUPSEARCH_CHAT_API_KEY.",
+    throw new CompanyChatBoundaryError(
+      "CHAT_MODEL_CONFIGURATION_UNAVAILABLE",
+      "Company model credentials are not configured.",
     );
   }
 
-  const documentExpandedMessages = await expandMessagesWithDocumentText(messages, process.env, { documentTextRunner });
-  const preparedMessages = await expandImageMessagesWithOcr(documentExpandedMessages, process.env, { imageOcrRunner });
+  const preparedMessages = await prepareCompanyChatMessages(messages, { imageOcrRunner, documentTextRunner });
   const mergedMessages = buildMergedMessages(compactChatMessages(preparedMessages), context);
   const requestConfig = buildChatCompletionRequest({
     selectedModel: config.model,
@@ -655,23 +882,27 @@ export async function streamCompanyChatCompletion({
   let responseStatus = null;
   let streamError = null;
   let tokenUsage = null;
+  let upstream;
 
   try {
-    const upstreamResponse = await fetchWithResilience(requestConfig.url, {
+    upstream = await fetchWithResilience(requestConfig.url, {
       method: "POST",
       headers: requestConfig.headers,
       body: JSON.stringify(requestConfig.body),
     });
+    const upstreamResponse = upstream.response;
     responseStatus = upstreamResponse.status;
     upstreamConnectMs = roundMs(nowMs() - startedAt);
 
     if (!upstreamResponse.ok) {
-      const text = await upstreamResponse.text().catch(() => "");
-      throw new Error(`Chat request failed (${upstreamResponse.status}): ${text || upstreamResponse.statusText}`);
+      throw upstreamFailure(upstreamResponse);
     }
 
     if (!upstreamResponse.body) {
-      throw new Error("Chat model did not return a stream body");
+      throw new CompanyChatBoundaryError(
+        "CHAT_UPSTREAM_EMPTY_RESPONSE",
+        "error_code=CHAT_UPSTREAM_EMPTY_RESPONSE missing_stream_body=true",
+      );
     }
 
     ensureSseHeaders(response);
@@ -682,6 +913,8 @@ export async function streamCompanyChatCompletion({
 
     const reader = upstreamResponse.body.getReader();
     const decoder = new TextDecoder();
+    const releaseRequired = answerValidation?.releaseRequired === true
+      || Boolean(answerValidation?.semanticEvidence?.length);
     const sanitizerState = {
       suppressingPseudoToolCall: false,
       suppressedPseudoToolCall: false,
@@ -701,16 +934,55 @@ export async function streamCompanyChatCompletion({
       onTokenUsage: (usage) => {
         tokenUsage = usage;
       },
-      gateEnabled: Boolean(answerValidation?.semanticEvidence?.length),
-      gateOverflow: false,
-      bufferedPayloads: [],
-      bufferedPayloadBytes: 0,
-      terminalPublished: false,
+      releaseRequired,
+      releaseBindingRequired: answerValidation?.releaseRequired === true,
+      releaseMaxBytes: positiveInteger(process.env.VIZION_ANSWER_RELEASE_MAX_BYTES, DEFAULT_ANSWER_RELEASE_MAX_BYTES),
+      releaseFrameMaxBytes: positiveInteger(process.env.VIZION_ANSWER_RELEASE_MAX_BYTES, DEFAULT_ANSWER_RELEASE_MAX_BYTES) + 64 * 1024,
+      upstreamFrameMaxBytes: positiveInteger(
+        process.env.DUPSEARCH_CHAT_STREAM_FRAME_MAX_BYTES,
+        DEFAULT_CHAT_STREAM_FRAME_MAX_BYTES,
+      ),
+      upstreamResponseMaxBytes: positiveInteger(
+        process.env.DUPSEARCH_CHAT_RESPONSE_MAX_BYTES,
+        DEFAULT_CHAT_RESPONSE_MAX_BYTES,
+      ),
+      releaseBytes: 0,
+      releaseViolation: "",
+      terminalEmitted: false,
     };
+    const releaseDeadline = releaseRequired
+      ? Date.now() + positiveInteger(process.env.VIZION_ANSWER_RELEASE_TIMEOUT_MS, DEFAULT_ANSWER_RELEASE_TIMEOUT_MS)
+      : null;
     let sseBuffer = "";
+    let stopReading = false;
 
-    while (true) {
-      const { done, value } = await reader.read();
+    while (!stopReading) {
+      let readResult;
+      if (releaseDeadline) {
+        const remainingMs = releaseDeadline - Date.now();
+        if (remainingMs <= 0) {
+          sanitizerState.releaseViolation = "ANSWER_RELEASE_TIMEOUT";
+          break;
+        }
+        let timeout;
+        try {
+          readResult = await Promise.race([
+            reader.read(),
+            new Promise((resolve) => {
+              timeout = setTimeout(() => resolve({ releaseTimedOut: true }), remainingMs);
+            }),
+          ]);
+        } finally {
+          if (timeout) clearTimeout(timeout);
+        }
+        if (readResult?.releaseTimedOut) {
+          sanitizerState.releaseViolation = "ANSWER_RELEASE_TIMEOUT";
+          break;
+        }
+      } else {
+        readResult = await reader.read();
+      }
+      const { done, value } = readResult;
       if (done) {
         break;
       }
@@ -718,32 +990,74 @@ export async function streamCompanyChatCompletion({
       if (value?.length) {
         chunkCount += 1;
         byteCount += value.length;
+        if (byteCount > sanitizerState.upstreamResponseMaxBytes) {
+          await reader.cancel().catch(() => {});
+          throw new CompanyChatBoundaryError(
+            "CHAT_UPSTREAM_RESPONSE_TOO_LARGE",
+            "error_code=CHAT_UPSTREAM_RESPONSE_TOO_LARGE stream_total_limit=true",
+          );
+        }
         if (firstChunkMs === null) {
           firstChunkMs = roundMs(nowMs() - startedAt);
         }
         sseBuffer += decoder.decode(value, { stream: true });
-        let frameBoundary = sseBuffer.indexOf("\n\n");
-        while (frameBoundary >= 0) {
-          const frame = sseBuffer.slice(0, frameBoundary);
-          sseBuffer = sseBuffer.slice(frameBoundary + 2);
-          writeSanitizedSseFrame(response, frame, sanitizerState);
-          frameBoundary = sseBuffer.indexOf("\n\n");
+        if (Buffer.byteLength(sseBuffer, "utf8") > sanitizerState.upstreamFrameMaxBytes) {
+          await reader.cancel().catch(() => {});
+          throw new CompanyChatBoundaryError(
+            "CHAT_UPSTREAM_RESPONSE_TOO_LARGE",
+            "error_code=CHAT_UPSTREAM_RESPONSE_TOO_LARGE stream_frame_limit=true",
+          );
+        }
+        if (releaseRequired && Buffer.byteLength(sseBuffer, "utf8") > sanitizerState.releaseFrameMaxBytes) {
+          sanitizerState.releaseViolation = "ANSWER_RELEASE_BUFFER_LIMIT_EXCEEDED";
+          sseBuffer = "";
+          stopReading = true;
+          continue;
+        }
+        let frameBoundary = findSseFrameBoundary(sseBuffer);
+        while (frameBoundary) {
+          const frame = sseBuffer.slice(0, frameBoundary.index);
+          sseBuffer = sseBuffer.slice(frameBoundary.index + frameBoundary.length);
+          if (writeSanitizedSseFrame(response, frame, sanitizerState)) {
+            stopReading = true;
+            break;
+          }
+          if (sanitizerState.releaseViolation) {
+            stopReading = true;
+            break;
+          }
+          frameBoundary = findSseFrameBoundary(sseBuffer);
         }
       }
     }
 
+    if (stopReading || sanitizerState.releaseViolation) {
+      await reader.cancel().catch(() => {});
+    }
     sseBuffer += decoder.decode();
-    if (sseBuffer.trim()) {
+    if (!sanitizerState.terminalEmitted && !sanitizerState.releaseViolation && sseBuffer.trim()) {
       writeSanitizedSseFrame(response, sseBuffer.trimEnd(), sanitizerState);
     }
 
-    finalizeSanitizedStream(response, sanitizerState);
+    if (!sanitizerState.terminalEmitted) {
+      if (releaseRequired) {
+        finalizeAnswerRelease(response, sanitizerState);
+      } else {
+        flushPendingSanitizedContent(response, sanitizerState);
+        writePseudoToolFallbackIfNeeded(response, sanitizerState);
+        writeAnswerValidationIfNeeded(response, sanitizerState);
+        response.write("data: [DONE]\n\n");
+        sanitizerState.terminalEmitted = true;
+      }
+    }
 
     response.end();
   } catch (error) {
-    streamError = error instanceof Error ? error.message : String(error);
-    throw error;
+    const normalizedError = normalizeUpstreamTransportError(error, upstream?.signal);
+    streamError = controlledChatErrorDiagnostic(normalizedError);
+    throw normalizedError;
   } finally {
+    upstream?.release();
     onMetrics?.({
       model: config.model,
       status: responseStatus,
@@ -785,4 +1099,20 @@ export function writeSseResponse(response, content) {
   }
   response.write("data: [DONE]\n\n");
   response.end();
+}
+
+export function writeGovernedEvidenceBlockResponse(response, violations = []) {
+  ensureSseHeaders(response);
+  const validation = {
+    valid: false,
+    violations: [...new Set((Array.isArray(violations) ? violations : []).map((value) => String(value || "").trim()).filter(Boolean))],
+  };
+  if (!validation.violations.length) {
+    validation.violations.push("SEMANTIC_EVIDENCE_GATE_BLOCKED");
+  }
+  writeContentChunks(response, GOVERNED_EVIDENCE_UNAVAILABLE_CONTENT);
+  writeSseEvent(response, { type: "answer-validation", ...validation });
+  response.write("data: [DONE]\n\n");
+  response.end();
+  return validation;
 }

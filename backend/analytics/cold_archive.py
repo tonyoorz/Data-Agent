@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import sqlite3
+from backend.analytics.db import ensure_wal_pragmas
 
 import pandas as pd
 
@@ -28,7 +29,7 @@ def _quote_sql_string(value: Path | str) -> str:
 
 
 def _list_sqlite_tables(source_db_path: Path) -> list[str]:
-	conn = sqlite3.connect(str(source_db_path))
+	conn = ensure_wal_pragmas(sqlite3.connect(str(source_db_path)))
 	try:
 		rows = conn.execute(
 			"""
@@ -137,7 +138,7 @@ def archive_source_to_cold_storage(
 	duck_conn = duckdb.connect(str(resolved_cold_db_path))
 	table_summaries: list[dict[str, object]] = []
 	try:
-		with sqlite3.connect(str(resolved_source_path)) as sqlite_conn:
+		with ensure_wal_pragmas(sqlite3.connect(str(resolved_source_path))) as sqlite_conn:
 			for index, table_name in enumerate(_list_sqlite_tables(resolved_source_path), start=1):
 				row_count = _copy_sqlite_table_to_duckdb(duck_conn, sqlite_conn, table_name, index)
 				parquet_path = (resolved_parquet_dir / f"{table_name}.parquet").resolve()

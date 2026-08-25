@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 
 import { resolveInternalActorScope } from "./internalActorScope.mjs";
+import { sanitizeAuthenticatedChatBody } from "./clientChatBoundary.mjs";
 
 const AUTHENTICATED_ACTOR_REQUIRED = "AUTHENTICATED_ACTOR_REQUIRED";
 const AGENT_AUTH_MODE_INVALID = "AGENT_AUTH_MODE_INVALID";
@@ -261,7 +262,11 @@ export function createOidcTokenVerifier(env = process.env, dependencies = {}) {
     const jwks = createJWKSet(jwksUrl);
 
     const verifyToken = async (token) => {
-      const { payload } = await verifyJwt(token, jwks, { issuer, audience });
+      const { payload } = await verifyJwt(token, jwks, {
+        issuer,
+        audience,
+        requiredClaims: ["sub", "exp"],
+      });
       return payload;
     };
     verifierCache.set(cacheKey, verifyToken);
@@ -345,7 +350,7 @@ export async function resolveAuthenticatedChatBody(rawBody, request = {}, option
   };
 }
 
-export async function runAuthenticatedChatRequest(request = {}, options = {}) {
+export async function runAuthenticatedAgentRequest(request = {}, options = {}) {
   let actor;
   try {
     actor = await resolveRequestActor(request, options);
@@ -364,16 +369,22 @@ export async function runAuthenticatedChatRequest(request = {}, options = {}) {
   let rawBody;
   try {
     if (typeof options.readBody !== "function") {
-      throw new TypeError("readBody must be a function after chat authentication");
+      throw new TypeError("readBody must be a function after agent authentication");
     }
     rawBody = await options.readBody(request);
   } catch (error) {
     if (typeof options.sendBadRequestResponse !== "function") {
       throw error;
     }
+    const bodyTooLarge = error?.code === "REQUEST_BODY_TOO_LARGE" && error?.statusCode === 413;
     options.sendBadRequestResponse({
-      statusCode: 400,
-      payload: { success: false, error: "INVALID_CHAT_REQUEST_BODY" },
+      statusCode: bodyTooLarge ? 413 : 400,
+      payload: {
+        success: false,
+        error: bodyTooLarge
+          ? "REQUEST_BODY_TOO_LARGE"
+          : String(options.invalidBodyError || "INVALID_AGENT_REQUEST_BODY"),
+      },
     });
     return undefined;
   }
@@ -383,10 +394,19 @@ export async function runAuthenticatedChatRequest(request = {}, options = {}) {
     delete body[field];
   }
 
-  if (typeof options.runChat !== "function") {
-    throw new TypeError("runChat must be a function after chat authentication");
+  if (typeof options.runRequest !== "function") {
+    throw new TypeError("runRequest must be a function after agent authentication");
   }
-  return options.runChat({ ...body, actor });
+  return options.runRequest({ ...body, actor });
+}
+
+export async function runAuthenticatedChatRequest(request = {}, options = {}) {
+  return runAuthenticatedAgentRequest(request, {
+    ...options,
+    readBody: async (...args) => sanitizeAuthenticatedChatBody(await options.readBody(...args)),
+    invalidBodyError: "INVALID_CHAT_REQUEST_BODY",
+    runRequest: options.runChat,
+  });
 }
 
 export async function resolveInternalAuxiliaryActor(request = {}, options = {}) {

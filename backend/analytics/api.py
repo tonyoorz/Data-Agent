@@ -3,10 +3,11 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Query, Request
+from fastapi import Depends, FastAPI, Query, Request
 from fastapi.responses import JSONResponse
 
 from backend.analytics.agent_actor_capability import (
+    ACTOR_CAPABILITY_SCOPE_KEYS,
     ActorCapabilityError,
     enforce_defect_query_scope,
     enforce_testing_team_fv_analysis_scope,
@@ -61,6 +62,26 @@ async def analytics_lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="Vizion Analytics API", lifespan=analytics_lifespan)
+
+
+def _semantic_actor_scope(actor: dict[str, object]) -> dict[str, object]:
+    scopes = actor.get("scopes") if isinstance(actor.get("scopes"), dict) else {}
+    return {
+        "actorId": str(actor.get("actorId") or ""),
+        "scopeHash": str(actor.get("scopeHash") or ""),
+        **{
+            key: [str(value) for value in scopes.get(key, [])]
+            if isinstance(scopes.get(key), list)
+            else []
+            for key in ACTOR_CAPABILITY_SCOPE_KEYS
+        },
+    }
+
+
+def _semantic_payload_with_verified_actor(raw_payload: object, actor: dict[str, object]) -> dict[str, object]:
+    payload = dict(raw_payload) if isinstance(raw_payload, dict) else {}
+    payload["actorScope"] = _semantic_actor_scope(actor)
+    return payload
 
 
 def _full_picture_query_params(request: Request) -> dict[str, object]:
@@ -237,6 +258,15 @@ def _agent_capability_error_response(error: ActorCapabilityError) -> JSONRespons
     )
 
 
+def _verified_agent_actor(request: Request) -> dict[str, object]:
+    return verify_actor_capability_header(request.headers)
+
+
+@app.exception_handler(ActorCapabilityError)
+async def _agent_capability_exception_handler(_request: Request, error: ActorCapabilityError) -> JSONResponse:
+    return _agent_capability_error_response(error)
+
+
 def _agent_analytics_schema_error_response() -> JSONResponse:
     return JSONResponse(
         status_code=400,
@@ -345,11 +375,14 @@ async def analytics_filter_values_search(request: Request) -> JSONResponse:
 
 
 @app.post("/api/semantic/query")
-async def semantic_query(request: Request) -> JSONResponse:
+async def semantic_query(
+    request: Request,
+    actor: dict[str, object] = Depends(_verified_agent_actor),
+) -> JSONResponse:
     try:
         raw_payload = await request.json()
         payload = execute_semantic_query(
-            raw_payload if isinstance(raw_payload, dict) else {},
+            _semantic_payload_with_verified_actor(raw_payload, actor),
             catalog=load_ontology(),
             analysis_store=SemanticAnalysisStore(),
         )
@@ -372,11 +405,14 @@ async def semantic_query(request: Request) -> JSONResponse:
 
 
 @app.post("/api/semantic/records")
-async def semantic_records(request: Request) -> JSONResponse:
+async def semantic_records(
+    request: Request,
+    actor: dict[str, object] = Depends(_verified_agent_actor),
+) -> JSONResponse:
     try:
         raw_payload = await request.json()
         payload = execute_semantic_records(
-            raw_payload if isinstance(raw_payload, dict) else {},
+            _semantic_payload_with_verified_actor(raw_payload, actor),
             catalog=load_ontology(),
             analysis_store=SemanticAnalysisStore(),
         )

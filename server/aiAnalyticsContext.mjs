@@ -1,4 +1,6 @@
 import { extractLatestUserQuery } from "./aiContext.mjs";
+import { resolveAnalyticsApiBase } from "./analyticsApiConfig.mjs";
+import { boundDefaultAnalyticsFetch } from "./boundedAnalyticsFetch.mjs";
 import { requestCompanyChatCompletion } from "./companyChat.mjs";
 import { createGovernedAnalysisPlanner } from "./ontology/analysisPlanner.mjs";
 import { createQueryPlanner } from "./ontology/queryPlanner.mjs";
@@ -9,14 +11,6 @@ import {
   createSemanticCandidateSchema,
   parseSemanticCandidate,
 } from "./ontology/semanticCandidate.mjs";
-
-const ANALYTICS_API_BASE = process.env.VIZION_ANALYTICS_API_BASE || "http://127.0.0.1:3003";
-const SEMANTIC_CANDIDATE_DEFAULT_TIMEOUT_MS = 5000;
-
-function positiveInteger(value, fallback) {
-  const parsed = Number.parseInt(String(value || ""), 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-}
 
 const ANALYTICS_CONTEXT = `# Analytics business context
 Data sources:
@@ -156,7 +150,7 @@ function detectOpenedDtsvMetric(queryText, now, semanticFrame) {
   return {
     ...window,
     team: "DTSV_China",
-    url: `${ANALYTICS_API_BASE}/api/full-picture/dashboard/summary?${searchParams.toString()}`,
+    url: `${resolveAnalyticsApiBase()}/api/full-picture/dashboard/summary?${searchParams.toString()}`,
   };
 }
 
@@ -295,7 +289,10 @@ async function requestCompanySemanticCandidate({ registry, query, priorSemanticC
       retryDelayMs: 0,
     },
   });
-  return parseSemanticCandidate(completion.content, schema);
+  return {
+    ...parseSemanticCandidate(completion.content, schema),
+    catalogSelection: catalog.selection,
+  };
 }
 
 async function bestEffortSemanticCandidate({ requestSemanticCandidate, registry, query, priorSemanticContext, model }) {
@@ -316,6 +313,7 @@ export async function resolveAiAnalyticsContext({
   model,
   requestSemanticCandidate = requestCompanySemanticCandidate,
 }) {
+  analyticsFetch = boundDefaultAnalyticsFetch(analyticsFetch);
   const queryText = extractLatestUserQuery(messages);
   if (!queryText) {
     return { queryText: "", contextText: "" };
@@ -348,16 +346,21 @@ export async function resolveAiAnalyticsContext({
       semanticContext = `# Governed Ontology interpretation\nStatus: ${safeErrorCode(error, "SEMANTIC_CONTEXT_UNAVAILABLE")}\nDo not answer analytics questions without governed evidence.`;
     }
   }
-  const detectedMetric = governanceFailed ? null : detectOpenedDtsvMetric(recentUserText, now, semanticFrame);
+  const hasGovernedExecutablePlan = semanticPlan?.status === "valid" && analysisPlan?.status === "ready";
+  const detectedMetric = governanceFailed || hasGovernedExecutablePlan
+    ? null
+    : detectOpenedDtsvMetric(recentUserText, now, semanticFrame);
   const detectedMetricContext = await resolveDetectedMetricContext(detectedMetric, analyticsFetch);
 
   return {
     queryText,
     contextText: [ANALYTICS_CONTEXT, semanticContext, detectedMetricContext].filter(Boolean).join("\n\n"),
     skipDefectContext: Boolean(detectedMetric),
+    ...(detectedMetric ? { claimRelease: { status: "unreleased", contextId: "resolved_analytics_query" } } : {}),
     shadowObservation,
     analysisPlan,
     queryPlan: semanticPlan,
     semanticPlan,
+    semanticFrame,
   };
 }
