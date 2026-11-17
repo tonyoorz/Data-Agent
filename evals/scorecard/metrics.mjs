@@ -45,17 +45,24 @@ export function deriveIntentUniverse(agentGoldenCases) {
   return set;
 }
 
-// Six runtime metrics over an array of parsed run-summaries.jsonl rows.
+// Runtime metrics over an array of parsed run-summaries.jsonl rows.
 // options.intentUniverse — a Set of intents considered in-baseline (from golden).
+//
+// Rows with intent "create_testcase" (testcase-generation runs) are reported through
+// the dedicated testcase_quality metric and excluded from the six chat metrics —
+// they are generations, not chat answers, and would otherwise dilute
+// citation/business-rule pass rates.
 export function computeRuntimeMetrics(summaries, options = {}) {
-  const rows = Array.isArray(summaries) ? summaries : [];
-  const total = rows.length;
+  const allRows = Array.isArray(summaries) ? summaries : [];
+  const total = allRows.length;
   const intentUniverse = options.intentUniverse instanceof Set && options.intentUniverse.size > 0
     ? options.intentUniverse
     : new Set();
+  const rows = allRows.filter((row) => row && row.intent !== "create_testcase");
+  const testcaseRows = allRows.filter((row) => row && row.intent === "create_testcase");
 
   const empty = {
-    sampleSize: 0,
+    sampleSize: total,
     hasData: false,
     intent_coverage_pct: null,
     intent_universe_size: intentUniverse.size,
@@ -65,6 +72,7 @@ export function computeRuntimeMetrics(summaries, options = {}) {
     recovery_success_rate_pct: null,
     latency_ms: { p50: null, p95: null, max: null },
     failure_top_codes: [],
+    testcase_quality: computeTestCaseQuality(testcaseRows),
   };
   if (total === 0) return empty;
 
@@ -77,9 +85,10 @@ export function computeRuntimeMetrics(summaries, options = {}) {
   const covered = universe.filter((i) => seen.has(i)).length;
   const intentCoverage = universe.length > 0 ? (covered / universe.length) * 100 : null;
 
-  // 2. Outcome distribution — completed / blocked / denied / needs_clarification / error / other.
+  // 2. Outcome distribution — completed / blocked / denied / needs_clarification / error /
+  //    other, over ALL rows (chat answers and testcase generations both have outcomes).
   const buckets = {};
-  for (const row of rows) {
+  for (const row of allRows) {
     const key = row && typeof row.outcome === "string" && row.outcome ? row.outcome : "unknown";
     buckets[key] = (buckets[key] || 0) + 1;
   }
@@ -89,17 +98,17 @@ export function computeRuntimeMetrics(summaries, options = {}) {
       .map(([key, count]) => [key, round1((count / total) * 100)]),
   );
 
-  // 3. Citation pass rate — share of runs whose answer citations validated as pass.
+  // 3. Citation pass rate — share of chat runs whose answer citations validated as pass.
   const citationPass = rows.filter((r) => r && r.citationValidation === "pass").length;
-  const citationPassRate = (citationPass / total) * 100;
+  const citationPassRate = rows.length > 0 ? (citationPass / rows.length) * 100 : null;
 
-  // 4. Business-rule activation rate — share of runs that activated at least one
+  // 4. Business-rule activation rate — share of chat runs that activated at least one
   //    approved business rule (planner effect rule or validator rule). Measures
   //    whether the governed business-knowledge layer is actually engaged.
   const ruleActivated = rows.filter(
     (r) => Array.isArray(r && r.businessRuleCodes) && r.businessRuleCodes.length > 0,
   ).length;
-  const ruleActivationRate = (ruleActivated / total) * 100;
+  const ruleActivationRate = rows.length > 0 ? (ruleActivated / rows.length) * 100 : null;
 
   // 5. Recovery success rate — among runs that attempted recovery, share that recovered.
   const recoveryRuns = rows.filter(
@@ -150,6 +159,44 @@ export function computeRuntimeMetrics(summaries, options = {}) {
     recovery_success_rate_pct: round1(recoverySuccessRate),
     latency_ms: latency,
     failure_top_codes: failureTop,
+    testcase_quality: computeTestCaseQuality(testcaseRows),
+  };
+}
+
+// Quality aggregate over intent="create_testcase" run-summary rows (closed-loop
+// testcase generations): rounds, heuristic/judge pass rates, model coverage, latency.
+function computeTestCaseQuality(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) return null;
+  const total = rows.length;
+  const rounds = rows
+    .map((r) => Number(r && r.generationRounds))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  const verificationPassed = rows.filter((r) => r && r.verificationPassed === true).length;
+  const judgeSkipped = rows.filter((r) => r && r.judgeStatus === "skipped").length;
+  const judgePassed = rows.filter((r) => r && r.judgeStatus === "pass").length;
+  const judgeDenominator = total - judgeSkipped;
+  const coverages = rows
+    .map((r) => Number(r && r.modelCoveragePct))
+    .filter((n) => Number.isFinite(n) && n >= 0);
+  const latencies = rows
+    .map((r) => Number(r && r.latencyMs))
+    .filter((n) => Number.isFinite(n) && n >= 0)
+    .sort((a, b) => a - b);
+  const avg = (values) => (values.length ? values.reduce((sum, n) => sum + n, 0) / values.length : null);
+  return {
+    count: total,
+    avg_generation_rounds: round1(avg(rounds)),
+    verification_pass_rate_pct: round1((verificationPassed / total) * 100),
+    judge_pass_rate_pct: judgeDenominator > 0 ? round1((judgePassed / judgeDenominator) * 100) : null,
+    judge_skipped_count: judgeSkipped,
+    avg_model_coverage_pct: round1(avg(coverages)),
+    latency_ms: latencies.length
+      ? {
+          p50: Math.round(percentile(latencies, 50)),
+          p95: Math.round(percentile(latencies, 95)),
+          max: Math.round(latencies[latencies.length - 1]),
+        }
+      : { p50: null, p95: null, max: null },
   };
 }
 

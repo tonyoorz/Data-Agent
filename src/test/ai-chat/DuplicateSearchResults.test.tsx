@@ -286,6 +286,55 @@ describe("DuplicateSearchResults", () => {
     expect(screen.queryByText(/Extra evidence should stay hidden/)).not.toBeInTheDocument();
   });
 
+  it("renders LLM verdict badges and the cross-encoder rerank indicator", () => {
+    render(
+      <DuplicateSearchResults
+        allowFeedback={false}
+        result={{
+          searchId: "search-verdict-badge-1",
+          queryText: "冷启动导航黑屏",
+          modelPhase: "baseline",
+          crossEncoderRerank: true,
+          feedbackCount: 0,
+          candidates: [
+            {
+              ticketId: "920669",
+              name: "IDCEVO 冷启动导航黑屏",
+              score1to10: 9,
+              similarity: 0.91,
+              snippet: "冷启动后导航黑屏，重启恢复。",
+              llmVerdict: "duplicate",
+              llmVerdictReason: "同为冷启动黑屏，PU 与现象一致。",
+            },
+            {
+              ticketId: "920670",
+              name: "地图偶发白屏",
+              score1to10: 6,
+              similarity: 0.62,
+              snippet: "地图渲染偶发白屏。",
+              llmVerdict: "not_duplicate",
+              llmVerdictReason: "偶发白屏与必现黑屏现象不同。",
+            },
+            {
+              ticketId: "920671",
+              name: "语音无法唤醒",
+              score1to10: 4,
+              similarity: 0.4,
+              snippet: "语音唤醒失败。",
+              llmVerdict: "uncertain",
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByText("AI 判定:可能重复")).toBeInTheDocument();
+    expect(screen.getByText("AI 判定:可能不重复")).toBeInTheDocument();
+    expect(screen.getByText("AI 判定:需人工复核")).toBeInTheDocument();
+    expect(screen.getByText(/交叉编码器重排/)).toBeInTheDocument();
+    expect(screen.getByTitle("判定依据: 同为冷启动黑屏，PU 与现象一致。")).toBeInTheDocument();
+  });
+
   it("orders candidates by review confidence and shows similarity separately", () => {
     render(
       <DuplicateSearchResults

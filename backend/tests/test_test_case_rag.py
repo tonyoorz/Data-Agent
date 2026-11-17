@@ -6,9 +6,11 @@ from typing import Any
 
 import pytest
 
+from backend.analytics.test_case_bodies import TestCaseBody
 from backend.analytics.test_case_index import (
     SimilarTestCase,
     format_few_shot_examples,
+    format_few_shot_examples_full,
     _load_test_cases_df,
 )
 from backend.analytics.test_case_verifier import (
@@ -83,6 +85,53 @@ def test_format_few_shot_respects_max_cases() -> None:
     assert "T0" in result
     assert "T1" in result
     assert "T3" not in result
+
+
+# --- format_few_shot_examples_full tests ---
+
+
+def _case(test_id: str, name: str, score: float = 0.8) -> SimilarTestCase:
+    return SimilarTestCase(test_id=test_id, name=name, score=score, team="", release="", subtype="")
+
+
+def test_format_few_shot_full_includes_step_script() -> None:
+    bodies = {
+        "123": TestCaseBody(
+            test_id="123",
+            name="pps CPU load regression",
+            description_text="objective",
+            steps_text="- [PreCon] vehicle ready\n- record CPU load\n- ? CPU load <= 0.17%",
+        ),
+    }
+    result = format_few_shot_examples_full([_case("123", "name-only")], bodies)
+    assert "Steps:" in result
+    assert "- [PreCon] vehicle ready" in result
+    assert "- ? CPU load <= 0.17%" in result
+    assert "pps CPU load regression" in result
+    assert "similarity: 0.80" in result
+
+
+def test_format_few_shot_full_falls_back_to_name_only_without_body() -> None:
+    result = format_few_shot_examples_full([_case("123", "Speech wakeup test")], {})
+    assert "Speech wakeup test" in result
+    assert "full body unavailable" in result
+    assert "Steps:" not in result
+
+
+def test_format_few_shot_full_truncates_long_step_scripts() -> None:
+    long_steps = "\n".join(f"- action step {i}" for i in range(100))
+    bodies = {"1": TestCaseBody(test_id="1", name="n", description_text="", steps_text=long_steps)}
+    result = format_few_shot_examples_full([_case("1", "n")], bodies, max_step_lines=5, max_chars=120)
+    assert "action step 5" not in result
+    assert "(truncated)" in result
+
+
+def test_format_few_shot_full_mixed_bodies() -> None:
+    cases = [_case("1", "with body"), _case("2", "without body")]
+    bodies = {"1": TestCaseBody(test_id="1", name="full", description_text="", steps_text="- a\n- ? b <= 1%")}
+    result = format_few_shot_examples_full(cases, bodies)
+    assert "- a" in result
+    assert "without body" in result
 
 
 # --- test_case_verifier tests ---
@@ -164,3 +213,93 @@ def test_verify_feedback_lists_all_failures() -> None:
     assert result.passed is False
     assert "format_compliance" in result.feedback
     assert "Regeneration needed" in result.feedback
+
+
+# --- model_coverage criterion tests (stage-1 test design model) ---
+
+
+def _test_model() -> dict[str, Any]:
+    return {
+        "dimensions": [
+            {
+                "name": "drive_mode",
+                "aspect": "vehicle state",
+                "classes": [
+                    {"id": "dm-1", "name": "IDLE-FAHREN"},
+                    {"id": "dm-2", "name": "TYPICAL mode", "isBoundary": True},
+                ],
+            },
+            {
+                "name": "software_build",
+                "aspect": "candidate vs baseline",
+                "classes": [
+                    {"id": "sw-1", "name": "baseline build PU2707"},
+                    {"id": "sw-2", "name": "candidate build PU2708"},
+                ],
+            },
+        ],
+        "combinations": [
+            {"id": "TC-1", "classRefs": ["dm-1", "sw-2"], "priority": "high", "rationale": "defect scenario"},
+            {"id": "TC-2", "classRefs": ["dm-2", "sw-1"], "priority": "normal", "rationale": "boundary contrast"},
+        ],
+    }
+
+
+_MODEL_STEPS = "\n".join([
+    "- [PreCon] IDCEvo test vehicle ready",
+    "- record pps CPU load",
+    "- drive in IDLE-FAHREN mode on candidate build PU2708",
+    "- drive in TYPICAL mode on baseline build PU2707",
+    "- compare candidate against baseline",
+    "- ? CPU load must NOT exceed 0.17%",
+])
+
+
+def _model_description() -> str:
+    return "<html><body>Reference: defect D2804379</body></html>"
+
+
+def test_model_coverage_passes_when_all_combinations_covered() -> None:
+    result = verify_test_case(
+        defect=_good_defect(),
+        description_html=_model_description(),
+        steps_text=_MODEL_STEPS,
+        test_model=_test_model(),
+        combination_coverage=["TC-1", "TC-2"],
+    )
+    model = next(c for c in result.criteria if c.name == "model_coverage")
+    assert model.passed is True
+    assert "2 combinations" in model.evidence
+
+
+def test_model_coverage_fails_on_unclaimed_combination() -> None:
+    result = verify_test_case(
+        defect=_good_defect(),
+        description_html=_model_description(),
+        steps_text=_MODEL_STEPS,
+        test_model=_test_model(),
+        combination_coverage=["TC-1"],
+    )
+    model = next(c for c in result.criteria if c.name == "model_coverage")
+    assert model.passed is False
+    assert "TC-2" in model.evidence
+
+
+def test_model_coverage_rejects_claims_without_step_evidence() -> None:
+    # TC-1 is claimed but the steps never mention the candidate build class.
+    steps = _MODEL_STEPS.replace("candidate build PU2708", "another build")
+    result = verify_test_case(
+        defect=_good_defect(),
+        description_html=_model_description(),
+        steps_text=steps,
+        test_model=_test_model(),
+        combination_coverage=["TC-1", "TC-2"],
+    )
+    model = next(c for c in result.criteria if c.name == "model_coverage")
+    assert model.passed is False
+    assert "TC-1" in model.evidence
+
+
+def test_model_coverage_criterion_absent_without_model() -> None:
+    result = verify_test_case(defect=_good_defect(), description_html=_good_description(), steps_text=_good_steps())
+    assert all(c.name != "model_coverage" for c in result.criteria)

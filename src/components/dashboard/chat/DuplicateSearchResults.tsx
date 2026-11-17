@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { CheckCheck, CircleSlash, ThumbsDown, ThumbsUp } from "lucide-react";
+import { CheckCheck, CircleSlash, CopyCheck, CircleHelp, CircleX, ThumbsDown, ThumbsUp } from "lucide-react";
 
 import type {
   DuplicateFeedbackSignal,
+  DuplicateLlmVerdict,
   DuplicateSearchCandidate,
   DuplicateSearchResult,
 } from "./duplicateSearchTypes";
@@ -48,6 +49,45 @@ function candidateConfidenceScore(candidate: DuplicateSearchCandidate) {
 
 function candidateSimilarityScore(candidate: DuplicateSearchCandidate) {
   return candidate.score1to10 ?? 0;
+}
+
+const VERDICT_BADGES: Record<
+  DuplicateLlmVerdict,
+  { label: string; className: string; Icon: typeof CopyCheck }
+> = {
+  duplicate: {
+    label: "AI 判定:可能重复",
+    className: "bg-emerald-500/10 text-emerald-600",
+    Icon: CopyCheck,
+  },
+  not_duplicate: {
+    label: "AI 判定:可能不重复",
+    className: "bg-muted text-muted-foreground",
+    Icon: CircleX,
+  },
+  uncertain: {
+    label: "AI 判定:需人工复核",
+    className: "bg-amber-500/10 text-amber-600",
+    Icon: CircleHelp,
+  },
+};
+
+function VerdictBadge({ candidate }: { candidate: DuplicateSearchCandidate }) {
+  const verdict = candidate.llmVerdict;
+  if (!verdict || !(verdict in VERDICT_BADGES)) {
+    return null;
+  }
+  const { label, className, Icon } = VERDICT_BADGES[verdict];
+  const reason = candidate.llmVerdictReason?.trim();
+  return (
+    <span
+      title={reason ? `判定依据: ${reason}` : undefined}
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${className}`}
+    >
+      <Icon className="h-3 w-3" aria-hidden="true" />
+      {label}
+    </span>
+  );
 }
 
 function compareByReviewPriority(left: DuplicateSearchCandidate, right: DuplicateSearchCandidate) {
@@ -140,6 +180,7 @@ const DuplicateSearchResults = ({
           <p className="text-sm font-semibold text-foreground">候选缺陷</p>
           <p className="text-xs text-muted-foreground">
             共 {orderedCandidates.length} 条 · 阶段 {result.modelPhase} · 反馈 {visibleFeedbackCount}
+            {result.crossEncoderRerank ? " · 交叉编码器重排" : ""}
           </p>
         </div>
       </div>
@@ -185,6 +226,7 @@ const DuplicateSearchResults = ({
                     <span> · </span>
                     <span>{formatSimilarity(candidate)}</span>
                   </span>
+                  <VerdictBadge candidate={candidate} />
                   {feedback === "positive" ? (
                     <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-600">
                       <CheckCheck className="h-3 w-3" /> 已标记命中

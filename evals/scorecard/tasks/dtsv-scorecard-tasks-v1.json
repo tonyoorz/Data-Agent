@@ -1,0 +1,4472 @@
+{
+  "schemaVersion": "1.0",
+  "generated_at": "2026-08-17T10:08:38.451584+00:00",
+  "title": "DTSV main-agent scorecard task bank (60-100 tasks)",
+  "description": "面向 Data-Agent 的 Deep Task-Specific Verification 评分卡任务库，覆盖缺陷度量/根因/覆盖/执行/团队/时序/追溯/多跳/恢复/报告十域，每任务含六维目标值(accuracy/strategy/evidence/recovery/latency/cost)。",
+  "grounding": {
+    "ontology_metrics": "ontology/v1/metrics.json (31 metrics)",
+    "ontology_dimensions": "ontology/v1/dimensions.json (51 dimensions)",
+    "real_testcases": "testcase/dtsv_testcases_R-22-02.json (DTSV_China / R-22-02)",
+    "runtime_metrics_alignment": "evals/scorecard/metrics.mjs (六运行指标)",
+    "tool_names": [
+      "resolve_business_terms",
+      "query_analytics",
+      "query_analytics_fallback",
+      "query_semantic_metrics",
+      "query_testing_coverage_project_status",
+      "query_testing_coverage_aida_status",
+      "query_defect_high_frequency_analysis",
+      "query_semantic_records",
+      "query_traceability",
+      "search_duplicates",
+      "get_test_case_context",
+      "ask_clarification",
+      "query_full_picture_module",
+      "diagnose_analytics_empty"
+    ]
+  },
+  "dimension_spec": {
+    "accuracy": {
+      "label_zh": "准确率",
+      "definition": "最终答案与金标准(golden)在数值、单位、粒度、时间窗、过滤条件上的一致性；对 SQL/语义类任务还包括语义计划可执行且结果正确。",
+      "scale": "ratio 0.00–1.00（等价百分制 0–100）",
+      "rubric": {
+        "1.00": "完全正确：数值/单位/粒度/时间窗/过滤全部一致，且引用可校验",
+        "0.85-0.99": "数值正确，仅次要表述差异（四舍五入、措辞）",
+        "0.70-0.84": "主指标正确但维度/口径偏差（如少一个过滤条件）",
+        "0.40-0.69": "检索到正确实体/方向，但计算或聚合错误",
+        "0.10-0.39": "返回了数据但严重错误或部分幻觉",
+        "0.00": "完全错误 / 无结果 / 编造"
+      },
+      "source": "对齐 metrics.mjs 的 citation_pass_rate 与 P2-1 结果集不变量校验"
+    },
+    "strategy": {
+      "label_zh": "策略",
+      "definition": "完成任务所需规划/推理复杂度，以及 agent 是否采用恰当的多步策略（实体消歧、多跳、聚合、时序对比、假设澄清、工具编排）。",
+      "scale": "ordinal 1–5（复杂度等级；评分=策略恰当度，同尺度）",
+      "rubric": {
+        "1": "单跳：一个语义指标直接查询（如『本月缺陷数』）",
+        "2": "单实体多维/简单过滤（1–2 个维度过滤）",
+        "3": "多跳/跨实体：需 join 或本体关系推理（缺陷→特性→故事）",
+        "4": "时序/对比/假设澄清：同比环比、A/B、需向用户澄清歧义",
+        "5": "复合规划：多子问题分解、聚合后再过滤、跨 release 趋势+根因推测"
+      },
+      "source": "对齐 GOAL §5 P3（plan_query 分解、关系推理）"
+    },
+    "evidence": {
+      "label_zh": "证据",
+      "definition": "答案是否携带可程序化校验的引用链（执行语义计划/SQL、行级来源、ontology 版本、snapshot id）。",
+      "scale": "ordinal 1–5（证据强度要求）",
+      "rubric": {
+        "1": "无需强证据（纯知识/路由类）",
+        "2": "需给出数据来源系统/接口名",
+        "3": "需给出执行的语义指标 id + 过滤维度",
+        "4": "需行级来源（具体 defect_id/test_id/run_id）+ citation 校验 pass",
+        "5": "完整证据包：语义计划+行级 id+ontologyVersion+snapshotId，citation=pass"
+      },
+      "source": "对齐 metrics.mjs citation_pass_rate 与 mainAgentEvidence.mjs"
+    },
+    "recovery": {
+      "label_zh": "恢复",
+      "definition": "遇到歧义、空结果、上游超时/限流、工具拒绝、schema 不匹配时的自愈能力。",
+      "scale": "ordinal 1–5（恢复能力要求/预期）",
+      "rubric": {
+        "1": "无恢复需求（直路成功）",
+        "2": "空结果/无数据给出兜底说明而非报错",
+        "3": "歧义主动澄清(ask_clarification)或切换 fallback 工具",
+        "4": "重试/退避/熔断后恢复（上游 5xx→fallback 模型/工具）",
+        "5": "多步恢复+审计留痕（失败 100% 写 audit、停止原因明确、不泄漏内部错误）"
+      },
+      "source": "对齐 metrics.mjs recovery_success_rate_pct 与 GOAL P0-1/P0-3"
+    },
+    "latency": {
+      "label_zh": "延迟",
+      "definition": "端到端响应耗时（接收 query → 返回最终答案），含 LLM + 工具调用。",
+      "scale": "秒（分位 p50/p95/max）",
+      "rubric": "在 budget_seconds(p95 上限)内为达标；超出按比例扣分。基准：L1≤4s, L2≤8s, L3≤15s。",
+      "source": "对齐 metrics.mjs latency_ms(p50/p95/max)"
+    },
+    "cost": {
+      "label_zh": "成本",
+      "definition": "单次任务消耗 LLM token 与折算人民币（基于 BMW 内部端点 deepseek-v4-flash / qwen3.5 / glm-5 计费估算）。",
+      "scale": "token 数 / ¥（估算：¥2 / 1M 输出 token，含输入）",
+      "rubric": "在 budget_tokens / budget_cny 内为达标；超出按比例扣分。基准：L1≤3000 tok/¥0.006, L2≤6000/¥0.012, L3≤12000/¥0.024。",
+      "source": "对齐 GOAL §6 可观测性（延迟与成本可度量）"
+    }
+  },
+  "difficulty_defaults": {
+    "L1": {
+      "acc": 0.97,
+      "cx": 1,
+      "ev": 3,
+      "rc": 2,
+      "lat": 4,
+      "tok": 3000,
+      "cny": 0.006
+    },
+    "L2": {
+      "acc": 0.95,
+      "cx": 3,
+      "ev": 4,
+      "rc": 3,
+      "lat": 8,
+      "tok": 6000,
+      "cny": 0.012
+    },
+    "L3": {
+      "acc": 0.9,
+      "cx": 4,
+      "ev": 5,
+      "rc": 4,
+      "lat": 15,
+      "tok": 12000,
+      "cny": 0.024
+    }
+  },
+  "task_count": 88,
+  "tasks": [
+    {
+      "id": "DTSV-001",
+      "domain": "缺陷度量查询",
+      "difficulty": "L1",
+      "intent": "metric_query",
+      "query": "本发布 R-22-02 中国区新建了多少个缺陷？",
+      "expected_tools": [
+        "query_semantic_metrics"
+      ],
+      "gold_hint": "defect.created_count WHERE detected_in_release='R-22-02' AND china_scope='Y'",
+      "verification": "返回值==golden count（±0 容差，整数）；evidence 含执行的指标 id",
+      "references": [
+        "ontology/v1/metrics.json#defect.created_count",
+        "ontology/v1/dimensions.json#quality.china_scope",
+        "ontology/v1/dimensions.json#product.release"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.97,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 1,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 2,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 4,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 3000,
+          "budget_cny": 0.006,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-002",
+      "domain": "缺陷度量查询",
+      "difficulty": "L1",
+      "intent": "metric_query",
+      "query": "当前还有几个未关闭(open)缺陷？",
+      "expected_tools": [
+        "query_semantic_metrics"
+      ],
+      "gold_hint": "defect.open_count WHERE status='Open'",
+      "verification": "返回值==golden；断言 status 过滤生效",
+      "references": [
+        "ontology/v1/metrics.json#defect.open_count",
+        "ontology/v1/dimensions.json#quality.status"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.97,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 1,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 2,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 4,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 3000,
+          "budget_cny": 0.006,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-003",
+      "domain": "缺陷度量查询",
+      "difficulty": "L2",
+      "intent": "metric_query",
+      "query": "R-22-02 中严重(severe)缺陷有多少个？",
+      "expected_tools": [
+        "query_semantic_metrics"
+      ],
+      "gold_hint": "defect.severe_count WHERE detected_in_release='R-22-02' AND severity 严重",
+      "verification": "返回值==golden；断言 severity 维度过滤正确",
+      "references": [
+        "ontology/v1/metrics.json#defect.severe_count",
+        "ontology/v1/dimensions.json#quality.severity"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.95,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 8,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 6000,
+          "budget_cny": 0.012,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-004",
+      "domain": "缺陷度量查询",
+      "difficulty": "L2",
+      "intent": "metric_query",
+      "query": "Showstopper 缺陷数量是多少？",
+      "expected_tools": [
+        "query_semantic_metrics"
+      ],
+      "gold_hint": "defect.showstopper_count WHERE detected_in_release='R-22-02'",
+      "verification": "返回值==golden；Showstopper 为 severity 最高级",
+      "references": [
+        "ontology/v1/metrics.json#defect.showstopper_count",
+        "ontology/v1/dimensions.json#quality.severity"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.95,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 8,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 6000,
+          "budget_cny": 0.012,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-005",
+      "domain": "缺陷度量查询",
+      "difficulty": "L2",
+      "intent": "metric_query",
+      "query": "R-22-02 的缺陷解决率是多少？",
+      "expected_tools": [
+        "query_semantic_metrics"
+      ],
+      "gold_hint": "defect.resolve_rate = resolved_count/created_count（比率，0–1）",
+      "verification": "比值误差≤0.02；evidence 含分子分母来源",
+      "references": [
+        "ontology/v1/metrics.json#defect.resolve_rate",
+        "ontology/v1/metrics.json#defect.resolved_count"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.95,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 8,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 6000,
+          "budget_cny": 0.012,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-006",
+      "domain": "缺陷度量查询",
+      "difficulty": "L3",
+      "intent": "metric_query",
+      "query": "R-22-02 相较 R-22-01，严重缺陷数变化了多少？",
+      "expected_tools": [
+        "query_semantic_metrics",
+        "query_analytics"
+      ],
+      "gold_hint": "Δ = severe(R-22-02) − severe(R-22-01)，需两次 release 查询后相减",
+      "verification": "差值符号与量级正确；evidence 含两次 release 的行级来源",
+      "references": [
+        "ontology/v1/metrics.json#defect.severe_count",
+        "ontology/v1/dimensions.json#product.release"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.9,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 5,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 15,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 12000,
+          "budget_cny": 0.024,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-007",
+      "domain": "缺陷度量查询",
+      "difficulty": "L2",
+      "intent": "metric_query",
+      "query": "按严重程度(severity)分布，各等级缺陷数是多少？",
+      "expected_tools": [
+        "query_semantic_metrics"
+      ],
+      "gold_hint": "GROUP BY quality.severity 返回各等级计数",
+      "verification": "各桶计数之和==总缺陷数；维度枚举完整",
+      "references": [
+        "ontology/v1/dimensions.json#quality.severity",
+        "ontology/v1/dimensions.json#quality.phase_enum"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.95,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 8,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 6000,
+          "budget_cny": 0.012,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-008",
+      "domain": "缺陷度量查询",
+      "difficulty": "L3",
+      "intent": "metric_query",
+      "query": "本月新建缺陷中，属于 solution_cluster='DiPS' 的比例是多少？",
+      "expected_tools": [
+        "query_semantic_metrics",
+        "resolve_business_terms"
+      ],
+      "gold_hint": "ratio = count(solution_cluster='DiPS') / created_count，本月窗",
+      "verification": "比率误差≤0.03；solution_cluster 消歧正确",
+      "references": [
+        "ontology/v1/metrics.json#defect.created_count",
+        "ontology/v1/dimensions.json#quality.solution_cluster"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.9,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 5,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 15,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 12000,
+          "budget_cny": 0.024,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-009",
+      "domain": "缺陷根因分析",
+      "difficulty": "L2",
+      "intent": "high_frequency",
+      "query": "哪些 defect_category 出现频率最高（Top 5）？",
+      "expected_tools": [
+        "query_defect_high_frequency_analysis"
+      ],
+      "gold_hint": "按 defect_category 计数降序取前 5",
+      "verification": "Top5 集合与 golden 一致（顺序允许并列）；evidence 含计数",
+      "references": [
+        "ontology/v1/dimensions.json#quality.defect_category",
+        "server/ontology/queryPlanner.mjs"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.95,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 8,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 6000,
+          "budget_cny": 0.012,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-010",
+      "domain": "缺陷根因分析",
+      "difficulty": "L2",
+      "intent": "metric_query",
+      "query": "重复缺陷率(repeat_rate)是多少？",
+      "expected_tools": [
+        "query_semantic_metrics"
+      ],
+      "gold_hint": "defect.repeat_rate = repeat_count / total",
+      "verification": "比率误差≤0.02",
+      "references": [
+        "ontology/v1/metrics.json#defect.repeat_rate"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.95,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 8,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 6000,
+          "budget_cny": 0.012,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-011",
+      "domain": "缺陷根因分析",
+      "difficulty": "L3",
+      "intent": "business_risk_assessment",
+      "query": "长期未解决(long_runner)缺陷有哪些，按年龄排序前 10？",
+      "expected_tools": [
+        "query_semantic_metrics",
+        "query_analytics"
+      ],
+      "gold_hint": "defect.long_runner_count + defect.age_days 降序 Top10（defect_id 列表）",
+      "verification": "返回 defect_id 列表与 age_days；行级来源可追溯",
+      "references": [
+        "ontology/v1/metrics.json#defect.long_runner_count",
+        "ontology/v1/metrics.json#defect.age_days"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.9,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 5,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 15,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 12000,
+          "budget_cny": 0.024,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-012",
+      "domain": "缺陷根因分析",
+      "difficulty": "L3",
+      "intent": "business_risk_assessment",
+      "query": "识别 R-22-02 中高 risk_score 且未关闭的缺陷，给出根因聚类。",
+      "expected_tools": [
+        "query_semantic_metrics",
+        "query_analytics"
+      ],
+      "gold_hint": "WHERE risk_score 高 AND status='Open' GROUP BY solution_cluster",
+      "verification": "聚类集合与 golden 一致；evidence 含 defect_id + solution_cluster",
+      "references": [
+        "ontology/v1/entities.json#risk_score",
+        "ontology/v1/dimensions.json#quality.solution_cluster"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.9,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 5,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 15,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 12000,
+          "budget_cny": 0.024,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-013",
+      "domain": "缺陷根因分析",
+      "difficulty": "L2",
+      "intent": "metric_query",
+      "query": "缺陷拒绝率(rejection_rate)与 CWA 拒收率(kpi.defect_rejection_rate)差异？",
+      "expected_tools": [
+        "query_semantic_metrics"
+      ],
+      "gold_hint": "对比 defect.rejection_rate 与 kpi.defect_rejection_rate 两值",
+      "verification": "两值各自误差≤0.02，差异表述正确",
+      "references": [
+        "ontology/v1/metrics.json#defect.rejection_rate",
+        "ontology/v1/metrics.json#kpi.defect_rejection_rate"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.95,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 8,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 6000,
+          "budget_cny": 0.012,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-014",
+      "domain": "缺陷根因分析",
+      "difficulty": "L3",
+      "intent": "business_risk_assessment",
+      "query": "哪些 PU 的缺陷密度(defect_density)最高？",
+      "expected_tools": [
+        "query_semantic_metrics",
+        "query_analytics"
+      ],
+      "gold_hint": "quality.defect_density GROUP BY product.pu 降序",
+      "verification": "PU 排名与 golden 一致；密度计算口径正确",
+      "references": [
+        "ontology/v1/metrics.json#quality.defect_density",
+        "ontology/v1/dimensions.json#product.pu"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.9,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 15,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 12000,
+          "budget_cny": 0.024,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-015",
+      "domain": "缺陷根因分析",
+      "difficulty": "L2",
+      "intent": "metric_query",
+      "query": "Top Issue 缺陷数是多少？",
+      "expected_tools": [
+        "query_semantic_metrics"
+      ],
+      "gold_hint": "defect.top_issue_count WHERE detected_in_release='R-22-02'",
+      "verification": "返回值==golden",
+      "references": [
+        "ontology/v1/metrics.json#defect.top_issue_count"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.95,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 8,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 6000,
+          "budget_cny": 0.012,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-016",
+      "domain": "缺陷根因分析",
+      "difficulty": "L3",
+      "intent": "business_risk_assessment",
+      "query": "对比 R-22-01 与 R-22-02 的缺陷类别分布漂移。",
+      "expected_tools": [
+        "query_defect_high_frequency_analysis",
+        "query_analytics"
+      ],
+      "gold_hint": "两 release 的 defect_category 分布，计算 KL/Δ",
+      "verification": "分布集合一致；漂移方向与量级正确",
+      "references": [
+        "ontology/v1/dimensions.json#quality.defect_category",
+        "ontology/v1/dimensions.json#product.release"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.9,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 5,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 15,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 12000,
+          "budget_cny": 0.024,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-017",
+      "domain": "测试覆盖率",
+      "difficulty": "L1",
+      "intent": "coverage_query",
+      "query": "R-22-02 整体需求覆盖率(requirement_coverage_rate)是多少？",
+      "expected_tools": [
+        "query_testing_coverage_project_status"
+      ],
+      "gold_hint": "testing.requirement_coverage_rate WHERE release='R-22-02'",
+      "verification": "比率误差≤0.02",
+      "references": [
+        "ontology/v1/metrics.json#testing.requirement_coverage_rate"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.97,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 1,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 2,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 4,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 3000,
+          "budget_cny": 0.006,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-018",
+      "domain": "测试覆盖率",
+      "difficulty": "L2",
+      "intent": "coverage_query",
+      "query": "AIDA 功能覆盖率(kpi.function_coverage)是多少？",
+      "expected_tools": [
+        "query_testing_coverage_aida_status"
+      ],
+      "gold_hint": "kpi.function_coverage = covered_aida / total_aida",
+      "verification": "比率误差≤0.02；evidence 含 aida 维度",
+      "references": [
+        "ontology/v1/metrics.json#kpi.function_coverage",
+        "ontology/v1/dimensions.json#requirements.aida"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.95,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 8,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 6000,
+          "budget_cny": 0.012,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-019",
+      "domain": "测试覆盖率",
+      "difficulty": "L2",
+      "intent": "coverage_query",
+      "query": "回归测试覆盖率(kpi.regression_coverage)是多少？",
+      "expected_tools": [
+        "query_testing_coverage_project_status"
+      ],
+      "gold_hint": "kpi.regression_coverage",
+      "verification": "比率误差≤0.02",
+      "references": [
+        "ontology/v1/metrics.json#kpi.regression_coverage"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.95,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 8,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 6000,
+          "budget_cny": 0.012,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-020",
+      "domain": "测试覆盖率",
+      "difficulty": "L2",
+      "intent": "coverage_query",
+      "query": "配置覆盖率（车型, kpi.config_coverage_models）是多少？",
+      "expected_tools": [
+        "query_testing_coverage_project_status"
+      ],
+      "gold_hint": "kpi.config_coverage_models",
+      "verification": "比率误差≤0.02",
+      "references": [
+        "ontology/v1/metrics.json#kpi.config_coverage_models",
+        "ontology/v1/dimensions.json#vehicle.model_series"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.95,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 8,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 6000,
+          "budget_cny": 0.012,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-021",
+      "domain": "测试覆盖率",
+      "difficulty": "L3",
+      "intent": "coverage_query",
+      "query": "哪些 AIDA 需求尚未被任何测试用例覆盖（覆盖缺口）？",
+      "expected_tools": [
+        "query_traceability",
+        "query_testing_coverage_aida_status"
+      ],
+      "gold_hint": "AIDA 需求 − 已关联 testcase 的 AIDA，返回缺口列表",
+      "verification": "缺口集合与 golden 一致；多跳可追溯",
+      "references": [
+        "ontology/v1/dimensions.json#requirements.aida",
+        "ontology/v1/metrics.json#testing.traceability_rate"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.9,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 5,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 15,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 12000,
+          "budget_cny": 0.024,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-022",
+      "domain": "测试覆盖率",
+      "difficulty": "L2",
+      "intent": "coverage_query",
+      "query": "按车型系列(model_series)维度，各车型的覆盖率差异？",
+      "expected_tools": [
+        "query_testing_coverage_project_status"
+      ],
+      "gold_hint": "GROUP BY vehicle.model_series 返回覆盖率",
+      "verification": "各车型覆盖率误差≤0.03",
+      "references": [
+        "ontology/v1/dimensions.json#vehicle.model_series"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.95,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 8,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 6000,
+          "budget_cny": 0.012,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-023",
+      "domain": "测试覆盖率",
+      "difficulty": "L3",
+      "intent": "coverage_query",
+      "query": "SET_23-03 下各功能组(function_group)的覆盖率如何？",
+      "expected_tools": [
+        "query_testing_coverage_project_status",
+        "query_analytics"
+      ],
+      "gold_hint": "WHERE project='SET_23-03' GROUP BY quality.function_group",
+      "verification": "功能组集合正确；覆盖率误差≤0.03",
+      "references": [
+        "ontology/v1/dimensions.json#quality.function_group",
+        "ontology/v1/dimensions.json#product.project"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.9,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 5,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 15,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 12000,
+          "budget_cny": 0.024,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-024",
+      "domain": "测试覆盖率",
+      "difficulty": "L1",
+      "intent": "coverage_query",
+      "query": "当前项目共有多少个测试用例？",
+      "expected_tools": [
+        "query_testing_coverage_project_status"
+      ],
+      "gold_hint": "testing.testcase_count WHERE release='R-22-02'",
+      "verification": "返回值==golden 整数",
+      "references": [
+        "ontology/v1/metrics.json#testing.testcase_count"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.97,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 1,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 2,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 4,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 3000,
+          "budget_cny": 0.006,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-025",
+      "domain": "测试执行与通过率",
+      "difficulty": "L1",
+      "intent": "metric_query",
+      "query": "本月测试通过率(pass_rate)是多少？",
+      "expected_tools": [
+        "query_semantic_metrics"
+      ],
+      "gold_hint": "testing.pass_rate = passed_run_count / run_count",
+      "verification": "比率误差≤0.02",
+      "references": [
+        "ontology/v1/metrics.json#testing.pass_rate"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.97,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 1,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 2,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 4,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 3000,
+          "budget_cny": 0.006,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-026",
+      "domain": "测试执行与通过率",
+      "difficulty": "L2",
+      "intent": "metric_query",
+      "query": "R-22-02 失败测试执行数(failed_run_count)是多少？",
+      "expected_tools": [
+        "query_semantic_metrics"
+      ],
+      "gold_hint": "testing.failed_run_count WHERE release='R-22-02'",
+      "verification": "返回值==golden",
+      "references": [
+        "ontology/v1/metrics.json#testing.failed_run_count"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.95,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 8,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 6000,
+          "budget_cny": 0.012,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-027",
+      "domain": "测试执行与通过率",
+      "difficulty": "L2",
+      "intent": "metric_query",
+      "query": "按测试域(testing.domain)的通过率对比？",
+      "expected_tools": [
+        "query_semantic_metrics"
+      ],
+      "gold_hint": "GROUP BY testing.domain 返回 pass_rate",
+      "verification": "各域通过率误差≤0.03",
+      "references": [
+        "ontology/v1/dimensions.json#testing.domain",
+        "ontology/v1/metrics.json#testing.pass_rate"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.95,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 8,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 6000,
+          "budget_cny": 0.012,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-028",
+      "domain": "测试执行与通过率",
+      "difficulty": "L3",
+      "intent": "metric_query",
+      "query": "某车型系列下失败率最高的测试项 Top 10？",
+      "expected_tools": [
+        "query_semantic_metrics",
+        "query_analytics"
+      ],
+      "gold_hint": "WHERE vehicle.model_series=X GROUP BY testcase ORDER BY fail_rate DESC Top10",
+      "verification": "Top10 集合与 golden 一致；行级 test_id 可追溯",
+      "references": [
+        "ontology/v1/dimensions.json#vehicle.model_series",
+        "ontology/v1/metrics.json#testing.fail_rate"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.9,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 5,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 15,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 12000,
+          "budget_cny": 0.024,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-029",
+      "domain": "测试执行与通过率",
+      "difficulty": "L2",
+      "intent": "metric_query",
+      "query": "测试执行总数与通过/失败/阻塞分布？",
+      "expected_tools": [
+        "query_semantic_metrics"
+      ],
+      "gold_hint": "testing.run_count + run_status 分布(Passed/Failed/Blocked)",
+      "verification": "分布之和==run_count",
+      "references": [
+        "ontology/v1/metrics.json#testing.run_count",
+        "ontology/v1/dimensions.json#testing.run_status"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.95,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 8,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 6000,
+          "budget_cny": 0.012,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-030",
+      "domain": "测试执行与通过率",
+      "difficulty": "L3",
+      "intent": "metric_query",
+      "query": "按测试周(time.test_week)的通过率趋势？",
+      "expected_tools": [
+        "query_semantic_metrics",
+        "query_analytics"
+      ],
+      "gold_hint": "GROUP BY time.test_week 返回 pass_rate 序列",
+      "verification": "序列长度与周数一致；趋势方向正确",
+      "references": [
+        "ontology/v1/dimensions.json#time.test_week",
+        "ontology/v1/metrics.json#testing.pass_rate"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.9,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 5,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 15,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 12000,
+          "budget_cny": 0.024,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-031",
+      "domain": "测试执行与通过率",
+      "difficulty": "L2",
+      "intent": "metric_query",
+      "query": "可追溯率(traceability_rate)是多少？",
+      "expected_tools": [
+        "query_semantic_metrics"
+      ],
+      "gold_hint": "testing.traceability_rate",
+      "verification": "比率误差≤0.02",
+      "references": [
+        "ontology/v1/metrics.json#testing.traceability_rate"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.95,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 8,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 6000,
+          "budget_cny": 0.012,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-032",
+      "domain": "测试执行与通过率",
+      "difficulty": "L3",
+      "intent": "metric_query",
+      "query": "对比 DV 与 PV 阶段的测试通过率差异？",
+      "expected_tools": [
+        "query_semantic_metrics",
+        "query_analytics"
+      ],
+      "gold_hint": "pass_rate WHERE testing.test_phase='DV' vs 'PV'",
+      "verification": "两阶段值误差≤0.02，差异表述正确",
+      "references": [
+        "ontology/v1/dimensions.json#testing.test_phase",
+        "ontology/v1/metrics.json#testing.pass_rate"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.9,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 5,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 15,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 12000,
+          "budget_cny": 0.024,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-033",
+      "domain": "供应商与团队质量",
+      "difficulty": "L2",
+      "intent": "business_risk_assessment",
+      "query": "各执行团队(org.team)的缺陷发现效率如何排名？",
+      "expected_tools": [
+        "query_semantic_metrics",
+        "query_analytics"
+      ],
+      "gold_hint": "team.discovery_efficiency GROUP BY org.team 降序",
+      "verification": "排名与 golden 一致；口径正确",
+      "references": [
+        "ontology/v1/metrics.json#team.discovery_efficiency",
+        "ontology/v1/dimensions.json#org.team"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.95,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 8,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 6000,
+          "budget_cny": 0.012,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-034",
+      "domain": "供应商与团队质量",
+      "difficulty": "L2",
+      "intent": "business_risk_assessment",
+      "query": "问题发现团队(problem_finder_team)发现缺陷 Top 排名？",
+      "expected_tools": [
+        "query_semantic_metrics"
+      ],
+      "gold_hint": "team.defect_discovery_count GROUP BY org.problem_finder_team",
+      "verification": "排名与 golden 一致",
+      "references": [
+        "ontology/v1/metrics.json#team.defect_discovery_count",
+        "ontology/v1/dimensions.json#org.problem_finder_team"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.95,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 8,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 6000,
+          "budget_cny": 0.012,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-035",
+      "domain": "供应商与团队质量",
+      "difficulty": "L3",
+      "intent": "business_risk_assessment",
+      "query": "供应商相关 PU 的缺陷检测率(DDP, kpi.defect_detection_ratio)是否达标(≥0.85)？",
+      "expected_tools": [
+        "query_semantic_metrics",
+        "query_analytics"
+      ],
+      "gold_hint": "kpi.defect_detection_ratio GROUP BY product.pu，与阈值 0.85 比较",
+      "verification": "每 PU 达标判定正确；evidence 含阈值比较依据",
+      "references": [
+        "ontology/v1/metrics.json#kpi.defect_detection_ratio",
+        "ontology/v1/dimensions.json#product.pu"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.9,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 5,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 15,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 12000,
+          "budget_cny": 0.024,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-036",
+      "domain": "供应商与团队质量",
+      "difficulty": "L3",
+      "intent": "business_risk_assessment",
+      "query": "哪个 team 的 open 缺陷最多且年龄最长（综合风险最高）？",
+      "expected_tools": [
+        "query_semantic_metrics",
+        "query_analytics"
+      ],
+      "gold_hint": "聚合 team.execution_count/open 缺陷数/age_days 求风险最高团队",
+      "verification": "选中团队与 golden 一致；多指标聚合正确",
+      "references": [
+        "ontology/v1/dimensions.json#org.team",
+        "ontology/v1/metrics.json#defect.age_days"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.9,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 5,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 15,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 12000,
+          "budget_cny": 0.024,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-037",
+      "domain": "供应商与团队质量",
+      "difficulty": "L2",
+      "intent": "business_risk_assessment",
+      "query": "团队测试执行数(team.execution_count)排名？",
+      "expected_tools": [
+        "query_semantic_metrics"
+      ],
+      "gold_hint": "team.execution_count GROUP BY org.team 降序",
+      "verification": "排名与 golden 一致",
+      "references": [
+        "ontology/v1/metrics.json#team.execution_count"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.95,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 8,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 6000,
+          "budget_cny": 0.012,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-038",
+      "domain": "供应商与团队质量",
+      "difficulty": "L3",
+      "intent": "business_risk_assessment",
+      "query": "跨团队的缺陷泄漏（在后期 phase 才被发现）分析？",
+      "expected_tools": [
+        "query_semantic_metrics",
+        "query_analytics"
+      ],
+      "gold_hint": "缺陷按 detected phase 分布，识别'早期发现应捕获却后期才发现'的泄漏",
+      "verification": "泄漏判定与 golden 一致；phase 维度正确",
+      "references": [
+        "ontology/v1/dimensions.json#quality.phase",
+        "ontology/v1/dimensions.json#quality.phase_enum"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.9,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 5,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 15,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 12000,
+          "budget_cny": 0.024,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-039",
+      "domain": "供应商与团队质量",
+      "difficulty": "L2",
+      "intent": "business_risk_assessment",
+      "query": "China Scope=Y 的缺陷占比是多少？",
+      "expected_tools": [
+        "query_semantic_metrics"
+      ],
+      "gold_hint": "ratio = count(china_scope='Y') / total",
+      "verification": "比率误差≤0.02",
+      "references": [
+        "ontology/v1/dimensions.json#quality.china_scope"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.95,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 8,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 6000,
+          "budget_cny": 0.012,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-040",
+      "domain": "供应商与团队质量",
+      "difficulty": "L3",
+      "intent": "business_risk_assessment",
+      "query": "ECU/模块(product.ecu)维度的缺陷密度排名？",
+      "expected_tools": [
+        "query_semantic_metrics",
+        "query_analytics"
+      ],
+      "gold_hint": "quality.defect_density GROUP BY product.ecu 降序",
+      "verification": "ECU 排名与 golden 一致",
+      "references": [
+        "ontology/v1/metrics.json#quality.defect_density",
+        "ontology/v1/dimensions.json#product.ecu"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.9,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 15,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 12000,
+          "budget_cny": 0.024,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-041",
+      "domain": "时间序列与趋势",
+      "difficulty": "L2",
+      "intent": "metric_query",
+      "query": "最近 8 周新建缺陷数趋势？",
+      "expected_tools": [
+        "query_semantic_metrics",
+        "query_analytics"
+      ],
+      "gold_hint": "defect.created_count GROUP BY week(creation_date) 最近 8 周",
+      "verification": "序列长度==8；每周值误差≤2",
+      "references": [
+        "ontology/v1/metrics.json#defect.created_count",
+        "ontology/v1/dimensions.json#time.defect_creation_date"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.95,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 8,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 6000,
+          "budget_cny": 0.012,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-042",
+      "domain": "时间序列与趋势",
+      "difficulty": "L3",
+      "intent": "metric_query",
+      "query": "缺陷解决时长(defect.age_days)的月度中位数趋势？",
+      "expected_tools": [
+        "query_semantic_metrics",
+        "query_analytics"
+      ],
+      "gold_hint": "median(age_days) GROUP BY month(resolution_date)",
+      "verification": "中位数序列正确；时序方向合理",
+      "references": [
+        "ontology/v1/metrics.json#defect.age_days",
+        "ontology/v1/dimensions.json#time.defect_resolution_date"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.9,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 5,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 15,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 12000,
+          "budget_cny": 0.024,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-043",
+      "domain": "时间序列与趋势",
+      "difficulty": "L2",
+      "intent": "metric_query",
+      "query": "本月 vs 上月缺陷解决率(resolve_rate)环比？",
+      "expected_tools": [
+        "query_semantic_metrics"
+      ],
+      "gold_hint": "Δ = resolve_rate(本月) − resolve_rate(上月)",
+      "verification": "差值符号与量级正确",
+      "references": [
+        "ontology/v1/metrics.json#defect.resolve_rate",
+        "ontology/v1/dimensions.json#time.defect_resolution_date"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.95,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 8,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 6000,
+          "budget_cny": 0.012,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-044",
+      "domain": "时间序列与趋势",
+      "difficulty": "L3",
+      "intent": "metric_query",
+      "query": "缺陷创建到解决时长按 severity 分布的对比？",
+      "expected_tools": [
+        "query_semantic_metrics",
+        "query_analytics"
+      ],
+      "gold_hint": "age_days 分组统计 by quality.severity（均值/中位数）",
+      "verification": "各 severity 统计与 golden 一致",
+      "references": [
+        "ontology/v1/metrics.json#defect.age_days",
+        "ontology/v1/dimensions.json#quality.severity"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.9,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 5,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 15,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 12000,
+          "budget_cny": 0.024,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-045",
+      "domain": "时间序列与趋势",
+      "difficulty": "L2",
+      "intent": "metric_query",
+      "query": "今年各月测试通过率趋势？",
+      "expected_tools": [
+        "query_semantic_metrics"
+      ],
+      "gold_hint": "testing.pass_rate GROUP BY month(test_finished_date)",
+      "verification": "序列与月份数一致；趋势方向正确",
+      "references": [
+        "ontology/v1/metrics.json#testing.pass_rate",
+        "ontology/v1/dimensions.json#time.test_finished_date"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.95,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 8,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 6000,
+          "budget_cny": 0.012,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-046",
+      "domain": "时间序列与趋势",
+      "difficulty": "L3",
+      "intent": "metric_query",
+      "query": "识别缺陷数异常的周（超过均值+2σ）？",
+      "expected_tools": [
+        "query_semantic_metrics",
+        "query_analytics"
+      ],
+      "gold_hint": "weekly count 序列，标注 count > mean+2σ 的周",
+      "verification": "异常周集合与 golden 一致",
+      "references": [
+        "ontology/v1/metrics.json#defect.created_count",
+        "ontology/v1/dimensions.json#time.test_week"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.9,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 15,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 12000,
+          "budget_cny": 0.024,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-047",
+      "domain": "时间序列与趋势",
+      "difficulty": "L2",
+      "intent": "metric_query",
+      "query": "Release 维度的缺陷数演进？",
+      "expected_tools": [
+        "query_semantic_metrics"
+      ],
+      "gold_hint": "defect.count GROUP BY product.release 降序",
+      "verification": "各 release 计数与 golden 一致",
+      "references": [
+        "ontology/v1/metrics.json#defect.count",
+        "ontology/v1/dimensions.json#product.release"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.95,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 8,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 6000,
+          "budget_cny": 0.012,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-048",
+      "domain": "时间序列与趋势",
+      "difficulty": "L3",
+      "intent": "metric_query",
+      "query": "基于近 6 月趋势外推，预测下月严重缺陷数（标注不确定性）？",
+      "expected_tools": [
+        "query_semantic_metrics",
+        "query_analytics"
+      ],
+      "gold_hint": "对 severe_count 月度序列做线性外推，返回预测值+置信区间",
+      "verification": "预测在区间内；必须显式声明不确定性（不编造精确值）",
+      "references": [
+        "ontology/v1/metrics.json#defect.severe_count",
+        "ontology/v1/dimensions.json#time.defect_creation_date"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.8,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 5,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 5,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 15,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 12000,
+          "budget_cny": 0.024,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-049",
+      "domain": "可追溯性",
+      "difficulty": "L1",
+      "intent": "testcase_context",
+      "query": "测试项 532211 的上下文是什么？",
+      "expected_tools": [
+        "get_test_case_context"
+      ],
+      "gold_hint": "返回 test_name/subtype/run 状态/关联 feature/story",
+      "verification": "test_id=532211 的上下文字段完整准确",
+      "references": [
+        "testcase/dtsv_testcases_R-22-02.json#532211",
+        "server/ontology/queryPlanner.mjs"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.97,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 1,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 2,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 4,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 3000,
+          "budget_cny": 0.006,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-050",
+      "domain": "可追溯性",
+      "difficulty": "L2",
+      "intent": "record_query",
+      "query": "缺陷 920669 关联到哪些特性(feature)与故事(story)？",
+      "expected_tools": [
+        "query_traceability",
+        "query_semantic_records"
+      ],
+      "gold_hint": "defect 920669 → feature_links(896016) + story_links(892994)",
+      "verification": "关联 id 集合与 golden 一致；多跳正确",
+      "references": [
+        "testcase/dtsv_testcases_R-22-02.json#920669",
+        "ontology/v1/relationships.json"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.95,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 8,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 6000,
+          "budget_cny": 0.012,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-051",
+      "domain": "可追溯性",
+      "difficulty": "L2",
+      "intent": "record_query",
+      "query": "AIDA 需求 aida_id 的需求追溯状态(trace_status)？",
+      "expected_tools": [
+        "query_traceability",
+        "query_semantic_records"
+      ],
+      "gold_hint": "testing.trace_status WHERE aida=aida_id",
+      "verification": "状态值与 golden 一致",
+      "references": [
+        "ontology/v1/dimensions.json#testing.trace_status",
+        "ontology/v1/dimensions.json#requirements.aida"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.95,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 8,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 6000,
+          "budget_cny": 0.012,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-052",
+      "domain": "可追溯性",
+      "difficulty": "L3",
+      "intent": "record_query",
+      "query": "从 story 892994 反向追溯其下所有缺陷？",
+      "expected_tools": [
+        "query_traceability",
+        "query_semantic_records"
+      ],
+      "gold_hint": "story 892994 → feature → testcase → defect 反向链路",
+      "verification": "反向缺陷集合与 golden 一致",
+      "references": [
+        "ontology/v1/relationships.json",
+        "ontology/v1/dimensions.json#requirements.aida"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.9,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 5,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 15,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 12000,
+          "budget_cny": 0.024,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-053",
+      "domain": "可追溯性",
+      "difficulty": "L2",
+      "intent": "record_query",
+      "query": "测试项 532211 的 run 状态分布？",
+      "expected_tools": [
+        "query_semantic_records",
+        "get_test_case_context"
+      ],
+      "gold_hint": "run_status_distribution(Passed/Failed/Blocked) for test_id 532211",
+      "verification": "分布与 golden 一致",
+      "references": [
+        "testcase/dtsv_testcases_R-22-02.json#532211"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.95,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 8,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 6000,
+          "budget_cny": 0.012,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-054",
+      "domain": "可追溯性",
+      "difficulty": "L3",
+      "intent": "coverage_query",
+      "query": "配置覆盖率（硬件变体, kpi.config_coverage_variants）缺口分析？",
+      "expected_tools": [
+        "query_testing_coverage_project_status",
+        "query_analytics"
+      ],
+      "gold_hint": "kpi.config_coverage_variants 缺口 = 1 − 覆盖率，列出未覆盖变体",
+      "verification": "缺口集合与 golden 一致",
+      "references": [
+        "ontology/v1/metrics.json#kpi.config_coverage_variants",
+        "ontology/v1/dimensions.json#product.i_step"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.9,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 5,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 15,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 12000,
+          "budget_cny": 0.024,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-055",
+      "domain": "可追溯性",
+      "difficulty": "L2",
+      "intent": "record_query",
+      "query": "成熟度等级(maturity_grade, RG)分布？",
+      "expected_tools": [
+        "query_semantic_records"
+      ],
+      "gold_hint": "GROUP BY quality.maturity_grade 计数",
+      "verification": "各 RG 等级计数与 golden 一致",
+      "references": [
+        "ontology/v1/dimensions.json#quality.maturity_grade"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.95,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 8,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 6000,
+          "budget_cny": 0.012,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-056",
+      "domain": "可追溯性",
+      "difficulty": "L3",
+      "intent": "record_query",
+      "query": "Q-Gate 类型(qgate_type)各阶段的通过情况？",
+      "expected_tools": [
+        "query_semantic_records",
+        "query_analytics"
+      ],
+      "gold_hint": "GROUP BY quality.qgate_type 统计通过/未通过",
+      "verification": "Q-Gate 集合与判定正确",
+      "references": [
+        "ontology/v1/dimensions.json#quality.qgate_type"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.9,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 5,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 15,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 12000,
+          "budget_cny": 0.024,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-057",
+      "domain": "多跳关系推理",
+      "difficulty": "L3",
+      "intent": "testcase_context",
+      "query": "IDC23 自动服务呼叫相关测试项失败，根因缺陷属于哪个 PU/ECU？",
+      "expected_tools": [
+        "query_traceability",
+        "query_semantic_metrics",
+        "query_analytics"
+      ],
+      "gold_hint": "test('IDC23 Automatic Service Call') → failed run → defect 920669 → product.pu / product.ecu",
+      "verification": "PU/ECU 归因与 golden 一致；3 跳链路正确",
+      "references": [
+        "testcase/dtsv_testcases_R-22-02.json",
+        "ontology/v1/relationships.json"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.9,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 5,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 15,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 12000,
+          "budget_cny": 0.024,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-058",
+      "domain": "多跳关系推理",
+      "difficulty": "L3",
+      "intent": "testcase_context",
+      "query": "HU-MGU 故事下所有测试项的失败率？",
+      "expected_tools": [
+        "query_traceability",
+        "query_semantic_metrics"
+      ],
+      "gold_hint": "story('HU-MGU') → feature → testcases → runs 计算 fail_rate",
+      "verification": "失败率与 golden 一致；多跳聚合正确",
+      "references": [
+        "ontology/v1/relationships.json",
+        "ontology/v1/metrics.json#testing.fail_rate"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.9,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 5,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 15,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 12000,
+          "budget_cny": 0.024,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-059",
+      "domain": "多跳关系推理",
+      "difficulty": "L3",
+      "intent": "record_query",
+      "query": "feature 896016 下缺陷的严重程度分布与解决状态？",
+      "expected_tools": [
+        "query_traceability",
+        "query_semantic_metrics"
+      ],
+      "gold_hint": "feature 896016 → defects GROUP BY severity × status",
+      "verification": "分布与 golden 一致",
+      "references": [
+        "ontology/v1/relationships.json",
+        "ontology/v1/dimensions.json#quality.severity"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.9,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 5,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 15,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 12000,
+          "budget_cny": 0.024,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-060",
+      "domain": "多跳关系推理",
+      "difficulty": "L3",
+      "intent": "record_query",
+      "query": "找出既影响 DV 又影响 PV 阶段的同一缺陷（父子关系）？",
+      "expected_tools": [
+        "query_traceability",
+        "query_semantic_records"
+      ],
+      "gold_hint": "WHERE parent_child_type 关联 AND phase 跨 DV/PV",
+      "verification": "父子缺陷集合与 golden 一致",
+      "references": [
+        "ontology/v1/dimensions.json#quality.parent_child_type",
+        "ontology/v1/dimensions.json#quality.phase"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.9,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 5,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 15,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 12000,
+          "budget_cny": 0.024,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-061",
+      "domain": "多跳关系推理",
+      "difficulty": "L2",
+      "intent": "record_query",
+      "query": "缺陷类别为 DiPS 的缺陷集中在哪些车型？",
+      "expected_tools": [
+        "query_semantic_metrics",
+        "query_analytics"
+      ],
+      "gold_hint": "WHERE defect_category='DiPS' GROUP BY vehicle.model_series",
+      "verification": "车型集合与 golden 一致",
+      "references": [
+        "ontology/v1/dimensions.json#quality.defect_category",
+        "ontology/v1/dimensions.json#vehicle.model_series"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.95,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 8,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 6000,
+          "budget_cny": 0.012,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-062",
+      "domain": "多跳关系推理",
+      "difficulty": "L3",
+      "intent": "record_query",
+      "query": "跨 release 同一 solution_cluster 的复发缺陷？",
+      "expected_tools": [
+        "query_traceability",
+        "query_semantic_records"
+      ],
+      "gold_hint": "同 solution_cluster 且 detected_in_release 跨多 release 的缺陷",
+      "verification": "复发集合与 golden 一致",
+      "references": [
+        "ontology/v1/dimensions.json#quality.solution_cluster",
+        "ontology/v1/dimensions.json#product.release"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.9,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 5,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 15,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 12000,
+          "budget_cny": 0.024,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-063",
+      "domain": "多跳关系推理",
+      "difficulty": "L3",
+      "intent": "record_query",
+      "query": "从 ECU 反查相关测试用例与需求覆盖？",
+      "expected_tools": [
+        "query_traceability",
+        "query_testing_coverage_aida_status"
+      ],
+      "gold_hint": "product.ecu → testcase → aida 覆盖状态",
+      "verification": "反查集合与 golden 一致",
+      "references": [
+        "ontology/v1/dimensions.json#product.ecu",
+        "ontology/v1/dimensions.json#requirements.aida"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.9,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 5,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 15,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 12000,
+          "budget_cny": 0.024,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-064",
+      "domain": "多跳关系推理",
+      "difficulty": "L2",
+      "intent": "duplicate_search",
+      "query": "检测与缺陷 920669 重复的缺陷（search_duplicates）？",
+      "expected_tools": [
+        "search_duplicates"
+      ],
+      "gold_hint": "返回与 920669 语义/字段重复 candidate 列表",
+      "verification": "重复候选集合与 golden 一致",
+      "references": [
+        "ontology/v1/entities.json#defect_id",
+        "server/ontology/queryPlanner.mjs"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.95,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 8,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 6000,
+          "budget_cny": 0.012,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-065",
+      "domain": "异常检测与恢复",
+      "difficulty": "L2",
+      "intent": "dashboard_fallback",
+      "query": "当 dashboard 底层数据为空时，agent 应如何兜底？",
+      "expected_tools": [
+        "diagnose_analytics_empty",
+        "query_full_picture_module"
+      ],
+      "gold_hint": "返回『数据为空』说明 + 全貌模块，而非报错/幻觉",
+      "verification": "outcome=completed 且 evidence 合理；无幻觉值",
+      "references": [
+        "evals/scorecard/fixtures/sample-run-summaries.jsonl#run-eval-018",
+        "server/mainAgentToolRecovery.mjs"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.95,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 8,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 6000,
+          "budget_cny": 0.012,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-066",
+      "domain": "异常检测与恢复",
+      "difficulty": "L3",
+      "intent": "dashboard_fallback",
+      "query": "上游 analytics 不可用时，能否切换到 fallback 并完成查询？",
+      "expected_tools": [
+        "query_analytics",
+        "query_analytics_fallback"
+      ],
+      "gold_hint": "上游 5xx → fallback 工具恢复，返回结果 + recoveryOutcomes=['recovered']",
+      "verification": "recovery_success=真；审计含 failureCode + stoppedReason",
+      "references": [
+        "evals/scorecard/fixtures/sample-run-summaries.jsonl#run-eval-013",
+        "server/companyChat.mjs"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.9,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 5,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 15,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 12000,
+          "budget_cny": 0.024,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-067",
+      "domain": "异常检测与恢复",
+      "difficulty": "L3",
+      "intent": "dashboard_fallback",
+      "query": "query 返回空结果时，agent 是否主动澄清或给出全貌？",
+      "expected_tools": [
+        "diagnose_analytics_empty",
+        "query_full_picture_module"
+      ],
+      "gold_hint": "空结果 → 澄清或全貌兜底，不得编造",
+      "verification": "outcome 合理；无幻觉",
+      "references": [
+        "server/mainAgentToolRecovery.mjs",
+        "server/mainAgentToolLoop/Recovery.mjs"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.9,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 15,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 12000,
+          "budget_cny": 0.024,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-068",
+      "domain": "异常检测与恢复",
+      "difficulty": "L2",
+      "intent": "high_frequency",
+      "query": "检测到严重缺陷突增时，应给出怎样的告警话术？",
+      "expected_tools": [
+        "query_defect_high_frequency_analysis"
+      ],
+      "gold_hint": "返回突增说明 + 量级 + 建议（不泄漏内部错误）",
+      "verification": "话术含真实量级；不暴露堆栈",
+      "references": [
+        "ontology/v1/metrics.json#defect.severe_count",
+        "server/answerValidator.mjs"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.95,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 8,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 6000,
+          "budget_cny": 0.012,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-069",
+      "domain": "异常检测与恢复",
+      "difficulty": "L3",
+      "intent": "metric_query",
+      "query": "歧义 query（『上个月的数据』跨 release 上下文）能否澄清？",
+      "expected_tools": [
+        "ask_clarification",
+        "resolve_business_terms"
+      ],
+      "gold_hint": "低置信度 → ask_clarification 反问明确时间窗，而非硬猜",
+      "verification": "outcome=needs_clarification；未返回错误答案",
+      "references": [
+        "evals/scorecard/fixtures/sample-run-summaries.jsonl#run-eval-011",
+        "server/mainAgentIntentRouter.mjs"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.9,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 2,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 15,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 12000,
+          "budget_cny": 0.024,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-070",
+      "domain": "异常检测与恢复",
+      "difficulty": "L3",
+      "intent": "metric_query",
+      "query": "actor scope 拒绝访问时，返回 denied 而非内部报错？",
+      "expected_tools": [
+        "query_analytics"
+      ],
+      "gold_hint": "scope 不匹配 → outcome=denied, failureCode=ACTOR_CAPABILITY_SCOPE_DENIED",
+      "verification": "返回 denied 且 failureCode 正确；不泄漏权限细节",
+      "references": [
+        "evals/scorecard/fixtures/sample-run-summaries.jsonl#run-eval-014",
+        "server/agentAuth.mjs"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.98,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 2,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 5,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 15,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 12000,
+          "budget_cny": 0.024,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-071",
+      "domain": "异常检测与恢复",
+      "difficulty": "L2",
+      "intent": "metric_query",
+      "query": "工具超时后是否重试并恢复结果？",
+      "expected_tools": [
+        "query_analytics",
+        "query_analytics_fallback"
+      ],
+      "gold_hint": "timeout → 指数退避重试 → 恢复",
+      "verification": "recoveryOutcomes 含 recovered；延迟在预算内",
+      "references": [
+        "server/companyChat.mjs",
+        "server/mainAgentToolRecovery.mjs"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.95,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 8,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 6000,
+          "budget_cny": 0.012,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-072",
+      "domain": "异常检测与恢复",
+      "difficulty": "L3",
+      "intent": "dashboard_fallback",
+      "query": "多步工具编排中一步失败，能否回退并仍给出部分答案？",
+      "expected_tools": [
+        "query_semantic_metrics",
+        "query_analytics",
+        "query_analytics_fallback"
+      ],
+      "gold_hint": "部分工具失败 → 返回已完成部分 + 说明缺失",
+      "verification": "部分答案正确；明确标注缺失项",
+      "references": [
+        "server/mainAgentToolOrchestrator.mjs",
+        "server/mainAgentToolLoop/Planning.mjs"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.9,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 5,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 15,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 12000,
+          "budget_cny": 0.024,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-073",
+      "domain": "报告与可视化叙事",
+      "difficulty": "L2",
+      "intent": "metric_query",
+      "query": "生成 R-22-02 质量周报的 KPI 摘要？",
+      "expected_tools": [
+        "query_semantic_metrics",
+        "query_testing_coverage_project_status"
+      ],
+      "gold_hint": "汇总 defect.count/resolve_rate/pass_rate/coverage 等核心 KPI",
+      "verification": "KPI 集合与 golden 一致；数值误差≤0.02",
+      "references": [
+        "ontology/v1/metrics.json",
+        "server/analysisPlanner.mjs"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.95,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 8,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 6000,
+          "budget_cny": 0.012,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-074",
+      "domain": "报告与可视化叙事",
+      "difficulty": "L3",
+      "intent": "metric_query",
+      "query": "用图表展示各 severity 缺陷分布（kpi/line/bar）？",
+      "expected_tools": [
+        "query_semantic_metrics",
+        "analysisPlanner"
+      ],
+      "gold_hint": "返回 severity 分布 + 推荐图表类型(kpi/line/bar)",
+      "verification": "图表类型推荐合理；数据正确",
+      "references": [
+        "server/ontology/analysisPlanner.mjs",
+        "ontology/v1/dimensions.json#quality.severity"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.9,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 12,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 12000,
+          "budget_cny": 0.024,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-075",
+      "domain": "报告与可视化叙事",
+      "difficulty": "L3",
+      "intent": "metric_query",
+      "query": "给出缺陷趋势的洞察叙述，并标注异常点？",
+      "expected_tools": [
+        "query_semantic_metrics",
+        "query_analytics"
+      ],
+      "gold_hint": "趋势描述 + 异常周标注 + 根因假设",
+      "verification": "洞察与数据一致；异常点正确；假设明确标注",
+      "references": [
+        "server/analysisPlanner.mjs",
+        "ontology/v1/metrics.json#defect.created_count"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.9,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 5,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 5,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 15,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 12000,
+          "budget_cny": 0.024,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-076",
+      "domain": "报告与可视化叙事",
+      "difficulty": "L2",
+      "intent": "business_risk_assessment",
+      "query": "对比两个团队的质量评分卡？",
+      "expected_tools": [
+        "query_semantic_metrics",
+        "query_analytics"
+      ],
+      "gold_hint": "两 team 的多 KPI 并排对比表",
+      "verification": "两团队 KPI 各自误差≤0.02",
+      "references": [
+        "ontology/v1/metrics.json#team.discovery_efficiency",
+        "ontology/v1/dimensions.json#org.team"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.95,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 8,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 6000,
+          "budget_cny": 0.012,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-077",
+      "domain": "报告与可视化叙事",
+      "difficulty": "L3",
+      "intent": "coverage_query",
+      "query": "输出可分享的覆盖率差距报告（含证据链接）？",
+      "expected_tools": [
+        "query_testing_coverage_aida_status",
+        "query_traceability"
+      ],
+      "gold_hint": "覆盖率缺口 + 缺口 aida 列表 + 证据链接(defect_id/test_id)",
+      "verification": "缺口集合与 golden 一致；证据齐全",
+      "references": [
+        "ontology/v1/metrics.json#kpi.function_coverage",
+        "server/mainAgentEvidence.mjs"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.9,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 5,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 15,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 12000,
+          "budget_cny": 0.024,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-078",
+      "domain": "报告与可视化叙事",
+      "difficulty": "L2",
+      "intent": "metric_query",
+      "query": "按市场(market)维度拆分缺陷？",
+      "expected_tools": [
+        "query_semantic_metrics"
+      ],
+      "gold_hint": "defect.count GROUP BY quality.market",
+      "verification": "各市场计数与 golden 一致",
+      "references": [
+        "ontology/v1/dimensions.json#quality.market"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.95,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 8,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 6000,
+          "budget_cny": 0.012,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-079",
+      "domain": "报告与可视化叙事",
+      "difficulty": "L3",
+      "intent": "metric_query",
+      "query": "综合多 KPI 的健康度评分（0–100）？",
+      "expected_tools": [
+        "query_semantic_metrics",
+        "query_analytics",
+        "analysisPlanner"
+      ],
+      "gold_hint": "加权多 KPI → 健康度分；需声明权重口径",
+      "verification": "评分与口径一致；权重可解释",
+      "references": [
+        "server/analysisPlanner.mjs",
+        "ontology/v1/metrics.json"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.9,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 5,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 5,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 4,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 15,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 12000,
+          "budget_cny": 0.024,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-080",
+      "domain": "报告与可视化叙事",
+      "difficulty": "L1",
+      "intent": "general",
+      "query": "闲聊/越界问题（如『今天天气如何』）应被正确路由，不触发数据查询？",
+      "expected_tools": [
+        "ask_clarification"
+      ],
+      "gold_hint": "intent=general/out_of_scope，outcome=completed(模板化)，不调用数据工具",
+      "verification": "误路由率<5%；未触发 query_* 工具",
+      "references": [
+        "evals/scorecard/fixtures/sample-run-summaries.jsonl#run-eval-017",
+        "server/mainAgentIntentRouter.mjs"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.98,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 1,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 1,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 1,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 2,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 1500,
+          "budget_cny": 0.003,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-081",
+      "domain": "缺陷度量查询",
+      "difficulty": "L1",
+      "intent": "metric_query",
+      "query": "本月新建缺陷数是多少（不限 release）？",
+      "expected_tools": [
+        "query_semantic_metrics"
+      ],
+      "gold_hint": "defect.created_count（本月时间窗）",
+      "verification": "返回值==golden 整数",
+      "references": [
+        "ontology/v1/metrics.json#defect.created_count",
+        "ontology/v1/dimensions.json#time.defect_creation_date"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.97,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 1,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 2,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 4,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 3000,
+          "budget_cny": 0.006,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-082",
+      "domain": "缺陷度量查询",
+      "difficulty": "L1",
+      "intent": "metric_query",
+      "query": "当前缺陷总数(defect.count)是多少？",
+      "expected_tools": [
+        "query_semantic_metrics"
+      ],
+      "gold_hint": "defect.count（全量）",
+      "verification": "返回值==golden 整数",
+      "references": [
+        "ontology/v1/metrics.json#defect.count"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.97,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 1,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 2,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 4,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 3000,
+          "budget_cny": 0.006,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-083",
+      "domain": "缺陷度量查询",
+      "difficulty": "L1",
+      "intent": "metric_query",
+      "query": "缺陷状态为 Blocked 的有多少个？",
+      "expected_tools": [
+        "query_semantic_metrics"
+      ],
+      "gold_hint": "defect.count WHERE status='Blocked'",
+      "verification": "返回值==golden；status 过滤生效",
+      "references": [
+        "ontology/v1/metrics.json#defect.count",
+        "ontology/v1/dimensions.json#quality.status"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.97,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 1,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 2,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 4,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 3000,
+          "budget_cny": 0.006,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-084",
+      "domain": "缺陷度量查询",
+      "difficulty": "L1",
+      "intent": "metric_query",
+      "query": "R-22-02 的缺陷拒绝数(rejected_count)是多少？",
+      "expected_tools": [
+        "query_semantic_metrics"
+      ],
+      "gold_hint": "defect.rejected_count WHERE detected_in_release='R-22-02'",
+      "verification": "返回值==golden 整数",
+      "references": [
+        "ontology/v1/metrics.json#defect.rejected_count"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.97,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 1,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 2,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 4,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 3000,
+          "budget_cny": 0.006,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-085",
+      "domain": "测试执行与通过率",
+      "difficulty": "L1",
+      "intent": "metric_query",
+      "query": "R-22-02 的测试执行总数(run_count)是多少？",
+      "expected_tools": [
+        "query_semantic_metrics"
+      ],
+      "gold_hint": "testing.run_count WHERE release='R-22-02'",
+      "verification": "返回值==golden 整数",
+      "references": [
+        "ontology/v1/metrics.json#testing.run_count"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.97,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 1,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 2,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 4,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 3000,
+          "budget_cny": 0.006,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-086",
+      "domain": "测试覆盖率",
+      "difficulty": "L1",
+      "intent": "coverage_query",
+      "query": "SET_23-03 的需求覆盖率是多少？",
+      "expected_tools": [
+        "query_testing_coverage_project_status"
+      ],
+      "gold_hint": "testing.requirement_coverage_rate WHERE project='SET_23-03'",
+      "verification": "比率误差≤0.02",
+      "references": [
+        "ontology/v1/metrics.json#testing.requirement_coverage_rate",
+        "ontology/v1/dimensions.json#product.project"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.97,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 1,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 2,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 4,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 3000,
+          "budget_cny": 0.006,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-087",
+      "domain": "可追溯性",
+      "difficulty": "L1",
+      "intent": "testcase_context",
+      "query": "测试项 690490 的测试结果是什么？",
+      "expected_tools": [
+        "get_test_case_context"
+      ],
+      "gold_hint": "返回 test_id=690490 的 run 状态分布",
+      "verification": "上下文与 golden 一致",
+      "references": [
+        "testcase/dtsv_testcases_R-22-02.json#690490"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.97,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 1,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 2,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 4,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 3000,
+          "budget_cny": 0.006,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    },
+    {
+      "id": "DTSV-088",
+      "domain": "供应商与团队质量",
+      "difficulty": "L1",
+      "intent": "business_risk_assessment",
+      "query": "本执行团队(org.team)本月的测试执行数？",
+      "expected_tools": [
+        "query_semantic_metrics"
+      ],
+      "gold_hint": "team.execution_count WHERE org.team=当前团队",
+      "verification": "返回值==golden",
+      "references": [
+        "ontology/v1/metrics.json#team.execution_count",
+        "ontology/v1/dimensions.json#org.team"
+      ],
+      "dimensions": {
+        "accuracy": {
+          "target": 0.97,
+          "scale": "ratio 0-1",
+          "rubric_ref": "见 dimension_spec.accuracy"
+        },
+        "strategy": {
+          "complexity": 1,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.strategy"
+        },
+        "evidence": {
+          "requirement": 3,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.evidence"
+        },
+        "recovery": {
+          "requirement": 2,
+          "scale": "ordinal 1-5",
+          "rubric_ref": "见 dimension_spec.recovery"
+        },
+        "latency": {
+          "budget_seconds": 4,
+          "scale": "seconds (p95 上限)",
+          "rubric_ref": "见 dimension_spec.latency"
+        },
+        "cost": {
+          "budget_tokens": 3000,
+          "budget_cny": 0.006,
+          "scale": "tokens / ¥",
+          "rubric_ref": "见 dimension_spec.cost"
+        }
+      }
+    }
+  ]
+}

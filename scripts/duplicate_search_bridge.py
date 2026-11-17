@@ -683,6 +683,7 @@ def _camel_case_ranking_signals(value: Any) -> Dict[str, Any]:
         'sparse_score': 'sparseScore',
         'dense_weight': 'denseWeight',
         'sparse_weight': 'sparseWeight',
+        'cross_encoder_score': 'crossEncoderScore',
     }
     return {camel: value.get(snake) for snake, camel in mapping.items() if snake in value}
 
@@ -794,6 +795,7 @@ def _search(payload: Dict[str, Any], repo_root: Path) -> Dict[str, Any]:
             'queryText': query,
             'candidates': result_items,
             'modelPhase': metadata.get('model_phase', 'baseline'),
+            'crossEncoderRerank': bool(metadata.get('cross_encoder_rerank')),
             'feedbackCount': feedback_count,
             'dataset_size': dataset_size,
             'timings': timings,

@@ -16,19 +16,38 @@ export async function attachDuplicateSummary({
   }
 
   const summary = await summarizeDuplicateResults(query, result, selectedModel, { language });
-  const reviewFocusByTicket = new Map(
+  const analysisByTicket = new Map(
     (Array.isArray(summary?.candidateAnalyses) ? summary.candidateAnalyses : [])
-      .map((item) => [normalizeText(item?.ticketId), normalizeText(item?.reviewFocus)])
-      .filter(([ticketId, reviewFocus]) => ticketId && reviewFocus),
+      .map((item) => [
+        normalizeText(item?.ticketId),
+        {
+          reviewFocus: normalizeText(item?.reviewFocus),
+          verdict: item?.verdict || null,
+          verdictReason: normalizeText(item?.verdictReason),
+        },
+      ])
+      .filter(([ticketId, analysis]) => ticketId && (analysis.reviewFocus || analysis.verdict)),
   );
 
   return {
     ...result,
     candidates: Array.isArray(result.candidates)
-      ? result.candidates.map((candidate) => ({
-          ...candidate,
-          reviewFocus: reviewFocusByTicket.get(normalizeText(candidate?.ticketId)) || candidate.reviewFocus,
-        }))
+      ? result.candidates.map((candidate) => {
+          const analysis = analysisByTicket.get(normalizeText(candidate?.ticketId));
+          if (!analysis) {
+            return candidate;
+          }
+          return {
+            ...candidate,
+            reviewFocus: analysis.reviewFocus || candidate.reviewFocus,
+            ...(analysis.verdict
+              ? {
+                  llmVerdict: analysis.verdict,
+                  llmVerdictReason: analysis.verdictReason || candidate.llmVerdictReason,
+                }
+              : {}),
+          };
+        })
       : result.candidates,
     summaryText: summary.summaryText,
     answerModel: summary.answerModel,

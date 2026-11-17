@@ -163,6 +163,10 @@ function renderMarkdown(report) {
     lines.push(`| business-rule activation | ${rt.business_rule_activation_pct ?? "n/a"}% |`);
     lines.push(`| recovery success rate | ${rt.recovery_success_rate_pct ?? "n/a"}% |`);
     lines.push(`| latency p50 / p95 / max | ${rt.latency_ms.p50} / ${rt.latency_ms.p95} / ${rt.latency_ms.max} ms |`);
+    if (rt.testcase_quality) {
+      const tc = rt.testcase_quality;
+      lines.push(`| testcase quality | n=${tc.count}, rounds avg ${tc.avg_generation_rounds ?? "n/a"}, verify ${tc.verification_pass_rate_pct ?? "n/a"}%, judge ${tc.judge_pass_rate_pct ?? "n/a"}% (skipped ${tc.judge_skipped_count}), model coverage ${tc.avg_model_coverage_pct ?? "n/a"}% |`);
+    }
     lines.push("");
     lines.push("### Outcome distribution");
     lines.push("");

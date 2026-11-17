@@ -1,0 +1,189 @@
+# ============================================================================
+# Vizion Data-Agent — Kubernetes (on-prem / private cluster) deployment
+#
+# Design: ONE Pod with three containers (app + analytics + nginx sidecar) sharing
+# a single RWO block volume at /data. This mirrors the single-host compose stack
+# and avoids cross-pod SQLite writes (the app uses SQLite/DuckDB, single-writer).
+# Scale by running multiple independent Pods behind the Service ONLY after moving
+# the stores to an external DB (see DEPLOYMENT.md "Scaling" section).
+#
+# Build & push the image first:
+#   docker build -f deploy/Dockerfile -t <your-registry>/vizion:prod .
+#   docker push <your-registry>/vizion:prod
+# Then apply:
+#   kubectl apply -f deploy/k8s.yaml
+# ============================================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: vizion-data
+  namespace: vizion
+spec:
+  accessModes: [ReadWriteOnce]
+  # Use a local/block StorageClass (NOT NFS) — SQLite/DuckDB dislike network FS.
+  storageClassName: local-block
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vizion-nginx
+  namespace: vizion
+data:
+  nginx.conf: |
+    worker_processes auto;
+    events { worker_connections 1024; }
+    http {
+      sendfile on; tcp_nopush on; keepalive_timeout 65;
+      gzip on; gzip_comp_level 6; gzip_min_length 1024;
+      gzip_types text/plain text/css application/javascript application/json application/xml image/svg+xml font/woff2;
+      upstream vizion_app { server 127.0.0.1:3004; keepalive 32; }
+      server {
+        listen 8080; server_name _;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        location ~* \.(js|css|svg|png|jpg|jpeg|webp|woff2?|ico)$ {
+          proxy_pass http://vizion_app; proxy_http_version 1.1; proxy_set_header Connection "";
+          proxy_set_header Host "127.0.0.1:3004"; proxy_set_header Origin "";
+          add_header Cache-Control "public, max-age=31536000, immutable"; expires 1y;
+        }
+        location /api/ {
+          proxy_pass http://vizion_app; proxy_http_version 1.1; proxy_set_header Connection "";
+          proxy_set_header Host "127.0.0.1:3004"; proxy_set_header Origin "";
+          proxy_set_header X-Real-IP $remote_addr; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_buffering off; proxy_cache off; proxy_read_timeout 300s; proxy_connect_timeout 10s;
+        }
+        location / {
+          proxy_pass http://vizion_app; proxy_http_version 1.1; proxy_set_header Connection "";
+          proxy_set_header Host "127.0.0.1:3004"; proxy_set_header Origin "";
+          proxy_set_header X-Real-IP $remote_addr; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_read_timeout 60s;
+        }
+      }
+    }
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: vizion-env
+  namespace: vizion
+stringData:
+  # Fill these. Keep in a sealed-secret / external secret manager in real life.
+  VIZION_AGENT_AUTH_MODE: "internal"
+  VIZION_INTERNAL_ACTOR_ID: "vizion-internal"
+  VIZION_INTERNAL_ALLOWED_OBJECT_TYPES: "*"
+  TRANSFORMERS_OFFLINE: "1"
+  HF_HUB_OFFLINE: "1"
+  DUPLICATE_EMBEDDING_MODEL: "/app/backend/cache/embedding_models/modelscope/BAAI/bge-small-zh-v1.5"
+  DUPSEARCH_BRIDGE_SEARCH_TIMEOUT_MS: "180000"
+  DUPSEARCH_BRIDGE_REQUEST_TIMEOUT_MS: "60000"
+  VIZION_AGENT_CHECKPOINT_DB: "/data/agent-checkpoints.db"
+  VIZION_DATABASE_ROOT: "/data/database"
+  # VIZION_ANALYTICS_API_BASE is overridden per-container below (localhost in-pod)
+  # DUPSEARCH_CHAT_ACCESS_CODE / VIZION_LLM_BASE_URL: add your LLM creds here
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vizion
+  namespace: vizion
+  labels: { app: vizion }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: vizion }
+  template:
+    metadata:
+      labels: { app: vizion }
+    spec:
+      containers:
+        - name: app
+          image: <your-registry>/vizion:prod
+          command: ["node", "server/index.mjs"]
+          ports: [{ containerPort: 3004 }]
+          envFrom: [{ secretRef: { name: vizion-env } }]
+          env:
+            - { name: VIZION_API_PORT, value: "3004" }
+            - { name: VIZION_WEB_PORT, value: "3004" }
+            - { name: VIZION_ANALYTICS_API_BASE, value: "http://127.0.0.1:3003" }
+            - { name: VIZION_ANALYTICS_PORT, value: "3003" }
+          volumeMounts:
+            - { name: data, mountPath: /data }
+          # App binds 127.0.0.1 only (LOCAL_API_HOST), so probe via loopback exec,
+          # not pod-IP HTTP. nginx sidecar still fronts it on 0.0.0.0:8080.
+          readinessProbe:
+            exec:
+              command: ["curl", "-fsS", "http://127.0.0.1:3004/health"]
+            initialDelaySeconds: 20
+            periodSeconds: 15
+          livenessProbe:
+            exec:
+              command: ["curl", "-fsS", "http://127.0.0.1:3004/health"]
+            initialDelaySeconds: 40
+            periodSeconds: 30
+          resources:
+            requests: { cpu: "1", memory: "2Gi" }
+            limits: { cpu: "4", memory: "8Gi" }
+        - name: analytics
+          image: <your-registry>/vizion:prod
+          command: [".venv/bin/python", "-m", "uvicorn", "backend.analytics.api:app", "--host", "0.0.0.0", "--port", "3003"]
+          ports: [{ containerPort: 3003 }]
+          envFrom: [{ secretRef: { name: vizion-env } }]
+          env:
+            - { name: VIZION_ANALYTICS_PORT, value: "3003" }
+          volumeMounts:
+            - { name: data, mountPath: /data }
+          readinessProbe:
+            httpGet: { path: /openapi.json, port: 3003 }
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          resources:
+            requests: { cpu: "500m", memory: "1Gi" }
+            limits: { cpu: "2", memory: "4Gi" }
+        - name: nginx
+          image: nginx:1.27-alpine
+          ports: [{ containerPort: 8080 }]
+          volumeMounts:
+            - { name: nginx-conf, mountPath: /etc/nginx/nginx.conf, subPath: nginx.conf, readOnly: true }
+          readinessProbe:
+            httpGet: { path: /health, port: 8080 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: vizion-data }
+        - name: nginx-conf
+          configMap: { name: vizion-nginx }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vizion
+  namespace: vizion
+spec:
+  selector: { app: vizion }
+  ports:
+    - { name: http, port: 8080, targetPort: 8080 }
+  type: ClusterIP
+---
+# Optional ingress (enable if you have an ingress controller). Terminate TLS here.
+# apiVersion: networking.k8s.io/v1
+# kind: Ingress
+# metadata:
+#   name: vizion
+#   namespace: vizion
+#   annotations:
+#     nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+#     nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+# spec:
+#   ingressClassName: nginx
+#   tls:
+#     - hosts: [vizion.intra.example.com]
+#       secretName: vizion-tls
+#   rules:
+#     - host: vizion.intra.example.com
+#       http:
+#         paths:
+#           - { path: /, pathType: Prefix, backend: { service: { name: vizion, port: { number: 8080 } } } }

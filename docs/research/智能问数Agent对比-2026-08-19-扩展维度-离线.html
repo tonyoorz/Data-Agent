@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智能问数 Agent 全网对比 · 2026-08-19 扩展维度版(离线)</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+    background: #f6f7f9; color: #0f172a; line-height: 1.55; font-size: 14px;
+  }
+  .wrap { max-width: 1760px; margin: 0 auto; padding: 28px 24px 60px; }
+  header h1 { font-size: 24px; font-weight: 700; letter-spacing: -0.01em; margin: 0 0 6px; color: #0f172a; }
+  header .sub { color: #475569; font-size: 14px; margin-bottom: 4px; }
+  header .meta { color: #94a3b8; font-size: 12px; margin-bottom: 18px; }
+  .accent { color: #2563eb; }
+  .up { display:inline-block; background:#dcfce7; color:#15803d; font-size:11px; padding:2px 7px; border-radius:4px; margin-left:6px; font-weight:600; }
+
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 14px; align-items: center;
+    background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
+    padding: 12px 16px; margin-bottom: 14px; font-size: 13px;
+  }
+  .legend .item { display: flex; align-items: center; gap: 6px; color: #475569; }
+  .legend .sw { display:inline-block; width:26px; height:18px; border-radius:4px; text-align:center; font-size:11px; font-weight:700; line-height:18px; }
+  .sw.s3 { background:#bbf7d0; color:#14532d; }
+  .sw.s2 { background:#dcfce7; color:#166534; }
+  .sw.s1 { background:#f0fdf4; color:#16a34a; }
+  .sw.sw { background:#fef3c7; color:#b45309; }
+  .sw.sn { background:#f1f5f9; color:#94a3b8; }
+  .legend .youchip { background:#eff6ff; border:1px solid #bfdbfe; padding:2px 8px; border-radius:4px; color:#1d4ed8; font-size:12px; }
+
+  .callout {
+    background: #eff6ff; border: 1px solid #bfdbfe; border-left: 4px solid #2563eb;
+    border-radius: 8px; padding: 12px 16px; margin-bottom: 14px; font-size: 13px; color: #1e3a8a;
+  }
+  .callout b { color: #1d4ed8; }
+  .callout .arrow { color: #16a34a; font-weight: 700; }
+
+  .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+  .toolbar input {
+    flex: 1; min-width: 220px; padding: 9px 12px; border: 1px solid #cbd5e1;
+    border-radius: 8px; font-size: 13px; background: #fff; color: #0f172a;
+  }
+  .toolbar input:focus { outline: 2px solid #2563eb33; border-color: #2563eb; }
+  .toolbar select {
+    padding: 8px 10px; border: 1px solid #cbd5e1; border-radius: 8px;
+    font-size: 13px; background: #fff; color: #334155; cursor: pointer;
+  }
+  .toolbar .mode-btn {
+    padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 13px;
+    background: #fff; color: #475569; cursor: pointer; font-weight: 500;
+  }
+  .toolbar .mode-btn.active { background: #0f172a; color: #fff; border-color: #0f172a; }
+  .toolbar .hint { color: #94a3b8; font-size: 12px; }
+
+  .table-scroll { overflow-x: auto; border: 1px solid #e2e8f0; border-radius: 10px; background: #fff; max-height: 78vh; overflow-y: auto; }
+  table { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 13px; }
+  th, td { padding: 8px 6px; text-align: center; border-bottom: 1px solid #f1f5f9; white-space: nowrap; }
+  thead th {
+    background: #f8fafc; font-weight: 600; color: #334155;
+    position: sticky; top: 0; z-index: 3; border-bottom: 2px solid #e2e8f0; font-size: 12px;
+  }
+  th.proj-h { max-width: 120px; }
+  th.proj-h .nm { display:block; overflow:hidden; text-overflow:ellipsis; }
+  th.proj-h a { color: #2563eb; text-decoration: none; }
+  th.proj-h a:hover { text-decoration: underline; }
+  th.proj-h .cat { display:block; font-weight:400; color:#94a3b8; font-size:10px; }
+  th.proj-h .you-tag { display: inline-block; background: #2563eb; color: #fff; font-size: 10px; padding: 1px 6px; border-radius: 4px; margin-top:2px; }
+  th.proj-h .archived { display: inline-block; background: #fecaca; color: #991b1b; font-size: 10px; padding: 1px 6px; border-radius: 4px; margin-top:2px; }
+
+  td.cap-name, th.cap-name {
+    text-align: left; padding-left: 14px; position: sticky; left: 0; z-index: 2;
+    background: #fff; font-size: 12.5px; min-width: 190px; max-width: 230px;
+  }
+  thead th.cap-name { background:#f8fafc; z-index: 4; }
+  td.cap-name b { color:#0f172a; }
+  td.cap-name .grp { display:inline-block; font-size:10px; padding:1px 6px; border-radius:3px; margin-right:6px; font-weight:600; vertical-align:1px; }
+  tbody tr:hover td { background: #f8fafc; }
+  tbody tr:hover td.cap-name { background: #f1f5f9; }
+
+  td.you { background: #eff6ff !important; }
+  tbody tr:hover td.you { background: #dbeafe !important; }
+
+  .cell { display:inline-block; min-width: 52px; font-weight: 700; border-radius: 4px; padding: 2px 4px; }
+  body.color .cell.c3 { background:#bbf7d0; color:#14532d; }
+  body.color .cell.c2 { background:#dcfce7; color:#166534; }
+  body.color .cell.c1 { background:#f0fdf4; color:#16a34a; }
+  body.color .cell.cw { background:#fef3c7; color:#b45309; }
+  body.color .cell.cn { background:#f1f5f9; color:#94a3b8; }
+  body.plain .cell { background: transparent; }
+  .cell.c3 { color:#15803d; } .cell.c2 { color:#16a34a; } .cell.c1 { color:#16a34a; }
+  .cell.cw { color:#d97706; } .cell.cn { color:#cbd5e1; }
+  .star { font-size: 10px; vertical-align: 1px; }
+
+  .grpchip.g0 { background:#e2e8f0; color:#475569; }
+  .grpchip.g1 { background:#fce7f3; color:#9d174d; }
+  .grpchip.g2 { background:#fff7ed; color:#c2410c; }
+  .grpchip.g3 { background:#eff6ff; color:#1d4ed8; }
+  .grpchip.g4 { background:#f5f3ff; color:#6d28d9; }
+  .grpchip.g5 { background:#ecfeff; color:#0e7490; }
+  .grpchip.g6 { background:#f0fdf4; color:#166534; }
+
+  .tally {
+    background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
+    padding: 12px 16px; margin: 16px 0 4px; font-size: 13px; color: #334155;
+  }
+  .tally b { color: #0f172a; }
+  .tally .seg { display:inline-block; margin-right:14px; }
+
+  .quote {
+    margin-top: 22px; padding: 16px 18px; background: #fffbeb; border: 1px solid #fde68a;
+    border-left: 4px solid #d97706; border-radius: 8px; color: #78350f; font-size: 13px;
+  }
+  .quote b { color: #92400e; }
+
+  footer { margin-top: 26px; padding-top: 16px; border-top: 1px solid #e2e8f0; color: #94a3b8; font-size: 12px; line-height: 1.7; }
+  footer code { background:#f1f5f9; padding:1px 5px; border-radius:3px; color:#475569; }
+  .empty { padding: 26px; text-align:center; color:#94a3b8; font-size:13px; }
+</style>
+</head>
+<body class="color">
+<div class="wrap">
+  <header>
+    <h1>智能问数 Agent 全网对比<span class="accent"> / </span>扩展维度版</h1>
+    <div class="sub">对比维度:<b>31 能力 × 16 项目</b>(旧 12 维·正确性与治理 + 六组 19 个扩展维度) · <b>更新:2026-08-19</b> · Data-Agent 行按 task 22-29 完成后代码实锚重打分</div>
+    <div class="meta">核查:2026-08-19(工作树:feature/2026-08-13-testcase-bridge-ui + guardrails-scorecard-sync 合并中) · 对标项目扩展维度评分基于 08-10 已收集资料外推,不确定处取低档 · 离线单文件,无外部依赖</div>
+  </header>
+
+  <div class="callout">
+    <b>08-10 → 08-19 你补上了生产化闭环的一整批</b>:
+    <span class="arrow">熔断器 ✓</span>(Node+Python 双端)·
+    <span class="arrow">task scorecard ✓</span>(139 例 replay + 运行时 6 指标)·
+    <span class="arrow">CI ✓</span>(GitHub Actions:lint+build+test+scorecard)·
+    <span class="arrow">可视化渲染 ★★</span>(AnalysisResultChart 五图型)·
+    <span class="arrow">SqliteSaver / WAL / 工具并行 / MARS 数值护栏 / business_rules 全生效</span>。
+    <b>升档</b>:业务规则 ◐→✓、评测 ◐→★★、可观测 ✓→★★。<b>仍开放</b>:RLS 部署闭环(rls-closure 未合并)、关系层执行、多 agent、沙箱、审计防篡改、反馈闭环(task30-34 进行中)。
+  </div>
+
+  <div class="legend">
+    <span class="item"><span class="sw s3">✓★★</span> 标杆</span>
+    <span class="item"><span class="sw s2">✓★</span> 亮点</span>
+    <span class="item"><span class="sw s1">✓</span> 可用</span>
+    <span class="item"><span class="sw sw">◐</span> 部分/声明未全生效</span>
+    <span class="item"><span class="sw sn">·</span> 无/未做</span>
+    <span class="item" style="margin-left:auto"><span class="youchip">蓝列 = Data-Agent(你)</span></span>
+  </div>
+
+  <div class="toolbar">
+    <input id="search" type="search" placeholder="搜索能力或项目(如 WrenAI、语音、脱敏、学术)…" />
+    <select id="capgroup">
+      <option value="all">能力分组:全部 31 维</option>
+      <option value="g0">旧 12 维 · 正确性与治理</option>
+      <option value="g1">① 对话与交互</option>
+      <option value="g2">② 性能与成本</option>
+      <option value="g3">③ 可靠性</option>
+      <option value="g4">④ 治理深化</option>
+      <option value="g5">⑤ 评测闭环</option>
+      <option value="g6">⑥ 开放与部署</option>
+    </select>
+    <select id="projgroup">
+      <option value="all">项目分组:全部 16 个</option>
+      <option value="you">你的项目</option>
+      <option value="ent">企业 agent(商业)</option>
+      <option value="sem">语义层基础设施</option>
+      <option value="oss">开源数据 agent</option>
+      <option value="aca">学术 SOTA</option>
+    </select>
+    <button id="modecolor" class="mode-btn active">彩色</button>
+    <button id="modeplain" class="mode-btn">极简</button>
+    <span class="hint">横向滚动查看全部项目</span>
+  </div>
+
+  <div class="table-scroll">
+    <table id="cmp">
+      <thead><tr id="head"></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div id="empty" class="empty" style="display:none">没有匹配的行</div>
+  </div>
+
+  <div class="tally">
+    <b>Data-Agent 31 维总账</b>(08-19):
+    <span class="seg"><b>★★★×3</b> 语义层建模 / 垂直 DTSV 深度 / 自托管离线</span>
+    <span class="seg"><b>★★×6</b> 答案自校验 / 中文 / 评测体系 / 可观测审计 / 可视化渲染 / scorecard</span>
+    <span class="seg"><b>✓×12</b></span>
+    <span class="seg"><b>◐×6</b> 关系层 / RLS 部署 / 缓存 / 模型路由 / 语义层 API 化 / 嵌入式</span>
+    <span class="seg"><b>·×4</b> 多 agent / 沙箱 / 审计防篡改 / 反馈闭环</span>
+    <br><b>独有/领先项</b>:语音输入(16 项目里唯一 ✓)、数据新鲜度证明(答案级 sourceRevision+引用校验)、自托管全家桶、scorecard 双层厚度。
+    <b>全行业空白(下轮竞争位)</b>:审计防篡改、反馈闭环。<b>巨头结构性优势</b>:渲染对话式改图(Genie)、平台强制脱敏(UC)、多协议 API 化(Cube)。
+  </div>
+
+  <div class="quote">
+    <b>定位变化(08-19 校准)</b> · 08-10 版"与巨头主要差距 = RLS 部署 + scorecard + 业务规则运行时"三条中<b>两条已闭合</b>(scorecard+CI 已建、business_rules 全生效)。扩展维度再加出 4 个第一梯队项(语音/新鲜度证明/自托管/scorecard 厚度),你已从"垂直专家"进入<b>"垂直专家 + 生产系统"象限</b>。扩展维度恰是"研究代码"与"生产系统"的分界线——开源/学术组在熔断、澄清、CI 门禁上几乎全空。Palantir 式终局(action 运行时执行、审计防篡改)与多源联邦仍是长坡。<b>诚实标注</b>:D15 CI 的 ✓ 只到 workflow 结构正确(本地未实跑);D1 多轮继承的运行时接线(task30)在合并收尾中,resolver 级机制与 golden 测试已有效;对标项目扩展维度评分未经新一轮全网核查,用于对外材料前建议定点复核关键格。
+  </div>
+
+  <footer>
+    <b>数据来源</b>:开源项目(WrenAI / Cube / dbt MetricFlow / DB-GPT / Vanna / Dataherald / CHESS / MAC-SQL / CHASE-SQL / MARS-SQL)基于 2026-08-10 实抓 GitHub raw README + Awesome-LLM-based-Text2SQL(TKDE2025 综述配套);商业(Cortex Analyst / Databricks Genie+UC / Palantir / ThoughtSpot / Hex)基于官方文档(用户《competitive-positioning-2026-08-10》fetch 核查 + WebSearch 补充)。<b>扩展维度(D1-D19)的对标评分基于上述 08-10 资料外推,未做新一轮全网调研,不确定处一律取低档</b>。<br>
+    <b>Data-Agent 列</b>:基于 2026-08-19 工作树代码实锚(task 22-29 产物已入树:evals/scorecard、.github/workflows/eval.yml、AnalysisResultChart.tsx、circuitBreaker.mjs、answerGuardrails.mjs、mainAgentToolOrchestrator.mjs、SqliteSaver 接线、WAL);合并完成前这些能力尚未在单一提交固化。<br>
+    <b>完整正文</b>:<code>docs/research/智能问数Agent全网调研-2026-08-19-扩展维度版.md</code>(维度定义 + 档位标准 + 两张对比表 + 局限) · 前作 <code>智能问数Agent全网调研-2026-08-10-更新.md</code>(12+6 维)——旧表答"答得对不对、管得住不管",新表答"好不好用、可不可靠、开不开得出去"。
+  </footer>
+</div>
+
+<script>
+// ---- 编码:ok3(标杆★★★) ok2(亮点★★) ok(可用✓) warn(部分◐) na(无·) ----
+const PROJECTS = [
+  { name:'Data-Agent(你)', cat:'语义层 agent', grp:'you', you:true },
+  { name:'Databricks Genie', cat:'企业数据 agent', grp:'ent', url:'https://docs.databricks.com/aws/en/genie-agents/' },
+  { name:'Cortex Analyst', cat:'企业数据 agent', grp:'ent', url:'https://docs.snowflake.com/en/user-guide/snowflake-cortex/cortex-analyst' },
+  { name:'ThoughtSpot Spotter', cat:'企业数据 agent', grp:'ent', url:'https://www.thoughtspot.com/product/ai' },
+  { name:'Hex Magic', cat:'企业数据 agent', grp:'ent', url:'https://hex.tech/magic/' },
+  { name:'WrenAI', cat:'语义层引擎(MDL)', grp:'sem', url:'https://github.com/Canner/WrenAI' },
+  { name:'Cube', cat:'语义层+OLAP API', grp:'sem', url:'https://github.com/cube-js/cube' },
+  { name:'dbt SL/MetricFlow', cat:'语义层', grp:'sem', url:'https://github.com/dbt-labs/metricflow' },
+  { name:'Palantir Ontology', cat:'商业(闭源)', grp:'ent', url:'https://www.palantir.com/platforms/foundry/ontology' },
+  { name:'DB-GPT', cat:'开源数据 agent', grp:'oss', url:'https://github.com/eosphoros-ai/DB-GPT' },
+  { name:'Vanna (archived)', cat:'开源 NL2SQL', grp:'oss', url:'https://github.com/vanna-ai/vanna', archived:true },
+  { name:'Dataherald', cat:'开源 NL2SQL', grp:'oss', url:'https://github.com/dataherald/dataherald' },
+  { name:'CHESS', cat:'学术 SOTA', grp:'aca', url:'https://github.com/ShayanTalaei/CHESS' },
+  { name:'MAC-SQL', cat:'学术 SOTA', grp:'aca', url:'https://github.com/wbbeyourself/MAC-SQL' },
+  { name:'CHASE-SQL', cat:'学术 SOTA', grp:'aca', url:'https://openreview.net/pdf?id=CvGqMD5OtX' },
+  { name:'MARS-SQL', cat:'学术 SOTA', grp:'aca', url:'https://github.com/YangHaolin0526/MARS-SQL' }
+];
+
+// 行序 = PROJECTS 序:DA, Genie, Cortex, TS, Hex, WrenAI, Cube, dbt, Palantir, DB-GPT, Vanna, Dataherald, CHESS, MAC, CHASE, MARS
+const CAPS = [
+  { k:'sem',  g:'g0', label:'语义层建模', tip:'声明式语义层/本体', v:['ok3','ok2','ok2','warn','warn','ok3','ok3','ok3','ok3','na','na','warn','na','na','na','na'] },
+  { k:'rel',  g:'g0', label:'关系层(图遍历)', tip:'关系在运行时被消费', v:['warn','ok','ok','na','na','ok','ok','ok','ok2','na','na','na','na','na','na','na'] },
+  { k:'rule', g:'g0', label:'业务规则(运行时)', tip:'08-19 升档:effect→planner + validation→validator 全生效', v:['ok','warn','warn','na','na','warn','warn','warn','ok2','na','na','na','na','na','na','na'] },
+  { k:'link', g:'g0', label:'schema linking/消歧', tip:'08-10 已接线 resolver', v:['ok','warn','warn','ok','warn','ok','na','na','na','warn','warn','warn','ok2','ok','ok','ok'] },
+  { k:'sql',  g:'g0', label:'答案/SQL 校验', tip:'引用契约+因果护栏+MARS 数值护栏', v:['ok2','ok','ok','ok','warn','ok','ok','ok','ok','warn','warn','warn','ok2','ok','ok','ok2'] },
+  { k:'multi',g:'g0', label:'多 agent 编排', tip:'有意单链(设计决策)', v:['na','na','na','warn','ok','na','na','na','warn','ok2','na','na','ok2','ok','ok','ok'] },
+  { k:'rls',  g:'g0', label:'权限/RLS', tip:'组件✓ 部署◐(rls-closure 未合并)', v:['warn','ok2','ok','ok','warn','warn','ok','warn','ok2','warn','ok2','warn','na','na','na','na'] },
+  { k:'sand', g:'g0', label:'沙箱执行', tip:'roadmap 明确 absent(冲突项不做)', v:['na','na','na','na','ok','na','na','na','ok','ok2','na','na','na','na','na','na'] },
+  { k:'eval', g:'g0', label:'评测体系', tip:'08-19 升档:5 维 golden + scorecard 两层 + CI', v:['ok2','warn','ok','warn','warn','ok','na','na','warn','warn','na','ok2','ok2','ok','warn','warn'] },
+  { k:'obs',  g:'g0', label:'可观测/审计', tip:'08-19 升档:audit+runSummary+熔断;无哈希链', v:['ok2','ok','ok','ok','warn','warn','ok','warn','ok2','ok','ok','ok2','na','na','na','na'] },
+  { k:'zh',   g:'g0', label:'中文原生', tip:'原生 + vocab.zh-CN', v:['ok2','warn','warn','warn','warn','warn','warn','na','warn','ok','warn','warn','na','na','na','na'] },
+  { k:'dtsv', g:'g0', label:'垂直 DTSV 深度', tip:'独有资产', v:['ok3','na','na','na','na','na','na','na','warn','na','na','na','na','na','na','na'] },
+
+  { k:'d1', g:'g1', label:'D1 多轮上下文继承', tip:'省略式追问继承上轮 frame;task30 运行时接线收尾中', v:['ok','ok','ok','ok','warn','warn','na','na','warn','warn','ok','warn','na','na','na','na'] },
+  { k:'d2', g:'g1', label:'D2 主动澄清消歧', tip:'结构化澄清契约(BIRD-INTERACT 对标)', v:['ok','warn','warn','warn','na','warn','na','na','na','na','na','na','na','na','na','na'] },
+  { k:'d3', g:'g1', label:'D3 可视化渲染', tip:'task29 五图型 constrained renderer;对话式改图未完', v:['ok2','ok3','warn','ok3','ok2','warn','ok','na','ok','ok','ok2','warn','na','na','na','na'] },
+  { k:'d4', g:'g1', label:'D4 语音输入', tip:'transcribe + ASR benchmark;16 项目唯一', v:['ok','na','na','warn','na','na','na','na','na','na','na','na','na','na','na','na'] },
+
+  { k:'d5', g:'g2', label:'D5 流式输出', tip:'SSE token 级', v:['ok','ok','warn','ok','ok','warn','na','na','warn','ok','warn','warn','na','na','na','na'] },
+  { k:'d6', g:'g2', label:'D6 缓存策略', tip:'无语义缓存(WAL 是数据层)', v:['warn','ok','warn','ok','warn','ok2','ok3','warn','ok','warn','ok2','warn','na','na','na','na'] },
+  { k:'d7', g:'g2', label:'D7 模型路由/降级', tip:'多模型可配,自动路由 P1 未做', v:['warn','ok','ok2','na','na','warn','warn','na','na','warn','na','na','na','na','na','na'] },
+  { k:'d8', g:'g2', label:'D8 工具/查询并行', tip:'task22 Promise.allSettled 有界并行', v:['ok','ok','warn','ok','warn','warn','ok2','na','ok','warn','na','na','ok','na','ok','na'] },
+
+  { k:'d9', g:'g3', label:'D9 熔断/降级', tip:'task24 Node+Python 双端熔断', v:['ok','ok','ok','ok','ok','na','warn','na','ok','na','na','na','na','na','na','na'] },
+  { k:'d10',g:'g3', label:'D10 会话持久化', tip:'task23 SqliteSaver(降级保启动)', v:['ok','ok','ok','ok','ok','warn','ok','na','ok','warn','ok','warn','na','na','na','na'] },
+  { k:'d11',g:'g3', label:'D11 审计防篡改', tip:'无哈希链(点名缺口)', v:['na','ok','ok','ok','warn','warn','warn','na','ok2','warn','warn','warn','na','na','na','na'] },
+
+  { k:'d12',g:'g4', label:'D12 敏感字段脱敏', tip:'sensitiveFieldPolicyIds 声明+运行时', v:['ok','ok3','ok2','ok','warn','warn','warn','na','ok2','warn','ok2','warn','na','na','na','na'] },
+  { k:'d13',g:'g4', label:'D13 新鲜度/来源证明', tip:'sourceRevisionIds+citationValidation,业界少见', v:['ok','ok','warn','warn','warn','warn','warn','warn','ok','na','warn','na','na','na','na','na'] },
+
+  { k:'d14',g:'g5', label:'D14 scorecard/baseline', tip:'task27 两层:139 例 replay+运行时 6 指标;无 trend 自动对比', v:['ok2','warn','ok','warn','warn','ok','na','na','warn','warn','warn','warn','ok2','ok','warn','warn'] },
+  { k:'d15',g:'g5', label:'D15 CI/回归门禁', tip:'task28 eval.yml;本地未实跑', v:['ok','warn','warn','warn','warn','warn','warn','warn','warn','warn','warn','warn','na','na','na','na'] },
+  { k:'d16',g:'g5', label:'D16 反馈闭环', tip:'task34 learning loop 未做;全行业空白', v:['na','ok','warn','warn','warn','warn','na','na','warn','warn','ok','ok','na','na','na','na'] },
+
+  { k:'d17',g:'g6', label:'D17 语义层 API 化', tip:'FastAPI 有 query/records,无元数据端点;task33 进行中', v:['warn','ok2','ok','ok','warn','ok','ok3','ok2','ok2','warn','warn','warn','na','na','na','na'] },
+  { k:'d18',g:'g6', label:'D18 自托管/离线', tip:'完全本地,无云依赖', v:['ok3','na','na','na','na','ok3','ok2','ok','na','ok3','ok2','ok2','ok2','ok2','ok2','ok2'] },
+  { k:'d19',g:'g6', label:'D19 嵌入式/MCP', tip:'Web UI 有,无 SDK/MCP/embed', v:['warn','ok','warn','ok','ok','ok2','ok2','warn','ok','warn','warn','warn','na','na','na','na'] }
+];
+
+const GLABEL = { g0:'旧', g1:'①', g2:'②', g3:'③', g4:'④', g5:'⑤', g6:'⑥' };
+
+function cellHtml(code){
+  if(code === 'ok3') return '<span class="cell c3" title="标杆">✓<span class="star">★★</span></span>';
+  if(code === 'ok2') return '<span class="cell c2" title="亮点">✓<span class="star">★</span></span>';
+  if(code === 'ok')  return '<span class="cell c1" title="可用">✓</span>';
+  if(code === 'warn')return '<span class="cell cw" title="部分/声明未全生效">◐</span>';
+  return '<span class="cell cn" title="无/未做">·</span>';
+}
+
+const head = document.getElementById('head');
+const rowsEl = document.getElementById('rows');
+const emptyEl = document.getElementById('empty');
+
+const thCap = document.createElement('th');
+thCap.className = 'cap-name';
+thCap.textContent = '能力 \\ 项目';
+head.appendChild(thCap);
+PROJECTS.forEach(p => {
+  const th = document.createElement('th');
+  th.className = 'proj-h';
+  const nm = p.url ? `<a href="${p.url}" target="_blank" rel="noopener">${p.name}</a>` : `<span class="nm">${p.name}</span>`;
+  th.innerHTML = `${nm}<span class="cat">${p.cat}</span>` + (p.you ? '<span class="you-tag">你的</span>' : '') + (p.archived ? '<span class="archived">archived</span>' : '');
+  head.appendChild(th);
+});
+
+function render(){
+  const q = document.getElementById('search').value.trim().toLowerCase();
+  const g = document.getElementById('capgroup').value;
+  const pg = document.getElementById('projgroup').value;
+
+  const visCaps = CAPS.filter(c => (g === 'all' || c.g === g)
+    && (!q || c.label.toLowerCase().includes(q) || (c.tip || '').toLowerCase().includes(q)));
+  const visProj = PROJECTS.filter(p => (pg === 'all' || p.grp === pg)
+    && (!q || p.name.toLowerCase().includes(q) || p.cat.toLowerCase().includes(q)));
+
+  // 重建表头(项目列随筛选变化)
+  head.innerHTML = '';
+  const thCap2 = document.createElement('th');
+  thCap2.className = 'cap-name';
+  thCap2.textContent = '能力 \\ 项目';
+  head.appendChild(thCap2);
+  visProj.forEach(p => {
+    const th = document.createElement('th');
+    th.className = 'proj-h';
+    const nm = p.url ? `<a href="${p.url}" target="_blank" rel="noopener">${p.name}</a>` : `<span class="nm">${p.name}</span>`;
+    th.innerHTML = `${nm}<span class="cat">${p.cat}</span>` + (p.you ? '<span class="you-tag">你的</span>' : '') + (p.archived ? '<span class="archived">archived</span>' : '');
+    head.appendChild(th);
+  });
+
+  rowsEl.innerHTML = '';
+  let shown = 0;
+  visCaps.forEach(c => {
+    const tr = document.createElement('tr');
+    const tdName = document.createElement('td');
+    tdName.className = 'cap-name';
+    tdName.title = c.tip || '';
+    tdName.innerHTML = `<span class="grp ${c.g}">${GLABEL[c.g]}</span><b>${c.label}</b>`;
+    tr.appendChild(tdName);
+    visProj.forEach(p => {
+      const td = document.createElement('td');
+      const idx = PROJECTS.indexOf(p);
+      if(p.you) td.className = 'you';
+      td.innerHTML = cellHtml(c.v[idx]);
+      tr.appendChild(td);
+    });
+    rowsEl.appendChild(tr);
+    shown++;
+  });
+  emptyEl.style.display = shown ? 'none' : 'block';
+}
+
+document.getElementById('search').addEventListener('input', render);
+document.getElementById('capgroup').addEventListener('change', render);
+document.getElementById('projgroup').addEventListener('change', render);
+const bC = document.getElementById('modecolor'), bP = document.getElementById('modeplain');
+bC.addEventListener('click', () => { document.body.className = 'color'; bC.classList.add('active'); bP.classList.remove('active'); });
+bP.addEventListener('click', () => { document.body.className = 'plain'; bP.classList.add('active'); bC.classList.remove('active'); });
+render();
+</script>
+</body>
+</html>

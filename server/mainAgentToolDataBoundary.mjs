@@ -20,6 +20,7 @@ export const MAIN_AGENT_TOOL_DATA_BOUNDARIES = Object.freeze({
   query_testing_coverage_project_status: "internal_only",
   query_testing_coverage_aida_status: "internal_only",
   get_test_case_context: "internal_only",
+  create_testcase: "internal_only",
   query_defect_high_frequency_analysis: "internal_only",
   query_full_picture_module: "internal_only",
   search_duplicates: "internal_only",

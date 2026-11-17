@@ -208,6 +208,13 @@ When both are configured, the company access code takes precedence. Without a co
 
 Use the same comma-separated strict model allowlist in server-owned `DUPSEARCH_CHAT_MODEL_OPTIONS` and public UI `VITE_DUPSEARCH_CHAT_MODEL_OPTIONS`. When either variable is explicitly set, its list replaces the defaults instead of extending them; release configuration must keep the two values identical.
 
+Test-case generation (`/创建测试用例`) reuses the chat credentials above and runs a closed loop — full-body RAG few-shot + ontology context → generate → heuristic verify + LLM-as-judge → regenerate with feedback. Optional tuning variables (all have working defaults):
+
+- `TESTCASE_JUDGE_MODEL` — judge model; defaults to the first allowed model from a different family than the generator.
+- `TESTCASE_MAX_GENERATION_ROUNDS` — generation attempts per request (default `3`, clamped 1–5).
+- `TESTCASE_FEW_SHOT_FULL_BODIES` — set `0` to fall back to name-only few-shot examples.
+- `TESTCASE_BODY_CACHE_PATH` — SQLite cache for fetched Octane test bodies (default `database/test_case_bodies.db`).
+
 Transcription credentials are separate from chat credentials. Configure either a company ASR access code or an explicit remote ASR provider:
 
 ```powershell

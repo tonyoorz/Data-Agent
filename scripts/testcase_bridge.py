@@ -6,8 +6,10 @@ as a persistent child process and sends payloads like ``{"action": "prepare", "d
 
 Actions:
   - ``warmup``  — build the 16K test-case embedding index (one-time, ~3 min first run)
-  - ``prepare`` — read defect from local SQLite + RAG retrieve similar test cases. Returns
-                  ``{success, defect_info, similar_cases, few_shot_text}``. No LLM call.
+  - ``prepare`` — read defect from local SQLite + RAG retrieve similar test cases + fetch
+                  their full bodies (cached) + build ontology context. Returns
+                  ``{success, defect_info, similar_cases, few_shot_text, context_text,
+                  bodies_fetched}``. No LLM call.
   - ``verify``  — run ``verify_test_case()`` on generated content. Returns verification result.
   - ``commit``  — create test_manual in Octane + write steps. Returns ``{success, test_id, octane_url}``.
 """
@@ -78,7 +80,11 @@ def _do_warmup() -> Dict[str, Any]:
 
 
 def _do_prepare(payload: Dict[str, Any]) -> Dict[str, Any]:
-    from backend.analytics.test_case_index import retrieve_similar_test_cases, format_few_shot_examples
+    from backend.analytics.test_case_bodies import full_bodies_enabled, get_test_bodies
+    from backend.analytics.test_case_index import (
+        format_few_shot_examples_full,
+        retrieve_similar_test_cases,
+    )
 
     defect_id = str(payload.get("defect_id") or "").strip()
     if not defect_id:
@@ -87,7 +93,31 @@ def _do_prepare(payload: Dict[str, Any]) -> Dict[str, Any]:
     defect = _read_defect(defect_id)
     query = f"{defect['name']} {defect.get('project', '')} {defect.get('assigned_ecu', '')}"
     similar = retrieve_similar_test_cases(query, top_k=5)
-    few_shot = format_few_shot_examples(similar, max_cases=3)
+
+    # Full-body few-shot: fetch (and cache) description+steps of the top reference cases so
+    # the LLM imitates real step granularity/checkpoint style, not just the test names.
+    # Best-effort — Octane unreachable degrades to name-only few-shot.
+    bodies: Dict[str, Any] = {}
+    if similar and full_bodies_enabled():
+        try:
+            bodies = get_test_bodies([c.test_id for c in similar[:3]])
+        except Exception:
+            bodies = {}
+    few_shot = format_few_shot_examples_full(similar, bodies, max_cases=3)
+
+    # Ontology context: business scope / run history / traceability / requirement, grounded
+    # in the local SQLite store. Also best-effort — failure degrades to no context block.
+    context_text = ""
+    try:
+        from backend.analytics.ontology_context import build_test_case_context_payload
+        from backend.analytics.test_case_context import format_ontology_context_for_prompt
+
+        context_payload = build_test_case_context_payload(
+            {"anchor": {"type": "defect_id", "value": defect_id}}
+        )
+        context_text = format_ontology_context_for_prompt(context_payload)
+    except Exception:
+        context_text = ""
 
     return {
         "success": True,
@@ -97,6 +127,8 @@ def _do_prepare(payload: Dict[str, Any]) -> Dict[str, Any]:
             for c in similar
         ],
         "few_shot_text": few_shot,
+        "context_text": context_text,
+        "bodies_fetched": len(bodies),
     }
 
 
@@ -106,11 +138,15 @@ def _do_verify(payload: Dict[str, Any]) -> Dict[str, Any]:
     defect_info = payload.get("defect_info") or {}
     description_html = str(payload.get("description_html") or "")
     steps_text = str(payload.get("steps_text") or "")
+    test_model = payload.get("test_model") or None
+    combination_coverage = payload.get("combination_coverage") or []
 
     result = verify_test_case(
         defect=defect_info,
         description_html=description_html,
         steps_text=steps_text,
+        test_model=test_model,
+        combination_coverage=combination_coverage,
     )
     return {
         "success": True,

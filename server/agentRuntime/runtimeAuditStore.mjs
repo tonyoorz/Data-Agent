@@ -177,6 +177,8 @@ function minimalToolAudit(record) {
 function minimalRunSummary(summary) {
   const latencyMs = finiteNumber(summary?.latencyMs);
   const scopeHash = actorScopeHash(summary);
+  const generationRounds = Number(summary?.generationRounds);
+  const modelCoveragePct = Number(summary?.modelCoveragePct);
   return Object.fromEntries(Object.entries({
     schemaVersion: text(summary?.schemaVersion || "1.0", 32),
     runId: opaqueRunReference(summary?.runId, scopeHash),
@@ -194,6 +196,11 @@ function minimalRunSummary(summary) {
     stoppedReason: text(summary?.stoppedReason, 128),
     failureCode: text(summary?.failureCode, 128),
     latencyMs,
+    // Testcase-generation quality fields (intent "create_testcase" rows).
+    ...(Number.isFinite(generationRounds) ? { generationRounds: Math.min(10, Math.max(1, Math.round(generationRounds))) } : {}),
+    ...(typeof summary?.verificationPassed === "boolean" ? { verificationPassed: summary.verificationPassed } : {}),
+    ...(summary?.judgeStatus ? { judgeStatus: text(summary.judgeStatus, 32) } : {}),
+    ...(Number.isFinite(modelCoveragePct) ? { modelCoveragePct: Math.min(100, Math.max(0, Math.round(modelCoveragePct))) } : {}),
   }).filter(([, item]) => item !== undefined && item !== "" && (!Array.isArray(item) || item.length)));
 }
 

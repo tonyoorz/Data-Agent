@@ -1,15 +1,15 @@
 {
-  "generatedAt": "2026-08-25T14:02:48.752Z",
-  "mode": "full",
+  "generatedAt": "2026-08-25T14:06:23.039Z",
+  "mode": "quick",
   "ok": true,
-  "passed": 8,
+  "passed": 6,
   "failed": 0,
   "checks": [
     {
       "id": "V1",
       "description": "统一系统快照与跨层契约全部通过",
       "ok": true,
-      "durationMs": 40,
+      "durationMs": 31,
       "evidence": {
         "fingerprint": "d3b58a9651847e91627f9c4c7f2617aae5d1b29abab468857422a1cbd07e8456",
         "runtimeReadyMetrics": 9,
@@ -32,7 +32,7 @@
       "id": "V2",
       "description": "本体编译与指纹校验（pi fail-closed 门）",
       "ok": true,
-      "durationMs": 172,
+      "durationMs": 147,
       "evidence": {
         "fingerprint": "d3b58a9651847e91627f9c4c7f2617aae5d1b29abab468857422a1cbd07e8456",
         "counts": {
@@ -53,7 +53,7 @@
       "id": "V3",
       "description": "集成单元测试（统一门面 + 离线智能问数 turn）",
       "ok": true,
-      "durationMs": 1825,
+      "durationMs": 1910,
       "evidence": {
         "testsPassed": 4
       }
@@ -62,7 +62,7 @@
       "id": "V4",
       "description": "Python 语义契约测试（数据面）",
       "ok": true,
-      "durationMs": 1832,
+      "durationMs": 1830,
       "evidence": {
         "testsPassed": 65
       }
@@ -71,34 +71,16 @@
       "id": "V5",
       "description": "Agent 行为 golden 评测（路由/策略/执行）",
       "ok": true,
-      "durationMs": 1140,
+      "durationMs": 1005,
       "evidence": {
         "testsPassed": 5
-      }
-    },
-    {
-      "id": "V6",
-      "description": "Node 全量回归（vitest 全套）",
-      "ok": true,
-      "durationMs": 13825,
-      "evidence": {
-        "testsPassed": 814
-      }
-    },
-    {
-      "id": "V7",
-      "description": "Python 后端全量回归（pytest 全套）",
-      "ok": true,
-      "durationMs": 12135,
-      "evidence": {
-        "testsPassed": 422
       }
     },
     {
       "id": "V8",
       "description": "实时端到端：harness→签名语义调用→FastAPI 数据面→热库",
       "ok": true,
-      "durationMs": 616,
+      "durationMs": 622,
       "evidence": {
         "health": {
           "ok": true,
@@ -106,7 +88,7 @@
         },
         "ontologyFingerprint": "d3b58a9651847e91627f9c4c7f2617aae5d1b29abab468857422a1cbd07e8456",
         "fixture": {
-          "snapshotVersion": "snapshot-b42ace7d7538089c",
+          "snapshotVersion": "snapshot-131d68e22c0f5a67",
           "defectCount": 3
         },
         "turnEvents": [

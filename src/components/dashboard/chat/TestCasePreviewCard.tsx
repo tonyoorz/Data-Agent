@@ -50,12 +50,40 @@ export default function TestCasePreviewCard({ result }: Props) {
 
   const steps = result.stepsText.split("\n").filter((l) => l.trim());
 
+  const judgePresent = Boolean(result.judge) && !result.judge?.skipped;
+  const judgePassed = result.judge?.skipped || !result.judge ? true : Boolean(result.judge.passed);
+  const allPassed = result.verification.passed && judgePassed;
+  const failedRounds = (result.history || []).filter((r) => !r.heuristicPassed || r.judgePassed === false);
+
   return (
     <div className="mt-3 rounded-xl border border-border bg-card overflow-hidden">
       {/* header */}
       <div className="flex items-center gap-2 border-b border-border px-4 py-2.5 bg-muted/30">
         <FlaskConical className="h-4 w-4 text-primary" />
         <span className="text-sm font-medium">测试用例预览</span>
+        {typeof result.generationRounds === "number" && result.generationRounds > 0 && (
+          <span
+            className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${
+              allPassed
+                ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+            }`}
+          >
+            {allPassed
+              ? result.generationRounds === 1
+                ? "一次通过"
+                : `第 ${result.generationRounds} 轮通过`
+              : `${result.generationRounds} 轮后仍未通过，请人工把关`}
+          </span>
+        )}
+        {failedRounds.length > 0 && (
+          <span
+            className="text-[10px] text-muted-foreground"
+            title={failedRounds.map((r) => `第 ${r.round} 轮未过: ${r.failedCriteria.join(", ") || "未知"}`).join("\n")}
+          >
+            迭代 {failedRounds.length} 次
+          </span>
+        )}
         <span className="ml-auto text-xs text-muted-foreground">
           {new Date(result.generatedAt).toLocaleString("zh-CN")}
         </span>
@@ -132,6 +160,61 @@ export default function TestCasePreviewCard({ result }: Props) {
           </pre>
         </div>
 
+        {/* test design model (stage-1) */}
+        {result.testModel && result.testModel.combinations.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              测试设计模型（等价类 / 边界）
+              {typeof result.modelCoveragePct === "number" && (
+                <span
+                  className={`ml-2 inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                    result.modelCoveragePct === 100
+                      ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                      : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                  }`}
+                >
+                  组合覆盖 {result.modelCoveragePct}%（{result.testModel.combinations.length} 组）
+                </span>
+              )}
+            </p>
+            <div className="space-y-1.5">
+              {result.testModel.dimensions.map((dim) => (
+                <div key={dim.name} className="flex flex-wrap items-center gap-1.5 text-xs">
+                  <span className="font-medium text-foreground">{dim.name}</span>
+                  <span className="text-muted-foreground">·</span>
+                  {dim.classes.map((cls) => (
+                    <span
+                      key={cls.id}
+                      title={cls.isBoundary ? "边界类" : "等价类"}
+                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                        cls.isBoundary
+                          ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
+                          : "bg-muted text-muted-foreground"
+                      }`}
+                    >
+                      {cls.name}
+                      {cls.isBoundary ? " ⚑" : ""}
+                    </span>
+                  ))}
+                </div>
+              ))}
+            </div>
+            <div className="space-y-0.5 text-[10px] text-muted-foreground">
+              {result.testModel.combinations.slice(0, 6).map((combo) => (
+                <p key={combo.id} title={combo.rationale || undefined}>
+                  <span className="font-mono">{combo.id}</span> [{combo.priority || "normal"}]{" "}
+                  {combo.classRefs
+                    .map((ref) => {
+                      const cls = result.testModel!.dimensions.flatMap((d) => d.classes).find((c) => c.id === ref);
+                      return cls?.name || ref;
+                    })
+                    .join(" + ")}
+                </p>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* verification badges */}
         <div className="space-y-1">
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -154,6 +237,40 @@ export default function TestCasePreviewCard({ result }: Props) {
             ))}
           </div>
         </div>
+
+        {/* LLM-as-judge badges */}
+        {judgePresent && (
+          <div className="space-y-1">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              LLM 评审 ({result.judge!.criteria.filter((c) => c.passed).length}/{result.judge!.criteria.length} 通过)
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {result.judge!.criteria.map((c) => (
+                <span
+                  key={c.name}
+                  title={[c.evidence, ...(c.missing || []).map((m) => `缺失: ${m}`)].filter(Boolean).join("\n")}
+                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                    c.passed
+                      ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                      : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                  }`}
+                >
+                  {c.passed ? <CheckCircle2 className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}
+                  {c.name}
+                  {typeof c.score === "number" ? ` ${c.score.toFixed(1)}` : ""}
+                </span>
+              ))}
+            </div>
+            {result.judge!.feedback && !result.judge!.passed && (
+              <p className="text-[10px] text-amber-600 dark:text-amber-400 whitespace-pre-wrap">{result.judge!.feedback}</p>
+            )}
+          </div>
+        )}
+        {result.judge?.skipped && (
+          <p className="text-[10px] text-muted-foreground">
+            LLM 评审跳过（{result.judge.reason || "评审模型不可用"}），本轮仅启发式验证把关
+          </p>
+        )}
 
         {/* commit section */}
         {commitState === "success" ? (

@@ -1,0 +1,6 @@
+[Unit]
+Description=Vizion Data-Agent stack
+Wants=vizion-app.service vizion-analytics.service
+
+[Install]
+WantedBy=multi-user.target

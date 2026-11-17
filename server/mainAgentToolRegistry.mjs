@@ -69,7 +69,7 @@ export const MAIN_AGENT_INTENT_PROFILES = Object.freeze({
     reason: "testcase drafting or Octane ticket anchor matched",
     requiredSlots: ["anchor"],
     policyHints: ["fetch_context_before_drafting"],
-    toolNames: ["get_test_case_context", "ask_clarification"],
+    toolNames: ["get_test_case_context", "create_testcase", "ask_clarification"],
   },
   high_frequency: {
     confidence: 0.86,

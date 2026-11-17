@@ -17,7 +17,7 @@ from __future__ import annotations
 import os
 import sqlite3
 from dataclasses import dataclass
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 import pandas as pd
 
@@ -161,4 +161,55 @@ def format_few_shot_examples(cases: Sequence[SimilarTestCase], *, max_cases: int
     for case in list(cases)[:max_cases]:
         lines.append(f"- [T{case.test_id}] {case.name} (similarity: {case.score:.2f})")
     lines.append("Use these as style/structure reference, but generate content specific to the source defect.")
+    return "\n".join(lines)
+
+
+def format_few_shot_examples_full(
+    cases: Sequence[SimilarTestCase],
+    bodies: Mapping[str, Any],
+    *,
+    max_cases: int = 3,
+    max_step_lines: int = 40,
+    max_chars: int = 2000,
+) -> str:
+    """Format retrieved test cases with their FULL step scripts as few-shot examples.
+
+    ``bodies`` maps test_id → ``TestCaseBody`` (from ``test_case_bodies.get_test_bodies``).
+    Showing the actual step script of a reference test — not just its name — is what lets
+    the LLM imitate real step granularity and checkpoint style instead of guessing from
+    the title. Cases without a cached/fetched body fall back to a name-only line.
+    """
+    if not cases:
+        return ""
+    lines = [
+        "Here are similar existing test cases in the same domain, with their full step scripts",
+        "(reference for naming, structure, step granularity and checkpoint style):",
+    ]
+    included = 0
+    for case in list(cases):
+        if included >= max_cases:
+            break
+        body = bodies.get(case.test_id)
+        lines.append(f"- [T{case.test_id}] (similarity: {case.score:.2f})")
+        if body is not None and str(getattr(body, "steps_text", "") or "").strip():
+            body_name = str(getattr(body, "name", "") or "") or case.name
+            lines.append(f"  Name: {body_name}")
+            raw_lines = [l for l in str(body.steps_text).splitlines() if l.strip()]
+            truncated = len(raw_lines) > max_step_lines
+            step_lines = raw_lines[:max_step_lines]
+            block = "\n".join(f"  {l.strip()}" for l in step_lines)
+            if len(block) > max_chars:
+                block = block[:max_chars]
+                truncated = True
+            if truncated:
+                block += "\n  …(truncated)"
+            lines.append("  Steps:")
+            lines.append(block)
+        else:
+            lines.append(f"  Name: {case.name} (full body unavailable — name reference only)")
+        included += 1
+    lines.append(
+        "Use these as structure/granularity reference, but generate content specific to the source"
+        " defect. Do not copy their checkpoints unless the defect requires verifying the same behavior."
+    )
     return "\n".join(lines)

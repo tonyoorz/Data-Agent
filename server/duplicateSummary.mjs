@@ -3,6 +3,34 @@ import { readBoundedResponseJson } from "./boundedResponseBody.mjs";
 
 const DUPLICATE_SUMMARY_RESPONSE_MAX_BYTES = 1024 * 1024;
 
+const DUPLICATE_VERDICT_VALUES = new Set(["duplicate", "not_duplicate", "uncertain"]);
+
+function normalizeVerdict(value) {
+  const raw = String(value || "").trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (DUPLICATE_VERDICT_VALUES.has(raw)) {
+    return raw;
+  }
+  const compact = raw.replace(/_/g, "");
+  if (compact === "duplicate" || compact === "dup" || compact === "重复" || compact === "可能重复" || compact === "疑似重复") {
+    return "duplicate";
+  }
+  if (
+    compact === "notduplicate" ||
+    compact === "nonduplicate" ||
+    compact === "different" ||
+    compact === "不重复" ||
+    compact === "非重复" ||
+    compact === "不同问题" ||
+    compact === "无关"
+  ) {
+    return "not_duplicate";
+  }
+  if (compact === "uncertain" || compact === "unsure" || compact === "unclear" || compact === "不确定" || compact === "存疑" || compact === "需复核" || compact === "需人工复核") {
+    return "uncertain";
+  }
+  return null;
+}
+
 function resolveSummaryTimeoutMs(env = process.env) {
   const raw = Number(env.DUPLICATE_SUMMARY_TIMEOUT_MS || 2500);
   if (!Number.isFinite(raw) || raw <= 0) {
@@ -145,11 +173,16 @@ function extractStructuredSummary(content) {
     const summaryText = normalizeSummaryText(parsed.summaryText || parsed.summary || "", 900);
     const candidateAnalyses = Array.isArray(parsed.candidateAnalyses)
       ? parsed.candidateAnalyses
-          .map((item) => ({
-            ticketId: normalizeEvidenceSnippet(item?.ticketId || "", 40),
-            reviewFocus: normalizeEvidenceSnippet(item?.reviewFocus || item?.analysis || "", 260),
-          }))
-          .filter((item) => item.ticketId && item.reviewFocus)
+          .map((item) => {
+            const verdict = normalizeVerdict(item?.verdict);
+            return {
+              ticketId: normalizeEvidenceSnippet(item?.ticketId || "", 40),
+              reviewFocus: normalizeEvidenceSnippet(item?.reviewFocus || item?.analysis || "", 260),
+              verdict,
+              verdictReason: normalizeEvidenceSnippet(item?.verdictReason || item?.reason || "", 220),
+            };
+          })
+          .filter((item) => item.ticketId && (item.reviewFocus || item.verdict))
       : [];
     if (!summaryText && !candidateAnalyses.length) {
       return null;
@@ -295,9 +328,9 @@ function buildUserPrompt(query, result, language = "zh") {
 
 function buildSummarySystemPrompt(language = "zh") {
   if (language === "en") {
-    return "You are a defect duplicate-search assistant. Output in English. Output JSON only; do not output markdown. All JSON string values must be in English. Use this schema: {\"summaryText\":\"exactly 3 short lines: conclusion, basis, next step\",\"candidateAnalyses\":[{\"ticketId\":\"candidate ticket id\",\"reviewFocus\":\"one specific actionable review sentence\"}]}. summaryText must anchor line 1 to candidate rank 1 and must not change its ticket id or confidence level. Keep basis concise and avoid repeating the same evidence in multiple lines. candidateAnalyses must include one concrete review focus for each candidate, prioritizing comments/evidence, log symptoms, root-cause clues, and observed behavior. If evidence is insufficient, say which items to verify: platform, trigger path, timestamp, logs, lifecycle, or software version. Do not merely repeat titles.";
+    return 'You are a defect duplicate-search assistant. Output in English. Output JSON only; do not output markdown. All JSON string values must be in English. Use this schema: {"summaryText":"exactly 3 short lines: conclusion, basis, next step","candidateAnalyses":[{"ticketId":"candidate ticket id","reviewFocus":"one specific actionable review sentence","verdict":"duplicate | not_duplicate | uncertain","verdictReason":"one short sentence citing the deciding evidence"}]}. For each candidate, verdict decides whether the historical defect describes the SAME underlying problem as the query (same fault/root cause), not merely the same feature domain: "duplicate" when symptoms, trigger path, and platform/PU evidence align; "not_duplicate" when a key discriminator (different platform, different root cause, different trigger path) clearly differs; "uncertain" when the decisive evidence is missing. verdictReason must cite the specific discriminator. summaryText must anchor line 1 to candidate rank 1 and must not change its ticket id or confidence level. Keep basis concise and avoid repeating the same evidence in multiple lines. candidateAnalyses must include one concrete review focus for each candidate, prioritizing comments/evidence, log symptoms, root-cause clues, and observed behavior. If evidence is insufficient, say which items to verify: platform, trigger path, timestamp, logs, lifecycle, or software version. Do not merely repeat titles.';
   }
-  return "你是缺陷重复检索助手。请基于候选结果输出 JSON，不要输出 markdown。格式为 {\"summaryText\":\"严格 3 行短结论：结论、依据、下一步\",\"candidateAnalyses\":[{\"ticketId\":\"候选票号\",\"reviewFocus\":\"一句具体复核分析\"}]}。summaryText 必须以候选结果第 1 名作为首行锚点，不得改写成其他票号，也不得改写该候选的置信度等级。依据只保留最关键的一条，不要把同一段 evidence 在现象、评论、判断里重复。candidateAnalyses 要为每个候选给一句可执行的复核重点，优先使用 comments/evidence 中的分析过程、日志现象或根因信息；证据不足时明确写需要核对平台、触发路径、时间戳和日志。不要只复述标题。";
+  return '你是缺陷重复检索助手。请基于候选结果输出 JSON，不要输出 markdown。格式为 {"summaryText":"严格 3 行短结论：结论、依据、下一步","candidateAnalyses":[{"ticketId":"候选票号","reviewFocus":"一句具体复核分析","verdict":"duplicate | not_duplicate | uncertain","verdictReason":"一句引用决定性证据的理由"}]}。对每个候选给出 verdict，判断该历史缺陷与用户问题是否为同一底层问题（同一故障/根因），而不仅是同一功能领域：现象、触发路径、平台/PU 证据一致时给 duplicate；平台、根因、触发路径存在明确差异时给 not_duplicate；决定性证据缺失时给 uncertain。verdictReason 必须点出具体判别依据（平台、触发路径、时间戳、日志、软件版本等）。summaryText 必须以候选结果第 1 名作为首行锚点，不得改写成其他票号，也不得改写该候选的置信度等级。依据只保留最关键的一条，不要把同一段 evidence 在现象、评论、判断里重复。candidateAnalyses 要为每个候选给一句可执行的复核重点，优先使用 comments/evidence 中的分析过程、日志现象或根因信息；证据不足时明确写需要核对平台、触发路径、时间戳和日志。不要只复述标题。';
 }
 
 export async function summarizeDuplicateResults(query, result, selectedModel, options = {}) {

@@ -1,0 +1,42 @@
+# Optional: expose the Node app directly on the LAN WITHOUT an nginx sidecar.
+# This makes `isTrustedLocalApiRequest()` trust configured origins and lets the
+# server bind to 0.0.0.0. The recommended path is still the nginx reverse proxy
+# (deploy/nginx.conf), which needs NO code change. Apply only if you must expose
+# Node directly (e.g. behind a corporate ingress that you fully control).
+#
+#   git apply deploy/patches/expose-for-lan.patch
+#
+# After applying, set in your env:
+#   VIZION_BIND_HOST=0.0.0.0
+#   VIZION_TRUSTED_ORIGINS=http://10.0.0.5:8080,https://vizion.intra.example.com
+#
+--- a/server/localApiBinding.mjs
++++ b/server/localApiBinding.mjs
+@@
+-export const LOCAL_API_HOST = "127.0.0.1";
++export const LOCAL_API_HOST = process.env.VIZION_BIND_HOST || "127.0.0.1";
+@@
+ export function isTrustedLocalApiRequest(request, { apiPort, webPort } = {}) {
+   const configuredApiPort = normalizedPort(apiPort);
+   const host = parseLoopbackHost(headerValue(request?.headers, "host"));
+   if (!configuredApiPort || !host || host.port !== configuredApiPort) {
+     return false;
+   }
+ 
+   const originValue = headerValue(request?.headers, "origin");
+-  return !originValue || Boolean(parseTrustedLocalOrigin(originValue, { apiPort, webPort }));
++  const trustedOrigins = (process.env.VIZION_TRUSTED_ORIGINS || "")
++    .split(",")
++    .map((value) => value.trim())
++    .filter(Boolean);
++  if (originValue && trustedOrigins.length) {
++    try {
++      if (trustedOrigins.includes(new URL(originValue).origin)) {
++        return true;
++      }
++    } catch {
++      // fall through to default loopback check
++    }
++  }
++  return !originValue || Boolean(parseTrustedLocalOrigin(originValue, { apiPort, webPort }));
+ }

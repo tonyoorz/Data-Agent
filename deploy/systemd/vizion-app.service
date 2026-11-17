@@ -1,0 +1,33 @@
+# Bare-metal / VM deployment (no container runtime)
+# Install: sudo cp deploy/systemd/vizion-*.service /etc/systemd/system/
+#         sudo systemctl daemon-reload && sudo systemctl enable --now vizion.target
+# Prereqs on the host:
+#   - Node.js 24.x, Python 3.12.x, a .venv at /opt/vizion/.venv with requirements.txt installed
+#   - `npm run build` already produced /opt/vizion/dist
+#   - nginx installed with deploy/nginx.conf (listens :8080, proxies 127.0.0.1:3004)
+#   - a deploy/.env.production file at /opt/vizion/deploy/.env.production
+[Unit]
+Description=Vizion Data-Agent (Node web + api)
+After=network.target vizion-analytics.service
+Requires=vizion-analytics.service
+
+[Service]
+Type=simple
+User=vizion
+WorkingDirectory=/opt/vizion
+EnvironmentFile=/opt/vizion/deploy/.env.production
+Environment=VIZION_API_PORT=3004
+Environment=VIZION_WEB_PORT=3004
+Environment=VIZION_ANALYTICS_API_BASE=http://127.0.0.1:3003
+Environment=VIZION_ANALYTICS_PORT=3003
+ExecStart=/usr/bin/node server/index.mjs
+Restart=on-failure
+RestartSec=3
+# Capabilities / hardening (optional)
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/vizion/data /opt/vizion/backend/cache
+LimitNOFILE=65536
+
+[Install]
+WantedBy=vizion.target

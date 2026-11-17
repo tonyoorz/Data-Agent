@@ -1,0 +1,20 @@
+[Unit]
+Description=Vizion Data-Agent (Python analytics service)
+After=network.target
+
+[Service]
+Type=simple
+User=vizion
+WorkingDirectory=/opt/vizion
+EnvironmentFile=/opt/vizion/deploy/.env.production
+Environment=VIZION_ANALYTICS_PORT=3003
+ExecStart=/opt/vizion/.venv/bin/python -m uvicorn backend.analytics.api:app --host 127.0.0.1 --port 3003
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/vizion/data /opt/vizion/backend/cache
+LimitNOFILE=65536
+
+[Install]
+WantedBy=vizion.target

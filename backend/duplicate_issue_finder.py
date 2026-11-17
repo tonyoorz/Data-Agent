@@ -6,7 +6,7 @@ import pickle
 import sqlite3
 import time
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -158,6 +158,96 @@ def _get_remote_embedding_config() -> Optional[Dict[str, Any]]:
         "model": _REMOTE_EMBEDDING_MODEL,
         "timeout": _REMOTE_EMBEDDING_TIMEOUT_SECONDS,
     }
+
+
+# ---------------------------------------------------------------------------
+# Cross-encoder rerank (optional precision stage between recall and rerank-learn)
+# ---------------------------------------------------------------------------
+_DEFAULT_RERANKER_MODEL_ID = "BAAI/bge-reranker-v2-m3"
+_RERANKER_CACHE_DIR = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "cache", "reranker_models"
+)
+_RERANKER_DOC_MAX_CHARS = 1500
+
+
+def _reranker_pool_size() -> int:
+    try:
+        value = int(os.getenv("DUPLICATE_RERANKER_POOL_SIZE", "50"))
+    except Exception:
+        value = 50
+    return max(1, min(200, value))
+
+
+def _discover_local_reranker_model() -> Optional[str]:
+    """Prefer a local reranker directory (offline-first, mirrors embedding model)."""
+    local_base = os.path.join(_RERANKER_CACHE_DIR, "modelscope", "BAAI")
+    if not os.path.isdir(local_base):
+        return None
+    for pattern in (
+        os.path.join(local_base, "bge-reranker-v2-m3"),
+        os.path.join(local_base, "bge-reranker*"),
+    ):
+        for candidate in sorted(glob.glob(pattern)):
+            if os.path.isfile(os.path.join(candidate, "config.json")):
+                return candidate
+    return None
+
+
+def _allow_remote_reranker_download() -> bool:
+    value = str(os.getenv("DUPLICATE_ALLOW_REMOTE_RERANKER_DOWNLOAD") or "").strip().lower()
+    return value in {"1", "true", "yes", "on"}
+
+
+def _resolve_reranker_model_name() -> Optional[str]:
+    """Resolve the reranker model, defaulting to disabled unless explicitly configured."""
+    configured = str(os.getenv("DUPLICATE_RERANKER_MODEL", "").strip() or _DEFAULT_RERANKER_MODEL_ID).strip()
+    if not configured:
+        return None
+    if os.path.isfile(os.path.join(configured, "config.json")):
+        return configured
+    local_model = _discover_local_reranker_model()
+    if local_model:
+        return local_model
+    if _allow_remote_reranker_download():
+        return configured
+    logger.info(
+        "Cross-encoder rerank disabled: no local model for %s. Place it under %s, "
+        "set DUPLICATE_RERANKER_MODEL, or set DUPLICATE_ALLOW_REMOTE_RERANKER_DOWNLOAD=1.",
+        configured,
+        _RERANKER_CACHE_DIR,
+    )
+    return None
+
+
+_cross_encoder_instance: Any = None
+_cross_encoder_attempted = False
+
+
+def _get_cross_encoder() -> Any:
+    """Lazy-load the cross-encoder reranker (singleton; failure is sticky)."""
+    global _cross_encoder_instance, _cross_encoder_attempted
+    if _cross_encoder_instance is not None:
+        return _cross_encoder_instance
+    if _cross_encoder_attempted:
+        return None
+    _cross_encoder_attempted = True
+
+    model_name = _resolve_reranker_model_name()
+    if not model_name:
+        return None
+    try:
+        from sentence_transformers import CrossEncoder
+    except Exception as exc:
+        logger.warning("sentence-transformers CrossEncoder unavailable: %s", exc)
+        return None
+    try:
+        os.makedirs(_RERANKER_CACHE_DIR, exist_ok=True)
+        _cross_encoder_instance = CrossEncoder(model_name, cache_folder=_RERANKER_CACHE_DIR)
+        logger.info("Loaded cross-encoder reranker: %s", model_name)
+        return _cross_encoder_instance
+    except Exception as exc:
+        logger.warning("Failed to load cross-encoder reranker %s: %s", model_name, exc)
+        return None
 
 
 def _extract_remote_embeddings(payload: Any) -> List[np.ndarray]:
@@ -368,6 +458,7 @@ class DuplicateCandidate:
     snippet: str
     evidence_snippets: List[str]
     ranking_signals: Dict[str, Any]
+    source_index: Optional[int] = None
 
 
 def _normalize_project(value: Any) -> Optional[str]:
@@ -628,6 +719,13 @@ def calibrate_duplicate_confidence(
         confidence += 0.5
     if evidence:
         confidence += 0.7
+    ce_score = signals.get("cross_encoder_score")
+    if ce_score is not None:
+        # Cross-encoder agreement nudges confidence by at most ±1 point around a neutral 0.5.
+        try:
+            confidence += (max(0.0, min(1.0, float(ce_score))) - 0.5) * 2.0
+        except Exception:
+            pass
 
     score = max(1, min(10, int(round(confidence))))
     if score >= 8:
@@ -1013,11 +1111,59 @@ class DuplicateIssueIndex:
                     snippet=_candidate_snippet(meta),
                     evidence_snippets=_normalize_evidence_snippets(meta.get("evidence_snippets")),
                     ranking_signals=dict((rank_signals or {}).get(idx) or {}),
+                    source_index=int(idx),
                 )
             )
             if len(candidates) >= top_k:
                 break
         return candidates
+
+    def _candidate_document_text(self, candidate: DuplicateCandidate) -> str:
+        idx = getattr(candidate, "source_index", None)
+        if idx is not None and 0 <= int(idx) < len(self._meta):
+            doc = _build_document(self._meta[int(idx)], self.text_fields)
+            if doc:
+                return _safe_snippet(doc, _RERANKER_DOC_MAX_CHARS)
+        return _safe_snippet(f"{candidate.name}\n{candidate.snippet}", _RERANKER_DOC_MAX_CHARS)
+
+    def _cross_encoder_rerank(
+        self,
+        query: str,
+        candidates: List[DuplicateCandidate],
+    ) -> Tuple[List[DuplicateCandidate], bool]:
+        """Reorder the recall pool with a cross-encoder; a no-op when no model is available."""
+        model = _get_cross_encoder()
+        if model is None or not candidates:
+            return candidates, False
+
+        pool = candidates[: _reranker_pool_size()]
+        pairs = [(query, self._candidate_document_text(candidate)) for candidate in pool]
+        try:
+            raw_scores = np.asarray(model.predict(pairs), dtype=np.float32).reshape(-1)
+        except Exception as exc:
+            logger.warning("cross-encoder rerank failed, keeping retrieval order: %s", exc)
+            return candidates, False
+
+        # predict() may return raw logits or activated scores depending on the
+        # model/version; sigmoid is monotonic so ordering is safe either way.
+        scores = raw_scores
+        if float(scores.min()) < 0.0 or float(scores.max()) > 1.0:
+            scores = 1.0 / (1.0 + np.exp(-scores))
+        scores = np.clip(scores, 0.0, 1.0)
+
+        reranked: List[DuplicateCandidate] = []
+        for candidate, score in zip(pool, scores):
+            signals = dict(candidate.ranking_signals or {})
+            signals["cross_encoder_score"] = float(score)
+            reranked.append(replace(candidate, ranking_signals=signals))
+        reranked.sort(
+            key=lambda item: (
+                float(item.ranking_signals.get("cross_encoder_score") or 0.0),
+                float(item.similarity or 0.0),
+            ),
+            reverse=True,
+        )
+        return reranked + candidates[len(pool) :], True
 
     def search_with_metadata(
         self,
@@ -1032,6 +1178,12 @@ class DuplicateIssueIndex:
             "model_phase": "baseline",
             "feedback_count": 0,
         }
+        try:
+            candidates, cross_encoder_applied = self._cross_encoder_rerank(query, candidates)
+        except Exception:
+            cross_encoder_applied = False
+        if cross_encoder_applied:
+            metadata["cross_encoder_rerank"] = True
         active_reranker = reranker
         if active_reranker is None and feedback_db_path is not None:
             try:
@@ -1118,6 +1270,7 @@ class DuplicateIssueIndex:
                     snippet=_candidate_snippet(meta),
                     evidence_snippets=_normalize_evidence_snippets(meta.get("evidence_snippets")),
                     ranking_signals={},
+                    source_index=int(idx),
                 )
             )
         return candidates

@@ -1,0 +1,38 @@
+# Node / JS
+node_modules
+dist
+
+# Python
+.venv
+__pycache__
+**/__pycache__
+.pytest_cache
+*.pyc
+
+# Git / CI / editors
+.git
+.worktrees
+.github
+.vscode
+.idea
+
+# Local data & databases (runtime state, mounted as volume)
+data
+database
+outputs
+*.db
+*.sqlite
+*.sqlite3
+*.duckdb
+
+# Misc
+.DS_Store
+.supabase
+.lovable
+coverage
+playwright-report
+test-results
+*.log
+.env
+.env.local
+deploy/.env.production

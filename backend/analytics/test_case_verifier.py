@@ -16,6 +16,9 @@ Verification criteria (each independently checked):
 3. **Format compliance**: does steps.txt use the [PreCon]/action/? convention?
 4. **Checkpoint quantification**: are expected results specific (values/thresholds), not vague?
 5. **Defect traceability**: does the description reference the source defect?
+6. **Model coverage** (only when a stage-1 test design model is provided): does the draft
+   cover every combination selected in the model — both self-reported coverage and a
+   keyword cross-check that the referenced class names actually appear in the steps.
 
 The verifier returns a structured verdict: pass/fail per criterion + overall + feedback for
 regeneration if any criterion fails.
@@ -188,11 +191,91 @@ def _check_failure_mode_coverage(defect: Mapping[str, Any], steps_text: str) -> 
     )
 
 
+def _normalize_for_match(text: str) -> str:
+    """Lowercase and collapse to alnum/percent tokens so class-name matching is robust."""
+    import re
+
+    lowered = str(text or "").lower()
+    collapsed = re.sub(r"[^a-z0-9%]+", " ", lowered)
+    return re.sub(r"\s+", " ", collapsed).strip()
+
+
+def _check_model_coverage(
+    test_model: Mapping[str, Any],
+    combination_coverage: Sequence[Any],
+    steps_text: str,
+) -> VerificationCriterion:
+    """Check that the draft covers every combination in the stage-1 test design model.
+
+    A combination counts as covered only when (a) its id is claimed in the generated
+    output's combinationCoverage list AND (b) every referenced class name actually
+    appears in the step text — a keyword cross-check that defeats empty self-reporting.
+    """
+    combinations = [c for c in (test_model.get("combinations") or []) if isinstance(c, Mapping)]
+    if not combinations:
+        return VerificationCriterion(
+            name="model_coverage",
+            passed=True,
+            evidence="test design model has no combinations — nothing to cover",
+        )
+
+    classes: dict[str, str] = {}
+    for dimension in test_model.get("dimensions") or []:
+        if not isinstance(dimension, Mapping):
+            continue
+        for cls in dimension.get("classes") or []:
+            if isinstance(cls, Mapping):
+                class_id = str(cls.get("id") or "").strip()
+                class_name = str(cls.get("name") or "").strip()
+                if class_id and class_name:
+                    classes[class_id] = class_name
+
+    claimed = {str(c).strip() for c in (combination_coverage or []) if str(c or "").strip()}
+    steps_normalized = _normalize_for_match(steps_text)
+
+    not_claimed: list[str] = []
+    claimed_but_unverified: list[str] = []
+    for combination in combinations:
+        combo_id = str(combination.get("id") or "").strip()
+        if not combo_id:
+            continue
+        if combo_id not in claimed:
+            not_claimed.append(combo_id)
+            continue
+        tokens = [
+            _normalize_for_match(classes[ref])
+            for ref in (combination.get("classRefs") or [])
+            if str(ref or "").strip() in classes
+        ]
+        tokens = [t for t in tokens if len(t) >= 3]
+        if tokens and not all(t in steps_normalized for t in tokens):
+            claimed_but_unverified.append(combo_id)
+
+    if not not_claimed and not claimed_but_unverified:
+        return VerificationCriterion(
+            name="model_coverage",
+            passed=True,
+            evidence=f"all {len(combinations)} combinations covered and keyword-verified in steps",
+        )
+    problems = []
+    if not_claimed:
+        problems.append(f"not covered: {', '.join(not_claimed)}")
+    if claimed_but_unverified:
+        problems.append(f"claimed but class terms missing from steps: {', '.join(claimed_but_unverified)}")
+    return VerificationCriterion(
+        name="model_coverage",
+        passed=False,
+        evidence="; ".join(problems),
+    )
+
+
 def verify_test_case(
     *,
     defect: Mapping[str, Any],
     description_html: str,
     steps_text: str,
+    test_model: Mapping[str, Any] | None = None,
+    combination_coverage: Sequence[Any] | None = None,
 ) -> VerificationResult:
     """Run all verification checks on a generated test case.
 
@@ -209,6 +292,8 @@ def verify_test_case(
         _check_checkpoint_quantification(steps_text),
         _check_defect_traceability(description_html, defect_id),
     ]
+    if test_model:
+        criteria.append(_check_model_coverage(test_model, combination_coverage or [], steps_text))
 
     failed = [c for c in criteria if not c.passed]
     if not failed:

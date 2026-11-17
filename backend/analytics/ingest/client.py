@@ -256,6 +256,20 @@ class OctaneApiClient:
         payload = response.json()
         return payload if isinstance(payload, dict) else {}
 
+    def fetch_test_entity(self, test_id: str) -> dict[str, Any]:
+        normalized_id = str(test_id or "").strip()
+        if not normalized_id:
+            raise ValueError("test_id is required")
+        response = self._session.get(
+            f"{self._api_base}/tests/{normalized_id}",
+            params={"fields": "id,name,subtype,description"},
+            timeout=60,
+            verify=False,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        return payload if isinstance(payload, dict) else {}
+
     def fetch_defects(self, *, team_id: str, year: int, modified_since: str | None = None) -> list[dict[str, Any]]:
         safe_team_id = _escape_octane_text(str(team_id).strip())
         modified_since_clause = ""

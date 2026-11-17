@@ -566,6 +566,24 @@ export const MAIN_AGENT_TOOLS = [
   {
     type: "function",
     function: {
+      name: "create_testcase",
+      description: "Generate a manual test case draft from a defect id via the closed-loop pipeline (full-body RAG few-shot + test design model + heuristic verification + LLM-as-judge + feedback regeneration). Returns a preview draft only — it NEVER writes to Octane; committing requires the user's explicit confirmation. Call this only after get_test_case_context when the user explicitly asks to generate/create a test case for a defect.",
+      parameters: {
+        type: "object",
+        properties: {
+          defect_id: {
+            type: "string",
+            description: "Octane defect id (digits only), e.g. \"2804379\".",
+          },
+        },
+        required: ["defect_id"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "query_defect_high_frequency_analysis",
       description: "Query Defect High Frequency analysis through the analytics API. Use this for newly created defects concentrated by ECU/module, repeat rate, or high-frequency defect modules.",
       parameters: {
@@ -1703,6 +1721,94 @@ async function executeTestCaseContext(toolCall, { analyticsFetch, analyticsApiBa
   };
 }
 
+function formatTestCaseGenerationResult(defectId, pipeline) {
+  const attempt = pipeline?.attempt || {};
+  const verification = pipeline?.verification || {};
+  const criteriaPassed = (verification.criteria || []).filter((c) => c && c.passed).length;
+  const criteriaTotal = (verification.criteria || []).length;
+  const judge = pipeline?.judge || {};
+  const judgeStatus = judge.skipped ? "skipped" : judge.passed ? "pass" : "fail";
+  const modelDimensions = pipeline?.testModel?.dimensions?.length || 0;
+  const modelCombinations = pipeline?.testModel?.combinations?.length || 0;
+  const steps = String(attempt.stepsText || "")
+    .split("\n")
+    .filter((line) => line.trim())
+    .slice(0, 40)
+    .join("\n");
+  const similar = (pipeline?.similarCases || []).slice(0, 3)
+    .map((c) => `T${c.testId} (score ${c.score})`)
+    .join(", ");
+  return [
+    "# Main agent tool result",
+    "Tool: create_testcase",
+    `Source defect: D${defectId}`,
+    "",
+    `Generated test name: ${attempt.testName || "(none)"}`,
+    `Verification: ${criteriaPassed}/${criteriaTotal} criteria passed (rounds: ${pipeline?.generationRounds ?? "n/a"}).`,
+    `LLM judge: ${judgeStatus}.`,
+    pipeline?.testModel
+      ? `Test design model: ${modelDimensions} dimensions, ${modelCombinations} combinations, coverage ${pipeline?.modelCoveragePct ?? "n/a"}%.`
+      : "Test design model: not available (single-stage generation).",
+    ...(similar ? [`Similar reference cases: ${similar}`] : []),
+    "",
+    "Steps (preview):",
+    steps || "(no steps)",
+    "",
+    "This is a draft only — nothing was written to Octane. Direct the user to the interactive preview card (/创建测试用例 <defect_id>) to review and confirm any commit.",
+  ].join("\n");
+}
+
+async function executeGenerateTestCase(toolCall, { runTestCaseBridge, runTestCaseGenerationPipelineFn } = {}) {
+  const args = parseToolArguments(toolCall?.function?.arguments);
+  const defectId = String(args?.defect_id || "").trim();
+  if (!defectId) {
+    const content = JSON.stringify({ error: "create_testcase requires a defect_id argument" });
+    return {
+      toolMessage: buildToolMessage(toolCall, content),
+      contextText: "# Main agent tool result\nTool: create_testcase\nResult: unavailable because the defect_id argument was missing.",
+    };
+  }
+  if (typeof runTestCaseBridge !== "function") {
+    const content = JSON.stringify({ error: "create_testcase is unavailable: testcase bridge runtime is not configured" });
+    return {
+      toolMessage: buildToolMessage(toolCall, content),
+      contextText: "# Main agent tool result\nTool: create_testcase\nResult: unavailable because the testcase bridge runtime is not configured on this server.",
+    };
+  }
+
+  try {
+    const runPipeline = runTestCaseGenerationPipelineFn
+      || (await import("./testcaseGeneration.mjs")).runTestCaseGenerationPipeline;
+    // Bound interactive chat latency: at most 2 generation rounds from the agent path —
+    // the slash-command endpoint keeps the full round budget.
+    const pipeline = await runPipeline({ runTestCaseBridge, defectId, maxRounds: 2 });
+    return {
+      toolMessage: buildToolMessage(toolCall, JSON.stringify({
+        ok: true,
+        tool: "create_testcase",
+        result: {
+          defectId,
+          testName: pipeline.attempt?.testName || "",
+          verificationPassed: Boolean(pipeline.verification?.passed),
+          judgeStatus: pipeline.judge?.skipped ? "skipped" : pipeline.judge?.passed ? "pass" : "fail",
+          generationRounds: pipeline.generationRounds,
+          modelCoveragePct: pipeline.modelCoveragePct,
+          octaneWritten: false,
+        },
+      })),
+      contextText: formatTestCaseGenerationResult(defectId, pipeline),
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return failedToolResult(
+      toolCall,
+      "create_testcase",
+      message,
+      `# Main agent tool result\nTool: create_testcase\nResult: generation failed — ${message}. Ask the user to retry or use the /创建测试用例 command.`,
+    );
+  }
+}
+
 function formatDefectHighFrequencyContext(url, payload) {
   const rows = Array.isArray(payload?.frequency_rows) ? payload.frequency_rows : [];
   const overview = payload?.overview || {};
@@ -2224,6 +2330,8 @@ export async function executeMainAgentToolCall(toolCall, {
   analyticsApiBase = resolveAnalyticsApiBase(),
   runDuplicateBridge,
   ensureDuplicateWarmup,
+  runTestCaseBridge,
+  runTestCaseGenerationPipelineFn,
   actor,
   actorCapabilitySecret,
   actorCapabilityNow,
@@ -2313,6 +2421,9 @@ export async function executeMainAgentToolCall(toolCall, {
     }
     if (name === "get_test_case_context") {
       return await executeTestCaseContext(toolCall, { analyticsFetch, analyticsApiBase });
+    }
+    if (name === "create_testcase") {
+      return await executeGenerateTestCase(toolCall, { runTestCaseBridge, runTestCaseGenerationPipelineFn });
     }
     if (name === "query_defect_high_frequency_analysis") {
       return await executeDefectHighFrequency(toolCall, { analyticsFetch, analyticsApiBase, now });

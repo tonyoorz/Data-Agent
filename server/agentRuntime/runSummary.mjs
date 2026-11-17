@@ -49,6 +49,7 @@ const SAFE_TOOL_NAMES = new Set([
   "query_testing_coverage_aida_status",
   "query_testing_team_fv_analysis",
   "get_test_case_context",
+  "create_testcase",
   "query_defect_high_frequency_analysis",
   "query_defect_aggregate",
   "query_defect_records",
@@ -206,6 +207,37 @@ export function buildRuntimeRunSummary({ runId, threadId, actorScope, metrics, m
     ...(businessRuleCodes.length ? { businessRuleCodes } : {}),
     ...(stoppedReason ? { stoppedReason } : {}),
     ...(recoveries.some((recovery) => recovery?.action === "deny") ? { failureCode: "TOOL_ACCESS_DENIED" } : {}),
+  };
+}
+
+export function buildTestCaseRunSummary({ defectId, pipeline, latencyMs, failureCode = "" } = {}) {
+  // Run summary for a testcase-generation run (slash-command endpoint path). The agent
+  // tool path emits its own summaries through buildRuntimeRunSummary like any chat run.
+  const judge = pipeline?.judge;
+  const judgeStatus = !judge
+    ? "unknown"
+    : judge.skipped
+      ? "skipped"
+      : judge.passed
+        ? "pass"
+        : "fail";
+  const verificationPassed = Boolean(pipeline?.verification?.passed);
+  const coverage = Number(pipeline?.modelCoveragePct);
+  const rounds = Number(pipeline?.generationRounds);
+  return {
+    schemaVersion: "1.0",
+    runId: `testcase-${String(defectId || "").replace(/\W+/g, "") || "unknown"}-${Date.now()}`,
+    intent: "create_testcase",
+    outcome: failureCode ? "failed" : "completed",
+    evidenceStatus: verificationPassed && (judgeStatus === "pass" || judgeStatus === "skipped") ? "pass" : "blocked",
+    toolNames: [],
+    stoppedReason: "",
+    ...(failureCode ? { failureCode } : {}),
+    ...(Number.isFinite(rounds) ? { generationRounds: Math.max(1, Math.round(rounds)) } : {}),
+    verificationPassed,
+    judgeStatus,
+    ...(Number.isFinite(coverage) ? { modelCoveragePct: Math.max(0, Math.min(100, Math.round(coverage))) } : {}),
+    ...(Number.isFinite(Number(latencyMs)) ? { latencyMs: Math.round(Number(latencyMs)) } : {}),
   };
 }
 
